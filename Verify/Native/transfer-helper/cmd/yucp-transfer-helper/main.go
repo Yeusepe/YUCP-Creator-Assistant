@@ -24,26 +24,35 @@ const (
 	maxSignedShardBytes     = 4*1024*1024 + 2048
 	maxTrustedRootBytes     = 512 * 1024
 	reconstructErrorCode    = "PACKAGE_RECONSTRUCTION_FAILED"
+	runtimeInstallErrorCode = "RUNTIME_INSTALL_FAILED"
 	updateErrorCode         = "TUF_UPDATE_FAILED"
 )
 
 type commandOutput struct {
-	ByteLength          int64  `json:"byteLength,omitempty"`
-	Cached              bool   `json:"cached,omitempty"`
-	ChunkObjects        int    `json:"chunkObjects,omitempty"`
-	ChunkReferences     int    `json:"chunkReferences,omitempty"`
-	DeviceKeyThumbprint string `json:"deviceKeyThumbprint,omitempty"`
-	ErrorCode           string `json:"errorCode,omitempty"`
-	FileCount           int    `json:"fileCount,omitempty"`
-	LogicalBytes        int64  `json:"logicalBytes,omitempty"`
-	Message             string `json:"message,omitempty"`
-	Path                string `json:"path,omitempty"`
-	ReleaseRoot         string `json:"releaseRoot,omitempty"`
-	SHA256              string `json:"sha256,omitempty"`
-	SchemaVersion       int    `json:"schemaVersion,omitempty"`
-	Status              string `json:"status"`
-	Target              string `json:"target,omitempty"`
-	TraceID             string `json:"traceId,omitempty"`
+	ActiveRecordPath        string `json:"activeRecordPath,omitempty"`
+	BrokerPath              string `json:"brokerPath,omitempty"`
+	BrokerProcessID         int    `json:"brokerProcessId,omitempty"`
+	BrokerSHA256            string `json:"brokerSha256,omitempty"`
+	BrokerStarted           bool   `json:"brokerStarted,omitempty"`
+	ByteLength              int64  `json:"byteLength,omitempty"`
+	Cached                  bool   `json:"cached,omitempty"`
+	ChunkObjects            int    `json:"chunkObjects,omitempty"`
+	ChunkReferences         int    `json:"chunkReferences,omitempty"`
+	DeviceKeyThumbprint     string `json:"deviceKeyThumbprint,omitempty"`
+	ErrorCode               string `json:"errorCode,omitempty"`
+	FileCount               int    `json:"fileCount,omitempty"`
+	LogicalBytes            int64  `json:"logicalBytes,omitempty"`
+	Message                 string `json:"message,omitempty"`
+	Path                    string `json:"path,omitempty"`
+	ReleaseRoot             string `json:"releaseRoot,omitempty"`
+	RuntimeDescriptorSHA256 string `json:"runtimeDescriptorSha256,omitempty"`
+	SHA256                  string `json:"sha256,omitempty"`
+	SchemaVersion           int    `json:"schemaVersion,omitempty"`
+	Status                  string `json:"status"`
+	Target                  string `json:"target,omitempty"`
+	TraceID                 string `json:"traceId,omitempty"`
+	HelperPath              string `json:"helperPath,omitempty"`
+	HelperSHA256            string `json:"helperSha256,omitempty"`
 }
 
 func main() {
@@ -56,7 +65,7 @@ func run(ctx context.Context, args []string) int {
 	if len(args) == 0 {
 		writeOutput(commandOutput{
 			ErrorCode: updateErrorCode,
-			Message:   "usage: yucp-transfer-helper <device-info|update|reconstruct> [options]",
+			Message:   "usage: yucp-transfer-helper <device-info|runtime-ensure|update|reconstruct> [options]",
 			Status:    "ERROR",
 		})
 		return 2
@@ -64,6 +73,8 @@ func run(ctx context.Context, args []string) int {
 	switch args[0] {
 	case "device-info":
 		return runDeviceInfo(args)
+	case "runtime-ensure":
+		return runRuntimeEnsure(ctx, args)
 	case "update":
 		return runUpdate(args)
 	case "reconstruct":
@@ -71,7 +82,7 @@ func run(ctx context.Context, args []string) int {
 	default:
 		writeOutput(commandOutput{
 			ErrorCode: updateErrorCode,
-			Message:   "usage: yucp-transfer-helper <device-info|update|reconstruct> [options]",
+			Message:   "usage: yucp-transfer-helper <device-info|runtime-ensure|update|reconstruct> [options]",
 			Status:    "ERROR",
 		})
 		return 2

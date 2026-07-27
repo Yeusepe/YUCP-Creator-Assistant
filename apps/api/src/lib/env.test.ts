@@ -64,6 +64,7 @@ describe('loadEnv', () => {
     delete process.env.PACKAGE_OPERATION_AUTHORIZATION_DATABASE_URL;
     delete process.env.VPM_ALIAS_PUBLICATION_CATALOG_DATABASE_URL;
     delete process.env.VPM_BASE_URL;
+    delete process.env.VPM_IMPORTER_RELEASE_LEDGER_JSON;
     delete process.env.VPM_PUBLIC_INDEX_URL;
 
     const env = loadEnv();
@@ -75,8 +76,16 @@ describe('loadEnv', () => {
     expect(env).toHaveProperty('PACKAGE_OPERATION_AUTHORIZATION_DATABASE_URL', undefined);
     expect(env).toHaveProperty('VPM_ALIAS_PUBLICATION_CATALOG_DATABASE_URL', undefined);
     expect(env).toHaveProperty('VPM_BASE_URL', undefined);
+    expect(env).toHaveProperty('VPM_IMPORTER_RELEASE_LEDGER_JSON', undefined);
     expect(env).toHaveProperty('VPM_PUBLIC_INDEX_URL', undefined);
     expect(env).not.toHaveProperty('VPM_TOKEN_KEY');
+  });
+
+  it('includes the injected importer release ledger when present', () => {
+    const ledger = '{"schemaVersion":1,"releases":{"0.1.54":{"sha256":"abc"}}}';
+    process.env.VPM_IMPORTER_RELEASE_LEDGER_JSON = ledger;
+
+    expect(loadEnv()).toHaveProperty('VPM_IMPORTER_RELEASE_LEDGER_JSON', ledger);
   });
 
   it('includes Polar billing fields when present', () => {

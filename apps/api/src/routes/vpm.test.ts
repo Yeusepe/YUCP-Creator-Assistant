@@ -672,6 +672,75 @@ describe('package-scoped VPM routes', () => {
     expect(publish).toHaveBeenCalledTimes(1);
   });
 
+  it('publishes a new immutable bootstrap when the artifact base URL changes', async () => {
+    const previousPresentation = {
+      artifactBaseUrl: 'https://retired-vpm.test',
+      artifactBucketName: 'metadata',
+      authorName: 'Mapache',
+      channel: 'stable',
+      description: 'Adds JAMMR after purchase verification.',
+      media: [],
+      minImporterVersion: '0.1.36',
+      packageId: 'com.yucp.jammr',
+      packageName: 'JAMMR',
+      presentationFingerprintSha256: 'e'.repeat(64),
+      unityVersion: '2022.3',
+    };
+    const currentPresentation = {
+      ...previousPresentation,
+      artifactBaseUrl: 'https://vpm.test',
+      presentationFingerprintSha256: 'f'.repeat(64),
+    };
+    let presentationUpdated = false;
+    let presentationUpdateInput: Record<string, unknown> | undefined;
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.getByPackageIdForAuthUser) return product();
+      if (reference === apiMock.vpmAliasPublications.getPresentationForService) {
+        return presentationUpdated ? currentPresentation : previousPresentation;
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+    convexMutationMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference === apiMock.creatorVpmLinks.ensureActive) return link();
+      if (reference === apiMock.vpmAliasPublications.updatePresentationForCreator) {
+        presentationUpdated = true;
+        presentationUpdateInput = args as Record<string, unknown>;
+        return {
+          created: false,
+          changed: true,
+          packageId: 'com.yucp.jammr',
+          channel: 'stable',
+          presentationFingerprintSha256: 'f'.repeat(64),
+          updatedAt: 2,
+        };
+      }
+      if (reference === apiMock.vpmAliasPublications.reservePublicationForService) {
+        return {
+          bootstrapVersion: '1.0.3',
+          channel: 'stable',
+          created: false,
+          packageId: 'com.yucp.jammr',
+          presentationFingerprintSha256: 'f'.repeat(64),
+          publicationId: '00000000-0000-4000-8000-000000000214',
+          revision: 4,
+          status: 'PUBLISHED',
+        };
+      }
+      throw new Error(`Unexpected mutation ${String(reference)}`);
+    });
+
+    const response = await createRoutes('creator-auth').manageCreatorLink(
+      creatorMutationRequest('POST'),
+      'com.yucp.jammr'
+    );
+
+    expect(response.status).toBe(200);
+    expect(presentationUpdateInput).toMatchObject({
+      artifactBaseUrl: 'https://vpm.test',
+      packageId: 'com.yucp.jammr',
+    });
+  });
+
   it('records publication failure and returns 503 without a dynamic fallback', async () => {
     const presentation = {
       artifactBaseUrl: 'https://vpm.test',
@@ -808,6 +877,122 @@ describe('package-scoped VPM routes', () => {
       'packageVersions.resolvePublicBootstrapPresentation'
     );
     expect(JSON.stringify(body)).not.toContain('catalog_jammr');
+  });
+
+  it('merges only the importer from the public repository', async () => {
+    const publication = publishedAlias({
+      bootstrapVersion: '1.0.0',
+      publicationId: '00000000-0000-4000-8000-000000000106',
+      publishedAt: 100,
+    });
+    importerIndexFetchMock.mockResolvedValueOnce(
+      Response.json({
+        packages: {
+          'com.example.unrelated': {
+            versions: {
+              '9.9.9': {
+                name: 'com.example.unrelated',
+                version: '9.9.9',
+                url: 'https://packages.example.test/unrelated.zip',
+              },
+            },
+          },
+          'com.yucp.importer': {
+            versions: {
+              '0.1.36': {
+                name: 'com.yucp.importer',
+                displayName: 'YUCP Package Importer',
+                version: '0.1.36',
+                unity: '2022.3',
+                description: 'YUCP package importer',
+                author: {
+                  name: 'YUCP Club',
+                  url: 'https://vpm.yucp.club/',
+                },
+                zipSHA256: 'b8f611e191f4fc796c84c3a52f55f5c3b7e62acdf574962a0499aade61533380',
+                url: 'https://packages.example.test/com.yucp.importer-0.1.36.zip',
+              },
+            },
+          },
+        },
+      })
+    );
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.creatorVpmLinks.getActiveByLinkId) return link();
+      if (reference === apiMock.vpmAliasPublications.listPublishedForPackage) {
+        return [publication];
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const response = await createRoutes(null).serveCreatorLinkIndex(
+      new Request(`https://vpm.test/api/vpm/access/${'L'.repeat(43)}/index.json`),
+      'L'.repeat(43)
+    );
+    const body = (await response.json()) as {
+      packages: Record<string, unknown>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(Object.keys(body.packages).sort()).toEqual(
+      ['com.yucp.alias.0123456789abcdef0123456789abcdef', 'com.yucp.importer'].sort()
+    );
+  });
+
+  it('validates a local importer against its injected release ledger', async () => {
+    const publication = publishedAlias({
+      bootstrapVersion: '1.0.0',
+      publicationId: '00000000-0000-4000-8000-000000000107',
+      publishedAt: 100,
+    });
+    importerIndexFetchMock.mockResolvedValueOnce(
+      Response.json({
+        packages: {
+          'com.yucp.importer': {
+            versions: {
+              '0.1.54': {
+                name: 'com.yucp.importer',
+                displayName: 'YUCP Package Importer',
+                version: '0.1.54',
+                unity: '2022.3',
+                description: 'YUCP package importer',
+                author: {
+                  name: 'YUCP Club',
+                  url: 'https://vpm.yucp.club/',
+                },
+                zipSHA256: 'd'.repeat(64),
+                url: 'http://127.0.0.1:3004/packages/com.yucp.importer-0.1.54.zip',
+              },
+            },
+          },
+        },
+      })
+    );
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.creatorVpmLinks.getActiveByLinkId) return link();
+      if (reference === apiMock.vpmAliasPublications.listPublishedForPackage) {
+        return [publication];
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const response = await createRoutes(null, {
+      config: {
+        publicImporterReleaseLedger: {
+          releases: {
+            '0.1.54': {
+              sha256: 'd'.repeat(64),
+            },
+          },
+          schemaVersion: 1,
+        },
+      } as never,
+    }).serveCreatorLinkIndex(
+      new Request(`https://vpm.test/api/vpm/access/${'L'.repeat(43)}/index.json`),
+      'L'.repeat(43)
+    );
+
+    expect(response.status).toBe(200);
   });
 
   it('keeps the repository stable when storefront and edition state changes', async () => {

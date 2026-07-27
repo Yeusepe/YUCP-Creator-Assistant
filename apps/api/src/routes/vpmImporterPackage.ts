@@ -18,13 +18,49 @@ export type PublicImporterReleaseLedger = {
   schemaVersion: 1;
 };
 
+export function parsePublicImporterReleaseLedger(value: unknown): PublicImporterReleaseLedger {
+  if (
+    !isRecord(value) ||
+    value.schemaVersion !== 1 ||
+    !isRecord(value.releases) ||
+    Object.keys(value).sort().join(',') !== 'releases,schemaVersion'
+  ) {
+    throw new Error('The public importer release ledger is invalid');
+  }
+  for (const [version, release] of Object.entries(value.releases)) {
+    if (
+      !parseStableVersion(version) ||
+      !isRecord(release) ||
+      Object.keys(release).join(',') !== 'sha256' ||
+      typeof release.sha256 !== 'string' ||
+      !/^[0-9a-f]{64}$/.test(release.sha256)
+    ) {
+      throw new Error('The public importer release ledger is invalid');
+    }
+  }
+  return value as PublicImporterReleaseLedger;
+}
+
+export function parsePublicImporterReleaseLedgerJson(
+  value: string | undefined
+): PublicImporterReleaseLedger | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error('The importer release ledger JSON is invalid');
+  }
+  return parsePublicImporterReleaseLedger(parsed);
+}
+
 export function assertPublicImporterIndexMatchesReleaseLedger(
   value: unknown,
   ledger: PublicImporterReleaseLedger
 ): void {
-  if (ledger.schemaVersion !== 1 || !isRecord(ledger.releases)) {
-    throw new Error('The public importer release ledger is invalid');
-  }
+  const validatedLedger = parsePublicImporterReleaseLedger(ledger);
   if (!isRecord(value) || !isRecord(value.packages)) {
     throw new Error('The public VPM index does not contain a packages object');
   }
@@ -43,7 +79,7 @@ export function assertPublicImporterIndexMatchesReleaseLedger(
     ) {
       throw new Error(`The public importer manifest for version ${version} is invalid`);
     }
-    const pin = ledger.releases[version];
+    const pin = validatedLedger.releases[version];
     if (!pin || !/^[0-9a-f]{64}$/.test(pin.sha256)) {
       throw new Error(`Public importer version ${version} is not pinned for release`);
     }

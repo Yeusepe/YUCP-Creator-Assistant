@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { buildLocalImporterRepository, type LocalImporterRepository } from './localVpmRepository';
+import { readNativeRuntimeReleaseManifest } from './nativeRuntimeRelease';
 
 const IMPORTER_PACKAGE_ID = 'com.yucp.importer';
 const RELEASE_LEDGER_PATH = join(import.meta.dir, 'public-importer-releases.json');
@@ -75,9 +76,20 @@ export function assertPinnedImporterRelease(
 export async function buildPinnedLocalImporterRepository(input: {
   baseUrl: string;
   importerPath: string;
+  nativeRuntimeReleaseManifestPath?: string;
   releaseLedgerPath?: string;
 }): Promise<LocalImporterRepository> {
-  const repository = await buildLocalImporterRepository(input);
+  if (!input.nativeRuntimeReleaseManifestPath?.trim()) {
+    throw new Error('The native runtime release manifest is required');
+  }
+  const nativeRuntimeRelease = await readNativeRuntimeReleaseManifest(
+    input.nativeRuntimeReleaseManifestPath
+  );
+  const repository = await buildLocalImporterRepository({
+    baseUrl: input.baseUrl,
+    importerPath: input.importerPath,
+    nativeRuntimeRelease,
+  });
   const ledger = await readPublicImporterReleaseLedger(input.releaseLedgerPath);
   assertPinnedImporterRelease(repository, ledger);
   return repository;

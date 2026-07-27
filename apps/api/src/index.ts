@@ -77,6 +77,7 @@ import { createPublicRoutes } from './routes/public';
 import { createPublicV2Routes } from './routes/publicV2';
 import { createSuiteRoutes } from './routes/suite';
 import { createVersionRouteHandler } from './routes/version';
+import { parsePublicImporterReleaseLedgerJson } from './routes/vpmImporterPackage';
 
 // Global auth instance
 let auth: Auth | null = null;
@@ -395,6 +396,9 @@ function initializeAuth(webhookBaseUrl?: string) {
       frontendBaseUrl: frontendUrl,
       convexApiSecret: env.CONVEX_API_SECRET ?? '',
       convexUrl,
+      publicImporterReleaseLedger: parsePublicImporterReleaseLedgerJson(
+        env.VPM_IMPORTER_RELEASE_LEDGER_JSON
+      ),
       publicVpmIndexUrl: env.VPM_PUBLIC_INDEX_URL,
       vpmBaseUrl: env.VPM_BASE_URL,
     },

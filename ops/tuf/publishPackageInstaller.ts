@@ -23,7 +23,9 @@ import {
 
 const HELPER_TARGET = 'helper/windows-amd64/yucp-transfer-helper.exe';
 const BROKER_TARGET = 'broker/windows-amd64/yucp-package-broker.exe';
+const RUNTIME_TARGET = 'runtime/windows-amd64/package-runtime.json';
 const TRUST_TARGET = 'package-install-trust.json';
+const BROKER_PIPE_NAME = String.raw`\\.\pipe\yucp.package-broker.v1`;
 const REQUIRED_KEYS = [
   'CATALOG_DATABASE_URL',
   'METADATA_S3_ENDPOINT',
@@ -36,6 +38,10 @@ const REQUIRED_KEYS = [
   'PACKAGE_INSTALLER_TUF_ROOT_SHA256',
   'PACKAGE_INSTALLER_TUF_BROKER_WINDOWS_AMD64_PATH',
   'PACKAGE_INSTALLER_TUF_HELPER_WINDOWS_AMD64_PATH',
+  'PACKAGE_INSTALLER_API_BASE_URL',
+  'PACKAGE_INSTALLER_AUTH_BASE_URL',
+  'PACKAGE_INSTALLER_TUF_METADATA_URL',
+  'PACKAGE_INSTALLER_TUF_TARGETS_URL',
   'PACKAGE_INSTALLER_TUF_PUBLICATION_ATTEMPT_ID',
   'PACKAGE_INSTALLER_TUF_PUBLISHER_EXECUTABLE',
   'PACKAGE_INSTALL_SIGNING_KEY_ID',
@@ -64,6 +70,66 @@ function requireAbsoluteFile(value: string, name: string): string {
 
 function sha256(body: Uint8Array): string {
   return createHash('sha256').update(body).digest('hex');
+}
+
+function requireCanonicalHttpsUrl(raw: string, name: string): string {
+  if (raw !== raw.trim() || raw.endsWith('/')) {
+    throw new Error(`${name} URL is not canonical`);
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`${name} URL is invalid`);
+  }
+  if (
+    parsed.protocol !== 'https:' ||
+    !parsed.hostname ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw new Error(`${name} URL must use canonical HTTPS`);
+  }
+  const serialized =
+    parsed.pathname === '/' && raw === parsed.origin ? parsed.origin : parsed.toString();
+  if (serialized !== raw) {
+    throw new Error(`${name} URL is not canonical`);
+  }
+  return raw;
+}
+
+export function buildRuntimeDescriptor(input: {
+  apiBaseUrl: string;
+  authBaseUrl: string;
+  metadataUrl: string;
+  targetsUrl: string;
+}): Buffer {
+  const apiBaseUrl = requireCanonicalHttpsUrl(input.apiBaseUrl, 'Package API');
+  const authBaseUrl = requireCanonicalHttpsUrl(input.authBaseUrl, 'Package authorization');
+  const metadataUrl = requireCanonicalHttpsUrl(input.metadataUrl, 'Package TUF metadata');
+  const targetsUrl = requireCanonicalHttpsUrl(input.targetsUrl, 'Package TUF targets');
+  if (
+    metadataUrl !== `${apiBaseUrl}/api/v2/package-installer/tuf/metadata` ||
+    targetsUrl !== `${apiBaseUrl}/api/v2/package-installer/tuf/targets`
+  ) {
+    throw new Error('Package TUF URLs must use the package API');
+  }
+  return Buffer.from(
+    JSON.stringify({
+      apiBaseUrl,
+      authBaseUrl,
+      brokerTarget: BROKER_TARGET,
+      helperTarget: HELPER_TARGET,
+      metadataUrl,
+      pipeName: BROKER_PIPE_NAME,
+      platform: 'windows-amd64',
+      schemaVersion: 1,
+      targetsUrl,
+      trustTarget: TRUST_TARGET,
+    })
+  );
 }
 
 export function verifyPinnedRoot(root: Uint8Array, expectedSha256: string): string {
@@ -279,6 +345,12 @@ export async function publishPackageInstallerTuf(
       schemaVersion: 1,
     })
   );
+  const runtime = buildRuntimeDescriptor({
+    apiBaseUrl: required(env, 'PACKAGE_INSTALLER_API_BASE_URL'),
+    authBaseUrl: required(env, 'PACKAGE_INSTALLER_AUTH_BASE_URL'),
+    metadataUrl: required(env, 'PACKAGE_INSTALLER_TUF_METADATA_URL'),
+    targetsUrl: required(env, 'PACKAGE_INSTALLER_TUF_TARGETS_URL'),
+  });
   const targetFiles = [
     {
       body: helper,
@@ -291,6 +363,11 @@ export async function publishPackageInstallerTuf(
       name: BROKER_TARGET,
     },
     {
+      body: runtime,
+      contentType: 'application/json',
+      name: RUNTIME_TARGET,
+    },
+    {
       body: trust,
       contentType: 'application/json',
       name: TRUST_TARGET,
@@ -301,7 +378,7 @@ export async function publishPackageInstallerTuf(
   }));
   const idempotencyKey =
     `package-installer:${publicationAttemptId}:` +
-    sha256(Buffer.concat([root, helper, broker, trust]));
+    sha256(Buffer.concat([root, helper, broker, runtime, trust]));
   const database = openCatalogDatabase(required(env, 'CATALOG_DATABASE_URL'));
   const scratch = await mkdtemp(path.join(tmpdir(), 'yucp-tuf-publish-'));
   try {
@@ -321,7 +398,9 @@ export async function publishPackageInstallerTuf(
     }
     const manifestPath = path.join(scratch, 'targets.json');
     const outputRoot = path.join(scratch, 'repository');
+    const runtimePath = path.join(scratch, 'package-runtime.json');
     const trustPath = path.join(scratch, 'package-install-trust.json');
+    await writeFile(runtimePath, runtime);
     await writeFile(trustPath, trust);
     await writeFile(
       manifestPath,
@@ -330,6 +409,7 @@ export async function publishPackageInstallerTuf(
         targets: [
           { name: BROKER_TARGET, path: brokerPath },
           { name: HELPER_TARGET, path: helperPath },
+          { name: RUNTIME_TARGET, path: runtimePath },
           { name: TRUST_TARGET, path: trustPath },
         ],
       })}\n`

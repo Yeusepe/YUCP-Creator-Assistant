@@ -3,6 +3,10 @@ import { access, readdir, readFile } from 'node:fs/promises';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import type { Zippable } from 'fflate';
 import { zipSync } from 'fflate';
+import {
+  buildNativeRuntimePackageOverlay,
+  type NativeRuntimeRelease,
+} from './nativeRuntimeRelease';
 
 const IMPORTER_PACKAGE_ID = 'com.yucp.importer';
 const PUBLIC_ARCHIVE_EXCLUDED_ROOTS = new Set(['Tests', 'Tests.meta']);
@@ -36,6 +40,11 @@ export type LocalImporterRepository = {
     >;
     url: string;
   };
+};
+
+export type LocalImporterReleaseLedger = {
+  releases: Record<string, { sha256: string }>;
+  schemaVersion: 1;
 };
 
 function sha256(bytes: Uint8Array): string {
@@ -107,7 +116,8 @@ function validateManifest(value: unknown): ImporterManifest {
 
 export async function buildVpmPackageArchive(
   packagePath: string,
-  packageVersion: string
+  packageVersion: string,
+  nativeRuntimeRelease?: NativeRuntimeRelease
 ): Promise<Uint8Array> {
   const entries: Zippable = {};
   const timestamp = packageVersionTimestamp(packageVersion);
@@ -140,6 +150,12 @@ export async function buildVpmPackageArchive(
   }
 
   await addDirectory(packagePath);
+  if (nativeRuntimeRelease) {
+    const overlay = await buildNativeRuntimePackageOverlay(packagePath, nativeRuntimeRelease);
+    for (const [archivePath, bytes] of Object.entries(overlay)) {
+      entries[archivePath] = [bytes, { level: 9, mtime: timestamp }];
+    }
+  }
   return zipSync(entries, { level: 9 });
 }
 
@@ -167,12 +183,17 @@ export async function resolveLocalImporterPackagePath(
 export async function buildLocalImporterRepository(input: {
   baseUrl: string;
   importerPath: string;
+  nativeRuntimeRelease?: NativeRuntimeRelease;
 }): Promise<LocalImporterRepository> {
   const baseUrl = normalizeBaseUrl(input.baseUrl);
   const manifest = validateManifest(
     JSON.parse(await readFile(join(input.importerPath, 'package.json'), 'utf8'))
   );
-  const archive = await buildVpmPackageArchive(input.importerPath, manifest.version);
+  const archive = await buildVpmPackageArchive(
+    input.importerPath,
+    manifest.version,
+    input.nativeRuntimeRelease
+  );
   const archivePath = `/packages/${IMPORTER_PACKAGE_ID}-${manifest.version}.zip`;
   const indexUrl = `${baseUrl}/index.json`;
   const packageManifest = {
@@ -197,5 +218,32 @@ export async function buildLocalImporterRepository(input: {
         },
       },
     },
+  };
+}
+
+export function buildLocalImporterReleaseLedger(
+  repository: LocalImporterRepository
+): LocalImporterReleaseLedger {
+  const versions = repository.index.packages[IMPORTER_PACKAGE_ID]?.versions;
+  const releaseEntries = Object.entries(versions ?? {});
+  if (releaseEntries.length !== 1) {
+    throw new Error('The local importer repository must contain one release');
+  }
+  const [version, manifest] = releaseEntries[0] ?? [];
+  if (
+    !version ||
+    !manifest ||
+    manifest.version !== version ||
+    !/^[0-9a-f]{64}$/.test(manifest.zipSHA256)
+  ) {
+    throw new Error('The local importer repository release is invalid');
+  }
+  return {
+    releases: {
+      [version]: {
+        sha256: manifest.zipSHA256,
+      },
+    },
+    schemaVersion: 1,
   };
 }

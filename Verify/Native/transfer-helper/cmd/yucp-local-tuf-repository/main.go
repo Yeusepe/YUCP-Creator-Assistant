@@ -14,12 +14,16 @@ import (
 
 	"github.com/sigstore/sigstore/pkg/signature"
 	"github.com/theupdateframework/go-tuf/v2/metadata"
+	"github.com/yucp/transfer-helper/internal/broker"
+	"github.com/yucp/transfer-helper/internal/runtimecontract"
 	"github.com/yucp/transfer-helper/internal/tufrepository"
 )
 
 const (
-	helperTargetName = "helper/windows-amd64/yucp-transfer-helper.exe"
-	trustTargetName  = "package-install-trust.json"
+	brokerTargetName  = runtimecontract.BrokerTargetName
+	helperTargetName  = runtimecontract.HelperTargetName
+	runtimeTargetName = runtimecontract.RuntimeTargetName
+	trustTargetName   = runtimecontract.TrustTargetName
 )
 
 type authority struct {
@@ -37,6 +41,11 @@ func main() {
 	output := flag.String("output", "", "local TUF repository output directory")
 	rootPath := flag.String("root", "", "pinned local TUF root path")
 	helperPath := flag.String("helper", "", "source-built Windows helper executable")
+	brokerPath := flag.String("broker", "", "source-built Windows package broker executable")
+	apiBaseURL := flag.String("api-base-url", "", "local YUCP API base URL")
+	authBaseURL := flag.String("auth-base-url", "", "local YUCP authorization base URL")
+	metadataURL := flag.String("metadata-url", "", "local package TUF metadata URL")
+	targetsURL := flag.String("targets-url", "", "local package TUF targets URL")
 	metadataVersion := flag.Int64(
 		"metadata-version",
 		0,
@@ -54,11 +63,16 @@ func main() {
 		*output,
 		*rootPath,
 		*helperPath,
+		*brokerPath,
 		*metadataVersion,
 		*installKeyID,
 		*installPublicKey,
 		*receiptKeyID,
 		*receiptPublicKey,
+		*apiBaseURL,
+		*authBaseURL,
+		*metadataURL,
+		*targetsURL,
 	); err != nil {
 		fatal(err)
 	}
@@ -68,14 +82,22 @@ func generate(
 	output string,
 	rootPath string,
 	helperPath string,
+	brokerPath string,
 	metadataVersion int64,
 	installKeyID string,
 	installPublicKey string,
 	receiptKeyID string,
 	receiptPublicKey string,
+	apiBaseURL string,
+	authBaseURL string,
+	metadataURL string,
+	targetsURL string,
 ) error {
-	if !filepath.IsAbs(output) || !filepath.IsAbs(rootPath) || !filepath.IsAbs(helperPath) {
-		return fmt.Errorf("local TUF output, root, and helper paths must be absolute")
+	if !filepath.IsAbs(output) ||
+		!filepath.IsAbs(rootPath) ||
+		!filepath.IsAbs(helperPath) ||
+		!filepath.IsAbs(brokerPath) {
+		return fmt.Errorf("local TUF output, root, helper, and broker paths must be absolute")
 	}
 	if metadataVersion < 1 {
 		return fmt.Errorf("local TUF metadata version must be positive")
@@ -132,6 +154,23 @@ func generate(
 	if len(helperBytes) < 1 || len(helperBytes) > 256*1024*1024 {
 		return fmt.Errorf("source-built helper length is invalid")
 	}
+	brokerBytes, err := os.ReadFile(brokerPath)
+	if err != nil {
+		return fmt.Errorf("read source-built package broker: %w", err)
+	}
+	if len(brokerBytes) < 1 || len(brokerBytes) > 256*1024*1024 {
+		return fmt.Errorf("source-built package broker length is invalid")
+	}
+	runtimeBytes, err := runtimecontract.Marshal(runtimecontract.Config{
+		APIBaseURL:  apiBaseURL,
+		AuthBaseURL: authBaseURL,
+		MetadataURL: metadataURL,
+		PipeName:    broker.DefaultPipeName,
+		TargetsURL:  targetsURL,
+	})
+	if err != nil {
+		return fmt.Errorf("build local package runtime descriptor: %w", err)
+	}
 	snapshotSigner, err := deterministicLocalSigner(metadata.SNAPSHOT)
 	if err != nil {
 		return err
@@ -156,7 +195,9 @@ func generate(
 		},
 		SnapshotExpires: now.Add(7 * 24 * time.Hour),
 		Targets: []tufrepository.Target{
+			{Bytes: brokerBytes, Name: brokerTargetName},
 			{Bytes: helperBytes, Name: helperTargetName},
+			{Bytes: runtimeBytes, Name: runtimeTargetName},
 			{Bytes: targetBytes, Name: trustTargetName},
 		},
 		TargetsExpires:   now.Add(30 * 24 * time.Hour),

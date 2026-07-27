@@ -82,6 +82,8 @@ export interface LocalEnv {
   METADATA_INDEX_PREFIX?: string;
   /** Optional public API origin used for buyer VPM index URLs. VPM routes return 503 when unavailable. */
   VPM_BASE_URL?: string;
+  /** Exact release ledger for a generated local importer package. Production uses the committed ledger. */
+  VPM_IMPORTER_RELEASE_LEDGER_JSON?: string;
   /** Public first-party VPM index that supplies the generic importer package. */
   VPM_PUBLIC_INDEX_URL?: string;
   /** JSON array of public VPM repository URLs that package releases can reference. */
@@ -252,6 +254,7 @@ function loadFromEnv(): LocalEnv {
     METADATA_S3_SECRET_ACCESS_KEY: process.env.METADATA_S3_SECRET_ACCESS_KEY,
     METADATA_INDEX_PREFIX: process.env.METADATA_INDEX_PREFIX,
     VPM_BASE_URL: process.env.VPM_BASE_URL,
+    VPM_IMPORTER_RELEASE_LEDGER_JSON: process.env.VPM_IMPORTER_RELEASE_LEDGER_JSON,
     VPM_PUBLIC_INDEX_URL: process.env.VPM_PUBLIC_INDEX_URL,
     VRCHAT_PENDING_STATE_SECRET: process.env.VRCHAT_PENDING_STATE_SECRET,
     VRCHAT_PROVIDER_SESSION_SECRET: process.env.VRCHAT_PROVIDER_SESSION_SECRET,

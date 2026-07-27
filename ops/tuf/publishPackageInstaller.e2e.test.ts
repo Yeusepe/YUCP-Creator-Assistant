@@ -180,13 +180,19 @@ describe.serial('package installer TUF production publisher', () => {
       METADATA_S3_REGION: metadata.region,
       METADATA_S3_SECRET_ACCESS_KEY: metadata.secretAccessKey,
       NODE_ENV: 'test',
+      PACKAGE_INSTALLER_API_BASE_URL: 'https://api.example.test',
+      PACKAGE_INSTALLER_AUTH_BASE_URL: 'https://auth.example.test/api/auth',
       PACKAGE_INSTALLER_TUF_BROKER_WINDOWS_AMD64_PATH: broker,
       PACKAGE_INSTALLER_TUF_HELPER_WINDOWS_AMD64_PATH: helper,
+      PACKAGE_INSTALLER_TUF_METADATA_URL:
+        'https://api.example.test/api/v2/package-installer/tuf/metadata',
       PACKAGE_INSTALLER_TUF_PUBLICATION_ATTEMPT_ID: 'publisher-attempt-1',
       PACKAGE_INSTALLER_TUF_PUBLISHER_EXECUTABLE: executable,
       PACKAGE_INSTALLER_TUF_REPOSITORY_ID: 'package-installer',
       PACKAGE_INSTALLER_TUF_ROOT_PATH: productionRoot,
       PACKAGE_INSTALLER_TUF_ROOT_SHA256: rootSha256,
+      PACKAGE_INSTALLER_TUF_TARGETS_URL:
+        'https://api.example.test/api/v2/package-installer/tuf/targets',
       PACKAGE_INSTALL_SIGNING_KEY_ID: 'install-integration',
       PACKAGE_INSTALL_SIGNING_PUBLIC_KEY: Buffer.from(
         await ed25519.getPublicKeyAsync(installPrivate)
@@ -225,7 +231,7 @@ describe.serial('package installer TUF production publisher', () => {
             ) AS object_count
         `;
       expect(rows[0]).toEqual({
-        object_count: 7,
+        object_count: 8,
         publication_count: 2,
       });
       const publishedPaths = await database<{ repository_path: string }[]>`
@@ -239,6 +245,12 @@ describe.serial('package installer TUF production publisher', () => {
           /^targets\/broker\/windows-amd64\/[0-9a-f]{64}\.yucp-package-broker\.exe$/
         ),
       });
+      const runtimePath = publishedPaths.find(({ repository_path: repositoryPath }) =>
+        /^targets\/runtime\/windows-amd64\/[0-9a-f]{64}\.package-runtime\.json$/.test(
+          repositoryPath
+        )
+      )?.repository_path;
+      expect(runtimePath).toBeDefined();
       const storage = new ExpiredRetentionStorage({ metadata });
       const reader = new ExactTufRepositoryReader({
         catalog: new TufRepositoryCatalog(database),
@@ -248,6 +260,22 @@ describe.serial('package installer TUF production publisher', () => {
       const timestamp = await reader.read('metadata', 'timestamp.json');
       expect(timestamp?.body.byteLength).toBeGreaterThan(0);
       expect(timestamp?.contentType).toBe('application/json');
+      const runtime = await reader.read(
+        'targets',
+        runtimePath?.replace(/^targets\//, '') ?? 'missing'
+      );
+      expect(JSON.parse(Buffer.from(runtime?.body ?? []).toString('utf8'))).toEqual({
+        apiBaseUrl: 'https://api.example.test',
+        authBaseUrl: 'https://auth.example.test/api/auth',
+        brokerTarget: 'broker/windows-amd64/yucp-package-broker.exe',
+        helperTarget: 'helper/windows-amd64/yucp-transfer-helper.exe',
+        metadataUrl: 'https://api.example.test/api/v2/package-installer/tuf/metadata',
+        pipeName: String.raw`\\.\pipe\yucp.package-broker.v1`,
+        platform: 'windows-amd64',
+        schemaVersion: 1,
+        targetsUrl: 'https://api.example.test/api/v2/package-installer/tuf/targets',
+        trustTarget: 'package-install-trust.json',
+      });
       expect(
         await storage.listExactVersions({
           objectKey: 'v2/metadata/tuf/package-installer/metadata/timestamp.json',

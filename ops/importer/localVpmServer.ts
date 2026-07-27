@@ -1,5 +1,8 @@
-import { resolveLocalImporterPackagePath } from './localVpmRepository';
-import { buildPinnedLocalImporterRepository } from './publicImporterRelease';
+import {
+  buildLocalImporterRepository,
+  resolveLocalImporterPackagePath,
+} from './localVpmRepository';
+import { readNativeRuntimeReleaseManifest } from './nativeRuntimeRelease';
 
 const DEFAULT_PORT = 3004;
 
@@ -16,9 +19,18 @@ async function main(): Promise<void> {
   const hostname = '127.0.0.1';
   const baseUrl = `http://${hostname}:${port}`;
   const importerPath = await resolveLocalImporterPackagePath();
-  const repository = await buildPinnedLocalImporterRepository({
+  const nativeRuntimeReleaseManifestPath =
+    process.env.YUCP_IMPORTER_NATIVE_RUNTIME_RELEASE_MANIFEST?.trim();
+  if (!nativeRuntimeReleaseManifestPath) {
+    throw new Error('YUCP_IMPORTER_NATIVE_RUNTIME_RELEASE_MANIFEST is required');
+  }
+  const nativeRuntimeRelease = await readNativeRuntimeReleaseManifest(
+    nativeRuntimeReleaseManifestPath
+  );
+  const repository = await buildLocalImporterRepository({
     baseUrl,
     importerPath,
+    nativeRuntimeRelease,
   });
   const indexBytes = new TextEncoder().encode(`${JSON.stringify(repository.index)}\n`);
   const archiveBytes = new Uint8Array(repository.archive);

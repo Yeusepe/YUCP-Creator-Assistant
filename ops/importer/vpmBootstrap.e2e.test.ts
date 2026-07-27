@@ -17,10 +17,8 @@ import type { Zippable } from 'fflate';
 import { unzipSync, zipSync } from 'fflate';
 import { buildYucpAliasVpmPackage } from '../../apps/api/src/routes/vpmAliasPackage';
 import { runCommand } from '../storage-core/process';
-import {
-  buildPinnedLocalImporterRepository,
-  readPublicImporterReleaseLedger,
-} from './publicImporterRelease';
+import { buildLocalImporterRepository } from './localVpmRepository';
+import { readNativeRuntimeReleaseManifest } from './nativeRuntimeRelease';
 
 const REPOSITORY_ROOT = join(import.meta.dir, '..', '..');
 const DOTNET_SDK_VERSION = '8.0.423';
@@ -792,8 +790,14 @@ describe.serial('official VPM CLI bootstrap', () => {
       description: 'Installs licensed YUCP products and supports update, repair, and removal.',
       name: IMPORTER_PACKAGE_ID,
     });
-    const importerReleaseLedger = await readPublicImporterReleaseLedger();
-    expect(importerReleaseLedger.releases[importerPackageJson.version]).toBeDefined();
+    const nativeRuntimeReleaseManifestPath =
+      process.env.YUCP_IMPORTER_NATIVE_RUNTIME_RELEASE_MANIFEST?.trim();
+    if (!nativeRuntimeReleaseManifestPath) {
+      throw new Error('YUCP_IMPORTER_NATIVE_RUNTIME_RELEASE_MANIFEST is required');
+    }
+    const nativeRuntimeRelease = await readNativeRuntimeReleaseManifest(
+      nativeRuntimeReleaseManifestPath
+    );
     expect(String(importerPackageJson.description)).not.toMatch(
       /\b(?:desync|digest|fbx|signature|signed|watermark)\b/i
     );
@@ -869,9 +873,10 @@ describe.serial('official VPM CLI bootstrap', () => {
     for (const version of importerVersions) {
       const pinned =
         version === importerPackageJson.version
-          ? await buildPinnedLocalImporterRepository({
+          ? await buildLocalImporterRepository({
               baseUrl,
               importerPath: importerPackagePath,
+              nativeRuntimeRelease,
             })
           : undefined;
       const bytes = pinned?.archive ?? (await buildPackageArchive(importerPackagePath, version));
@@ -999,7 +1004,7 @@ describe.serial('official VPM CLI bootstrap', () => {
           requireImporterArtifact(importerArtifacts, importerPackageJson.version)
         )
       );
-      const legacyTufRootPath = join(
+      const packagedTufRootPath = join(
         unityProjectPath,
         'Packages',
         IMPORTER_PACKAGE_ID,
@@ -1008,7 +1013,25 @@ describe.serial('official VPM CLI bootstrap', () => {
         'Trust',
         '1.root.json'
       );
-      expect(await pathExists(legacyTufRootPath)).toBe(false);
+      expect(await pathExists(packagedTufRootPath)).toBe(true);
+      const packagedTrustSource = await readFile(
+        join(
+          unityProjectPath,
+          'Packages',
+          IMPORTER_PACKAGE_ID,
+          'Editor',
+          'PackageManager',
+          'Core',
+          'NativePackageRuntimeTrust.cs'
+        ),
+        'utf8'
+      );
+      expect(packagedTrustSource).toContain(
+        'internal const string PublisherTrustMode = "pinned-development";'
+      );
+      expect(packagedTrustSource).not.toContain(
+        'internal const string ExecutableSha256 = "";'
+      );
 
       const installedAliasPath = join(
         unityProjectPath,

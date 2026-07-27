@@ -119,6 +119,13 @@ describe('DevSupervisor', () => {
     expect(runtime.env.PROTECTED_S3_BUCKET).toBe(runtime.storage.buckets.protected.bucket);
     expect(runtime.env.QUARANTINE_S3_BUCKET).toBe(runtime.storage.buckets.quarantine.bucket);
     expect(runtime.env.RENDITION_S3_BUCKET).toBe(runtime.storage.buckets.renditions.bucket);
+    const importerLedger = JSON.parse(runtime.env.VPM_IMPORTER_RELEASE_LEDGER_JSON ?? 'null') as {
+      releases?: Record<string, { sha256?: string }>;
+      schemaVersion?: number;
+    } | null;
+    expect(importerLedger?.schemaVersion).toBe(1);
+    expect(Object.keys(importerLedger?.releases ?? {})).toHaveLength(1);
+    expect(Object.values(importerLedger?.releases ?? {})[0]?.sha256).toMatch(/^[0-9a-f]{64}$/);
 
     await runtime.stop();
     await runtime.stop();

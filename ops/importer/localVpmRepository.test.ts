@@ -4,7 +4,10 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { unzipSync } from 'fflate';
-import { buildLocalImporterRepository } from './localVpmRepository';
+import {
+  buildLocalImporterReleaseLedger,
+  buildLocalImporterRepository,
+} from './localVpmRepository';
 import { assertPinnedImporterRelease } from './publicImporterRelease';
 
 function firstCentralDirectoryTimestamp(archive: Uint8Array): number {
@@ -91,6 +94,14 @@ describe('local public importer repository', () => {
       expect(manifest?.zipSHA256).toBe(
         createHash('sha256').update(repository.archive).digest('hex')
       );
+      expect(buildLocalImporterReleaseLedger(repository)).toEqual({
+        releases: {
+          '0.1.14': {
+            sha256: manifest?.zipSHA256,
+          },
+        },
+        schemaVersion: 1,
+      });
       const files = unzipSync(repository.archive);
       expect(new TextDecoder().decode(files['Editor/Importer.cs'])).toBe('namespace YUCP {}\n');
       expect(JSON.parse(new TextDecoder().decode(files['package.json']))).toMatchObject({

@@ -71,6 +71,7 @@ export interface VpmRouteConfig {
   convexApiSecret: string;
   convexUrl: string;
   publicVpmIndexUrl?: string;
+  publicImporterReleaseLedger?: PublicImporterReleaseLedger;
   vpmBaseUrl?: string;
 }
 
@@ -278,7 +279,8 @@ export function createVpmRoutes({
       });
       assertPublicImporterIndexMatchesReleaseLedger(
         index,
-        publicImporterReleaseLedger as PublicImporterReleaseLedger
+        config.publicImporterReleaseLedger ??
+          (publicImporterReleaseLedger as PublicImporterReleaseLedger)
       );
       if (cached) {
         assertPublicImporterVersionsImmutable(
@@ -345,12 +347,20 @@ export function createVpmRoutes({
     vpmRepository: NonNullable<ReturnType<typeof getConfiguredVpmRepository>>
   ): Promise<void> {
     const publicIndex = await getRepositoryIndex(vpmRepository.publicVpmIndexUrl);
-    try {
-      selectPublicImporterManifest(publicIndex);
-    } catch (error) {
-      throw new PublicImporterUnavailableError({ cause: error });
-    }
-    mergeVpmRepositoryPackages(packages, publicIndex.packages);
+    const importer = (() => {
+      try {
+        return selectPublicImporterManifest(publicIndex);
+      } catch (error) {
+        throw new PublicImporterUnavailableError({ cause: error });
+      }
+    })();
+    mergeVpmRepositoryPackages(packages, {
+      [importer.name]: {
+        versions: {
+          [importer.version]: importer,
+        },
+      },
+    });
   }
 
   async function getCreatorPackageContext(request: Request, packageId: string) {
@@ -481,7 +491,8 @@ export function createVpmRoutes({
       )) as VpmAliasPresentation | null;
     } else if (
       (input.packageNameOverride && presentation.packageName !== input.packageNameOverride) ||
-      presentation.artifactBucketName !== aliasArtifactStore.bucketName
+      presentation.artifactBucketName !== aliasArtifactStore.bucketName ||
+      presentation.artifactBaseUrl !== input.vpmRepository.vpmBaseUrl
     ) {
       await input.creatorConvex.mutation(api.vpmAliasPublications.updatePresentationForCreator, {
         apiSecret: config.convexApiSecret,
@@ -489,7 +500,7 @@ export function createVpmRoutes({
         authUserId: input.authUserId,
         packageId,
         channel: presentation.channel,
-        artifactBaseUrl: presentation.artifactBaseUrl,
+        artifactBaseUrl: input.vpmRepository.vpmBaseUrl,
         artifactBucketName: aliasArtifactStore.bucketName,
         artifactFormat: 'vpm-alias-zip-v1',
         contractVersion: 1,

@@ -27,6 +27,15 @@ import {
   stopRealBackend,
   withSelfHostedConvexEnvFileMovedAside,
 } from './convex-real/manage';
+import {
+  buildLocalImporterReleaseLedger,
+  buildLocalImporterRepository,
+  resolveLocalImporterPackagePath,
+} from './importer/localVpmRepository';
+import {
+  createNativeRuntimeRelease,
+  readNativeRuntimeReleaseManifest,
+} from './importer/nativeRuntimeRelease';
 import { DESYNC_STORAGE_FORMAT_VERSION } from './storage-core/deliveryManifest';
 import {
   type DisposableStorageHarness,
@@ -425,24 +434,171 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+type LocalNativeRuntimeRelease = {
+  cleanup: () => Promise<void>;
+  manifestPath: string;
+};
+
+async function runLocalAuthenticodeCommand(input: {
+  brokerPath: string;
+  helperPath: string;
+  operation: 'cleanup' | 'sign';
+  subject: string;
+  thumbprint?: string;
+}): Promise<string> {
+  if (process.platform !== 'win32') {
+    throw new Error('Local Windows package runtime signing requires Windows');
+  }
+  const powershell = path.join(
+    process.env.SystemRoot ?? 'C:\\Windows',
+    'System32',
+    'WindowsPowerShell',
+    'v1.0',
+    'powershell.exe'
+  );
+  const signScript = [
+    'Import-Module PKI',
+    '$certificate = $null',
+    'try {',
+    '$certificate = New-SelfSignedCertificate -Type CodeSigningCert -Subject $env:YUCP_LOCAL_SIGNING_SUBJECT -CertStoreLocation Cert:\\CurrentUser\\My -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 -KeyExportPolicy NonExportable -NotAfter ([DateTime]::UtcNow.AddDays(1))',
+    "foreach ($artifact in @($env:YUCP_LOCAL_HELPER_PATH, $env:YUCP_LOCAL_BROKER_PATH)) { $result = Set-AuthenticodeSignature -LiteralPath $artifact -Certificate $certificate -HashAlgorithm SHA256; if ($null -eq $result.SignerCertificate -or $result.SignerCertificate.Thumbprint -ne $certificate.Thumbprint) { throw 'Local Authenticode signing did not attach the expected certificate' } }",
+    "foreach ($artifact in @($env:YUCP_LOCAL_HELPER_PATH, $env:YUCP_LOCAL_BROKER_PATH)) { $result = Get-AuthenticodeSignature -LiteralPath $artifact; if ($null -eq $result.SignerCertificate -or $result.SignerCertificate.Thumbprint -ne $certificate.Thumbprint -or ($result.Status -ne 'Valid' -and $result.Status -ne 'UnknownError')) { throw ('Local Authenticode verification failed: ' + $result.StatusMessage) } }",
+    '[Console]::Out.Write($certificate.Thumbprint)',
+    '} catch {',
+    "if ($null -ne $certificate) { $store = [System.Security.Cryptography.X509Certificates.X509Store]::new('My', 'CurrentUser'); try { $store.Open('ReadWrite'); foreach ($storedCertificate in @($store.Certificates.Find('FindByThumbprint', $certificate.Thumbprint, $false))) { $store.Remove($storedCertificate) } } finally { $store.Dispose() } }",
+    'throw',
+    '}',
+  ].join('; ');
+  const cleanupScript = [
+    '$thumbprint = $env:YUCP_LOCAL_SIGNING_THUMBPRINT',
+    "$store = [System.Security.Cryptography.X509Certificates.X509Store]::new('My', 'CurrentUser'); try { $store.Open('ReadWrite'); foreach ($certificate in @($store.Certificates.Find('FindByThumbprint', $thumbprint, $false))) { $store.Remove($certificate) } } finally { $store.Dispose() }",
+  ].join('; ');
+  const child = spawn(
+    powershell,
+    [
+      '-NoLogo',
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      input.operation === 'sign' ? signScript : cleanupScript,
+    ],
+    {
+      env: {
+        SystemRoot: process.env.SystemRoot ?? 'C:\\Windows',
+        PATHEXT: process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD',
+        TEMP: process.env.TEMP ?? '',
+        TMP: process.env.TMP ?? '',
+        YUCP_LOCAL_BROKER_PATH: input.brokerPath,
+        YUCP_LOCAL_HELPER_PATH: input.helperPath,
+        YUCP_LOCAL_SIGNING_SUBJECT: input.subject,
+        YUCP_LOCAL_SIGNING_THUMBPRINT: input.thumbprint ?? '',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    }
+  );
+  const stdout: Buffer[] = [];
+  const stderr: Buffer[] = [];
+  child.stdout?.on('data', (chunk: Buffer) => stdout.push(chunk));
+  child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk));
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    child.kill();
+  }, 60_000);
+  const [exitCode] = await once(child, 'close').finally(() => clearTimeout(timeout));
+  if (timedOut) {
+    throw new Error(`Local Authenticode ${input.operation} timed out`);
+  }
+  if (exitCode !== 0) {
+    const detail = Buffer.concat(stderr).toString('utf8').trim();
+    throw new Error(
+      `Local Authenticode ${input.operation} failed with exit code ${String(exitCode)}${detail ? `: ${detail}` : ''}`
+    );
+  }
+  return Buffer.concat(stdout).toString('utf8').trim();
+}
+
+async function prepareLocalNativeRuntimeRelease(input: {
+  brokerPath: string;
+  helperPath: string;
+  metadataUrl: string;
+  releasePath: string;
+  runId: string;
+  targetsUrl: string;
+  trustedRootPath: string;
+}): Promise<LocalNativeRuntimeRelease> {
+  const subject = `CN=YUCP Local Development ${input.runId}`;
+  const thumbprint = await runLocalAuthenticodeCommand({
+    brokerPath: input.brokerPath,
+    helperPath: input.helperPath,
+    operation: 'sign',
+    subject,
+  });
+  if (!/^[0-9A-F]{40}$/.test(thumbprint)) {
+    throw new Error('Local Authenticode signing returned an invalid certificate thumbprint');
+  }
+  try {
+    const manifestPath = await createNativeRuntimeRelease({
+      executablePath: input.helperPath,
+      metadataUrl: input.metadataUrl,
+      publisherTrustMode: 'pinned-development',
+      releasePath: input.releasePath,
+      targetsUrl: input.targetsUrl,
+      trustedRootPath: input.trustedRootPath,
+    });
+    return {
+      manifestPath,
+      cleanup: async () => {
+        await runLocalAuthenticodeCommand({
+          brokerPath: input.brokerPath,
+          helperPath: input.helperPath,
+          operation: 'cleanup',
+          subject,
+          thumbprint,
+        });
+      },
+    };
+  } catch (error) {
+    await runLocalAuthenticodeCommand({
+      brokerPath: input.brokerPath,
+      helperPath: input.helperPath,
+      operation: 'cleanup',
+      subject,
+      thumbprint,
+    }).catch(() => undefined);
+    throw error;
+  }
+}
+
 async function generateLocalTufRepository(input: {
+  apiBaseUrl: string;
+  authBaseUrl: string;
   baseEnv: NodeJS.ProcessEnv;
   installKeyId: string;
   installPublicKey: string;
   outputRoot: string;
   receiptKeyId: string;
   receiptPublicKey: string;
-}): Promise<void> {
+  runId: string;
+}): Promise<LocalNativeRuntimeRelease> {
   const configuredGo = input.baseEnv.YUCP_GO_EXECUTABLE?.trim();
   const workspaceGo = 'E:\\YUCPTools\\go-1.26.5\\go\\bin\\go.exe';
   const goExecutable = configuredGo || (existsSync(workspaceGo) ? workspaceGo : 'go');
   const helperRoot = path.join(ROOT_DIR, 'Verify', 'Native', 'transfer-helper');
   const pinnedRoot = path.join(helperRoot, 'internal', 'tufclient', 'testdata', '1.root.json');
   const helperExecutable = path.join(path.dirname(input.outputRoot), 'yucp-transfer-helper.exe');
-  const runGo = async (args: string[], failureLabel: string): Promise<void> => {
+  const brokerExecutable = path.join(path.dirname(input.outputRoot), 'yucp-package-broker.exe');
+  const runGo = async (
+    args: string[],
+    failureLabel: string,
+    envOverrides: NodeJS.ProcessEnv = {}
+  ): Promise<void> => {
     const child = spawn(goExecutable, args, {
       cwd: helperRoot,
-      env: input.baseEnv,
+      env: { ...input.baseEnv, ...envOverrides },
       stdio: ['ignore', 'ignore', 'pipe'],
       windowsHide: true,
     });
@@ -458,31 +614,62 @@ async function generateLocalTufRepository(input: {
   };
   await runGo(
     ['build', '-trimpath', '-ldflags=-s -w', '-o', helperExecutable, './cmd/yucp-transfer-helper'],
-    'Local transfer-helper build'
+    'Local transfer-helper build',
+    { CGO_ENABLED: '0', GOARCH: 'amd64', GOOS: 'windows' }
   );
   await runGo(
-    [
-      'run',
-      './cmd/yucp-local-tuf-repository',
-      '--output',
-      input.outputRoot,
-      '--root',
-      pinnedRoot,
-      '--helper',
-      helperExecutable,
-      '--metadata-version',
-      String(Date.now()),
-      '--install-key-id',
-      input.installKeyId,
-      '--install-public-key',
-      input.installPublicKey,
-      '--receipt-key-id',
-      input.receiptKeyId,
-      '--receipt-public-key',
-      input.receiptPublicKey,
-    ],
-    'Local TUF repository generation'
+    ['build', '-trimpath', '-ldflags=-s -w', '-o', brokerExecutable, './cmd/yucp-package-broker'],
+    'Local package-broker build',
+    { CGO_ENABLED: '0', GOARCH: 'amd64', GOOS: 'windows' }
   );
+  const nativeRuntimeRelease = await prepareLocalNativeRuntimeRelease({
+    brokerPath: brokerExecutable,
+    helperPath: helperExecutable,
+    metadataUrl: `${input.apiBaseUrl}/api/v2/package-installer/tuf/metadata`,
+    releasePath: path.dirname(input.outputRoot),
+    runId: input.runId,
+    targetsUrl: `${input.apiBaseUrl}/api/v2/package-installer/tuf/targets`,
+    trustedRootPath: pinnedRoot,
+  });
+  try {
+    await runGo(
+      [
+        'run',
+        './cmd/yucp-local-tuf-repository',
+        '--output',
+        input.outputRoot,
+        '--root',
+        pinnedRoot,
+        '--helper',
+        helperExecutable,
+        '--broker',
+        brokerExecutable,
+        '--api-base-url',
+        input.apiBaseUrl,
+        '--auth-base-url',
+        input.authBaseUrl,
+        '--metadata-url',
+        `${input.apiBaseUrl}/api/v2/package-installer/tuf/metadata`,
+        '--targets-url',
+        `${input.apiBaseUrl}/api/v2/package-installer/tuf/targets`,
+        '--metadata-version',
+        String(Date.now()),
+        '--install-key-id',
+        input.installKeyId,
+        '--install-public-key',
+        input.installPublicKey,
+        '--receipt-key-id',
+        input.receiptKeyId,
+        '--receipt-public-key',
+        input.receiptPublicKey,
+      ],
+      'Local TUF repository generation'
+    );
+    return nativeRuntimeRelease;
+  } catch (error) {
+    await nativeRuntimeRelease.cleanup().catch(() => undefined);
+    throw error;
+  }
 }
 
 function buildShellCommand(command: string): { file: string; args: string[] } {
@@ -1128,6 +1315,7 @@ async function startDevRuntime(
     throw error;
   }
 
+  let localNativeRuntimeRelease: LocalNativeRuntimeRelease | undefined;
   try {
     const stableSecrets = interactiveRuntimeSecrets(storage);
     const installSigningPrivateKey = stableSecrets
@@ -1151,18 +1339,36 @@ async function startDevRuntime(
       await ed25519.getPublicKeyAsync(materializationReceiptPrivateKey)
     ).toString('base64url');
     const tufRepositoryRoot = path.join(path.dirname(storage.uploadDir), 'package-installer-tuf');
-    await generateLocalTufRepository({
+    const localConvexSiteUrl = loadedEnv.CONVEX_SITE_URL?.trim();
+    if (!localConvexSiteUrl) {
+      throw new Error('CONVEX_SITE_URL is required for the local package runtime');
+    }
+    localNativeRuntimeRelease = await generateLocalTufRepository({
+      apiBaseUrl: `http://127.0.0.1:${ports.api}`,
+      authBaseUrl: `${localConvexSiteUrl}/api/auth`,
       baseEnv: loadedEnv,
       installKeyId: installSigningKeyId,
       installPublicKey: installSigningPublicKey,
       outputRoot: tufRepositoryRoot,
       receiptKeyId: materializationReceiptKeyId,
       receiptPublicKey: materializationReceiptPublicKey,
+      runId: storage.runId,
+    });
+    const localImporterRepository = await buildLocalImporterRepository({
+      baseUrl: `http://127.0.0.1:${ports.publicVpm}`,
+      importerPath: await resolveLocalImporterPackagePath(loadedEnv),
+      nativeRuntimeRelease: await readNativeRuntimeReleaseManifest(
+        localNativeRuntimeRelease.manifestPath
+      ),
     });
     const env = applyLocalStorageProfile(
       {
         ...loadedEnv,
         PACKAGE_INSTALLER_TUF_REPOSITORY_ROOT: tufRepositoryRoot,
+        VPM_IMPORTER_RELEASE_LEDGER_JSON: JSON.stringify(
+          buildLocalImporterReleaseLedger(localImporterRepository)
+        ),
+        YUCP_IMPORTER_NATIVE_RUNTIME_RELEASE_MANIFEST: localNativeRuntimeRelease.manifestPath,
       },
       storage,
       {
@@ -1235,6 +1441,11 @@ async function startDevRuntime(
             failures.push(error);
           }
           try {
+            await localNativeRuntimeRelease?.cleanup();
+          } catch (error) {
+            failures.push(error);
+          }
+          try {
             await cleanupDisposableHyperdxResources(
               env.HYPERDX_DEV_CONTAINER_NAME ?? `yucp-hyperdx-${storage.runId}`
             );
@@ -1290,6 +1501,7 @@ async function startDevRuntime(
       },
     };
   } catch (error) {
+    await localNativeRuntimeRelease?.cleanup().catch(() => undefined);
     await storage.stop();
     if (ownsSelfHostedConvex) {
       await stopRealBackend(selfHostedConvexProfile);

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   assertPublicImporterIndexMatchesReleaseLedger,
   assertPublicImporterVersionsImmutable,
+  parsePublicImporterReleaseLedgerJson,
   type VpmImporterManifest,
 } from './vpmImporterPackage';
 
@@ -16,6 +17,24 @@ function manifest(version: string, zipSHA256: string): VpmImporterManifest {
 }
 
 describe('public importer version immutability', () => {
+  it('parses an injected exact release ledger and rejects malformed configuration', () => {
+    const ledger = {
+      releases: {
+        '0.1.54': { sha256: 'a'.repeat(64) },
+      },
+      schemaVersion: 1 as const,
+    };
+
+    expect(parsePublicImporterReleaseLedgerJson(JSON.stringify(ledger))).toEqual(ledger);
+    expect(parsePublicImporterReleaseLedgerJson(undefined)).toBeUndefined();
+    expect(() => parsePublicImporterReleaseLedgerJson('')).toThrow(
+      'importer release ledger JSON is invalid'
+    );
+    expect(() =>
+      parsePublicImporterReleaseLedgerJson('{"schemaVersion":1,"releases":{},"unsupported":true}')
+    ).toThrow('importer release ledger is invalid');
+  });
+
   it('rejects a changed older release even when the latest release remains unchanged', () => {
     const index = {
       packages: {

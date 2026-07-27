@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -27,17 +28,29 @@ func TestGenerateCreatesUsableRepositoryForPinnedLocalRoot(t *testing.T) {
 	if err := os.WriteFile(helperPath, helperBytes, 0o700); err != nil {
 		t.Fatalf("write helper fixture: %v", err)
 	}
+	brokerPath := filepath.Join(t.TempDir(), "yucp-package-broker.exe")
+	brokerBytes := []byte("local trusted package broker executable\n")
+	if err := os.WriteFile(brokerPath, brokerBytes, 0o700); err != nil {
+		t.Fatalf("write broker fixture: %v", err)
+	}
+	server := httptest.NewServer(http.FileServer(http.Dir(output)))
+	defer server.Close()
 	installKey := sha256.Sum256([]byte("install public key"))
 	receiptKey := sha256.Sum256([]byte("receipt public key"))
 	if err := generate(
 		output,
 		rootPath,
 		helperPath,
+		brokerPath,
 		42,
 		"install-key-1",
 		base64.RawURLEncoding.EncodeToString(installKey[:]),
 		"receipt-key-1",
 		base64.RawURLEncoding.EncodeToString(receiptKey[:]),
+		server.URL,
+		server.URL,
+		server.URL+"/metadata",
+		server.URL+"/targets",
 	); err != nil {
 		t.Fatalf("generate() error = %v", err)
 	}
@@ -58,8 +71,6 @@ func TestGenerateCreatesUsableRepositoryForPinnedLocalRoot(t *testing.T) {
 		}
 	}
 	destination := filepath.Join(t.TempDir(), trustTargetName)
-	server := httptest.NewServer(http.FileServer(http.Dir(output)))
-	defer server.Close()
 	if _, err := tufclient.InstallTarget(tufclient.Config{
 		LocalMetadataDir:  filepath.Join(t.TempDir(), "metadata"),
 		RemoteMetadataURL: server.URL + "/metadata",
@@ -69,7 +80,7 @@ func TestGenerateCreatesUsableRepositoryForPinnedLocalRoot(t *testing.T) {
 		t.Fatalf("InstallTarget() error = %v", err)
 	}
 	targetEntries, err := os.ReadDir(filepath.Join(output, "targets"))
-	if err != nil || len(targetEntries) != 2 {
+	if err != nil || len(targetEntries) != 4 {
 		t.Fatalf("local TUF target roots = %v, error = %v", targetEntries, err)
 	}
 	var trustPath string
@@ -109,5 +120,47 @@ func TestGenerateCreatesUsableRepositoryForPinnedLocalRoot(t *testing.T) {
 	}
 	if !bytes.Equal(installedHelper, helperBytes) {
 		t.Fatal("installed helper differs from the TUF source helper")
+	}
+
+	brokerDestination := filepath.Join(t.TempDir(), "broker.exe")
+	if _, err := tufclient.InstallTarget(tufclient.Config{
+		LocalMetadataDir:  filepath.Join(t.TempDir(), "broker-metadata"),
+		RemoteMetadataURL: server.URL + "/metadata",
+		RemoteTargetsURL:  server.URL + "/targets",
+		TrustedRoot:       pinnedRoot,
+	}, brokerTargetName, brokerDestination); err != nil {
+		t.Fatalf("install broker target: %v", err)
+	}
+	installedBroker, err := os.ReadFile(brokerDestination)
+	if err != nil {
+		t.Fatalf("read installed broker: %v", err)
+	}
+	if !bytes.Equal(installedBroker, brokerBytes) {
+		t.Fatal("installed broker differs from the TUF source broker")
+	}
+
+	runtimeDestination := filepath.Join(t.TempDir(), "package-runtime.json")
+	if _, err := tufclient.InstallTarget(tufclient.Config{
+		LocalMetadataDir:  filepath.Join(t.TempDir(), "runtime-metadata"),
+		RemoteMetadataURL: server.URL + "/metadata",
+		RemoteTargetsURL:  server.URL + "/targets",
+		TrustedRoot:       pinnedRoot,
+	}, runtimeTargetName, runtimeDestination); err != nil {
+		t.Fatalf("install runtime descriptor target: %v", err)
+	}
+	runtimeBytes, err := os.ReadFile(runtimeDestination)
+	if err != nil {
+		t.Fatalf("read runtime descriptor: %v", err)
+	}
+	var runtimeDescriptor map[string]any
+	if err := json.Unmarshal(runtimeBytes, &runtimeDescriptor); err != nil {
+		t.Fatalf("decode runtime descriptor: %v", err)
+	}
+	if runtimeDescriptor["brokerTarget"] != brokerTargetName ||
+		runtimeDescriptor["helperTarget"] != helperTargetName ||
+		runtimeDescriptor["metadataUrl"] != server.URL+"/metadata" ||
+		runtimeDescriptor["targetsUrl"] != server.URL+"/targets" ||
+		runtimeDescriptor["platform"] != "windows-amd64" {
+		t.Fatalf("runtime descriptor = %#v", runtimeDescriptor)
 	}
 }
