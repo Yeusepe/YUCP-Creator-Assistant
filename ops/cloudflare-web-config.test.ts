@@ -8,6 +8,7 @@ import {
   resolveWebEnvValues,
   resolveWebLocalEnvPath,
 } from './cloudflare-web-config';
+import { DESYNC_STORAGE_FORMAT_VERSION } from './storage-core/deliveryManifest';
 
 describe('cloudflare-web-config', () => {
   test('defaults local worker NODE_ENV to development without ambient shell leakage', () => {
@@ -96,5 +97,18 @@ describe('cloudflare-web-config', () => {
     }
     expect(inventory).not.toContain('CAS_S3_READONLY_ACCESS_KEY_ID');
     expect(inventory).not.toContain('CAS_S3_READONLY_SECRET_ACCESS_KEY');
+  });
+
+  test('keeps the Infisical storage format equal to the canonical manifest format', () => {
+    const template = readFileSync(
+      resolve(import.meta.dir, 'infisical', 'secrets.template.yaml'),
+      'utf8'
+    );
+    const configuredFormats = Array.from(
+      template.matchAll(/^\s+STORAGE_FORMAT_VERSION:\s+"([^"]+)"\s*$/gm),
+      (match) => match[1]
+    );
+
+    expect(configuredFormats).toEqual([DESYNC_STORAGE_FORMAT_VERSION]);
   });
 });
