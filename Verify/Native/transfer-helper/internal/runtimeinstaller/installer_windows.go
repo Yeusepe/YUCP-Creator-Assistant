@@ -19,6 +19,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/Microsoft/go-winio"
 	"github.com/yucp/transfer-helper/internal/broker"
@@ -373,10 +374,8 @@ func startRuntime(config normalizedConfig, record activeRecord) (activeRecord, e
 	command.Stdout = startupLog
 	command.Stderr = startupLog
 	command.SysProcAttr = &syscall.SysProcAttr{
-		CreationFlags: windows.CREATE_BREAKAWAY_FROM_JOB |
-			windows.CREATE_NEW_PROCESS_GROUP |
-			windows.DETACHED_PROCESS,
-		HideWindow: true,
+		CreationFlags: brokerCreationFlags(),
+		HideWindow:    true,
 	}
 	if err := command.Start(); err != nil {
 		return activeRecord{}, fmt.Errorf("start detached package broker: %w", err)
@@ -398,6 +397,37 @@ func startRuntime(config normalizedConfig, record activeRecord) (activeRecord, e
 	}
 	record.BrokerProcessID = processID
 	return record, nil
+}
+
+func brokerCreationFlags() uint32 {
+	var information windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+	err := windows.QueryInformationJobObject(
+		0,
+		windows.JobObjectExtendedLimitInformation,
+		uintptr(unsafe.Pointer(&information)),
+		uint32(unsafe.Sizeof(information)),
+		nil,
+	)
+	if err != nil {
+		return brokerCreationFlagsForLimitFlags(0)
+	}
+	return brokerCreationFlagsForLimitFlags(
+		information.BasicLimitInformation.LimitFlags,
+	)
+}
+
+func brokerCreationFlagsForLimitFlags(limitFlags uint32) uint32 {
+	flags := uint32(windows.CREATE_NEW_PROCESS_GROUP | windows.DETACHED_PROCESS)
+	// Windows child processes inherit their parent's job. Explicit breakaway is
+	// valid only when the job enables JOB_OBJECT_LIMIT_BREAKAWAY_OK.
+	// https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects
+	if limitFlags&windows.JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK != 0 {
+		return flags
+	}
+	if limitFlags&windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK != 0 {
+		flags |= windows.CREATE_BREAKAWAY_FROM_JOB
+	}
+	return flags
 }
 
 func openStartupLog(stateRoot string) (*os.File, string, error) {

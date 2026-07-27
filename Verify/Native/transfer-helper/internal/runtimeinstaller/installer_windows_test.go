@@ -264,6 +264,43 @@ func TestParseDescriptorRejectsUnknownAndMutableRuntimeValues(t *testing.T) {
 	}
 }
 
+func TestBrokerCreationFlagsRespectCurrentJobLimits(t *testing.T) {
+	base := uint32(windows.CREATE_NEW_PROCESS_GROUP | windows.DETACHED_PROCESS)
+	for name, fixture := range map[string]struct {
+		limitFlags uint32
+		want       uint32
+	}{
+		"no breakaway permission": {
+			limitFlags: 0,
+			want:       base,
+		},
+		"explicit breakaway permission": {
+			limitFlags: windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK,
+			want:       base | windows.CREATE_BREAKAWAY_FROM_JOB,
+		},
+		"silent breakaway permission": {
+			limitFlags: windows.JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK,
+			want:       base,
+		},
+		"silent permission takes precedence": {
+			limitFlags: windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK |
+				windows.JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK,
+			want: base,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := brokerCreationFlagsForLimitFlags(fixture.limitFlags); got != fixture.want {
+				t.Fatalf(
+					"brokerCreationFlagsForLimitFlags(%#x) = %#x, want %#x",
+					fixture.limitFlags,
+					got,
+					fixture.want,
+				)
+			}
+		})
+	}
+}
+
 func buildNativeCommand(t *testing.T, moduleRoot string, command string, output string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(output), 0o700); err != nil {
