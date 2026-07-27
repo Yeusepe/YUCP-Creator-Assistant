@@ -47,10 +47,22 @@ jobs:
           go-version-file: 'Verify/Native/transfer-helper/go.mod'
           cache-dependency-path: 'Verify/Native/transfer-helper/go.sum'
 
-      - name: Test native module
+      - name: Test Windows native module
+        if: runner.os == 'Windows'
         env:
           GOFLAGS: -mod=readonly
         run: go test ./...
+
+      - name: Test portable Linux packages
+        if: runner.os == 'Linux'
+        env:
+          GOFLAGS: -mod=readonly
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test ./cmd/yucp-local-tuf-repository ./cmd/yucp-tuf-online-repository ./cmd/yucp-tuf-root
+          go test ./internal/delivery ./internal/dpop ./internal/packagecontract ./internal/reconstructor
+          go test ./internal/trust ./internal/tufclient ./internal/tufrepository ./internal/tufroot
 
       - name: Build Linux commands
         if: runner.os == 'Linux'

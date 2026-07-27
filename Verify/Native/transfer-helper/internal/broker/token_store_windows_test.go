@@ -36,7 +36,12 @@ func TestTokenStorePersistsProtectedPerUserCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if !found || loaded != tokens {
+	if !found ||
+		loaded.AccessToken != tokens.AccessToken ||
+		!loaded.ExpiresAt.Equal(tokens.ExpiresAt) ||
+		loaded.RefreshToken != tokens.RefreshToken ||
+		loaded.Scope != tokens.Scope ||
+		loaded.TokenType != tokens.TokenType {
 		t.Fatalf("Load() = %#v, %t, want %#v", loaded, found, tokens)
 	}
 	if _, found, err := store.Load("S-1-5-21-other-user"); err != nil || found {

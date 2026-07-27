@@ -24,10 +24,21 @@ describe('native transfer helper CI', () => {
     expect(source).toContain("cache-dependency-path: 'Verify/Native/transfer-helper/go.sum'");
   });
 
-  test('tests the module and builds every supported command', () => {
+  test('keeps platform-bound tests off the Linux runner', () => {
     const source = readFileSync(WORKFLOW, 'utf8');
 
+    expect(source).toContain("name: Test Windows native module");
+    expect(source).toContain("if: runner.os == 'Windows'");
     expect(source).toContain('go test ./...');
+    expect(source).toContain("name: Test portable Linux packages");
+    expect(source).toContain(
+      'go test ./cmd/yucp-local-tuf-repository ./cmd/yucp-tuf-online-repository ./cmd/yucp-tuf-root'
+    );
+  });
+
+  test('builds every supported command', () => {
+    const source = readFileSync(WORKFLOW, 'utf8');
+
     expect(source).toContain(
       'go test -tags=integrationharness ./cmd/yucp-package-broker-test-harness'
     );
