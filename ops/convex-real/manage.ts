@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -8,7 +7,6 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { open, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import {
@@ -27,7 +25,7 @@ const DEFAULT_COMMAND_TIMEOUT_MS = 300_000;
 const BACKEND_FETCH_TIMEOUT_MS = 10_000;
 const FORCE_KILL_GRACE_MS = 5_000;
 const ENV_ISOLATION_LOCK_TIMEOUT_MS = 300_000;
-const ENV_ISOLATION_STALE_MS = 600_000;
+const ENV_ISOLATION_LOCK_READY = 'READY';
 
 export interface SelfHostedConvexProfile {
   backendPort: number;
@@ -397,56 +395,163 @@ async function withSelfHostedConvexEnvFileMovedAsideUnlocked<T>(
   return result as T;
 }
 
-function processExists(pid: number): boolean {
+export function selfHostedConvexEnvLockPath(envDirectory = ROOT_DIR): string {
+  return join(resolve(envDirectory), '.orchestration', 'locks', 'convex-self-hosted-env.lock');
+}
+
+function envIsolationLockCommand(lockPath: string): {
+  command: string[];
+  env: NodeJS.ProcessEnv;
+} {
+  if (process.platform === 'linux') {
+    // util-linux flock holds one kernel lock until the helper exits.
+    // https://man7.org/linux/man-pages/man1/flock.1.html
+    return {
+      command: [
+        '/usr/bin/flock',
+        '--exclusive',
+        '--timeout',
+        String(ENV_ISOLATION_LOCK_TIMEOUT_MS / 1_000),
+        lockPath,
+        '/bin/sh',
+        '-c',
+        `printf '${ENV_ISOLATION_LOCK_READY}\\n'; cat >/dev/null`,
+      ],
+      env: { PATH: '/usr/bin:/bin' },
+    };
+  }
+  if (process.platform === 'win32') {
+    // FileShare.None makes the file handle an OS-owned exclusive lock.
+    // https://learn.microsoft.com/dotnet/api/system.io.file.open
+    const script = [
+      '$deadline = [DateTimeOffset]::UtcNow.AddMilliseconds([double]$env:YUCP_ENV_LOCK_TIMEOUT_MS)',
+      'while ($true) {',
+      '  try {',
+      "    $stream = [System.IO.File]::Open($env:YUCP_ENV_LOCK_PATH, 'OpenOrCreate', 'ReadWrite', 'None')",
+      '    break',
+      '  } catch [System.IO.IOException] {',
+      '    if ([DateTimeOffset]::UtcNow -ge $deadline) { exit 73 }',
+      '    Start-Sleep -Milliseconds 50',
+      '  }',
+      '}',
+      'try {',
+      `  [Console]::Out.WriteLine('${ENV_ISOLATION_LOCK_READY}')`,
+      '  [Console]::Out.Flush()',
+      '  [Console]::In.ReadToEnd() | Out-Null',
+      '} finally {',
+      '  $stream.Dispose()',
+      '}',
+    ].join('\n');
+    return {
+      command: [
+        join(
+          process.env.SystemRoot ?? 'C:\\Windows',
+          'System32',
+          'WindowsPowerShell',
+          'v1.0',
+          'powershell.exe'
+        ),
+        '-NoLogo',
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-Command',
+        script,
+      ],
+      env: {
+        SystemRoot: process.env.SystemRoot ?? 'C:\\Windows',
+        YUCP_ENV_LOCK_PATH: lockPath,
+        YUCP_ENV_LOCK_TIMEOUT_MS: String(ENV_ISOLATION_LOCK_TIMEOUT_MS),
+      },
+    };
+  }
+  throw new Error('Self-hosted Convex environment locking requires Linux or Windows');
+}
+
+async function waitForEnvIsolationLockReady(input: {
+  exited: Promise<number>;
+  stdout: ReadableStream<Uint8Array>;
+  terminate: () => void;
+}): Promise<void> {
+  const reader = input.stdout.getReader();
+  const decoder = new TextDecoder();
+  let output = '';
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      input.terminate();
+      reject(new Error('Timed out waiting for the self-hosted Convex environment lock'));
+    }, ENV_ISOLATION_LOCK_TIMEOUT_MS + 5_000);
+  });
+  const exited = input.exited.then((exitCode) => {
+    throw new Error(
+      `Self-hosted Convex environment lock helper exited with status ${String(exitCode)}`
+    );
+  });
+  const ready = (async () => {
+    while (output.length <= 64) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        break;
+      }
+      output += decoder.decode(chunk.value, { stream: true });
+      const newline = output.indexOf('\n');
+      if (newline >= 0) {
+        if (output.slice(0, newline).trim() !== ENV_ISOLATION_LOCK_READY) {
+          throw new Error('Self-hosted Convex environment lock helper returned invalid output');
+        }
+        return;
+      }
+    }
+    throw new Error('Self-hosted Convex environment lock helper returned no readiness result');
+  })();
   try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
+    await Promise.race([ready, exited, timedOut]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    reader.releaseLock();
   }
 }
 
 async function acquireEnvIsolationLock(envDirectory: string): Promise<() => Promise<void>> {
-  const lockPath = join(envDirectory, '.convex-self-hosted-env.lock');
-  const nonce = randomUUID();
-  const deadline = Date.now() + ENV_ISOLATION_LOCK_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    try {
-      const handle = await open(lockPath, 'wx', 0o600);
-      await handle.writeFile(`${JSON.stringify({ nonce, pid: process.pid })}\n`, 'utf8');
-      await handle.sync();
-      return async () => {
-        await handle.close();
-        const lock = JSON.parse(await readFile(lockPath, 'utf8')) as { nonce?: unknown };
-        if (lock.nonce !== nonce) {
-          throw new Error('Self-hosted Convex environment lock ownership changed');
-        }
-        await rm(lockPath);
-      };
-    } catch (error) {
-      if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'EEXIST') {
-        throw error;
-      }
-      let removeStaleLock = false;
-      try {
-        const metadata = await stat(lockPath);
-        if (Date.now() - metadata.mtimeMs > ENV_ISOLATION_STALE_MS) {
-          removeStaleLock = true;
-        } else {
-          const lock = JSON.parse(await readFile(lockPath, 'utf8')) as { pid?: unknown };
-          removeStaleLock = typeof lock.pid === 'number' && !processExists(lock.pid);
-        }
-      } catch {
-        removeStaleLock = false;
-      }
-      if (removeStaleLock) {
-        await rm(lockPath, { force: true });
-        continue;
-      }
-      await Bun.sleep(50);
-    }
+  const lockPath = selfHostedConvexEnvLockPath(envDirectory);
+  mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 });
+  const spec = envIsolationLockCommand(lockPath);
+  const child = Bun.spawn(spec.command, {
+    env: spec.env,
+    stderr: 'ignore',
+    stdin: 'pipe',
+    stdout: 'pipe',
+    windowsHide: true,
+  });
+  try {
+    await waitForEnvIsolationLockReady({
+      exited: child.exited,
+      stdout: child.stdout,
+      terminate: () => child.kill(),
+    });
+  } catch (error) {
+    child.kill();
+    await child.exited.catch(() => undefined);
+    throw error;
   }
-  throw new Error('Timed out waiting for the self-hosted Convex environment lock');
+  let released = false;
+  return async () => {
+    if (released) {
+      throw new Error('Self-hosted Convex environment lock was already released');
+    }
+    released = true;
+    child.stdin.end();
+    const exitCode = await child.exited;
+    if (exitCode !== 0) {
+      throw new Error(
+        `Self-hosted Convex environment lock helper exited with status ${String(exitCode)}`
+      );
+    }
+  };
 }
 
 export async function withSelfHostedConvexEnvFileMovedAside<T>(

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -9,9 +10,10 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import {
   selfHostedConvexEnv,
+  selfHostedConvexEnvLockPath,
   withSelfHostedConvexEnvFileMovedAside,
   writeRealBackendEnvFile,
 } from './manage';
@@ -118,7 +120,7 @@ describe('self-hosted Convex environment isolation', () => {
 
       expect(maximumActiveOperations).toBe(1);
       expect(readFileSync(envFile, 'utf8')).toBe(original);
-      expect(readdirSync(directory)).toEqual(['.env.local']);
+      expect(readdirSync(directory)).toEqual(['.env.local', '.orchestration']);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -126,7 +128,8 @@ describe('self-hosted Convex environment isolation', () => {
 
   it('recovers an old lock when its owner was interrupted before writing ownership', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'yucp-convex-real-env-'));
-    const lockPath = join(directory, '.convex-self-hosted-env.lock');
+    const lockPath = selfHostedConvexEnvLockPath(directory);
+    mkdirSync(dirname(lockPath), { recursive: true });
     writeFileSync(lockPath, '');
     const oldTimestamp = new Date(Date.now() - 11 * 60_000);
     utimesSync(lockPath, oldTimestamp, oldTimestamp);
@@ -139,10 +142,44 @@ describe('self-hosted Convex environment isolation', () => {
         Bun.sleep(250).then(() => 'timed-out' as const),
       ]);
       expect(outcome).toBe('completed');
-      expect(existsSync(lockPath)).toBe(false);
+      await expect(
+        withSelfHostedConvexEnvFileMovedAside(async () => undefined, directory)
+      ).resolves.toBeUndefined();
     } finally {
       rmSync(lockPath, { force: true });
       await isolation?.catch(() => undefined);
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('serializes concurrent recovery without deleting a replacement owner lock', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'yucp-convex-real-env-'));
+    const lockPath = selfHostedConvexEnvLockPath(directory);
+    mkdirSync(dirname(lockPath), { recursive: true });
+    writeFileSync(lockPath, '');
+    const oldTimestamp = new Date(Date.now() - 11 * 60_000);
+    utimesSync(lockPath, oldTimestamp, oldTimestamp);
+    let activeOperations = 0;
+    let maximumActiveOperations = 0;
+
+    try {
+      const outcomes = await Promise.allSettled(
+        Array.from({ length: 16 }, () =>
+          withSelfHostedConvexEnvFileMovedAside(async () => {
+            activeOperations += 1;
+            maximumActiveOperations = Math.max(maximumActiveOperations, activeOperations);
+            await Bun.sleep(25);
+            activeOperations -= 1;
+          }, directory)
+        )
+      );
+
+      expect(outcomes.every((outcome) => outcome.status === 'fulfilled')).toBeTrue();
+      expect(maximumActiveOperations).toBe(1);
+      await expect(
+        withSelfHostedConvexEnvFileMovedAside(async () => undefined, directory)
+      ).resolves.toBeUndefined();
+    } finally {
       rmSync(directory, { recursive: true, force: true });
     }
   });
