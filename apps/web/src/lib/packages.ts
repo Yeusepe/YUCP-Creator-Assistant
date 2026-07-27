@@ -225,10 +225,22 @@ function compareProviderProducts(
 export function groupCreatorPackagePickerProducts(
   products: ReadonlyArray<CreatorPackageProductSummary>
 ): CreatorPackagePickerProduct[] {
-  return [...products].sort(compareProviderProducts).map((product) => ({
-    identityKey: product.packageId ? `package:${product.packageId}` : `catalog:${product._id}`,
-    products: [product],
-  }));
+  const grouped = new Map<string, CreatorPackagePickerProduct>();
+  for (const product of [...products].sort(compareProviderProducts)) {
+    const identityKey = product.packageId
+      ? `package:${product.packageId}`
+      : `catalog:${product._id}`;
+    const existing = grouped.get(identityKey);
+    if (existing) {
+      existing.products.push(product);
+    } else {
+      grouped.set(identityKey, {
+        identityKey,
+        products: [product],
+      });
+    }
+  }
+  return [...grouped.values()];
 }
 
 export async function listCreatorPackagePickerProducts(): Promise<CreatorPackagePickerProduct[]> {

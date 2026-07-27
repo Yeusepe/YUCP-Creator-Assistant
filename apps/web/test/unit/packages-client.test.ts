@@ -93,7 +93,7 @@ describe('creator package client pagination', () => {
     ]);
   });
 
-  it('groups matching cross-store products before the first upload', async () => {
+  it('keeps matching cross-store products separate until explicit association', async () => {
     const sharedFields = {
       aliases: ['Shared display label'],
       catalogTiers: [],
@@ -131,11 +131,10 @@ describe('creator package client pagination', () => {
 
     const pickerProducts = await listCreatorPackagePickerProducts();
 
-    expect(pickerProducts).toHaveLength(1);
-    expect(pickerProducts[0]?.identityKey).toBe('alias:shared-display-label');
-    expect(pickerProducts[0]?.products.map((product) => product._id)).toEqual([
-      'catalog_product_distinct_a',
-      'catalog_product_distinct_b',
+    expect(pickerProducts).toHaveLength(2);
+    expect(pickerProducts.map((entry) => entry.identityKey)).toEqual([
+      'catalog:catalog_product_distinct_a',
+      'catalog:catalog_product_distinct_b',
     ]);
   });
 
