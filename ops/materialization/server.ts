@@ -18,6 +18,7 @@ const UPLOAD_TICKET_PATH = '/v2/internal/materialization-renditions/upload-ticke
 const COMPLETE_PATH = '/v2/internal/materialization-renditions/complete';
 const CREATE_JOB_PATH = '/v2/internal/materialization-jobs/create';
 const CLAIM_JOB_PATH = '/v2/internal/materialization-jobs/claim';
+const RENEW_JOB_PATH = '/v2/internal/materialization-jobs/renew';
 const STATUS_JOB_PATH = '/v2/internal/materialization-jobs/status';
 const FAIL_JOB_PATH = '/v2/internal/materialization-jobs/fail';
 const ATTRIBUTION_CANDIDATES_PATH = '/v2/internal/materialization-attribution/candidates';
@@ -31,6 +32,7 @@ type PrepareRenditionInput = Parameters<MaterializationBroker['prepareRenditionU
 type CompleteRenditionInput = Parameters<MaterializationBroker['completeRendition']>[0];
 type CreateInstallJobInput = Parameters<MaterializationBroker['createInstallJob']>[0];
 type ClaimJobInput = Parameters<MaterializationBroker['claimNextJob']>[0];
+type RenewJobInput = Parameters<MaterializationBroker['renewClaimLease']>[0];
 type IssueCapabilityInput = Parameters<MaterializationBroker['issueCapability']>[0];
 type FailCapabilityJobInput = Parameters<MaterializationBroker['failCapabilityJob']>[0];
 type GetJobStatusInput = Parameters<MaterializationBroker['getJobStatus']>[0];
@@ -49,6 +51,7 @@ type MaterializationControlBroker = {
     input: Parameters<MaterializationBroker['listAttributionCandidates']>[0]
   ) => ReturnType<MaterializationBroker['listAttributionCandidates']>;
   prepareRenditionUpload(input: PrepareRenditionInput): Promise<PreparedRenditionUpload>;
+  renewClaimLease(input: RenewJobInput): ReturnType<MaterializationBroker['renewClaimLease']>;
 };
 
 type MaterializationControlPlaneEvent = {
@@ -60,6 +63,7 @@ type MaterializationControlPlaneEvent = {
     | 'materialization.job.claim'
     | 'materialization.job.create'
     | 'materialization.job.fail'
+    | 'materialization.job.renew'
     | 'materialization.job.status'
     | 'materialization.rendition.complete'
     | 'materialization.rendition.upload_ticket';
@@ -343,6 +347,7 @@ export function createMaterializationControlPlaneHandler(
     [COMPLETE_PATH, publicRouteUrl(config.publicBaseUrl, COMPLETE_PATH)],
     [CREATE_JOB_PATH, publicRouteUrl(config.publicBaseUrl, CREATE_JOB_PATH)],
     [CLAIM_JOB_PATH, publicRouteUrl(config.publicBaseUrl, CLAIM_JOB_PATH)],
+    [RENEW_JOB_PATH, publicRouteUrl(config.publicBaseUrl, RENEW_JOB_PATH)],
     [STATUS_JOB_PATH, publicRouteUrl(config.publicBaseUrl, STATUS_JOB_PATH)],
     [FAIL_JOB_PATH, publicRouteUrl(config.publicBaseUrl, FAIL_JOB_PATH)],
     [
@@ -365,15 +370,17 @@ export function createMaterializationControlPlaneHandler(
           ? 'materialization.attribution.candidates'
           : url.pathname === CLAIM_JOB_PATH
             ? 'materialization.job.claim'
-            : url.pathname === STATUS_JOB_PATH
-              ? 'materialization.job.status'
-              : url.pathname === FAIL_JOB_PATH
-                ? 'materialization.job.fail'
-                : url.pathname === UPLOAD_TICKET_PATH
-                  ? 'materialization.rendition.upload_ticket'
-                  : url.pathname === COMPLETE_PATH
-                    ? 'materialization.rendition.complete'
-                    : 'materialization.capability.consume';
+            : url.pathname === RENEW_JOB_PATH
+              ? 'materialization.job.renew'
+              : url.pathname === STATUS_JOB_PATH
+                ? 'materialization.job.status'
+                : url.pathname === FAIL_JOB_PATH
+                  ? 'materialization.job.fail'
+                  : url.pathname === UPLOAD_TICKET_PATH
+                    ? 'materialization.rendition.upload_ticket'
+                    : url.pathname === COMPLETE_PATH
+                      ? 'materialization.rendition.complete'
+                      : 'materialization.capability.consume';
     const emit = (status: 'accepted' | 'rejected', errorCode?: string) => {
       config.onEvent?.({
         durationMs: performance.now() - startedAt,
@@ -539,6 +546,27 @@ export function createMaterializationControlPlaneHandler(
           traceId
         );
       }
+      if (url.pathname === RENEW_JOB_PATH) {
+        requireExactKeys(body, ['jobId', 'leaseDurationMs', 'leaseGeneration', 'materializerId']);
+        const renewed = await config.broker.renewClaimLease({
+          jobId: requireString(body.jobId, 'job_id', 128),
+          leaseDurationMs: requireInteger(body.leaseDurationMs, 'lease_duration_ms', 1),
+          leaseGeneration: requireInteger(body.leaseGeneration, 'lease_generation', 1),
+          leaseOwner: requireString(body.materializerId, 'materializer_id'),
+          now: requestNow,
+        });
+        emit('accepted');
+        return noStoreJson(
+          {
+            jobId: renewed.jobId,
+            leaseExpiresAt: renewed.leaseExpiresAt.toISOString(),
+            leaseGeneration: renewed.leaseGeneration,
+            status: renewed.status,
+          },
+          200,
+          traceId
+        );
+      }
 
       const capability = requireBase64Url(
         body.capability,
@@ -672,15 +700,17 @@ export function createMaterializationControlPlaneHandler(
             ? 'materialization_attribution_lookup_rejected'
             : url.pathname === CLAIM_JOB_PATH
               ? 'materialization_claim_rejected'
-              : url.pathname === STATUS_JOB_PATH
-                ? 'materialization_status_rejected'
-                : url.pathname === FAIL_JOB_PATH
-                  ? 'materialization_failure_rejected'
-                  : url.pathname === CONSUME_PATH
-                    ? 'capability_rejected'
-                    : url.pathname === UPLOAD_TICKET_PATH
-                      ? 'rendition_upload_rejected'
-                      : 'rendition_completion_rejected');
+              : url.pathname === RENEW_JOB_PATH
+                ? 'materialization_renewal_rejected'
+                : url.pathname === STATUS_JOB_PATH
+                  ? 'materialization_status_rejected'
+                  : url.pathname === FAIL_JOB_PATH
+                    ? 'materialization_failure_rejected'
+                    : url.pathname === CONSUME_PATH
+                      ? 'capability_rejected'
+                      : url.pathname === UPLOAD_TICKET_PATH
+                        ? 'rendition_upload_rejected'
+                        : 'rendition_completion_rejected');
       emit('rejected', errorCode);
       return noStoreJson({ error: errorCode }, 403, traceId);
     }

@@ -84,6 +84,20 @@ describe('ASD-STE100 package documentation gate', () => {
     expect(lintMarkdown('docs/test.md', markdown)).toEqual([]);
   });
 
+  it('ignores multiline HTML comments', () => {
+    const markdown = [
+      '# Test',
+      '',
+      '<!--',
+      "Do not report this hidden sentence; don't report its punctuation.",
+      '-->',
+      '',
+      'The visible sentence is compliant.',
+    ].join('\n');
+
+    expect(lintMarkdown('docs/test.md', markdown)).toEqual([]);
+  });
+
   it('reports missing, extra, and duplicate work items', () => {
     const plan = ['#### P0-00: First', '#### P0-01: Second', '#### P0-01: Duplicate'].join('\n');
     const progress = ['| P0-00 | READY |', '| P0-02 | NOT STARTED |'].join('\n');

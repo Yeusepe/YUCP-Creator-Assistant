@@ -343,6 +343,19 @@ describe.serial('PostgreSQL materialization capability broker', () => {
     if (claimed.status !== 'claimed') {
       throw new Error('Expected the materialization job to be claimed');
     }
+    const renewed = await broker.renewClaimLease({
+      jobId: claimed.jobId,
+      leaseDurationMs: 600_000,
+      leaseGeneration: claimed.leaseGeneration,
+      leaseOwner: 'data-node-1',
+      now: new Date((nowSeconds + 120) * 1_000),
+    });
+    expect(renewed).toEqual({
+      jobId: 'job-1',
+      leaseExpiresAt: new Date((nowSeconds + 720) * 1_000),
+      leaseGeneration: 1,
+      status: 'renewed',
+    });
     const signed = await broker.issueCapability({
       jobId: claimed.jobId,
       keyId: capabilityKeyId,

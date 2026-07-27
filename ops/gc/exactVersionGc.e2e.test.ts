@@ -1,6 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { createHash } from 'node:crypto';
-import { Catalog, openCatalogDatabase, runCatalogMigrations } from '../catalog';
+import { createHash, randomUUID } from 'node:crypto';
+import {
+  Catalog,
+  openCatalogDatabase,
+  runCatalogMigrations,
+  type StorageObjectVersion,
+  TufRepositoryCatalog,
+} from '../catalog';
 import type { CatalogDatabase } from '../catalog/database';
 import { ExactStorageCatalog } from '../catalog/exactStorageCatalog';
 import { StorageGcCatalog } from '../catalog/storageGcCatalog';
@@ -139,6 +145,75 @@ describe.serial('exact-version garbage collection', () => {
         role: 'metadata',
       })
     ).toHaveLength(1);
+  }, 180_000);
+
+  it('preserves every object in a published TUF repository', async () => {
+    const activeHarness = requireHarness();
+    const activeSql = requireSql();
+    const exactCatalog = new ExactStorageCatalog(activeSql);
+    const gcCatalog = new StorageGcCatalog(activeSql);
+    const tufCatalog = new TufRepositoryCatalog(activeSql);
+    const storage = new ExpiredRetentionStorage({
+      metadata: activeHarness.buckets.metadata,
+    });
+    const durableStorage = new DurableExactStorage(exactCatalog, storage);
+    const publication = await tufCatalog.reservePublication({
+      idempotencyKey: `gc-tuf-publication-${randomUUID()}`,
+      repositoryId: 'package-installer-gc',
+      rootVersion: 1,
+      targetPaths: ['targets/yucp-package-broker.exe'],
+    });
+    const objects: StorageObjectVersion[] = [];
+
+    for (const repositoryPath of publication.expectedPaths) {
+      const body = new TextEncoder().encode(`published TUF object ${repositoryPath}`);
+      const writeInput = {
+        body,
+        contentType: 'application/octet-stream',
+        idempotencyKey: `gc-tuf:${publication.id}:${repositoryPath}`,
+        objectKey: `v2/metadata/tuf/package-installer-gc/${repositoryPath}`,
+        ownerId: publication.id,
+        ownerKind: 'maintenance' as const,
+        storageRole: 'metadata' as const,
+      };
+      const object =
+        repositoryPath === 'metadata/timestamp.json'
+          ? await durableStorage.putVersioned(writeInput)
+          : await durableStorage.putImmutable(writeInput);
+      await tufCatalog.recordObject({
+        object,
+        publicationId: publication.id,
+        repositoryPath,
+      });
+      objects.push(object);
+    }
+    await tufCatalog.markPublished({ publicationId: publication.id });
+
+    const first = await runExactVersionGarbageCollection({
+      catalog: gcCatalog,
+      storage,
+    });
+    const second = await runExactVersionGarbageCollection({
+      catalog: gcCatalog,
+      storage,
+    });
+    const candidates = await activeSql<{ object_version_id: string }[]>`
+      SELECT object_version_id
+      FROM storage_gc_candidates
+      WHERE object_version_id IN ${activeSql(objects.map((object) => object.id))}
+    `;
+
+    expect(first.deletedObjects).toBe(0);
+    expect(second.deletedObjects).toBe(0);
+    expect(Array.from(candidates)).toEqual([]);
+    for (const object of objects) {
+      expect(
+        await storage.listExactVersions({
+          objectKey: object.objectKey,
+          role: 'metadata',
+        })
+      ).toHaveLength(1);
+    }
   }, 180_000);
 
   it('requires two generations and preserves shared and unrelated objects', async () => {

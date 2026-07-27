@@ -11,6 +11,14 @@ ALTER TABLE package_versions
   ADD COLUMN logical_files int,
   ADD COLUMN protected_files jsonb;
 
+UPDATE package_versions
+SET
+  state = 'PROMOTING',
+  attempts = 0,
+  next_attempt_at = NULL,
+  updated_at = clock_timestamp()
+WHERE state = 'READY';
+
 ALTER TABLE package_versions
   ADD CONSTRAINT package_versions_v4_sha256_check CHECK (
     (common_root IS NULL OR common_root ~ '^[0-9a-f]{64}$')

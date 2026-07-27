@@ -166,7 +166,6 @@ export function collectProgramDocumentPaths(root: string): string[] {
 
 function stripMarkdown(text: string): string {
   return text
-    .replace(/<!--.*?-->/gu, ' ')
     .replace(/!\[([^\]]*)\]\([^)]*\)/gu, '$1')
     .replace(/\[([^\]]+)\]\([^)]*\)/gu, '$1')
     .replace(/<https?:\/\/[^>]+>/giu, ' ')
@@ -254,7 +253,9 @@ function pushPunctuationViolations(
 
 export function lintMarkdown(file: string, markdown: string): DocumentationViolation[] {
   const violations: DocumentationViolation[] = [];
-  const lines = markdown.split(/\r?\n/u);
+  const lines = markdown
+    .replace(/<!--.*?-->/gsu, (comment) => comment.replace(/[^\r\n]/gu, ' '))
+    .split(/\r?\n/u);
   let codeFence: '`' | '~' | undefined;
 
   for (const [index, sourceLine] of lines.entries()) {

@@ -121,7 +121,7 @@
     "test:convex:real": "bun run ops/convex-real/manage.ts test-signals && bun test --timeout 60000 --max-concurrency 1 ./ops/convex-real/real-backend-smoke.test.ts ./ops/convex-real/real-backend-suite.test.ts",
     "test:convex:real:down": "bun run ops/convex-real/manage.ts down",
     "test:convex:images:freshness": "bun run ops/convex-real/check-image-freshness.ts",
-    "test:flow:e2e:run": "bun test --timeout 300000 --max-concurrency 1 ./apps/api/test/e2e/buyer-delivery-flow.e2e.test.ts",
+    "test:flow:e2e:run": "bun run test:tuf-publisher:e2e && bun run test:materialization:e2e && bun run test:delivery:e2e",
     "test:flow:e2e": "bun run apps/api/test/e2e/support/runBuyerDeliveryFlow.ts",
     "test:e2e:flows:run": "bun test --timeout 60000 --max-concurrency 1 ./apps/api/test/e2e/user-journeys.test.ts",
     "test:e2e:flows": "bun run apps/api/test/e2e/support/runE2EFlows.ts",

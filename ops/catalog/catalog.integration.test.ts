@@ -1134,6 +1134,71 @@ describe.serial('PostgreSQL catalog integration', () => {
     }
   });
 
+  it('migration-v4: transitions legacy ready rows before enforcing the new contract', async () => {
+    const adminDatabase = requireSql();
+    if (!databaseUrl) {
+      throw new Error('Catalog integration database URL is unavailable');
+    }
+    const legacyDatabaseName = `catalog_legacy_${randomUUID().replaceAll('-', '')}`;
+    const legacyDatabaseUrl = new URL(databaseUrl);
+    legacyDatabaseUrl.pathname = `/${legacyDatabaseName}`;
+    const migrationDirectory = await mkdtemp(join(tmpdir(), 'yucp-catalog-legacy-migrations-'));
+    const catalogMigrationsPath = fileURLToPath(new URL('./migrations/', import.meta.url));
+    let legacyDatabase: CatalogDatabase | undefined;
+
+    try {
+      await adminDatabase.unsafe(`CREATE DATABASE "${legacyDatabaseName}"`);
+      legacyDatabase = openCatalogDatabase(legacyDatabaseUrl.toString());
+      const initialMigrations = (await readdir(catalogMigrationsPath))
+        .filter((fileName) => fileName <= '0006_add_materialization_renditions.sql')
+        .sort();
+      await Promise.all(
+        initialMigrations.map((fileName) =>
+          copyFile(join(catalogMigrationsPath, fileName), join(migrationDirectory, fileName))
+        )
+      );
+      await runCatalogMigrations(legacyDatabase, { migrationsPath: migrationDirectory });
+      const legacyVersionId = randomUUID();
+      await legacyDatabase`
+        INSERT INTO package_versions (
+          id,
+          package_id,
+          version,
+          source_format,
+          release_root,
+          assembly_object_id,
+          state
+        )
+        VALUES (
+          ${legacyVersionId},
+          'club.yucp.legacy-ready',
+          '1.0.0',
+          'CANONICAL_TARGZ_V1',
+          ${'a'.repeat(64)},
+          's3:legacy-ready.caibx',
+          'READY'
+        )
+      `;
+
+      await copyFile(
+        join(catalogMigrationsPath, '0007_add_logical_release_v4.sql'),
+        join(migrationDirectory, '0007_add_logical_release_v4.sql')
+      );
+      await runCatalogMigrations(legacyDatabase, { migrationsPath: migrationDirectory });
+
+      const rows = await legacyDatabase<{ state: string }[]>`
+        SELECT state
+        FROM package_versions
+        WHERE id = ${legacyVersionId}
+      `;
+      expect(rows[0]?.state).toBe('PROMOTING');
+    } finally {
+      await legacyDatabase?.end({ timeout: 1 });
+      await adminDatabase.unsafe(`DROP DATABASE IF EXISTS "${legacyDatabaseName}" WITH (FORCE)`);
+      await rm(migrationDirectory, { recursive: true, force: true });
+    }
+  });
+
   it('happy-path: persists the full lifecycle and every legal transition edge', async () => {
     const activeCatalog = requireCatalog();
     const database = requireSql();

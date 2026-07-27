@@ -78,6 +78,9 @@ describe('materialization control-plane HTTP boundary', () => {
         prepareRenditionUpload: async () => {
           throw new Error('must not run');
         },
+        renewClaimLease: async () => {
+          throw new Error('must not run');
+        },
         failCapabilityJob: async () => {
           throw new Error('must not run');
         },
@@ -175,6 +178,9 @@ describe('materialization control-plane HTTP boundary', () => {
         prepareRenditionUpload: async () => {
           throw new Error('must not run');
         },
+        renewClaimLease: async () => {
+          throw new Error('must not run');
+        },
         failCapabilityJob: async () => {
           throw new Error('must not run');
         },
@@ -255,6 +261,9 @@ describe('materialization control-plane HTTP boundary', () => {
             },
             writeIntentId: '018f8c03-3880-7d40-a8d5-b190a64141cc',
           };
+        },
+        renewClaimLease: async () => {
+          throw new Error('must not run');
         },
         failCapabilityJob: async () => {
           throw new Error('must not run');
@@ -356,6 +365,7 @@ describe('materialization control-plane HTTP boundary', () => {
   it('separates API job control from Linux materializer work claims', async () => {
     const createEndpoint = 'https://control.example.test/v2/internal/materialization-jobs/create';
     const claimEndpoint = 'https://control.example.test/v2/internal/materialization-jobs/claim';
+    const renewEndpoint = 'https://control.example.test/v2/internal/materialization-jobs/renew';
     const statusEndpoint = 'https://control.example.test/v2/internal/materialization-jobs/status';
     const attributionEndpoint =
       'https://control.example.test/v2/internal/materialization-attribution/candidates';
@@ -408,6 +418,15 @@ describe('materialization control-plane HTTP boundary', () => {
         },
         prepareRenditionUpload: async () => {
           throw new Error('must not run');
+        },
+        renewClaimLease: async (input) => {
+          calls.push(`renew:${input.leaseOwner}:${input.leaseGeneration}`);
+          return {
+            jobId: input.jobId,
+            leaseExpiresAt: new Date((now + 600) * 1_000),
+            leaseGeneration: input.leaseGeneration,
+            status: 'renewed',
+          };
         },
         listAttributionCandidates: async (input) => {
           calls.push(
@@ -516,6 +535,28 @@ describe('materialization control-plane HTTP boundary', () => {
       leaseGeneration: 3,
       status: 'claimed',
     });
+    const renewed = await handler(
+      new Request(renewEndpoint, {
+        body: JSON.stringify({
+          jobId: 'job-1',
+          leaseDurationMs: 600_000,
+          leaseGeneration: 3,
+          materializerId: 'data-node-1',
+        }),
+        headers: {
+          Authorization: `Bearer ${materializerSecret}`,
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      })
+    );
+    expect(renewed.status).toBe(200);
+    expect(await renewed.json()).toEqual({
+      jobId: 'job-1',
+      leaseExpiresAt: new Date((now + 600) * 1_000).toISOString(),
+      leaseGeneration: 3,
+      status: 'renewed',
+    });
 
     const status = await handler(
       new Request(statusEndpoint, {
@@ -592,6 +633,7 @@ describe('materialization control-plane HTTP boundary', () => {
       'create:buyer-1:png-dct-qim-v2',
       'claim:data-node-1',
       'issue:data-node-1:3',
+      'renew:data-node-1:3',
       'attribution:creator-1:product-1:128:cursor-1',
       'fail:data-node-1:proof-fail-1',
     ]);
