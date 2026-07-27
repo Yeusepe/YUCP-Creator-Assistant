@@ -12,7 +12,7 @@ import {
 import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId';
 import { waitForPostgres } from '../testing/postgresReadiness';
 import type { MaterializationKeyBrokerPort } from './keyBrokerClient';
-import { MaterializationBroker } from './materializationBroker';
+import { MaterializationBroker, type MaterializationClaimResult } from './materializationBroker';
 import type { RenditionStoragePort } from './renditionStorage';
 
 const postgresImage =
@@ -999,6 +999,259 @@ describe.serial('PostgreSQL materialization capability broker', () => {
     });
   }, 20_000);
 
+  it('isolates an unavailable expired source without blocking the next healthy job', async () => {
+    const activeSql = requireSql();
+    const broker = createBroker();
+    const healthySourceVersionId = randomUUID();
+    await activeSql`
+      INSERT INTO package_versions (
+        id,
+        package_id,
+        version,
+        source_format,
+        release_root,
+        assembly_object_id,
+        common_root,
+        protected_source_root,
+        binding_root,
+        manifest_sha256,
+        active_content_digest,
+        active_policy_version,
+        protection_policy_id,
+        protection_policy_digest,
+        logical_bytes,
+        logical_files,
+        protected_files,
+        state
+      )
+      SELECT
+        ${healthySourceVersionId},
+        package_id,
+        '1.0.1',
+        source_format,
+        release_root,
+        assembly_object_id,
+        common_root,
+        protected_source_root,
+        binding_root,
+        manifest_sha256,
+        active_content_digest,
+        active_policy_version,
+        protection_policy_id,
+        protection_policy_digest,
+        logical_bytes,
+        logical_files,
+        protected_files,
+        state
+      FROM package_versions
+      WHERE id = ${sourceVersionId}
+    `;
+    const base = {
+      bindingRoot: new Uint8Array(32).fill(0x23),
+      buyerId: 'buyer-queue-fence',
+      creatorId: 'creator-queue-fence',
+      keyEpoch: 7,
+      materializationAlgorithm: 'png-dct-qim-v2',
+      outputFormat: 'zip' as const,
+      pluginVersion: 'png-plugin-2',
+      productId: 'com.yucp.materialization-test',
+      protectedSourceRoot: new Uint8Array(32).fill(0x22),
+      releaseRoot: new Uint8Array(32).fill(0x11),
+      sourceLogicalBytes: 4_096,
+      sourceLogicalFiles: 2,
+      sourceManifestSha256: new Uint8Array(32).fill(0x88),
+    };
+    await broker.createInstallJob({
+      ...base,
+      grantJti: 'grant-unavailable-queue-fence',
+      id: 'job-unavailable-queue-fence',
+      sourceVersionId,
+      traceId: 'trace-unavailable-queue-fence',
+    });
+    const firstClaim = await broker.claimNextJob({
+      leaseDurationMs: 600_000,
+      leaseOwner: 'data-node-unavailable-queue-fence',
+      now: new Date(nowSeconds * 1_000),
+    });
+    if (firstClaim.status !== 'claimed') {
+      throw new Error('Expected the unavailable queue-fence job to be claimed first');
+    }
+    await broker.createInstallJob({
+      ...base,
+      grantJti: 'grant-healthy-queue-fence',
+      id: 'job-healthy-queue-fence',
+      sourceVersionId: healthySourceVersionId,
+      traceId: 'trace-healthy-queue-fence',
+    });
+
+    const objectId = randomUUID();
+    const objectDigest = '73'.repeat(32);
+    await activeSql`
+      INSERT INTO storage_object_versions (
+        id,
+        storage_role,
+        bucket_name,
+        object_key,
+        provider_version,
+        file_identifier,
+        sha256,
+        bytes,
+        content_type,
+        verification_state,
+        verified_at
+      )
+      VALUES (
+        ${objectId},
+        'protected',
+        'protected-test',
+        ${`v2/protected/chunks/${objectDigest}`},
+        ${`provider-${objectId}`},
+        ${`file-${objectId}`},
+        decode(${objectDigest}, 'hex'),
+        32,
+        'application/octet-stream',
+        'VERIFIED',
+        clock_timestamp()
+      )
+    `;
+    await activeSql`
+      INSERT INTO package_release_storage_objects (
+        package_version_id,
+        logical_kind,
+        logical_digest,
+        object_version_id
+      )
+      VALUES (
+        ${sourceVersionId},
+        'chunk',
+        decode(${objectDigest}, 'hex'),
+        ${objectId}
+      )
+    `;
+    const generations = await activeSql<{ id: number | string }[]>`
+      INSERT INTO storage_gc_generations (
+        state,
+        started_at,
+        completed_at
+      )
+      VALUES (
+        'COMPLETED',
+        to_timestamp(${nowSeconds + 598}),
+        to_timestamp(${nowSeconds + 599})
+      )
+      RETURNING id
+    `;
+    const generationId = generations[0]?.id;
+    if (generationId === undefined) {
+      throw new Error('Expected one unavailable queue-fence GC generation');
+    }
+    await activeSql`
+      INSERT INTO storage_gc_candidates (
+        object_version_id,
+        first_generation_id,
+        last_generation_id,
+        consecutive_generations,
+        state,
+        first_observed_at,
+        last_observed_at
+      )
+      VALUES (
+        ${objectId},
+        ${generationId},
+        ${generationId},
+        2,
+        'DELETING',
+        to_timestamp(${nowSeconds + 598}),
+        to_timestamp(${nowSeconds + 599})
+      )
+    `;
+    await activeSql`
+      UPDATE storage_gc_release_pins pin
+      SET expires_at = to_timestamp(${nowSeconds + 599})
+      FROM materialization_jobs job
+      WHERE job.id = 'job-unavailable-queue-fence'
+        AND job.storage_gc_pin_id = pin.id
+    `;
+
+    let claimError: unknown;
+    let secondClaim: MaterializationClaimResult | undefined;
+    try {
+      secondClaim = await broker.claimNextJob({
+        leaseDurationMs: 600_000,
+        leaseOwner: 'data-node-healthy-queue-fence',
+        now: new Date((nowSeconds + 601) * 1_000),
+      });
+    } catch (error) {
+      claimError = error;
+    }
+    const jobStates = await activeSql<
+      {
+        id: string;
+        lastErrorCode: string | null;
+        leaseGeneration: number;
+        leaseOwner: string | null;
+        pinReleased: boolean;
+        state: string;
+        traceId: string;
+      }[]
+    >`
+      SELECT
+        job.id,
+        job.last_error_code AS "lastErrorCode",
+        job.lease_generation AS "leaseGeneration",
+        job.lease_owner AS "leaseOwner",
+        pin.released_at IS NOT NULL AS "pinReleased",
+        job.state,
+        job.trace_id AS "traceId"
+      FROM materialization_jobs job
+      JOIN storage_gc_release_pins pin ON pin.id = job.storage_gc_pin_id
+      WHERE job.id IN ('job-unavailable-queue-fence', 'job-healthy-queue-fence')
+      ORDER BY job.id
+    `;
+    const unavailableStatus = await broker.getJobStatus({
+      grantJti: 'grant-unavailable-queue-fence',
+      jobId: 'job-unavailable-queue-fence',
+    });
+
+    await activeSql`DELETE FROM storage_gc_candidates WHERE object_version_id = ${objectId}`;
+    await activeSql`
+      DELETE FROM package_release_storage_objects
+      WHERE object_version_id = ${objectId}
+    `;
+    await activeSql`DELETE FROM storage_object_versions WHERE id = ${objectId}`;
+
+    expect(claimError).toBeUndefined();
+    expect(secondClaim).toMatchObject({
+      jobId: 'job-healthy-queue-fence',
+      leaseGeneration: 1,
+      status: 'claimed',
+    });
+    expect(unavailableStatus).toEqual({
+      errorCode: 'MATERIALIZATION_SOURCE_UNAVAILABLE',
+      status: 'failed',
+    });
+    expect([...jobStates]).toEqual([
+      {
+        id: 'job-healthy-queue-fence',
+        lastErrorCode: null,
+        leaseGeneration: 1,
+        leaseOwner: 'data-node-healthy-queue-fence',
+        pinReleased: false,
+        state: 'MATERIALIZING',
+        traceId: 'trace-healthy-queue-fence',
+      },
+      {
+        id: 'job-unavailable-queue-fence',
+        lastErrorCode: 'MATERIALIZATION_SOURCE_UNAVAILABLE',
+        leaseGeneration: 1,
+        leaseOwner: null,
+        pinReleased: true,
+        state: 'FAILED',
+        traceId: 'trace-unavailable-queue-fence',
+      },
+    ]);
+  });
+
   it('does not revive an expired storage pin after its exact object starts deletion', async () => {
     const activeSql = requireSql();
     const broker = createBroker();
@@ -1158,7 +1411,7 @@ describe.serial('PostgreSQL materialization capability broker', () => {
     expect([...renewalFence]).toEqual([{ leaseUnchanged: true, pinUnchanged: true }]);
   });
 
-  it('does not revive an expired job pin while reclaiming materialization work', async () => {
+  it('isolates an expired job without reviving its unavailable source pin', async () => {
     const activeSql = requireSql();
     const broker = createBroker();
     const objectId = randomUUID();
@@ -1277,30 +1530,27 @@ describe.serial('PostgreSQL materialization capability broker', () => {
         AND job.storage_gc_pin_id = pin.id
     `;
 
-    let claimError: unknown;
-    try {
-      await broker.claimNextJob({
-        leaseDurationMs: 600_000,
-        leaseOwner: 'data-node-reclaim-pin-fence',
-        now: new Date((nowSeconds + 601) * 1_000),
-      });
-    } catch (error) {
-      claimError = error;
-    }
+    const reclaimResult = await broker.claimNextJob({
+      leaseDurationMs: 600_000,
+      leaseOwner: 'data-node-reclaim-pin-fence',
+      now: new Date((nowSeconds + 601) * 1_000),
+    });
     const claimFence = await activeSql<
       {
+        lastErrorCode: string | null;
         leaseGeneration: number;
-        leaseOwner: string;
-        leaseUnchanged: boolean;
-        pinUnchanged: boolean;
+        leaseOwner: string | null;
+        leaseReleased: boolean;
+        pinReleased: boolean;
         state: string;
       }[]
     >`
       SELECT
+        job.last_error_code AS "lastErrorCode",
         job.lease_generation AS "leaseGeneration",
         job.lease_owner AS "leaseOwner",
-        job.lease_expires_at = to_timestamp(${nowSeconds + 600}) AS "leaseUnchanged",
-        pin.expires_at = to_timestamp(${nowSeconds + 599}) AS "pinUnchanged",
+        job.lease_expires_at IS NULL AS "leaseReleased",
+        pin.released_at IS NOT NULL AS "pinReleased",
         job.state
       FROM materialization_jobs job
       JOIN storage_gc_release_pins pin ON pin.id = job.storage_gc_pin_id
@@ -1314,17 +1564,15 @@ describe.serial('PostgreSQL materialization capability broker', () => {
     `;
     await activeSql`DELETE FROM storage_object_versions WHERE id = ${objectId}`;
 
-    expect(claimError).toBeInstanceOf(Error);
-    expect((claimError as Error).message).toContain(
-      'cannot reference an object that is deleting or deleted'
-    );
+    expect(reclaimResult).toEqual({ status: 'idle' });
     expect([...claimFence]).toEqual([
       {
+        lastErrorCode: 'MATERIALIZATION_SOURCE_UNAVAILABLE',
         leaseGeneration: 1,
-        leaseOwner: 'data-node-claim-pin-fence',
-        leaseUnchanged: true,
-        pinUnchanged: true,
-        state: 'MATERIALIZING',
+        leaseOwner: null,
+        leaseReleased: true,
+        pinReleased: true,
+        state: 'FAILED',
       },
     ]);
   });

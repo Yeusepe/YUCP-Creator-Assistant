@@ -26,6 +26,27 @@ export const DEFAULT_MATERIALIZATION_STORAGE_GC_PIN_RETENTION_SECONDS = 7 * 24 *
 const MIN_MATERIALIZATION_STORAGE_GC_PIN_RETENTION_SECONDS = 60 * 60;
 const MAX_MATERIALIZATION_STORAGE_GC_PIN_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const STORAGE_GC_PIN_UNAVAILABLE_MESSAGE =
+  'Storage GC pin cannot reference an object that is deleting or deleted';
+export const MATERIALIZATION_SOURCE_UNAVAILABLE_ERROR_CODE = 'MATERIALIZATION_SOURCE_UNAVAILABLE';
+
+class MaterializationSourceUnavailableError extends Error {
+  constructor(
+    readonly jobId: string,
+    options: { cause: unknown }
+  ) {
+    super('Materialization source became unavailable before claim', options);
+  }
+}
+
+function isStorageGcPinUnavailableError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message === STORAGE_GC_PIN_UNAVAILABLE_MESSAGE &&
+    'code' in error &&
+    error.code === 'P0001'
+  );
+}
 
 type CreateMaterializationJobInput = {
   bindingRoot: Uint8Array;
@@ -1124,6 +1145,95 @@ export class MaterializationBroker {
     });
   }
 
+  private async isolateUnavailableSourceJob(input: {
+    jobId: string;
+    lane: 'large' | 'maintenance';
+    now: Date;
+  }): Promise<boolean> {
+    return this.sql.begin(async (transaction) => {
+      const jobs = await transaction<
+        {
+          id: string;
+          sourceVersionId: string;
+          storageGcPinId: string;
+        }[]
+      >`
+        SELECT
+          id,
+          source_version_id::text AS "sourceVersionId",
+          storage_gc_pin_id::text AS "storageGcPinId"
+        FROM materialization_jobs
+        WHERE id = ${input.jobId}
+          AND lane = ${input.lane}
+          AND (
+            state = 'QUEUED'
+            OR (
+              state IN ('MATERIALIZING', 'VERIFYING')
+              AND lease_expires_at <= ${input.now}
+            )
+          )
+        FOR UPDATE
+      `;
+      const job = jobs[0];
+      if (!job) {
+        return false;
+      }
+      const unavailableObjects = await transaction<{ id: string }[]>`
+        SELECT object.id
+        FROM package_release_storage_objects release_object
+        JOIN storage_object_versions object
+          ON object.id = release_object.object_version_id
+        LEFT JOIN storage_gc_candidates candidate
+          ON candidate.object_version_id = object.id
+        WHERE release_object.package_version_id = ${job.sourceVersionId}
+          AND (
+            object.verification_state <> 'VERIFIED'
+            OR candidate.state IN ('DELETING', 'DELETED')
+          )
+        ORDER BY object.id
+        LIMIT 1
+        FOR UPDATE OF object
+      `;
+      if (!unavailableObjects[0]) {
+        return false;
+      }
+      const failed = await transaction<{ id: string }[]>`
+        UPDATE materialization_jobs
+        SET
+          state = 'FAILED',
+          last_error_code = ${MATERIALIZATION_SOURCE_UNAVAILABLE_ERROR_CODE},
+          lease_owner = NULL,
+          lease_expires_at = NULL,
+          heartbeat_at = NULL,
+          updated_at = ${input.now}
+        WHERE id = ${job.id}
+          AND (
+            state = 'QUEUED'
+            OR (
+              state IN ('MATERIALIZING', 'VERIFYING')
+              AND lease_expires_at <= ${input.now}
+            )
+          )
+        RETURNING id
+      `;
+      if (!failed[0]) {
+        return false;
+      }
+      const released = await transaction<{ id: string }[]>`
+        UPDATE storage_gc_release_pins
+        SET
+          released_at = COALESCE(released_at, ${input.now}),
+          updated_at = ${input.now}
+        WHERE id = ${job.storageGcPinId}
+        RETURNING id
+      `;
+      if (!released[0]) {
+        throw new Error('Unavailable materialization source lost its storage GC pin');
+      }
+      return true;
+    });
+  }
+
   async claimNextJob(input: {
     lane?: 'large' | 'maintenance';
     leaseDurationMs: number;
@@ -1142,105 +1252,130 @@ export class MaterializationBroker {
     }
     const leaseExpiresAt = new Date(now.getTime() + input.leaseDurationMs);
     const pinExpiresAt = new Date(now.getTime() + this.storageGcPinRetentionSeconds * 1_000);
-    return this.sql.begin(async (transaction) => {
-      await transaction`
-        UPDATE materialization_jobs
-        SET
-          state = 'QUEUED',
-          lease_owner = NULL,
-          lease_expires_at = NULL,
-          heartbeat_at = NULL,
-          last_error_code = 'MATERIALIZATION_LEASE_EXPIRED',
-          updated_at = ${now}
-        WHERE
-          lane = ${lane}
-          AND state IN ('MATERIALIZING', 'VERIFYING')
-          AND lease_expires_at <= ${now}
-      `;
-      const renewedPins = await transaction<
-        {
-          pinId: string;
-          storageGcPinId: string;
-        }[]
-      >`
-        SELECT
-          storage_gc_acquire_release_pin(
-            job.storage_gc_pin_id,
-            job.source_version_id,
-            'materialization-job',
-            job.id,
-            ${pinExpiresAt}
-          )::text AS "pinId",
-          job.storage_gc_pin_id::text AS "storageGcPinId"
-        FROM materialization_jobs job
-        JOIN storage_gc_release_pins pin
-          ON pin.id = job.storage_gc_pin_id
-        WHERE job.lane = ${lane}
-          AND job.state IN ('QUEUED', 'MATERIALIZING', 'VERIFYING')
-          AND pin.released_at IS NULL
-      `;
-      if (renewedPins.some((pin) => pin.pinId !== pin.storageGcPinId)) {
-        throw new Error('Materialization job storage GC pin binding is invalid');
+    while (true) {
+      try {
+        return await this.sql.begin(async (transaction) => {
+          await transaction`
+            UPDATE materialization_jobs
+            SET
+              state = 'QUEUED',
+              lease_owner = NULL,
+              lease_expires_at = NULL,
+              heartbeat_at = NULL,
+              last_error_code = 'MATERIALIZATION_LEASE_EXPIRED',
+              updated_at = ${now}
+            WHERE
+              lane = ${lane}
+              AND state IN ('MATERIALIZING', 'VERIFYING')
+              AND lease_expires_at <= ${now}
+          `;
+          const active = await transaction<{ id: string }[]>`
+            SELECT id
+            FROM materialization_jobs
+            WHERE
+              lease_owner = ${leaseOwner}
+              AND lane = ${lane}
+              AND state IN ('MATERIALIZING', 'VERIFYING')
+              AND lease_expires_at > ${now}
+            ORDER BY created_at, id
+            LIMIT 1
+          `;
+          if (active[0]) {
+            const queued = await transaction<{ count: number }[]>`
+              SELECT count(*)::int AS count
+              FROM materialization_jobs
+              WHERE lane = ${lane} AND state = 'QUEUED'
+            `;
+            return {
+              activeJobId: active[0].id,
+              queuePosition: Math.max(1, queued[0]?.count ?? 1),
+              status: 'saturated' as const,
+            };
+          }
+          const next = await transaction<
+            {
+              id: string;
+              sourceVersionId: string;
+              storageGcPinId: string;
+            }[]
+          >`
+            SELECT
+              id,
+              source_version_id::text AS "sourceVersionId",
+              storage_gc_pin_id::text AS "storageGcPinId"
+            FROM materialization_jobs
+            WHERE lane = ${lane} AND state = 'QUEUED'
+            ORDER BY created_at, id
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+          `;
+          const candidate = next[0];
+          if (!candidate) {
+            return { status: 'idle' as const };
+          }
+          let pinned: { pinId: string }[];
+          try {
+            pinned = await transaction<{ pinId: string }[]>`
+              SELECT storage_gc_acquire_release_pin(
+                ${candidate.storageGcPinId},
+                ${candidate.sourceVersionId},
+                'materialization-job',
+                ${candidate.id},
+                ${pinExpiresAt}
+              )::text AS "pinId"
+            `;
+          } catch (error) {
+            if (isStorageGcPinUnavailableError(error)) {
+              throw new MaterializationSourceUnavailableError(candidate.id, { cause: error });
+            }
+            throw error;
+          }
+          if (pinned[0]?.pinId !== candidate.storageGcPinId) {
+            throw new Error('Materialization job storage GC pin binding is invalid');
+          }
+          const updated = await transaction<
+            { id: string; lease_expires_at: Date; lease_generation: number }[]
+          >`
+            UPDATE materialization_jobs
+            SET
+              state = 'MATERIALIZING',
+              lease_owner = ${leaseOwner},
+              lease_generation = lease_generation + 1,
+              lease_expires_at = ${leaseExpiresAt},
+              heartbeat_at = ${now},
+              attempts = attempts + 1,
+              updated_at = ${now}
+            WHERE id = ${candidate.id} AND state = 'QUEUED'
+            RETURNING id, lease_generation, lease_expires_at
+          `;
+          if (!updated[0]) {
+            throw new Error('The materialization claim lost its database fence');
+          }
+          return {
+            jobId: updated[0].id,
+            leaseExpiresAt: new Date(updated[0].lease_expires_at),
+            leaseGeneration: updated[0].lease_generation,
+            status: 'claimed' as const,
+          };
+        });
+      } catch (error) {
+        if (!(error instanceof MaterializationSourceUnavailableError)) {
+          throw error;
+        }
+        try {
+          await this.isolateUnavailableSourceJob({
+            jobId: error.jobId,
+            lane,
+            now,
+          });
+        } catch (isolationError) {
+          throw new AggregateError(
+            [error, isolationError],
+            'Materialization source isolation failed'
+          );
+        }
       }
-      const active = await transaction<{ id: string }[]>`
-        SELECT id
-        FROM materialization_jobs
-        WHERE
-          lease_owner = ${leaseOwner}
-          AND lane = ${lane}
-          AND state IN ('MATERIALIZING', 'VERIFYING')
-          AND lease_expires_at > ${now}
-        ORDER BY created_at, id
-        LIMIT 1
-      `;
-      if (active[0]) {
-        const queued = await transaction<{ count: number }[]>`
-          SELECT count(*)::int AS count
-          FROM materialization_jobs
-          WHERE lane = ${lane} AND state = 'QUEUED'
-        `;
-        return {
-          activeJobId: active[0].id,
-          queuePosition: Math.max(1, queued[0]?.count ?? 1),
-          status: 'saturated' as const,
-        };
-      }
-      const next = await transaction<{ id: string }[]>`
-        SELECT id
-        FROM materialization_jobs
-        WHERE lane = ${lane} AND state = 'QUEUED'
-        ORDER BY created_at, id
-        LIMIT 1
-        FOR UPDATE SKIP LOCKED
-      `;
-      if (!next[0]) {
-        return { status: 'idle' as const };
-      }
-      const updated = await transaction<
-        { id: string; lease_expires_at: Date; lease_generation: number }[]
-      >`
-        UPDATE materialization_jobs
-        SET
-          state = 'MATERIALIZING',
-          lease_owner = ${leaseOwner},
-          lease_generation = lease_generation + 1,
-          lease_expires_at = ${leaseExpiresAt},
-          heartbeat_at = ${now},
-          attempts = attempts + 1,
-          updated_at = ${now}
-        WHERE id = ${next[0].id} AND state = 'QUEUED'
-        RETURNING id, lease_generation, lease_expires_at
-      `;
-      if (!updated[0]) {
-        throw new Error('The materialization claim lost its database fence');
-      }
-      return {
-        jobId: updated[0].id,
-        leaseExpiresAt: new Date(updated[0].lease_expires_at),
-        leaseGeneration: updated[0].lease_generation,
-        status: 'claimed' as const,
-      };
-    });
+    }
   }
 
   async renewClaimLease(input: {
