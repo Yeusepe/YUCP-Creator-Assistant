@@ -23,6 +23,7 @@ const originalFetch = globalThis.fetch;
 const originalWarn = console.warn;
 const grantPrivateKey = new Uint8Array(32).fill(0x39);
 const grantKeyId = packageContractKeyId('delivery-grant-test-2026-01');
+type ProofKeyPair = { privateKey: KeyObject; publicKey: KeyObject };
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -31,6 +32,13 @@ afterEach(() => {
 
 function encodeJson(value: unknown): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+}
+
+function tamperCompactJwsSignature(jws: string): string {
+  const parts = jws.split('.');
+  const signature = Buffer.from(parts[2] ?? '', 'base64url');
+  signature[0] = (signature[0] ?? 0) ^ 1;
+  return `${parts[0]}.${parts[1]}.${signature.toString('base64url')}`;
 }
 
 function proofThumbprint(publicKey: KeyObject): Uint8Array {
@@ -49,6 +57,7 @@ function proofThumbprint(publicKey: KeyObject): Uint8Array {
 
 function createProof(input: {
   accessToken: string;
+  jti?: string;
   privateKey: KeyObject;
   publicKey: KeyObject;
   url: string;
@@ -63,7 +72,7 @@ function createProof(input: {
     htm: 'GET',
     htu: input.url,
     iat: Math.floor(Date.now() / 1_000),
-    jti: randomUUID(),
+    jti: input.jti ?? randomUUID(),
   });
   const signature = sign('sha256', Buffer.from(`${header}.${payload}`, 'ascii'), {
     dsaEncoding: 'ieee-p1363',
@@ -134,12 +143,14 @@ function commonManifest(
 
 async function createAuthorization(input: {
   bindingRoot: string;
+  proofJti?: string;
+  proofKey?: ProofKeyPair;
   productId: string;
   releaseRoot: string;
   url: string;
   versionId: string;
 }) {
-  const proofKey = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+  const proofKey = input.proofKey ?? generateKeyPairSync('ec', { namedCurve: 'P-256' });
   const now = Math.floor(Date.now() / 1_000);
   const signed = await signPackageContract({
     keyId: grantKeyId,
@@ -167,6 +178,7 @@ async function createAuthorization(input: {
     Authorization: `DPoP ${grant}`,
     DPoP: createProof({
       accessToken: grant,
+      jti: input.proofJti,
       privateKey: proofKey.privateKey,
       publicKey: proofKey.publicKey,
       url: input.url,
@@ -309,5 +321,160 @@ describe('common package delivery Worker', () => {
     expect(response.status).toBe(403);
     expect(response.headers.get('x-delivery-storage-fetches')).toBe('0');
     expect(storageFetches).toBe(0);
+  });
+
+  it('rejects a replayed DPoP proof before a second storage read', async () => {
+    const versionId = randomUUID();
+    const chunkBytes = new TextEncoder().encode('replay-protected common chunk');
+    const fixture = commonManifest(versionId, chunkBytes);
+    let storageFetches = 0;
+    globalThis.fetch = mock(async () => {
+      storageFetches += 1;
+      return new Response(fixture.body, {
+        headers: { 'Content-Length': String(Buffer.byteLength(fixture.body)) },
+      });
+    }) as unknown as typeof fetch;
+    const url = `https://delivery.example.test/v2/delivery/${versionId}/manifest`;
+    const headers = await createAuthorization({
+      bindingRoot: fixture.bindingRoot,
+      productId: fixture.manifest.packageId,
+      proofJti: 'replayed-worker-proof',
+      releaseRoot: fixture.manifest.releaseRoot,
+      url,
+      versionId,
+    });
+
+    const first = await worker.fetch(new Request(url, { headers }), await testEnv());
+    const replay = await worker.fetch(new Request(url, { headers }), await testEnv());
+
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(403);
+    expect(replay.headers.get('x-delivery-storage-fetches')).toBe('0');
+    expect(storageFetches).toBe(1);
+  });
+
+  it('does not collide proofs that share one identifier across different device keys', async () => {
+    const versionId = randomUUID();
+    const fixture = commonManifest(versionId, new TextEncoder().encode('distinct-device-keys'));
+    let storageFetches = 0;
+    globalThis.fetch = mock(async () => {
+      storageFetches += 1;
+      return new Response(fixture.body);
+    }) as unknown as typeof fetch;
+    const url = `https://delivery.example.test/v2/delivery/${versionId}/manifest`;
+    const common = {
+      bindingRoot: fixture.bindingRoot,
+      productId: fixture.manifest.packageId,
+      proofJti: 'shared-proof-identifier',
+      releaseRoot: fixture.manifest.releaseRoot,
+      url,
+      versionId,
+    };
+
+    const first = await worker.fetch(
+      new Request(url, { headers: await createAuthorization(common) }),
+      await testEnv()
+    );
+    const second = await worker.fetch(
+      new Request(url, { headers: await createAuthorization(common) }),
+      await testEnv()
+    );
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(storageFetches).toBe(2);
+  });
+
+  it('accepts fresh proof identifiers from the same device key', async () => {
+    const versionId = randomUUID();
+    const fixture = commonManifest(versionId, new TextEncoder().encode('fresh-proof-identifiers'));
+    const proofKey = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    let storageFetches = 0;
+    globalThis.fetch = mock(async () => {
+      storageFetches += 1;
+      return new Response(fixture.body);
+    }) as unknown as typeof fetch;
+    const url = `https://delivery.example.test/v2/delivery/${versionId}/manifest`;
+    const common = {
+      bindingRoot: fixture.bindingRoot,
+      productId: fixture.manifest.packageId,
+      proofKey,
+      releaseRoot: fixture.manifest.releaseRoot,
+      url,
+      versionId,
+    };
+
+    const first = await worker.fetch(
+      new Request(url, {
+        headers: await createAuthorization({ ...common, proofJti: 'fresh-proof-1' }),
+      }),
+      await testEnv()
+    );
+    const second = await worker.fetch(
+      new Request(url, {
+        headers: await createAuthorization({ ...common, proofJti: 'fresh-proof-2' }),
+      }),
+      await testEnv()
+    );
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(storageFetches).toBe(2);
+  });
+
+  it('does not let invalid proof or grant attempts poison the replay cache', async () => {
+    const versionId = randomUUID();
+    const fixture = commonManifest(versionId, new TextEncoder().encode('unpoisoned-replay-cache'));
+    const proofKey = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    let storageFetches = 0;
+    globalThis.fetch = mock(async () => {
+      storageFetches += 1;
+      return new Response(fixture.body);
+    }) as unknown as typeof fetch;
+    const url = `https://delivery.example.test/v2/delivery/${versionId}/manifest`;
+    const validHeaders = await createAuthorization({
+      bindingRoot: fixture.bindingRoot,
+      productId: fixture.manifest.packageId,
+      proofJti: 'cache-poison-proof',
+      proofKey,
+      releaseRoot: fixture.manifest.releaseRoot,
+      url,
+      versionId,
+    });
+    const invalidProof = tamperCompactJwsSignature(validHeaders.DPoP);
+    const encodedGrant = validHeaders.Authorization.slice('DPoP '.length);
+    const invalidGrantBytes = Buffer.from(encodedGrant, 'base64url');
+    const invalidGrantLastIndex = invalidGrantBytes.length - 1;
+    invalidGrantBytes[invalidGrantLastIndex] = (invalidGrantBytes[invalidGrantLastIndex] ?? 0) ^ 1;
+    const invalidGrant = invalidGrantBytes.toString('base64url');
+    const invalidGrantProof = createProof({
+      accessToken: invalidGrant,
+      jti: 'cache-poison-proof',
+      privateKey: proofKey.privateKey,
+      publicKey: proofKey.publicKey,
+      url,
+    });
+
+    const invalidProofResponse = await worker.fetch(
+      new Request(url, {
+        headers: { Authorization: validHeaders.Authorization, DPoP: invalidProof },
+      }),
+      await testEnv()
+    );
+    const invalidGrantResponse = await worker.fetch(
+      new Request(url, {
+        headers: { Authorization: `DPoP ${invalidGrant}`, DPoP: invalidGrantProof },
+      }),
+      await testEnv()
+    );
+    const validResponse = await worker.fetch(
+      new Request(url, { headers: validHeaders }),
+      await testEnv()
+    );
+
+    expect(invalidProofResponse.status).toBe(403);
+    expect(invalidGrantResponse.status).toBe(403);
+    expect(validResponse.status).toBe(200);
+    expect(storageFetches).toBe(1);
   });
 });

@@ -12,6 +12,7 @@ import {
 } from '../../../ops/storage-core/packageContractsV2';
 import { createLogicalReleasePublicationV4 } from '../../../ops/storage-core/releasePublication';
 import { buildS3ObjectUrl } from '../../../ops/storage-core/s3ObjectUrl';
+import { BoundedDpopReplayCache } from './dpopReplayCache';
 
 // Cloudflare Workers support response streaming, but origin subrequests stay bounded.
 // Reference: https://developers.cloudflare.com/workers/platform/limits/
@@ -43,6 +44,13 @@ const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
 const MAX_DELIVERY_CHUNKS = 100_000;
 const MAX_CHUNK_BYTES = 1024 * 1024;
 const ORIGIN_TIMEOUT_MS = 30_000;
+const MAX_DPOP_REPLAY_ENTRIES = 8_192;
+const DPOP_REPLAY_SWEEP_LIMIT = 128;
+// This bounded module cache is same-isolate abuse detection, not cross-region security truth.
+const dpopReplayCache = new BoundedDpopReplayCache({
+  maxEntries: MAX_DPOP_REPLAY_ENTRIES,
+  sweepLimit: DPOP_REPLAY_SWEEP_LIMIT,
+});
 
 type BindingName = (typeof REQUIRED_BINDINGS)[number];
 type S3ReadRole = {
@@ -318,7 +326,7 @@ async function authorize(input: {
     proof,
     url: input.request.url,
   });
-  return verifyDeliveryGrantV2({
+  const verifiedGrant = await verifyDeliveryGrantV2({
     context: {
       audience: input.config.packageDeliveryAudience,
       deviceKeyThumbprint: verifiedProof.thumbprint,
@@ -333,6 +341,34 @@ async function authorize(input: {
       'PACKAGE_INSTALL_SIGNING_PUBLIC_KEY'
     ),
   });
+  reserveLocalDpopProof({
+    expiresAt: verifiedGrant.expiresAt,
+    jti: verifiedProof.jti,
+    thumbprint: bytesToBase64Url(verifiedProof.thumbprint),
+  });
+  return verifiedGrant;
+}
+
+function reserveLocalDpopProof(input: {
+  expiresAt: number;
+  jti: string;
+  thumbprint: string;
+}): void {
+  const reserved = dpopReplayCache.reserve({
+    expiresAtMs: input.expiresAt * 1_000,
+    key: `${input.thumbprint.length}:${input.thumbprint}${input.jti}`,
+  });
+  if (!reserved) {
+    throw new HttpError(403, 'Forbidden');
+  }
+}
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let value = '';
+  for (const byte of bytes) {
+    value += String.fromCharCode(byte);
+  }
+  return btoa(value).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
 function bytesToHex(bytes: Uint8Array): string {
