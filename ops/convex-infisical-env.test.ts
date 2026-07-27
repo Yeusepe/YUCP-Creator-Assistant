@@ -21,6 +21,16 @@ function readTemplateValue(template: string, key: string): string {
   return match[1];
 }
 
+function readRequiredEnvironmentNames(source: string): string[] {
+  return [
+    ...new Set(
+      [...source.matchAll(/requiredEnv\('([A-Z0-9_]+)'\)/g)].flatMap((match) =>
+        match[1] ? [match[1]] : []
+      )
+    ),
+  ].sort();
+}
+
 describe('Convex Infisical prod helpers', () => {
   it('forces the prod Infisical environment when --prod is used', async () => {
     const [infisicalConvexRun, syncConvexEnv] = await Promise.all([
@@ -93,5 +103,23 @@ describe('Convex Infisical prod helpers', () => {
     };
 
     expect(loadMaterializationControlClient(environment)).not.toBeNull();
+  });
+
+  it('documents every required materialization control-plane value without storing credentials', async () => {
+    const [serverSource, secretsTemplate] = await Promise.all([
+      readOpsFile('ops/materialization/server.ts'),
+      readOpsFile('ops/infisical/secrets.template.yaml'),
+    ]);
+    const requiredEnvironmentNames = readRequiredEnvironmentNames(serverSource);
+    const sensitiveName =
+      /(?:ACCESS_KEY_ID|DATABASE_URL|PRIVATE_KEY|SECRET_ACCESS_KEY|SHARED_SECRET)$/;
+
+    expect(requiredEnvironmentNames.length).toBeGreaterThan(0);
+    for (const name of requiredEnvironmentNames) {
+      const value = readTemplateValue(secretsTemplate, name);
+      if (sensitiveName.test(name)) {
+        expect(value).toContain('placeholder');
+      }
+    }
   });
 });
