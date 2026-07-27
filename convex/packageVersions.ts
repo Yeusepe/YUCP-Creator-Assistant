@@ -57,6 +57,27 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(canonicalize(value));
 }
 
+const RELEASE_PUBLICATION_FIELDS = [
+  'activeContentDigest',
+  'activePolicyVersion',
+  'bindingRoot',
+  'commonRoot',
+  'logicalBytes',
+  'logicalFiles',
+  'manifestSha256',
+  'protectedFiles',
+  'protectedSourceRoot',
+  'protectionPolicyDigest',
+  'protectionPolicyId',
+  'releaseRoot',
+  'vpmDependencies',
+  'vpmRepositories',
+] as const;
+
+function hasCompleteReleasePublication(version: Doc<'package_versions_ref'>): boolean {
+  return RELEASE_PUBLICATION_FIELDS.every((field) => version[field] !== undefined);
+}
+
 function immutableVersionPayload(
   version: Pick<
     Doc<'package_versions_ref'>,
@@ -319,8 +340,40 @@ export const upsertReadyVersion = mutation({
         ...args,
         bootstrapMedia: args.bootstrapMedia ?? [],
         channel: args.channel ?? DEFAULT_CHANNEL,
+        createdAt: existing.createdAt,
         editionId,
       });
+      if (!hasCompleteReleasePublication(existing)) {
+        const publicationPatch = {
+          activeContentDigest: args.activeContentDigest,
+          activePolicyVersion: args.activePolicyVersion,
+          bindingRoot: args.bindingRoot,
+          bootstrapMedia: args.bootstrapMedia ?? [],
+          catalogProductId: args.catalogProductId,
+          channel: args.channel ?? DEFAULT_CHANNEL,
+          commonRoot: args.commonRoot,
+          editionId,
+          logicalBytes: args.logicalBytes,
+          logicalFiles: args.logicalFiles,
+          manifestSha256: args.manifestSha256,
+          packageMetadata: args.packageMetadata,
+          protectedFiles: args.protectedFiles,
+          protectedSourceRoot: args.protectedSourceRoot,
+          protectionPolicyDigest: args.protectionPolicyDigest,
+          protectionPolicyId: args.protectionPolicyId,
+          releaseRoot: args.releaseRoot,
+          vpmDependencies: args.vpmDependencies,
+          vpmRepositories: args.vpmRepositories,
+        };
+        for (const [field, value] of Object.entries(publicationPatch)) {
+          const current = existing[field as keyof typeof existing];
+          if (current !== undefined && canonicalJson(current) !== canonicalJson(value)) {
+            throw new Error(`Package version immutable payload conflict at ${field}`);
+          }
+        }
+        await ctx.db.patch(existing._id, publicationPatch);
+        return existing._id;
+      }
       if (canonicalJson(immutableVersionPayload(existing)) !== canonicalJson(retryPayload)) {
         throw new Error('Package version immutable payload conflict');
       }

@@ -69,6 +69,7 @@ export interface PackageVersion {
   protectedSourceRoot: string | null;
   protectionPolicyDigest: string | null;
   protectionPolicyId: string | null;
+  releaseSchemaVersion?: 3 | 4;
   version: string;
   sourceFormat: string | null;
   releaseRoot: string | null;
@@ -138,6 +139,7 @@ interface PackageVersionRow {
   protected_source_root: string | null;
   protection_policy_digest: string | null;
   protection_policy_id: string | null;
+  release_schema_version: 3 | 4;
   version: string;
   source_format: string | null;
   release_root: string | null;
@@ -278,6 +280,7 @@ function toPackageVersion(row: PackageVersionRow): PackageVersion {
     protectedSourceRoot: row.protected_source_root,
     protectionPolicyDigest: row.protection_policy_digest,
     protectionPolicyId: row.protection_policy_id,
+    releaseSchemaVersion: row.release_schema_version,
     version: row.version,
     sourceFormat: row.source_format,
     releaseRoot: row.release_root,
@@ -679,6 +682,102 @@ export class Catalog {
       SELECT * FROM package_versions WHERE id = ${versionId}
     `;
     return rows[0] ? toPackageVersion(rows[0]) : null;
+  }
+
+  async completeLegacyReadyMigration(
+    versionId: string,
+    options: {
+      event: CatalogEvent;
+      fields: Required<
+        Pick<
+          TransitionFields,
+          | 'activeContentDigest'
+          | 'activePolicyVersion'
+          | 'assemblyObjectId'
+          | 'bindingRoot'
+          | 'commonRoot'
+          | 'logicalBytes'
+          | 'logicalFiles'
+          | 'manifestSha256'
+          | 'protectedFiles'
+          | 'protectedSourceRoot'
+          | 'protectionPolicyDigest'
+          | 'protectionPolicyId'
+          | 'releaseRoot'
+          | 'sourceFormat'
+          | 'vpmDependencies'
+          | 'vpmRepositories'
+        >
+      >;
+    }
+  ): Promise<PackageVersion> {
+    return this.sql.begin(async (transaction) => {
+      const currentRows = await transaction<PackageVersionRow[]>`
+        SELECT *
+        FROM package_versions
+        WHERE id = ${versionId}
+        FOR UPDATE
+      `;
+      const current = currentRows[0];
+      if (!current) {
+        throw new PackageVersionNotFoundError(versionId);
+      }
+      if (current.release_schema_version === 4) {
+        if (
+          current.state !== 'READY' ||
+          current.release_root !== options.fields.releaseRoot ||
+          current.manifest_sha256 !== options.fields.manifestSha256
+        ) {
+          throw new CatalogInvariantError('Legacy release migration completion conflicts');
+        }
+        return toPackageVersion(current);
+      }
+      if (current.state !== 'READY' || current.release_schema_version !== 3) {
+        throw new CatalogInvariantError('Package version is not a legacy READY release');
+      }
+
+      const fields = validateTransitionFields(current, 'READY', options.fields);
+      const updatedRows = await transaction<PackageVersionRow[]>`
+        UPDATE package_versions
+        SET
+          release_schema_version = 4,
+          source_format = ${fields.sourceFormat},
+          release_root = ${fields.releaseRoot},
+          assembly_object_id = ${fields.assemblyObjectId},
+          active_content_digest = ${fields.activeContentDigest},
+          active_policy_version = ${fields.activePolicyVersion},
+          binding_root = ${fields.bindingRoot},
+          common_root = ${fields.commonRoot},
+          logical_bytes = ${fields.logicalBytes},
+          logical_files = ${fields.logicalFiles},
+          manifest_sha256 = ${fields.manifestSha256},
+          protected_files = ${transaction.json(fields.protectedFiles ?? [])},
+          protected_source_root = ${fields.protectedSourceRoot},
+          protection_policy_digest = ${fields.protectionPolicyDigest},
+          protection_policy_id = ${fields.protectionPolicyId},
+          vpm_dependencies = ${transaction.json(fields.vpmDependencies)},
+          vpm_repositories = ${transaction.json(fields.vpmRepositories)},
+          updated_at = clock_timestamp()
+        WHERE id = ${versionId}
+          AND state = 'READY'
+          AND release_schema_version = 3
+        RETURNING *
+      `;
+      const updated = updatedRows[0];
+      if (!updated) {
+        throw new CatalogInvariantError('Legacy release migration ownership changed');
+      }
+      await transaction`
+        INSERT INTO catalog_outbox (id, aggregate_id, event_type, payload)
+        VALUES (
+          ${randomUUID()},
+          ${versionId},
+          ${options.event.type},
+          ${transaction.json(eventPayload(options.event, updated, 'READY', 'READY'))}
+        )
+      `;
+      return toPackageVersion(updated);
+    });
   }
 
   async resolveReadyVersion(input: {

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -21,6 +21,7 @@ import {
   readCasIndexObject,
   type S3CasStore,
   s3CasStore,
+  storeArtifactToStore,
   verifyDesyncCli,
 } from '../storage-core/desyncCas';
 import { DurableExactStorage } from '../storage-core/durableExactStorage';
@@ -407,6 +408,7 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
         onError: () => undefined,
         publish: dispatchPublishedEvent,
         redrive: dispatchRedrive,
+        resolveCreatorId: async () => 'scheduler-creator',
         stuckThresholdMs: 60_000,
       })
     ).toThrow('intervalMs must not exceed 2147483647');
@@ -480,6 +482,7 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
         }
       },
       redrive: dispatchRedrive,
+      resolveCreatorId: async () => 'scheduler-creator',
       stuckThresholdMs: 60_000,
     });
     schedulers.add(scheduler);
@@ -585,6 +588,7 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
       },
       publish: dispatchPublishedEvent,
       redrive: dispatchRedrive,
+      resolveCreatorId: async () => 'scheduler-creator',
       stuckThresholdMs: 60_000,
     });
     schedulers.add(errorScheduler);
@@ -696,6 +700,96 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
         'delivery-manifest-readable=yes',
       ].join('\n')
     );
+  });
+
+  it('automatically converts a legacy ready artifact into a retrievable v4 release', async () => {
+    const activeCatalog = requireCatalog();
+    const activeStores = requireStores();
+    const activeSql = requireSql();
+    const scratch = requireScratchPath();
+    const versionId = randomUUID();
+    const packageId = 'scheduler-legacy-ready';
+    const inputPath = join(scratch, `${versionId}.unitypackage`);
+    const inputFiles = await createUnityPackageRecordFixture({
+      outputPath: inputPath,
+      timestamp: new Date('2026-07-24T00:00:00.000Z'),
+      versionSeed: 'scheduler-legacy-ready',
+    });
+    const legacyIndexId = `legacy/${versionId}.caibx`;
+    await storeArtifactToStore({
+      artifactPath: inputPath,
+      indexId: legacyIndexId,
+      store: activeStores.commonStore,
+    });
+    await activeSql`
+      INSERT INTO package_versions (
+        id,
+        package_id,
+        version,
+        source_format,
+        release_root,
+        assembly_object_id,
+        release_schema_version,
+        state
+      )
+      VALUES (
+        ${versionId},
+        ${packageId},
+        '1.0.0',
+        'CANONICAL_TARGZ_V1',
+        ${await sha256File(inputPath)},
+        ${legacyIndexId},
+        3,
+        'READY'
+      )
+    `;
+
+    const errors: unknown[] = [];
+    const scheduler = createIngestScheduler({
+      batchLimit: 1,
+      catalog: activeCatalog,
+      ...activeStores,
+      database: activeSql,
+      intervalMs,
+      onError: (error) => {
+        errors.push(error);
+      },
+      publish: dispatchPublishedEvent,
+      redrive: dispatchRedrive,
+      resolveCreatorId: async (candidate) => {
+        expect(candidate.packageId).toBe(packageId);
+        return 'scheduler-legacy-creator';
+      },
+      stuckThresholdMs: 60_000,
+    });
+    schedulers.add(scheduler);
+    scheduler.start();
+    await waitFor(
+      async () => (await activeCatalog.getVersion(versionId))?.releaseSchemaVersion === 4,
+      'the legacy READY release to become a v4 publication'
+    );
+    await waitFor(
+      async () => (await unpublishedCount()) === 0,
+      'the migrated READY publication to reach the projection publisher'
+    );
+    await scheduler.stop();
+
+    const migrated = await activeCatalog.getVersion(versionId);
+    expect(migrated).toMatchObject({
+      releaseSchemaVersion: 4,
+      state: 'READY',
+      manifestSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+    const retrievedPath = await retrieveVersion({
+      catalog: activeCatalog,
+      ...activeStores,
+      outputPath: join(scratch, 'legacy-ready-retrieved'),
+      versionId,
+    });
+    for (const [relativePath, expectedSha256] of inputFiles) {
+      expect(await sha256File(join(retrievedPath, relativePath))).toBe(expectedSha256);
+    }
+    expect(errors).toEqual([]);
   });
 
   it('does not automatically recover a failure without CAS assembly data', async () => {

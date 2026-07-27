@@ -3,7 +3,11 @@ import { verifyApiActorBinding } from '@yucp/shared/apiActor';
 import { getFunctionName } from 'convex/server';
 import { api } from '../../convex/_generated/api';
 import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId';
-import { createConvexCatalogPublish, loadConvexCatalogPublishConfig } from './convexPublish';
+import {
+  createConvexCatalogPublish,
+  createConvexPackageCreatorResolver,
+  loadConvexCatalogPublishConfig,
+} from './convexPublish';
 import type { CatalogOutboxEvent } from './reconciler';
 
 const config = {
@@ -314,5 +318,49 @@ describe('createConvexCatalogPublish', () => {
       'Convex catalog publish timed out after 10ms'
     );
     expect(mutation).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('createConvexPackageCreatorResolver', () => {
+  it('resolves the protected-content deduplication owner through the package registry', async () => {
+    const query = mock(async (_reference: unknown, _args: unknown) => ({
+      creatorAuthUserId: 'creator-auth-user',
+    }));
+    const resolveCreatorId = createConvexPackageCreatorResolver(config, {
+      createClient: () => ({ query }),
+    });
+
+    await expect(resolveCreatorId({ packageId: 'com.yucp.avatar-tools' })).resolves.toBe(
+      'creator-auth-user'
+    );
+
+    const [reference, args] = query.mock.calls[0] as [unknown, Record<string, unknown>];
+    expect(getFunctionName(reference as never)).toBe(
+      getFunctionName(api.packageRegistry.getBuyerAccessContextByPackageId)
+    );
+    expect(args).toMatchObject({
+      apiSecret: config.convexApiSecret,
+      packageId: 'com.yucp.avatar-tools',
+    });
+    await expect(
+      verifyApiActorBinding(
+        args.actor as { payload: string; signature: string },
+        config.internalServiceAuthSecret
+      )
+    ).resolves.toMatchObject({
+      kind: 'service',
+      service: 'catalog-legacy-migrator',
+      scopes: ['downloads:service'],
+    });
+  });
+
+  it('rejects a legacy package without an authoritative creator mapping', async () => {
+    const resolveCreatorId = createConvexPackageCreatorResolver(config, {
+      createClient: () => ({ query: async () => null }),
+    });
+
+    await expect(resolveCreatorId({ packageId: 'com.yucp.orphaned' })).rejects.toThrow(
+      'Package com.yucp.orphaned has no active creator mapping'
+    );
   });
 });

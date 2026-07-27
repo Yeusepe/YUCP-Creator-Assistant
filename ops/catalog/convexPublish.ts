@@ -24,8 +24,16 @@ interface ConvexMutationClient {
   mutation(functionReference: unknown, args: Record<string, unknown>): Promise<unknown>;
 }
 
+interface ConvexQueryClient {
+  query(functionReference: unknown, args: Record<string, unknown>): Promise<unknown>;
+}
+
 interface ConvexCatalogPublishDependencies {
   createClient?: (url: string) => ConvexMutationClient;
+}
+
+interface ConvexPackageCreatorResolverDependencies {
+  createClient?: (url: string) => ConvexQueryClient;
 }
 
 function requiredConfigValue(
@@ -131,6 +139,16 @@ async function createPublisherActor(secret: string): Promise<ApiActorBinding> {
   );
 }
 
+async function createLegacyMigratorActor(secret: string): Promise<ApiActorBinding> {
+  return await createApiActorBinding(
+    createServiceApiActor({
+      service: 'catalog-legacy-migrator',
+      scopes: ['downloads:service'],
+    }),
+    secret
+  );
+}
+
 async function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
@@ -214,5 +232,35 @@ export function createConvexCatalogPublish(
       }),
       config.publishTimeoutMs ?? DEFAULT_CONVEX_PUBLISH_TIMEOUT_MS
     );
+  };
+}
+
+export function createConvexPackageCreatorResolver(
+  config: ConvexCatalogPublishConfig,
+  dependencies: ConvexPackageCreatorResolverDependencies = {}
+): (version: { packageId: string }) => Promise<string> {
+  let client: ConvexQueryClient | undefined;
+
+  return async (version) => {
+    client ??=
+      dependencies.createClient?.(config.convexUrl) ??
+      (new ConvexHttpClient(config.convexUrl) as ConvexQueryClient);
+    const actor = await createLegacyMigratorActor(config.internalServiceAuthSecret);
+    const context = await withTimeout(
+      client.query(api.packageRegistry.getBuyerAccessContextByPackageId, {
+        actor,
+        apiSecret: config.convexApiSecret,
+        packageId: version.packageId,
+      }),
+      config.publishTimeoutMs ?? DEFAULT_CONVEX_PUBLISH_TIMEOUT_MS
+    );
+    const creatorAuthUserId =
+      context && typeof context === 'object'
+        ? Reflect.get(context, 'creatorAuthUserId')
+        : undefined;
+    if (typeof creatorAuthUserId !== 'string' || !creatorAuthUserId.trim()) {
+      throw new Error(`Package ${version.packageId} has no active creator mapping`);
+    }
+    return creatorAuthUserId.trim();
   };
 }

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import {
@@ -25,6 +26,7 @@ import {
   deleteCasIndexObject,
   type LocalCasStore,
   readCasIndexObject,
+  reconstructArtifactFromStore,
   type S3CasStore,
   writeCasIndexObject,
 } from '../storage-core/desyncCas';
@@ -84,6 +86,14 @@ export type AssembleVersionInput = PipelineStorage &
     scratchRoot: string;
     versionId: string;
   };
+
+export type MigrateLegacyReadyVersionInput = PipelineStorage & {
+  catalog: Catalog;
+  creatorId: string;
+  protectionPolicyId: ProtectionPolicyId;
+  scratchRoot: string;
+  versionId: string;
+};
 
 export type RetrieveVersionInput = {
   catalog: Catalog;
@@ -296,6 +306,14 @@ function manifestBody(manifest: DeliveryManifest): string {
   return `${JSON.stringify(manifest)}\n`;
 }
 
+async function sha256File(path: string): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(path)) {
+    hash.update(chunk);
+  }
+  return hash.digest('hex');
+}
+
 function assertManifestIdentity(manifest: DeliveryManifest, version: PackageVersion): void {
   if (
     manifest.versionId !== version.id ||
@@ -345,6 +363,116 @@ async function reconstructManifestTree(input: {
   }
 }
 
+type PreparedLogicalAssembly = {
+  manifest: DeliveryManifest;
+  manifestSha256: string;
+  normalizationExcludedFiles: number;
+  normalizedFormat: string;
+};
+
+async function prepareLogicalAssembly(
+  input: PipelineStorage & {
+    assemblyStorage: ResolvedAssemblyStorage;
+    creatorId: string;
+    inputPath: string;
+    protectionPolicyId: ProtectionPolicyId;
+    scratchTreeRoot: string;
+    version: PackageVersion;
+  },
+  signal?: AbortSignal
+): Promise<PreparedLogicalAssembly> {
+  const normalized = await normalizePackageArtifact({
+    inputPath: input.inputPath,
+    outputRoot: input.scratchTreeRoot,
+    packageId: input.version.packageId,
+  });
+  const prepared = await prepareInstallablePackageTree(normalized.files);
+  const classified = classifyPackageFiles({
+    files: prepared.files,
+    policyId: input.protectionPolicyId,
+  });
+  const bootstrapMetadata = prepared.bootstrapMetadata;
+  const bootstrapMedia = await Promise.all(
+    normalized.envelopeMetadata.map((media) =>
+      storeBootstrapMediaObject({
+        body: media.body,
+        contentType: media.contentType,
+        kind: media.kind,
+        ownerId: input.version.id,
+        sha256: media.sha256,
+        store: input.metadataStore,
+      })
+    )
+  );
+  const release = createLogicalReleaseRootV4({
+    files: classified.files,
+    packageId: input.version.packageId,
+    version: input.version.version,
+    versionId: input.version.id,
+  });
+  const active = createActiveContentInventory(classified.files);
+  const files = [];
+  const creatorDomain = createHash('sha256')
+    .update('yucp:creator-domain:v2\0', 'utf8')
+    .update(input.creatorId, 'utf8')
+    .digest('hex');
+  for (const file of classified.files) {
+    signal?.throwIfAborted();
+    files.push({
+      ...(await storeLogicalFile({
+        bytes: file.bytes,
+        domain:
+          file.classification === 'protected'
+            ? `protected:creator:${creatorDomain}:v2`
+            : 'common:global:v2',
+        path: file.path,
+        sha256: file.sha256,
+        store: file.classification === 'protected' ? input.protectedStore : input.commonStore,
+        ownerId: input.version.id,
+      })),
+      classification: file.classification,
+      ...(file.materializerType ? { materializerType: file.materializerType } : {}),
+      normalizedPath: file.normalizedPath,
+    });
+  }
+  const manifest = createDeliveryManifest({
+    activeContentDigest: active.digest,
+    activePolicyVersion: ACTIVE_CONTENT_POLICY_VERSION,
+    chunkAvgKib: DESYNC_CHUNK_AVG_KIB,
+    bootstrapMedia,
+    commonRoot: release.commonRoot,
+    files,
+    normalizationPolicyVersion: prepared.normalizationPolicyVersion,
+    packageId: input.version.packageId,
+    protectedSourceRoot: release.protectedSourceRoot,
+    protectionPolicyDigest: classified.digest,
+    protectionPolicyId: classified.id,
+    releaseRoot: release.releaseRoot,
+    schemaVersion: 4,
+    storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
+    version: input.version.version,
+    versionId: input.version.id,
+    ...(bootstrapMetadata.packageMetadata
+      ? { packageMetadata: bootstrapMetadata.packageMetadata }
+      : {}),
+    vpmDependencies: bootstrapMetadata.vpmDependencies,
+    vpmRepositories: bootstrapMetadata.vpmRepositories,
+  });
+  signal?.throwIfAborted();
+  const manifestSha256 = await writePipelineMetadata({
+    body: manifestBody(manifest),
+    indexId: input.assemblyStorage.assemblyId,
+    ownerId: input.version.id,
+    store: input.assemblyStorage.store,
+  });
+  return {
+    manifest,
+    manifestSha256,
+    normalizationExcludedFiles: prepared.excludedFiles.length,
+    normalizedFormat: normalized.format,
+  };
+}
+
 export async function beginVersion(input: BeginVersionInput): Promise<PackageVersion> {
   const created = await input.catalog.createVersion({
     catalogProductId: input.catalogProductId,
@@ -388,119 +516,44 @@ export async function assembleVersion(
       prefix: 'ingest-',
       root: input.scratchRoot,
     });
-    const normalized = await normalizePackageArtifact({
-      inputPath: input.inputPath,
-      outputRoot: join(scratchPath, 'tree'),
-      packageId: version.packageId,
-    });
-    const prepared = await prepareInstallablePackageTree(normalized.files);
-    const classified = classifyPackageFiles({
-      files: prepared.files,
-      policyId: input.protectionPolicyId,
-    });
-    const bootstrapMetadata = prepared.bootstrapMetadata;
-    const bootstrapMedia = await Promise.all(
-      normalized.envelopeMetadata.map((media) =>
-        storeBootstrapMediaObject({
-          body: media.body,
-          contentType: media.contentType,
-          kind: media.kind,
-          ownerId: version.id,
-          sha256: media.sha256,
-          store: input.metadataStore,
-        })
-      )
-    );
-    const release = createLogicalReleaseRootV4({
-      files: classified.files,
-      packageId: version.packageId,
-      version: version.version,
-      versionId: version.id,
-    });
-    const active = createActiveContentInventory(classified.files);
-    const files = [];
-    const creatorDomain = createHash('sha256')
-      .update('yucp:creator-domain:v2\0', 'utf8')
-      .update(input.creatorId, 'utf8')
-      .digest('hex');
-    for (const file of classified.files) {
-      signal?.throwIfAborted();
-      files.push({
-        ...(await storeLogicalFile({
-          bytes: file.bytes,
-          domain:
-            file.classification === 'protected'
-              ? `protected:creator:${creatorDomain}:v2`
-              : 'common:global:v2',
-          path: file.path,
-          sha256: file.sha256,
-          store: file.classification === 'protected' ? input.protectedStore : input.commonStore,
-          ownerId: version.id,
-        })),
-        classification: file.classification,
-        ...(file.materializerType ? { materializerType: file.materializerType } : {}),
-        normalizedPath: file.normalizedPath,
-      });
-    }
-    const manifest = createDeliveryManifest({
-      activeContentDigest: active.digest,
-      activePolicyVersion: ACTIVE_CONTENT_POLICY_VERSION,
-      chunkAvgKib: DESYNC_CHUNK_AVG_KIB,
-      bootstrapMedia,
-      commonRoot: release.commonRoot,
-      files,
-      normalizationPolicyVersion: prepared.normalizationPolicyVersion,
-      packageId: version.packageId,
-      protectedSourceRoot: release.protectedSourceRoot,
-      protectionPolicyDigest: classified.digest,
-      protectionPolicyId: classified.id,
-      releaseRoot: release.releaseRoot,
-      schemaVersion: 4,
-      storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
-      version: version.version,
-      versionId: version.id,
-      ...(bootstrapMetadata.packageMetadata
-        ? { packageMetadata: bootstrapMetadata.packageMetadata }
-        : {}),
-      vpmDependencies: bootstrapMetadata.vpmDependencies,
-      vpmRepositories: bootstrapMetadata.vpmRepositories,
-    });
     storage = resolveAssemblyStorage(input.metadataStore, version.id);
-    signal?.throwIfAborted();
-    const manifestSha256 = await writePipelineMetadata({
-      body: manifestBody(manifest),
-      indexId: storage.assemblyId,
-      ownerId: version.id,
-      store: storage.store,
-    });
+    const prepared = await prepareLogicalAssembly(
+      {
+        ...input,
+        assemblyStorage: storage,
+        scratchTreeRoot: join(scratchPath, 'tree'),
+        version,
+      },
+      signal
+    );
+    const { manifest } = prepared;
+    const logicalBytes = manifest.files.reduce((total, file) => total + file.bytes, 0);
 
     signal?.throwIfAborted();
     return await input.catalog.transition(version.id, 'ASSEMBLED', {
       fields: {
-        sourceFormat: normalized.format,
-        releaseRoot: release.releaseRoot,
+        sourceFormat: prepared.normalizedFormat,
+        releaseRoot: manifest.releaseRoot,
         assemblyObjectId: tagPipelineCasIndexId(storage.store, storage.assemblyId),
-        manifestSha256,
+        manifestSha256: prepared.manifestSha256,
       },
       event: {
         type: 'catalog.version.assembled',
         payload: {
-          activeContentDigest: active.digest,
-          activePolicyVersion: active.policyVersion,
-          logicalBytes: classified.files.reduce((total, file) => total + file.bytes, 0),
-          logicalFiles: classified.files.length,
-          normalizationExcludedFiles: prepared.excludedFiles.length,
-          normalizationPolicyVersion: prepared.normalizationPolicyVersion,
-          protectionPolicyDigest: classified.digest,
-          protectionPolicyId: classified.id,
-          protectedFiles: classified.files.filter((file) => file.classification === 'protected')
+          activeContentDigest: manifest.activeContentDigest,
+          activePolicyVersion: manifest.activePolicyVersion,
+          logicalBytes,
+          logicalFiles: manifest.files.length,
+          normalizationExcludedFiles: prepared.normalizationExcludedFiles,
+          normalizationPolicyVersion: manifest.normalizationPolicyVersion,
+          protectionPolicyDigest: manifest.protectionPolicyDigest,
+          protectionPolicyId: manifest.protectionPolicyId,
+          protectedFiles: manifest.files.filter((file) => file.classification === 'protected')
             .length,
-          bootstrapMedia,
-          ...(bootstrapMetadata.packageMetadata
-            ? { packageMetadata: bootstrapMetadata.packageMetadata }
-            : {}),
-          vpmDependencies: bootstrapMetadata.vpmDependencies,
-          vpmRepositories: bootstrapMetadata.vpmRepositories,
+          bootstrapMedia: manifest.bootstrapMedia ?? [],
+          ...(manifest.packageMetadata ? { packageMetadata: manifest.packageMetadata } : {}),
+          vpmDependencies: manifest.vpmDependencies,
+          vpmRepositories: manifest.vpmRepositories,
         },
       },
     });
@@ -527,6 +580,176 @@ export async function assembleVersion(
     if (scratchPath) {
       await rm(scratchPath, { force: true, recursive: true });
     }
+  }
+}
+
+function legacyArtifactFilename(version: PackageVersion): string {
+  switch (version.sourceFormat) {
+    case 'CANONICAL_TARGZ_V1':
+      return 'legacy-source.unitypackage';
+    case 'CANONICAL_ZIP_V1':
+      return 'legacy-source.zip';
+    case 'RAW_OPAQUE_V1':
+      return `${version.packageId}.spp`;
+    default:
+      throw new Error(`Legacy package version ${version.id} has an unsupported source format`);
+  }
+}
+
+function resolveLegacyArtifactIndexId(store: CasStore, assemblyObjectId: string): string {
+  if (assemblyObjectId.startsWith('local:') || assemblyObjectId.startsWith('s3:')) {
+    return resolvePipelineCasIndexId(store, assemblyObjectId);
+  }
+  if (!assemblyObjectId.trim()) {
+    throw new Error('Legacy CAS object ID must not be empty');
+  }
+  return assemblyObjectId;
+}
+
+export async function migrateLegacyReadyVersion(
+  input: MigrateLegacyReadyVersionInput
+): Promise<PackageVersion> {
+  const version = await input.catalog.getVersion(input.versionId);
+  if (!version) {
+    throw new PackageVersionNotFoundError(input.versionId);
+  }
+  if (version.state !== 'READY' || version.releaseSchemaVersion !== 3) {
+    throw new Error(`Package version ${version.id} is not a legacy READY release`);
+  }
+  if (!version.assemblyObjectId || !version.releaseRoot || !version.sourceFormat) {
+    throw new Error(`Legacy package version ${version.id} has incomplete source metadata`);
+  }
+
+  const scratchPath = await createPipelineScratchDirectory({
+    prefix: 'migrate-legacy-ready-',
+    root: input.scratchRoot,
+  });
+  const assemblyStorage = resolveAssemblyStorage(input.metadataStore, version.id);
+  const manifestId = siblingIndexObjectId(
+    input.metadataStore,
+    assemblyStorage.assemblyId,
+    deliveryManifestObjectId(version.id)
+  );
+  let manifestWritten = false;
+  let migrationCommitted = false;
+  try {
+    const sourcePath = join(scratchPath, legacyArtifactFilename(version));
+    await reconstructArtifactFromStore({
+      indexId: resolveLegacyArtifactIndexId(input.commonStore, version.assemblyObjectId),
+      outputPath: sourcePath,
+      store: input.commonStore,
+    });
+    if ((await sha256File(sourcePath)) !== version.releaseRoot) {
+      throw new Error(`Legacy source digest changed for package version ${version.id}`);
+    }
+
+    const prepared = await prepareLogicalAssembly({
+      ...input,
+      assemblyStorage,
+      inputPath: sourcePath,
+      scratchTreeRoot: join(scratchPath, 'tree'),
+      version,
+    });
+    const body = manifestBody(prepared.manifest);
+    const publication = createLogicalReleasePublicationV4({
+      files: prepared.manifest.files,
+      manifest: new TextEncoder().encode(body),
+      packageId: prepared.manifest.packageId,
+      version: prepared.manifest.version,
+      versionId: prepared.manifest.versionId,
+    });
+    await reconstructManifestTree({
+      commonStore: input.commonStore,
+      manifest: prepared.manifest,
+      outputRoot: join(scratchPath, 'verified-tree'),
+      protectedStore: input.protectedStore,
+    });
+    const manifestSha256 = await writePipelineMetadata({
+      body,
+      indexId: manifestId,
+      ownerId: version.id,
+      store: input.metadataStore,
+    });
+    manifestWritten = true;
+    if (
+      manifestSha256 !== prepared.manifestSha256 ||
+      manifestSha256 !== publication.manifestSha256
+    ) {
+      throw new Error(`Published manifest digest changed for package version ${version.id}`);
+    }
+
+    const logicalBytes = prepared.manifest.files.reduce((total, file) => total + file.bytes, 0);
+    const protectedFiles = protectedMaterializationFiles(prepared.manifest);
+    const migrated = await input.catalog.completeLegacyReadyMigration(version.id, {
+      fields: {
+        activeContentDigest: prepared.manifest.activeContentDigest,
+        activePolicyVersion: prepared.manifest.activePolicyVersion,
+        assemblyObjectId: tagPipelineCasIndexId(assemblyStorage.store, assemblyStorage.assemblyId),
+        bindingRoot: publication.bindingRoot,
+        commonRoot: prepared.manifest.commonRoot,
+        logicalBytes,
+        logicalFiles: prepared.manifest.files.length,
+        manifestSha256: publication.manifestSha256,
+        protectedFiles,
+        protectedSourceRoot: prepared.manifest.protectedSourceRoot,
+        protectionPolicyDigest: prepared.manifest.protectionPolicyDigest,
+        protectionPolicyId: prepared.manifest.protectionPolicyId,
+        releaseRoot: publication.releaseRoot,
+        sourceFormat: prepared.normalizedFormat,
+        vpmDependencies: prepared.manifest.vpmDependencies,
+        vpmRepositories: prepared.manifest.vpmRepositories,
+      },
+      event: {
+        type: 'catalog.version.ready',
+        payload: {
+          activeContentDigest: prepared.manifest.activeContentDigest,
+          activePolicyVersion: prepared.manifest.activePolicyVersion,
+          bindingRoot: publication.bindingRoot,
+          commonRoot: prepared.manifest.commonRoot,
+          logicalBytes,
+          logicalFiles: prepared.manifest.files.length,
+          manifestSha256: publication.manifestSha256,
+          protectedFiles,
+          bootstrapMedia: prepared.manifest.bootstrapMedia ?? [],
+          ...(prepared.manifest.packageMetadata
+            ? { packageMetadata: prepared.manifest.packageMetadata }
+            : {}),
+          protectedSourceRoot: prepared.manifest.protectedSourceRoot,
+          protectionPolicyDigest: prepared.manifest.protectionPolicyDigest,
+          protectionPolicyId: prepared.manifest.protectionPolicyId,
+          releaseRoot: publication.releaseRoot,
+          verification: 'logical-tree-full-reassembly',
+          vpmDependencies: prepared.manifest.vpmDependencies,
+          vpmRepositories: prepared.manifest.vpmRepositories,
+        },
+      },
+    });
+    migrationCommitted = true;
+    try {
+      await cleanupPipelineMetadata({
+        indexId: assemblyStorage.assemblyId,
+        store: input.metadataStore,
+      });
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: 'ingest_pipeline.legacy_assembly_cleanup_failed',
+          reason: error instanceof Error ? error.name : 'unknown_error',
+          versionId: version.id,
+        })
+      );
+    }
+    return migrated;
+  } catch (error) {
+    if (manifestWritten && !migrationCommitted) {
+      await cleanupPipelineMetadata({
+        indexId: manifestId,
+        store: input.metadataStore,
+      });
+    }
+    throw error;
+  } finally {
+    await rm(scratchPath, { force: true, recursive: true });
   }
 }
 

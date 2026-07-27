@@ -4,6 +4,7 @@ import {
   type CatalogDatabase,
   type ConvexCatalogPublishConfig,
   createConvexCatalogPublish,
+  createConvexPackageCreatorResolver,
   DEFAULT_RECONCILE_BATCH_LIMIT,
   ExactStorageCatalog,
   loadConvexCatalogPublishConfig,
@@ -190,6 +191,7 @@ export async function buildSchedulerRuntime(
         });
       },
       protectedStore,
+      resolveCreatorId: createConvexPackageCreatorResolver(runtimeEnv.publish),
       scratchRoot: runtimeEnv.scratchRoot,
       stuckThresholdMs: positiveInteger(
         env,

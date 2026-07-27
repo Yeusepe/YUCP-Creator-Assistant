@@ -1,11 +1,12 @@
-import type { Catalog, CatalogDatabase, ReconcileCatalogOptions } from '../catalog';
+import type { Catalog, CatalogDatabase, PackageVersion, ReconcileCatalogOptions } from '../catalog';
 import {
   createConvexCatalogPublish,
   loadConvexCatalogPublishConfig,
   reconcileCatalog,
 } from '../catalog';
-import { promoteVersion } from '../ingest-pipeline';
+import { migrateLegacyReadyVersion, promoteVersion } from '../ingest-pipeline';
 import type { CasStore } from '../storage-core/desyncCas';
+import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId';
 
 export type CreateIngestSchedulerOptions = Omit<
   ReconcileCatalogOptions,
@@ -20,6 +21,7 @@ export type CreateIngestSchedulerOptions = Omit<
   commonStore: CasStore;
   metadataStore: CasStore;
   protectedStore: CasStore;
+  resolveCreatorId: (version: PackageVersion) => Promise<string>;
   scratchRoot: string;
 };
 
@@ -53,6 +55,7 @@ export function createIngestScheduler(options: CreateIngestSchedulerOptions): In
     onError,
     publish = createConvexCatalogPublish(loadConvexCatalogPublishConfig()),
     protectedStore,
+    resolveCreatorId,
     scratchRoot,
     ...reconcileOptions
   } = options;
@@ -75,13 +78,19 @@ export function createIngestScheduler(options: CreateIngestSchedulerOptions): In
       await reportError(error);
     }
 
-    let candidates: { id: string }[];
+    let candidates: { id: string; release_schema_version: 3 | 4; state: 'ASSEMBLED' | 'READY' }[];
     try {
-      candidates = await database<{ id: string }[]>`
-        SELECT id
+      candidates = await database<
+        { id: string; release_schema_version: 3 | 4; state: 'ASSEMBLED' | 'READY' }[]
+      >`
+        SELECT id, release_schema_version, state
         FROM package_versions
         WHERE state = 'ASSEMBLED'
-        ORDER BY updated_at, id
+          OR (state = 'READY' AND release_schema_version = 3)
+        ORDER BY
+          CASE WHEN state = 'READY' AND release_schema_version = 3 THEN 0 ELSE 1 END,
+          updated_at,
+          id
         LIMIT ${batchLimit}
       `;
     } catch (error) {
@@ -91,6 +100,27 @@ export function createIngestScheduler(options: CreateIngestSchedulerOptions): In
 
     for (const candidate of candidates) {
       try {
+        if (candidate.state === 'READY' && candidate.release_schema_version === 3) {
+          const version = await catalog.getVersion(candidate.id);
+          if (!version) {
+            throw new Error(`Legacy package version ${candidate.id} no longer exists`);
+          }
+          const creatorId = (await resolveCreatorId(version)).trim();
+          if (!creatorId) {
+            throw new Error(`Legacy package version ${candidate.id} has no creator identity`);
+          }
+          await migrateLegacyReadyVersion({
+            catalog,
+            commonStore,
+            creatorId,
+            metadataStore,
+            protectedStore,
+            protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
+            scratchRoot,
+            versionId: candidate.id,
+          });
+          continue;
+        }
         await promoteVersion({
           catalog,
           commonStore,

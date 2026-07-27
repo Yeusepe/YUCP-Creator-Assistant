@@ -143,6 +143,40 @@ describe('packageVersions', () => {
     });
   });
 
+  it('completes a legacy release pointer when the authoritative READY event is replayed', async () => {
+    const t = makeTestConvex();
+    const versionId = '00000000-0000-4000-8000-000000000099';
+    const createdAt = Date.now();
+    const rowId = await t.run(async (ctx) =>
+      ctx.db.insert('package_versions_ref', {
+        channel: 'stable',
+        createdAt,
+        packageId: 'com.yucp.legacy-ready',
+        state: 'READY',
+        version: '1.0.0',
+        versionId,
+      })
+    );
+
+    await t.mutation(
+      api.packageVersions.upsertReadyVersion,
+      await authenticatedReadyVersionArgs({
+        createdAt: createdAt + 60_000,
+        packageId: 'com.yucp.legacy-ready',
+        version: '1.0.0',
+        versionId,
+      })
+    );
+
+    expect(await t.run(async (ctx) => ctx.db.get(rowId))).toMatchObject({
+      activeContentDigest: '55'.repeat(32),
+      logicalBytes: 1_024,
+      releaseRoot: '44'.repeat(32),
+      state: 'READY',
+      versionId,
+    });
+  });
+
   it('supersedes the prior READY reference for the same package and channel', async () => {
     const t = makeTestConvex();
 
