@@ -49,7 +49,7 @@
     "@tanstack/react-router-ssr-query": "1.167.1",
     "@tanstack/react-start": "1.168.18",
     "@yucp/shared": "workspace:*",
-    "better-auth": "1.6.23",
+    "better-auth": "1.7.0-rc.2",
     "canvas-confetti": "^1.9.3",
     "convex": "1.42.1",
     "embla-carousel": "^8.6.0",

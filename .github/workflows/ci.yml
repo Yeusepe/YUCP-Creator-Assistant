@@ -75,6 +75,12 @@ jobs:
           HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
         run: bun install --frozen-lockfile
 
+      - name: Restore licensed icon module
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: apps/web/src/icons/generated.tsx
+          key: licensed-icons-${{ hashFiles('apps/web/src/icons/manifest.ts', 'ops/icons/generationFingerprint.ts', 'ops/icons/renderGeneratedModule.ts', 'ops/icons/transform.ts') }}
+
       - name: Build web app
         env:
           ASSETS_S3_BUCKET: ${{ secrets.ASSETS_S3_BUCKET }}
@@ -101,6 +107,12 @@ jobs:
         env:
           HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
         run: bun install --frozen-lockfile
+
+      - name: Restore licensed icon module
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: apps/web/src/icons/generated.tsx
+          key: licensed-icons-${{ hashFiles('apps/web/src/icons/manifest.ts', 'ops/icons/generationFingerprint.ts', 'ops/icons/renderGeneratedModule.ts', 'ops/icons/transform.ts') }}
 
       - name: Run external integration contract gate
         env:
@@ -150,6 +162,12 @@ jobs:
         env:
           HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
         run: bun install --frozen-lockfile
+
+      - name: Restore licensed icon module
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: apps/web/src/icons/generated.tsx
+          key: licensed-icons-${{ hashFiles('apps/web/src/icons/manifest.ts', 'ops/icons/generationFingerprint.ts', 'ops/icons/renderGeneratedModule.ts', 'ops/icons/transform.ts') }}
 
       - name: Run web test gate
         env:

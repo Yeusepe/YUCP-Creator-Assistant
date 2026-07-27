@@ -21,6 +21,8 @@ import {
   requireServiceActor,
 } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
+import { PII_PURPOSES } from './lib/credentialKeys';
+import { encryptPii } from './lib/piiCrypto';
 import { ProviderV } from './lib/providers';
 import { buildPublicAuthIssuer } from './lib/publicAuthIssuer';
 import { resolvePinnedYucpSigningRoot, signLicenseJwt } from './lib/yucpCrypto';
@@ -213,6 +215,21 @@ function generateHex(bytesLength: number): string {
   const bytes = new Uint8Array(bytesLength);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function buildProviderLicenseSourceReference(args: {
+  provider: string;
+  externalOrderId?: string;
+  externalLicenseId?: string;
+  fallbackDigest: string;
+}): string {
+  if (args.externalOrderId && args.externalLicenseId) {
+    return `${args.provider}:${args.externalOrderId}:${args.externalLicenseId}`;
+  }
+  if (args.externalOrderId) {
+    return `${args.provider}:${args.externalOrderId}`;
+  }
+  return `${args.provider}:${args.fallbackDigest.slice(0, 16)}`;
 }
 
 function validateReturnUrl(value: string) {
@@ -1339,6 +1356,11 @@ export const verifyIntentWithManualLicense = action({
       creatorAuthUserId?: string;
       productId?: string;
       catalogProductId?: Id<'product_catalog'>;
+      providerUserId?: string;
+      externalOrderId?: string;
+      externalLicenseId?: string;
+      providerProductId?: string;
+      providerTierRef?: string;
     } = await ctx.runAction(internal.yucpLicenses.verifyLicenseProof, {
       packageId: intent.packageId,
       licenseKey: args.licenseKey,
@@ -1402,6 +1424,90 @@ export const verifyIntentWithManualLicense = action({
           errorMessage,
         };
       }
+      return { success: true };
+    }
+
+    if (
+      proof.creatorAuthUserId &&
+      proof.productId &&
+      proof.catalogProductId &&
+      requirement.providerKey !== 'manual'
+    ) {
+      const subjectId = await resolveIntentSubjectId(ctx, intent, args.authUserId);
+      if (!subjectId) {
+        await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
+          intentId: args.intentId,
+          errorCode: 'subject_not_found',
+          errorMessage: 'No linked buyer subject was found for this YUCP account.',
+        });
+        return {
+          success: false,
+          errorCode: 'subject_not_found',
+          errorMessage: 'No linked buyer subject was found for this YUCP account.',
+        };
+      }
+
+      const licenseSubject = await sha256Hex(args.licenseKey);
+      const sourceReference = buildProviderLicenseSourceReference({
+        provider: requirement.providerKey,
+        externalOrderId: proof.externalOrderId,
+        externalLicenseId: proof.externalLicenseId,
+        fallbackDigest: licenseSubject,
+      });
+      const providerUserId =
+        proof.providerUserId ??
+        `${requirement.providerKey}:${proof.catalogProductId}:${licenseSubject.slice(0, 16)}`;
+      const licenseKeyEncrypted = await encryptPii(
+        args.licenseKey,
+        PII_PURPOSES.forensicsLicenseKey
+      );
+      if (!licenseKeyEncrypted) {
+        throw new Error('License key encryption returned no value');
+      }
+      const completion = await ctx.runMutation(
+        api.licenseVerification.completeLicenseVerification,
+        {
+          apiSecret: args.apiSecret,
+          creatorAuthUserId: proof.creatorAuthUserId,
+          buyerAuthUserId: args.authUserId,
+          subjectId,
+          provider: requirement.providerKey,
+          providerUserId,
+          productsToGrant: [
+            {
+              productId: proof.productId,
+              catalogProductId: proof.catalogProductId,
+              sourceReference,
+              providerTierRefs: proof.providerTierRef ? [proof.providerTierRef] : undefined,
+            },
+          ],
+          licenseSubjectLink: {
+            licenseSubject,
+            licenseKeyEncrypted,
+            providerProductId:
+              proof.providerProductId ?? requirement.providerProductRef,
+          },
+          correlationId: String(args.intentId),
+        }
+      );
+      if (!completion.success) {
+        const errorMessage = completion.error ?? 'License verification failed';
+        await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
+          intentId: args.intentId,
+          errorCode: 'entitlement_grant_failed',
+          errorMessage,
+        });
+        return {
+          success: false,
+          errorCode: 'entitlement_grant_failed',
+          errorMessage,
+        };
+      }
+
+      await ctx.runMutation(internal.verificationIntents.markIntentVerified, {
+        intentId: args.intentId,
+        methodKey: args.methodKey,
+      });
       return { success: true };
     }
 

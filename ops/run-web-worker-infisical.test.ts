@@ -94,6 +94,10 @@ describe('run-web-worker-infisical', () => {
   test('forwards Vite dev server args through the web worker command', () => {
     expect(buildWebWorkerCommand(['--port', '3100', '--strictPort'])).toEqual([
       'bun',
+      'x',
+      'cross-env',
+      'API_BASE_URL=http://127.0.0.1:3001',
+      'bun',
       'run',
       '--filter',
       '@yucp/web',

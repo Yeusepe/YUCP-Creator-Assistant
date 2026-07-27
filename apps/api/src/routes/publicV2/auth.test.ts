@@ -20,8 +20,8 @@ mock.module('../../lib/convex', () => ({
   getConvexClientFromUrl: () => ({ mutation: mutationMock }),
 }));
 
-mock.module('../../lib/oauthAccessToken', () => ({
-  verifyBetterAuthAccessToken: verifyBetterAuthMock,
+mock.module('../../lib/publicApiAccessToken', () => ({
+  verifyPublicApiAccessToken: verifyBetterAuthMock,
 }));
 
 const { resolveAuth } = await import('./auth');

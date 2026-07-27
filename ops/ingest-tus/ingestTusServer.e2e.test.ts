@@ -1,39 +1,45 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, mkdtemp, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer, type Server as HttpServer, type RequestListener } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { DetailedError, type HttpRequest, type HttpResponse, Upload } from 'tus-js-client';
 import {
   Catalog,
   type CatalogDatabase,
+  ExactStorageCatalog,
   openCatalogDatabase,
   runCatalogMigrations,
 } from '../catalog';
 import { retrieveVersion } from '../ingest-pipeline';
-import { canonicalizeArtifact } from '../storage-core/canonicalizer';
 import { loadCasConfig } from '../storage-core/config';
+import { parseDeliveryManifest } from '../storage-core/deliveryManifest';
 import {
-  inspectDesyncIndex,
   localCasStore,
   measureLocalStore,
+  readCasIndexObject,
   type S3CasStore,
   s3CasStore,
   verifyDesyncCli,
 } from '../storage-core/desyncCas';
-import { runCommand } from '../storage-core/process';
+import { DurableExactStorage } from '../storage-core/durableExactStorage';
+import { S3ExactStoragePort } from '../storage-core/exactStorage';
+import { DIRECT_FILE_CHUNK_LIMIT_BYTES } from '../storage-core/logicalFileCas';
+import { normalizePackageArtifact } from '../storage-core/packageNormalizer';
 import { createS3Bucket, listS3Objects } from '../storage-core/s3Control';
 import { signUploadCapability } from '../storage-core/uploadSigning';
 import { waitForMinioReady } from '../testing/minioReadiness';
 import { waitForPostgres } from '../testing/postgresReadiness';
+import { createUnityPackageRecordFixture } from '../testing/unityPackageFixture';
 import {
   createIngestTusServer,
   INGEST_TUS_PATH,
   UPLOAD_CAPABILITY_HEADERS,
 } from './ingestTusServer';
+import { createS3QuarantineStorage, type QuarantineStoragePort } from './quarantine';
 
 const postgresImage =
   'postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193'; // postgres:17-alpine
@@ -58,7 +64,10 @@ let httpServer: HttpServer | undefined;
 let serverOrigin: string | undefined;
 let s3HttpServer: HttpServer | undefined;
 let s3ServerOrigin: string | undefined;
-let s3Store: S3CasStore | undefined;
+let s3CommonStore: S3CasStore | undefined;
+let s3MetadataStore: S3CasStore | undefined;
+let s3ProtectedStore: S3CasStore | undefined;
+let quarantineStorage: QuarantineStoragePort | undefined;
 let maxBytes = 0;
 
 const summary: {
@@ -79,11 +88,11 @@ interface CommandResult {
 }
 
 interface CatalogRow {
+  assembly_object_id: string | null;
+  release_root: string | null;
+  source_format: string | null;
   id: string;
   state: string;
-  format_tag: string | null;
-  canonical_sha256: string | null;
-  cas_index_id: string | null;
   error: string | null;
 }
 
@@ -177,15 +186,19 @@ function requireS3ServerOrigin(): string {
   return s3ServerOrigin;
 }
 
-function requireS3Store(): S3CasStore {
-  if (!s3Store) {
-    throw new Error('Tus ingest MinIO CAS store was not initialized');
+function requireS3Stores(): {
+  common: S3CasStore;
+  metadata: S3CasStore;
+  protected: S3CasStore;
+} {
+  if (!s3CommonStore || !s3MetadataStore || !s3ProtectedStore) {
+    throw new Error('Tus ingest MinIO role stores were not initialized');
   }
-  return s3Store;
-}
-
-function deterministicBytes(seed: string, byteLength: number): Buffer {
-  return createHash('shake256', { outputLength: byteLength }).update(seed).digest();
+  return {
+    common: s3CommonStore,
+    metadata: s3MetadataStore,
+    protected: s3ProtectedStore,
+  };
 }
 
 async function sha256File(filePath: string): Promise<string> {
@@ -194,40 +207,6 @@ async function sha256File(filePath: string): Promise<string> {
     hash.update(chunk);
   }
   return hash.digest('hex');
-}
-
-async function createUnityPackageFixture(rootPath: string, outputPath: string): Promise<void> {
-  const timestamp = new Date('2025-01-01T00:00:00Z');
-  const payloads = new Map<string, Buffer>([
-    ['Assets/Package/manifest.json', Buffer.from('{"name":"com.yucp.tus-e2e"}\n')],
-    ['Assets/Package/payload.bin', deterministicBytes('tus-resume-payload', 2 * 1024 * 1024)],
-    ['Assets/Package/preview.bin', deterministicBytes('tus-resume-preview', 512 * 1024)],
-  ]);
-  for (const [assetPath, bytes] of payloads) {
-    const filePath = join(rootPath, assetPath);
-    await mkdir(dirname(filePath), { recursive: true });
-    await writeFile(filePath, bytes);
-    await utimes(filePath, timestamp, timestamp);
-  }
-  for (const directory of ['Assets/Package', 'Assets', '.']) {
-    await utimes(join(rootPath, directory), timestamp, timestamp);
-  }
-
-  const tarPath = `${outputPath}.tar`;
-  await runCommand('tar', [
-    '--force-local',
-    '--create',
-    '--file',
-    tarPath,
-    '--format=gnu',
-    '--sort=name',
-    '--directory',
-    rootPath,
-    '.',
-  ]);
-  await utimes(tarPath, timestamp, timestamp);
-  await runCommand('gzip', ['--stdout', '--', tarPath], { stdoutPath: outputPath });
-  await rm(tarPath, { force: true });
 }
 
 function assertScratchPath(path: string): void {
@@ -296,7 +275,7 @@ async function outboxEventTypes(versionId: string): Promise<string[]> {
 
 async function versionRow(packageId: string, version: string): Promise<CatalogRow> {
   const rows = await requireSql()<CatalogRow[]>`
-    SELECT id, state, format_tag, canonical_sha256, cas_index_id, error
+    SELECT id, state, source_format, release_root, assembly_object_id, error
     FROM package_versions
     WHERE package_id = ${packageId} AND version = ${version}
   `;
@@ -305,6 +284,29 @@ async function versionRow(packageId: string, version: string): Promise<CatalogRo
     throw new Error(`Missing package version row for ${packageId}@${version}`);
   }
   return row;
+}
+
+function requireQuarantineStorage(): QuarantineStoragePort {
+  if (!quarantineStorage) {
+    throw new Error('Quarantine storage was not initialized');
+  }
+  return quarantineStorage;
+}
+
+async function expectLogicalTreeMatches(input: {
+  expectedRoot: string;
+  retrievedRoot: string;
+}): Promise<void> {
+  const expected = await normalizePackageArtifact({
+    inputPath: input.expectedRoot,
+    outputRoot: join(requireScratchPath(), `expected-logical-${randomUUID()}`),
+    packageId: 'com.yucp.expected',
+  });
+  for (const file of expected.files) {
+    const retrieved = join(input.retrievedRoot, ...file.normalizedPath.split('/'));
+    expect(await sha256File(retrieved)).toBe(file.sha256);
+    expect((await stat(retrieved)).size).toBe(file.bytes);
+  }
 }
 
 function responseStatus(error: Error | DetailedError): number | undefined {
@@ -327,15 +329,18 @@ function uploadMetadataHeader(input: {
 
 async function uploadCapabilityHeaders(input: {
   catalogProductId?: string;
+  creatorId?: string;
   packageId: string;
   version: string;
   versionId?: string;
 }): Promise<Record<string, string>> {
   const capability = await signUploadCapability({
     catalogProductId: input.catalogProductId,
+    creatorId: input.creatorId ?? 'creator-ingest-e2e',
     expiresAt: Date.now() + 10 * 60_000,
     key: uploadHmacKey,
     packageId: input.packageId,
+    protectionPolicyId: 'supported-visual-assets-v2',
     version: input.version,
     versionId: input.versionId ?? randomUUID(),
   });
@@ -348,7 +353,10 @@ async function uploadCapabilityHeaders(input: {
         }
       : {}),
     [UPLOAD_CAPABILITY_HEADERS.exp]: capability.exp,
+    [UPLOAD_CAPABILITY_HEADERS.creatorId]: encodeURIComponent(capability.creatorId),
+    [UPLOAD_CAPABILITY_HEADERS.editionId]: capability.editionId,
     [UPLOAD_CAPABILITY_HEADERS.packageId]: encodeURIComponent(capability.packageId),
+    [UPLOAD_CAPABILITY_HEADERS.protectionPolicyId]: capability.protectionPolicyId,
     [UPLOAD_CAPABILITY_HEADERS.sig]: capability.sig,
     [UPLOAD_CAPABILITY_HEADERS.version]: encodeURIComponent(capability.version),
     [UPLOAD_CAPABILITY_HEADERS.versionId]: capability.versionId,
@@ -575,23 +583,73 @@ beforeAll(async () => {
     }
     const minioEndpoint = `http://127.0.0.1:${minioPortMatch[1]}`;
     await waitForMinioReady({ endpoint: minioEndpoint });
-    const casConfig = loadCasConfig({
+    const commonConfig = loadCasConfig({
       CAS_S3_ENDPOINT: minioEndpoint,
       CAS_S3_REGION: 'us-east-1',
-      CAS_S3_BUCKET: bucket,
+      CAS_S3_BUCKET: `${bucket}-common`,
       CAS_S3_ACCESS_KEY_ID: accessKeyId,
       CAS_S3_SECRET_ACCESS_KEY: secretAccessKey,
-      CAS_CHUNK_PREFIX: 'ingest-tus/chunks',
-      CAS_INDEX_PREFIX: 'ingest-tus/indexes',
+      CAS_CHUNK_PREFIX: 'chunks',
+      CAS_INDEX_PREFIX: 'indexes',
     });
-    await createS3Bucket(casConfig);
-    s3Store = s3CasStore(casConfig);
+    const metadataConfig = loadCasConfig({
+      CAS_S3_ENDPOINT: minioEndpoint,
+      CAS_S3_REGION: 'us-east-1',
+      CAS_S3_BUCKET: `${bucket}-metadata`,
+      CAS_S3_ACCESS_KEY_ID: accessKeyId,
+      CAS_S3_SECRET_ACCESS_KEY: secretAccessKey,
+      CAS_CHUNK_PREFIX: 'chunks',
+      CAS_INDEX_PREFIX: 'indexes',
+    });
+    const protectedConfig = loadCasConfig({
+      CAS_S3_ENDPOINT: minioEndpoint,
+      CAS_S3_REGION: 'us-east-1',
+      CAS_S3_BUCKET: `${bucket}-protected`,
+      CAS_S3_ACCESS_KEY_ID: accessKeyId,
+      CAS_S3_SECRET_ACCESS_KEY: secretAccessKey,
+      CAS_CHUNK_PREFIX: 'chunks',
+      CAS_INDEX_PREFIX: 'indexes',
+    });
+    for (const config of [commonConfig, metadataConfig, protectedConfig]) {
+      await createS3Bucket(config);
+    }
+    const durableStorage = new DurableExactStorage(
+      new ExactStorageCatalog(requireSql()),
+      new S3ExactStoragePort({
+        common: commonConfig,
+        metadata: metadataConfig,
+        protected: protectedConfig,
+      })
+    );
+    s3CommonStore = s3CasStore(commonConfig, {
+      durableStorage,
+      storageRole: 'common',
+    });
+    s3MetadataStore = s3CasStore(metadataConfig, {
+      durableStorage,
+      storageRole: 'metadata',
+    });
+    s3ProtectedStore = s3CasStore(protectedConfig, {
+      durableStorage,
+      storageRole: 'protected',
+    });
+    const quarantineConfig = loadCasConfig({
+      CAS_S3_ENDPOINT: minioEndpoint,
+      CAS_S3_REGION: 'us-east-1',
+      CAS_S3_BUCKET: `${bucket}-quarantine`,
+      CAS_S3_ACCESS_KEY_ID: accessKeyId,
+      CAS_S3_SECRET_ACCESS_KEY: secretAccessKey,
+    });
+    await createS3Bucket(quarantineConfig);
+    quarantineStorage = createS3QuarantineStorage(quarantineConfig);
 
     scratchPath = await mkdtemp(join(tmpdir(), 'yucp-ingest-tus-e2e-'));
-    const fixtureTree = join(scratchPath, 'fixture-tree');
-    await mkdir(fixtureTree);
     fixturePath = join(scratchPath, 'fixture.unitypackage');
-    await createUnityPackageFixture(fixtureTree, fixturePath);
+    await createUnityPackageRecordFixture({
+      outputPath: fixturePath,
+      timestamp: new Date('2025-01-01T00:00:00Z'),
+      versionSeed: 'tus-resume-payload',
+    });
     corruptFixturePath = join(scratchPath, 'corrupt.unitypackage');
     await writeFile(corruptFixturePath, 'not a gzip-compressed unitypackage');
     maxBytes = (await stat(fixturePath)).size + 1024;
@@ -599,10 +657,14 @@ beforeAll(async () => {
     const handler = createIngestTusServer({
       allowedOrigin: browserOrigin,
       catalog,
-      store: localCasStore(join(scratchPath, 'cas-store')),
-      indexDir: join(scratchPath, 'cas-indexes'),
+      commonStore: localCasStore(join(scratchPath, 'common-store')),
+      metadataStore: localCasStore(join(scratchPath, 'metadata-store')),
+      protectedStore: localCasStore(join(scratchPath, 'protected-store')),
+      quarantineStorage,
+      scratchRoot: join(scratchPath, 'pipeline-scratch'),
       uploadDir: join(scratchPath, 'uploads'),
       uploadHmacKey,
+      catalogControlSharedSecret: 'e2e-catalog-control-test-secret-32-bytes',
       maxBytes,
     });
     const localListener = await listen(handler);
@@ -611,9 +673,14 @@ beforeAll(async () => {
 
     const s3Handler = createIngestTusServer({
       catalog,
-      store: requireS3Store(),
+      commonStore: requireS3Stores().common,
+      metadataStore: requireS3Stores().metadata,
+      protectedStore: requireS3Stores().protected,
+      quarantineStorage,
+      scratchRoot: join(scratchPath, 'pipeline-scratch'),
       uploadDir: join(scratchPath, 's3-uploads'),
       uploadHmacKey,
+      catalogControlSharedSecret: 'e2e-catalog-control-test-secret-32-bytes',
       maxBytes,
     });
     const s3Listener = await listen(s3Handler);
@@ -623,6 +690,10 @@ beforeAll(async () => {
     const activeSql = sql;
     sql = undefined;
     catalog = undefined;
+    s3CommonStore = undefined;
+    s3MetadataStore = undefined;
+    s3ProtectedStore = undefined;
+    quarantineStorage = undefined;
     try {
       await closeHttpServers();
       await activeSql?.end({ timeout: 1 });
@@ -639,7 +710,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  await requireSql()`TRUNCATE TABLE catalog_outbox, package_versions`;
+  await requireSql()`TRUNCATE TABLE catalog_outbox, package_versions CASCADE`;
 });
 
 afterAll(async () => {
@@ -655,7 +726,10 @@ afterAll(async () => {
       await rm(scratchPath, { force: true, recursive: true });
       scratchPath = undefined;
     }
-    s3Store = undefined;
+    s3CommonStore = undefined;
+    s3MetadataStore = undefined;
+    s3ProtectedStore = undefined;
+    quarantineStorage = undefined;
     await Promise.all([removePostgresContainer(), removeMinioContainer()]);
   }
 });
@@ -666,11 +740,6 @@ describe.serial('tus ingest end to end', () => {
     const scratch = requireScratchPath();
     const fixture = requireFixturePath(fixturePath, 'valid unitypackage');
     const endpoint = `${requireServerOrigin()}${INGEST_TUS_PATH}`;
-    const expectedCanonical = await canonicalizeArtifact({
-      inputPath: fixture,
-      outputPath: join(scratch, 'expected.canonical'),
-    });
-    const expectedSha256 = await sha256File(expectedCanonical.path);
 
     const resumable = await createInterruptedUpload({
       endpoint,
@@ -686,7 +755,14 @@ describe.serial('tus ingest end to end', () => {
     const uploadingRow = await versionRow('com.yucp.tus-resume', '1.0.0');
     expect(uploadingRow.state).toBe('UPLOADING');
     resumable.resume();
-    await resumable.completed;
+    try {
+      await resumable.completed;
+    } catch (error) {
+      const failed = await versionRow('com.yucp.tus-resume', '1.0.0');
+      throw new Error(`Tus assembly failed: ${failed.error ?? 'unknown error'}`, {
+        cause: error,
+      });
+    }
 
     const completedUploadUrl = resumable.uploadUrl();
     if (!completedUploadUrl) {
@@ -705,36 +781,58 @@ describe.serial('tus ingest end to end', () => {
     const assembledRow = await versionRow('com.yucp.tus-resume', '1.0.0');
     expect(assembledRow).toMatchObject({
       state: 'ASSEMBLED',
-      format_tag: 'CANONICAL_TARGZ_V1',
-      canonical_sha256: expectedSha256,
+      source_format: 'unitypackage',
       error: null,
     });
-    expect(assembledRow.format_tag).not.toBeNull();
-    expect(assembledRow.canonical_sha256).not.toBeNull();
-    expect(assembledRow.cas_index_id).not.toBeNull();
+    expect(assembledRow.release_root).toMatch(/^[0-9a-f]{64}$/);
+    expect(assembledRow.assembly_object_id).toMatch(
+      new RegExp(`^local:.*${assembledRow.id}\\.logical-tree-assembly-v4\\.json$`)
+    );
     expect(await outboxEventTypes(assembledRow.id)).toEqual([
       'catalog.version.created',
       'catalog.version.uploading',
       'catalog.version.assembled',
     ]);
+    const rawQuarantine = await activeCatalog.getQuarantineObject(assembledRow.id);
+    expect(rawQuarantine).toMatchObject({
+      bytes: (await stat(fixture)).size,
+      sha256: await sha256File(fixture),
+      state: 'COMMITTED',
+    });
+    if (!rawQuarantine?.providerVersion || !rawQuarantine.fileIdentifier) {
+      throw new Error('Committed quarantine object has no exact provider version');
+    }
+    const exactRaw = await requireQuarantineStorage().headExactVersion(
+      rawQuarantine.objectKey,
+      rawQuarantine.providerVersion
+    );
+    expect(exactRaw).toMatchObject({
+      contentLength: rawQuarantine.bytes,
+      fileIdentifier: rawQuarantine.fileIdentifier,
+      providerVersion: rawQuarantine.providerVersion,
+    });
 
     const retrievedPath = await retrieveVersion({
       catalog: activeCatalog,
-      storePath: join(scratch, 'cas-store'),
+      commonStore: localCasStore(join(scratch, 'common-store')),
+      metadataStore: localCasStore(join(scratch, 'metadata-store')),
+      protectedStore: localCasStore(join(scratch, 'protected-store')),
       versionId: assembledRow.id,
-      outputPath: join(scratch, 'retrieved.unitypackage'),
+      outputPath: join(scratch, 'retrieved-tree'),
     });
-    expect(await sha256File(retrievedPath)).toBe(expectedSha256);
-    expect((await stat(retrievedPath)).size).toBe((await stat(expectedCanonical.path)).size);
+    await expectLogicalTreeMatches({
+      expectedRoot: fixture,
+      retrievedRoot: retrievedPath,
+    });
 
-    const storeBeforeDuplicate = await measureLocalStore(join(scratch, 'cas-store'));
+    const storeBeforeDuplicate = await measureLocalStore(join(scratch, 'common-store'));
     await uploadToCompletion({
       endpoint,
       filePath: fixture,
       packageId: 'com.yucp.tus-resume',
       version: '1.0.1',
     });
-    const storeAfterDuplicate = await measureLocalStore(join(scratch, 'cas-store'));
+    const storeAfterDuplicate = await measureLocalStore(join(scratch, 'common-store'));
     expect(storeAfterDuplicate).toEqual(storeBeforeDuplicate);
 
     summary.resumeOffset = resumeOffset;
@@ -745,14 +843,9 @@ describe.serial('tus ingest end to end', () => {
 
   it('resumes into the selected MinIO S3 store and reconstructs byte-exactly', async () => {
     const activeCatalog = requireCatalog();
-    const store = requireS3Store();
+    const stores = requireS3Stores();
     const scratch = requireScratchPath();
     const fixture = requireFixturePath(fixturePath, 'valid unitypackage');
-    const expectedCanonical = await canonicalizeArtifact({
-      inputPath: fixture,
-      outputPath: join(scratch, 's3-expected.canonical'),
-    });
-    const expectedSha256 = await sha256File(expectedCanonical.path);
     const resumable = await createInterruptedUpload({
       endpoint: `${requireS3ServerOrigin()}${INGEST_TUS_PATH}`,
       filePath: fixture,
@@ -765,46 +858,246 @@ describe.serial('tus ingest end to end', () => {
     const uploadingRow = await versionRow('com.yucp.tus-s3', '1.0.0');
     expect(uploadingRow.state).toBe('UPLOADING');
     resumable.resume();
-    await resumable.completed;
+    try {
+      await resumable.completed;
+    } catch (error) {
+      const failed = await versionRow('com.yucp.tus-s3', '1.0.0');
+      throw new Error(`Tus S3 assembly failed: ${failed.error ?? 'unknown error'}`, {
+        cause: error,
+      });
+    }
     expect(resumable.resumeOffset()).toBe(interruptedAt);
 
     const assembledRow = await versionRow('com.yucp.tus-s3', '1.0.0');
     expect(assembledRow).toMatchObject({
       state: 'ASSEMBLED',
-      canonical_sha256: expectedSha256,
-      cas_index_id: `s3:${expectedSha256}.caibx`,
+      source_format: 'unitypackage',
       error: null,
     });
+    expect(assembledRow.release_root).toMatch(/^[0-9a-f]{64}$/);
+    expect(assembledRow.assembly_object_id).toBe(
+      `s3:${assembledRow.id}.logical-tree-assembly-v4.json`
+    );
     expect(await outboxEventTypes(assembledRow.id)).toEqual([
       'catalog.version.created',
       'catalog.version.uploading',
       'catalog.version.assembled',
     ]);
 
-    const chunks = await inspectDesyncIndex({
-      indexId: `${expectedSha256}.caibx`,
-      store,
-    });
-    expect(chunks.length).toBeGreaterThan(0);
-    const objects = await listS3Objects(store.config);
-    const chunkObjects = objects.filter((object) =>
-      object.key.startsWith(store.config.chunkPrefix)
+    const manifest = parseDeliveryManifest(
+      JSON.parse(
+        await readCasIndexObject({
+          indexId: `${assembledRow.id}.logical-tree-assembly-v4.json`,
+          store: stores.metadata,
+        })
+      )
     );
-    expect(chunkObjects).toHaveLength(chunks.length);
+    const chunks = new Set(manifest.files.flatMap((file) => file.chunks.map((chunk) => chunk.id)));
+    const commonChunks = new Set(
+      manifest.files
+        .filter((file) => file.classification === 'common')
+        .flatMap((file) => file.chunks.map((chunk) => chunk.id))
+    );
+    const protectedChunks = new Set(
+      manifest.files
+        .filter((file) => file.classification === 'protected')
+        .flatMap((file) => file.chunks.map((chunk) => chunk.id))
+    );
+    expect(chunks.size).toBeGreaterThan(0);
+    expect(commonChunks.size).toBeGreaterThan(0);
+    expect(protectedChunks.size).toBeGreaterThan(0);
+    expect(commonChunks.size + protectedChunks.size).toBe(chunks.size);
+    for (const file of manifest.files) {
+      if (file.bytes < DIRECT_FILE_CHUNK_LIMIT_BYTES) {
+        expect(file.chunks).toEqual([
+          {
+            id: file.chunks[0]?.id,
+            sha256: file.sha256,
+            size: file.bytes,
+          },
+        ]);
+      }
+    }
+    const commonObjects = await listS3Objects(stores.common.config);
+    const metadataObjects = await listS3Objects(stores.metadata.config);
+    const protectedObjects = await listS3Objects(stores.protected.config);
+    const commonChunkObjects = commonObjects.filter((object) =>
+      object.key.startsWith(stores.common.config.chunkPrefix)
+    );
+    const protectedChunkObjects = protectedObjects.filter((object) =>
+      object.key.startsWith(stores.protected.config.chunkPrefix)
+    );
+    expect(commonChunkObjects).toHaveLength(commonChunks.size);
+    expect(protectedChunkObjects).toHaveLength(protectedChunks.size);
+    const metadataObjectKeys = new Set([
+      `${stores.metadata.config.indexPrefix}${assembledRow.id}.logical-tree-assembly-v4.json`,
+      ...(manifest.bootstrapMedia ?? []).map((media) => media.objectKey),
+    ]);
+    expect(new Set(metadataObjects.map((object) => object.key))).toEqual(metadataObjectKeys);
     expect(
-      objects.some((object) => object.key === `${store.config.indexPrefix}${expectedSha256}.caibx`)
+      metadataObjects.some(
+        (object) =>
+          object.key ===
+          `${stores.metadata.config.indexPrefix}${assembledRow.id}.logical-tree-assembly-v4.json`
+      )
+    ).toBeTrue();
+
+    const exactVersions = await requireSql()<
+      {
+        bucket_name: string;
+        id: string;
+        object_key: string;
+        provider_version: string;
+        storage_role: 'common' | 'metadata' | 'protected';
+      }[]
+    >`
+      SELECT
+        object.bucket_name,
+        object.id,
+        object.object_key,
+        object.provider_version,
+        object.storage_role
+      FROM storage_write_intents intent
+      JOIN storage_object_versions object
+        ON object.id = intent.object_version_id
+      WHERE intent.owner_kind = 'package-version'
+        AND intent.owner_id = ${assembledRow.id}
+        AND intent.state = 'COMMITTED'
+      ORDER BY object.storage_role, object.object_key
+    `;
+    expect(exactVersions.filter((object) => object.storage_role === 'common')).toHaveLength(
+      commonChunks.size
+    );
+    expect(exactVersions.filter((object) => object.storage_role === 'metadata')).toHaveLength(
+      metadataObjectKeys.size
+    );
+    expect(exactVersions.filter((object) => object.storage_role === 'protected')).toHaveLength(
+      protectedChunks.size
+    );
+    const bucketByStorageRole = {
+      common: stores.common.config.bucket,
+      metadata: stores.metadata.config.bucket,
+      protected: stores.protected.config.bucket,
+    } as const;
+    expect(
+      exactVersions.every(
+        (object) =>
+          object.provider_version.length > 0 &&
+          object.bucket_name === bucketByStorageRole[object.storage_role]
+      )
+    ).toBeTrue();
+    const releaseClosure = await requireSql()<
+      {
+        logical_digest: string;
+        logical_kind: 'bootstrap-media' | 'chunk' | 'manifest';
+        object_version_id: string;
+      }[]
+    >`
+      SELECT
+        encode(logical_digest, 'hex') AS logical_digest,
+        logical_kind,
+        object_version_id
+      FROM package_release_storage_objects
+      WHERE package_version_id = ${assembledRow.id}
+      ORDER BY logical_kind, logical_digest
+    `;
+    expect(releaseClosure.filter((object) => object.logical_kind === 'chunk')).toHaveLength(
+      chunks.size
+    );
+    expect(releaseClosure.filter((object) => object.logical_kind === 'manifest')).toHaveLength(1);
+    expect(
+      releaseClosure.filter((object) => object.logical_kind === 'bootstrap-media')
+    ).toHaveLength(manifest.bootstrapMedia?.length ?? 0);
+    expect(
+      releaseClosure.every((object) =>
+        exactVersions.some((exactObject) => exactObject.id === object.object_version_id)
+      )
     ).toBeTrue();
 
     const retrievedPath = await retrieveVersion({
       catalog: activeCatalog,
-      store,
+      commonStore: stores.common,
+      metadataStore: stores.metadata,
+      protectedStore: stores.protected,
       versionId: assembledRow.id,
-      outputPath: join(scratch, 's3-retrieved.unitypackage'),
+      outputPath: join(scratch, 's3-retrieved-tree'),
     });
-    expect(await sha256File(retrievedPath)).toBe(expectedSha256);
-    expect((await stat(retrievedPath)).size).toBe((await stat(expectedCanonical.path)).size);
+    await expectLogicalTreeMatches({
+      expectedRoot: fixture,
+      retrievedRoot: retrievedPath,
+    });
 
-    summary.s3Chunks = chunkObjects.length;
+    const commonVersionsBeforeDuplicate = await requireSql()<{ count: number }[]>`
+      SELECT count(*)::int AS count
+      FROM storage_object_versions
+      WHERE storage_role = 'common'
+        AND verification_state = 'VERIFIED'
+    `;
+    const protectedVersionsBeforeDuplicate = await requireSql()<{ count: number }[]>`
+      SELECT count(*)::int AS count
+      FROM storage_object_versions
+      WHERE storage_role = 'protected'
+        AND verification_state = 'VERIFIED'
+    `;
+    await uploadToCompletion({
+      endpoint: `${requireS3ServerOrigin()}${INGEST_TUS_PATH}`,
+      filePath: fixture,
+      packageId: 'com.yucp.tus-s3',
+      version: '1.0.1',
+    });
+    const duplicateRow = await versionRow('com.yucp.tus-s3', '1.0.1');
+    const commonVersionsAfterDuplicate = await requireSql()<{ count: number }[]>`
+      SELECT count(*)::int AS count
+      FROM storage_object_versions
+      WHERE storage_role = 'common'
+        AND verification_state = 'VERIFIED'
+    `;
+    const protectedVersionsAfterDuplicate = await requireSql()<{ count: number }[]>`
+      SELECT count(*)::int AS count
+      FROM storage_object_versions
+      WHERE storage_role = 'protected'
+        AND verification_state = 'VERIFIED'
+    `;
+    expect(commonVersionsAfterDuplicate).toEqual(commonVersionsBeforeDuplicate);
+    expect(protectedVersionsAfterDuplicate).toEqual(protectedVersionsBeforeDuplicate);
+    expect(await listS3Objects(stores.common.config)).toEqual(commonObjects);
+    expect(await listS3Objects(stores.protected.config)).toEqual(protectedObjects);
+    const duplicateClosure = await requireSql()<
+      {
+        logical_digest: string;
+        logical_kind: 'chunk' | 'manifest';
+        object_version_id: string;
+      }[]
+    >`
+      SELECT
+        encode(logical_digest, 'hex') AS logical_digest,
+        logical_kind,
+        object_version_id
+      FROM package_release_storage_objects
+      WHERE package_version_id = ${duplicateRow.id}
+      ORDER BY logical_kind, logical_digest
+    `;
+    expect(duplicateClosure).toHaveLength(releaseClosure.length);
+    expect(
+      duplicateClosure
+        .filter((object) => object.logical_kind === 'chunk')
+        .map((object) => object.object_version_id)
+    ).toEqual(
+      releaseClosure
+        .filter((object) => object.logical_kind === 'chunk')
+        .map((object) => object.object_version_id)
+    );
+    expect(
+      duplicateClosure
+        .filter((object) => object.logical_kind === 'manifest')
+        .map((object) => object.object_version_id)
+    ).not.toEqual(
+      releaseClosure
+        .filter((object) => object.logical_kind === 'manifest')
+        .map((object) => object.object_version_id)
+    );
+
+    summary.s3Chunks = chunks.size;
     summary.s3ByteExact = true;
   });
 

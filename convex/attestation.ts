@@ -307,8 +307,7 @@ export const recordResolution = internalMutation({
 });
 
 /**
- * Unlock gate lookup. Keyed on licenseSubject (a plain SHA-256 join key the open server already
- * holds, same as coupling_trace_records), so this reveals nothing about the fingerprint salt.
+ * Unlock gate lookup. The open server already holds this SHA-256 license join key.
  * Resolves licenseSubject -> attestation -> node and reports an active block.
  */
 export const isIdentityBlocked = internalQuery({

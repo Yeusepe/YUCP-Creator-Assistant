@@ -24,6 +24,7 @@ const INFISICAL_CLIENT_SECRET = 'forensics-test-client-secret';
 const INFISICAL_PROJECT_ID = 'forensics-test-project-id';
 const INFISICAL_ACCESS_TOKEN = 'forensics-test-access-token';
 const COUPLING_SHARED_SECRET = 'test-placeholder-infisical-coupling-value';
+const MATERIALIZATION_API_SECRET = 'test-materialization-api-shared-secret';
 
 class ManagedProcess {
   private readonly child: ChildProcess;
@@ -128,6 +129,7 @@ test('loads Infisical bootstrap credentials from local .env.infisical before run
   const apiPort = await getFreePort();
   const infisicalPort = await getFreePort();
   const couplingPort = await getFreePort();
+  const materializationPort = await getFreePort();
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'yucp-forensics-startup-'));
 
   let loginRequestCount = 0;
@@ -181,7 +183,10 @@ test('loads Infisical bootstrap credentials from local .env.infisical before run
     port: couplingPort,
     async fetch(request): Promise<Response> {
       const url = new URL(request.url);
-      if (url.pathname !== '/v1/coupling/attribute' || request.method !== 'POST') {
+      if (
+        url.pathname !== '/v2/internal/coupling/attribution/evaluate' ||
+        request.method !== 'POST'
+      ) {
         return new Response('Not found', { status: 404 });
       }
 
@@ -203,29 +208,63 @@ test('loads Infisical bootstrap credentials from local .env.infisical before run
 
       // No candidate seed decodes this asset, so every entry comes back unmatched.
       return Response.json({
-        requestId: 'startup-req-1',
         results: assets.map((asset) => ({
           assetPath: asset.assetPath ?? '',
           assetType: asset.assetType ?? 'fbx',
           matched: false,
-          attempted: 1,
         })),
+        schemaVersion: 2,
+      });
+    },
+  });
+
+  const materializationServer = Bun.serve({
+    port: materializationPort,
+    async fetch(request): Promise<Response> {
+      const url = new URL(request.url);
+      if (
+        url.pathname !== '/v2/internal/materialization-attribution/candidates' ||
+        request.method !== 'POST'
+      ) {
+        return new Response('Not found', { status: 404 });
+      }
+      if (request.headers.get('authorization') !== `Bearer ${MATERIALIZATION_API_SECRET}`) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+      const body = (await request.json()) as { candidateLimit?: number };
+      return Response.json({
+        candidateLimit: body.candidateLimit ?? 512,
+        candidates: [
+          {
+            algorithmVersion: 'fbx-coupling-v2',
+            attributionId: 'startup-attribution-1',
+            attributionTokenHash: '1'.repeat(64),
+            buyerSubjectPseudonym: Buffer.alloc(32, 0x77).toString('base64url'),
+            capabilityId: 'startup-capability-1',
+            createdAt: 2_000_000_000_000,
+            creatorId: 'creator-user',
+            jobId: 'startup-job-1',
+            keyEpoch: 1,
+            leaseGeneration: 1,
+            materializerType: 'fbx',
+            normalizedPath: 'bundle/model.fbx',
+            outputFormat: 'zip',
+            pluginVersion: 'fbx-plugin-2',
+            protectedSourceRoot: '2'.repeat(64),
+            releaseRoot: '3'.repeat(64),
+            sourceSha256: '4'.repeat(64),
+          },
+        ],
+        truncated: false,
       });
     },
   });
 
   const convex = startFakeConvexServer({
     query: {
-      'couplingForensics:listCouplingTraceCandidatesForAuthUser': () => ({
+      'couplingForensics:authorizeCouplingForensicsLookupForAuthUser': () => ({
         capabilityEnabled: true,
         packageOwned: true,
-        candidates: [
-          {
-            assetPath: 'bundle/model.fbx',
-            licenseSubject: 'b'.repeat(64),
-            tokenHash: '1'.repeat(64),
-          },
-        ],
       }),
     },
     mutation: {
@@ -249,6 +288,8 @@ test('loads Infisical bootstrap credentials from local .env.infisical before run
     YUCP_COUPLING_SERVICE_BASE_URL: `http://127.0.0.1:${couplingPort}`,
     YUCP_COUPLING_SERVICE_SHARED_SECRET: '',
     COUPLING_SERVICE_SECRET: WRONG_LEGACY_COUPLING_SECRET,
+    MATERIALIZATION_API_SHARED_SECRET: MATERIALIZATION_API_SECRET,
+    MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL: `http://127.0.0.1:${materializationPort}`,
     YUCP_TEST_CWD: tempDir,
   });
 
@@ -294,7 +335,7 @@ test('loads Infisical bootstrap credentials from local .env.infisical before run
 
     expect(response.status).toBe(200);
     expect(body).toMatchObject({
-      lookupStatus: 'tampered_suspected',
+      lookupStatus: 'no_signal_found',
       candidateAssetCount: 1,
     });
     expect(receivedCouplingAuthorization).toBe(`Bearer ${COUPLING_SHARED_SECRET}`);
@@ -303,6 +344,7 @@ test('loads Infisical bootstrap credentials from local .env.infisical before run
   } finally {
     await apiProcess.stop();
     convex.stop();
+    materializationServer.stop(true);
     couplingServer.stop(true);
     infisicalServer.stop(true);
     await rm(tempDir, { recursive: true, force: true });

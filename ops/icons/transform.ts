@@ -2,7 +2,6 @@ import type { GeneratedIcon, GeneratedIconPath } from '../../apps/web/src/icons/
 
 const PRIMARY_COLOR = '#8fbffa';
 const ACCENT_COLOR = '#2859c5';
-const ACCENT_OPACITY = '0.6';
 const ALLOWED_ELEMENTS = new Set(['desc', 'g', 'path', 'svg']);
 const ALLOWED_BODY_ELEMENTS = new Set(['desc', 'g', 'path']);
 const ALLOWED_ATTRIBUTES = {
@@ -84,9 +83,9 @@ function parsePath(attributes: ReadonlyMap<string, string>, iconName: string): G
   return {
     ...(clipRule ? { clipRule } : {}),
     d,
-    ...(fill === ACCENT_COLOR ? { fillOpacity: ACCENT_OPACITY } : {}),
     ...(fillRule ? { fillRule } : {}),
     ...(strokeWidth ? { strokeWidth } : {}),
+    tone: fill === PRIMARY_COLOR ? 'primary' : 'secondary',
   };
 }
 

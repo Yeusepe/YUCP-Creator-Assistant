@@ -1,12 +1,16 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { LOGICAL_FILE_CHUNK_MAX_BYTES, mapBoundedOrdered } from './boundedOrderedBatch';
 import type { CasConfig } from './config';
 import type { DeliveryManifestChunk } from './deliveryManifest';
+import type { DurableExactStorage } from './durableExactStorage';
+import type { StorageRole } from './exactStorage';
 import { commandPathEnv, runCommand } from './process';
-import { deleteS3Objects, getS3Object, putS3Object } from './s3Control';
+import { deleteS3Objects, getS3Object, putS3ObjectImmutable } from './s3Control';
 
 const REQUIRED_DESYNC_COMMANDS = ['make', 'extract', 'chop', 'cat', 'inspect-chunks'] as const;
+const DESYNC_CHUNK_PROFILE = '64:256:1024';
 
 export type LocalStoreMeasurement = {
   bytes: number;
@@ -21,6 +25,8 @@ export type LocalCasStore = {
 export type S3CasStore = {
   kind: 's3';
   config: CasConfig;
+  durableStorage?: DurableExactStorage;
+  storageRole?: Extract<StorageRole, 'common' | 'metadata' | 'protected'>;
 };
 
 export type CasStore = LocalCasStore | S3CasStore;
@@ -29,8 +35,14 @@ export function localCasStore(storePath: string): LocalCasStore {
   return { kind: 'local', storePath };
 }
 
-export function s3CasStore(config: CasConfig): S3CasStore {
-  return { kind: 's3', config };
+export function s3CasStore(
+  config: CasConfig,
+  options: {
+    durableStorage?: DurableExactStorage;
+    storageRole?: Extract<StorageRole, 'common' | 'metadata' | 'protected'>;
+  } = {}
+): S3CasStore {
+  return { kind: 's3', config, ...options };
 }
 
 async function runDesyncWithUncompressedStore(
@@ -154,6 +166,8 @@ export async function storeArtifactToStore(input: {
     await mkdir(storePath, { recursive: true });
     await runDesyncWithUncompressedStore(storePath, [
       'make',
+      '--chunk-size',
+      DESYNC_CHUNK_PROFILE,
       '--store',
       storePath,
       '--',
@@ -170,16 +184,72 @@ export async function storeArtifactToStore(input: {
   try {
     await runDesyncWithUncompressedStore(
       storeUrl,
-      ['make', '--store', storeUrl, '--', indexPath, artifactPath],
+      [
+        'make',
+        '--chunk-size',
+        DESYNC_CHUNK_PROFILE,
+        '--store',
+        storeUrl,
+        '--',
+        indexPath,
+        artifactPath,
+      ],
       {
         env: desyncS3ChildEnv(input.store.config),
       }
     );
-    await putS3Object({
+    await putS3ObjectImmutable({
       body: await readFile(indexPath),
       config: input.store.config,
       contentType: 'application/octet-stream',
       key: `${input.store.config.indexPrefix}${input.indexId}`,
+    });
+  } finally {
+    await rm(scratchPath, { force: true, recursive: true });
+  }
+}
+
+export async function produceFileChunks(input: {
+  artifactPath: string;
+  onChunk: (chunk: {
+    bytes: Uint8Array;
+    sha256: string;
+    size: number;
+  }) => Promise<DeliveryManifestChunk>;
+}): Promise<DeliveryManifestChunk[]> {
+  const artifactPath = resolve(input.artifactPath);
+  const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-desync-file-recipe-'));
+  const indexPath = join(scratchPath, 'file.caibx');
+  const storePath = join(scratchPath, 'chunks');
+  try {
+    await mkdir(storePath, { recursive: true });
+    await runDesyncWithUncompressedStore(storePath, [
+      'make',
+      '--chunk-size',
+      DESYNC_CHUNK_PROFILE,
+      '--store',
+      storePath,
+      '--',
+      indexPath,
+      artifactPath,
+    ]);
+    const inspected = await inspectDesyncIndex({
+      indexId: indexPath,
+      store: localCasStore(scratchPath),
+    });
+    return await mapBoundedOrdered(inspected, async (chunk) => {
+      if (chunk.size > LOGICAL_FILE_CHUNK_MAX_BYTES) {
+        throw new Error('desync chunk exceeds the configured maximum size');
+      }
+      const bytes = new Uint8Array(await readFile(join(storePath, chunk.id.slice(0, 4), chunk.id)));
+      if (bytes.byteLength !== chunk.size) {
+        throw new Error('desync chunk length changed after inspection');
+      }
+      return input.onChunk({
+        bytes,
+        sha256: chunk.id,
+        size: chunk.size,
+      });
     });
   } finally {
     await rm(scratchPath, { force: true, recursive: true });
@@ -222,42 +292,45 @@ export async function inspectDesyncIndex(input: {
   indexId: string;
   store: CasStore;
 }): Promise<DeliveryManifestChunk[]> {
+  const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-desync-inspection-'));
+  const inspectionPath = join(scratchPath, 'chunks.json');
   const indexLocation =
     input.store.kind === 'local'
       ? resolve(input.indexId)
       : buildDesyncS3IndexUrl(input.store.config, input.indexId);
-  const { stdout } = await runCommand(
-    'desync',
-    ['--digest', 'sha256', 'inspect-chunks', '--', indexLocation],
-    {
-      env: input.store.kind === 's3' ? desyncS3ChildEnv(input.store.config) : commandPathEnv(),
-    }
-  );
-
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(stdout);
-  } catch (error) {
-    throw new Error('desync inspect-chunks returned invalid JSON', { cause: error });
-  }
-  if (!Array.isArray(parsed)) {
-    throw new Error('desync inspect-chunks did not return a chunk list');
-  }
+    await runCommand('desync', ['--digest', 'sha256', 'inspect-chunks', '--', indexLocation], {
+      env: input.store.kind === 's3' ? desyncS3ChildEnv(input.store.config) : commandPathEnv(),
+      stdoutPath: inspectionPath,
+    });
 
-  return parsed.map((value, index) => {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-      throw new Error(`desync inspect-chunks returned an invalid chunk at index ${index}`);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await readFile(inspectionPath, 'utf8'));
+    } catch (error) {
+      throw new Error('desync inspect-chunks returned invalid JSON', { cause: error });
     }
-    const id = Reflect.get(value, 'id');
-    const size = Reflect.get(value, 'uncompressed_size');
-    if (typeof id !== 'string' || !/^[0-9a-f]{64}$/.test(id)) {
-      throw new Error(`desync inspect-chunks returned an invalid chunk ID at index ${index}`);
+    if (!Array.isArray(parsed)) {
+      throw new Error('desync inspect-chunks did not return a chunk list');
     }
-    if (!Number.isSafeInteger(size) || (size as number) <= 0) {
-      throw new Error(`desync inspect-chunks returned an invalid chunk size at index ${index}`);
-    }
-    return { id, size: size as number };
-  });
+
+    return parsed.map((value, index) => {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        throw new Error(`desync inspect-chunks returned an invalid chunk at index ${index}`);
+      }
+      const id = Reflect.get(value, 'id');
+      const size = Reflect.get(value, 'uncompressed_size');
+      if (typeof id !== 'string' || !/^[0-9a-f]{64}$/.test(id)) {
+        throw new Error(`desync inspect-chunks returned an invalid chunk ID at index ${index}`);
+      }
+      if (!Number.isSafeInteger(size) || (size as number) <= 0) {
+        throw new Error(`desync inspect-chunks returned an invalid chunk size at index ${index}`);
+      }
+      return { id, sha256: id, size: size as number };
+    });
+  } finally {
+    await rm(scratchPath, { force: true, recursive: true });
+  }
 }
 
 export async function writeCasIndexObject(input: {
@@ -274,7 +347,7 @@ export async function writeCasIndexObject(input: {
   }
 
   assertRemoteIndexId(input.indexId);
-  await putS3Object({
+  await putS3ObjectImmutable({
     body: input.body,
     config: input.store.config,
     contentType: input.contentType,

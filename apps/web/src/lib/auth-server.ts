@@ -1,13 +1,8 @@
-import { convexBetterAuthReactStart } from '@convex-dev/better-auth/react-start';
-import {
-  getToken as fetchConvexAuthToken,
-  type GetTokenOptions,
-} from '@convex-dev/better-auth/utils';
 import { resolveConvexSiteUrl } from '@yucp/shared';
 import { ConvexError } from 'convex/values';
 import { logWebError } from '@/lib/webDiagnostics';
 import { filterForwardedSessionCookieHeader } from './server/forwardedAuthCookies';
-import { getWebEnv, getWebRuntimeEnv } from './server/runtimeEnv';
+import { getWebRuntimeEnv } from './server/runtimeEnv';
 
 const AUTH_COOKIE_PREFIX = 'yucp';
 const AUTH_COOKIE_NAME_PREFIXES = [
@@ -35,47 +30,124 @@ const AUTH_TOKEN_OPTIONS = {
     enabled: true,
     isAuthError: isConvexAuthError,
   },
-} satisfies GetTokenOptions;
+} as const;
 
 /**
  * Server-side auth utilities for TanStack Start.
  *
- * - `handler`: Proxies /api/auth/* requests to Convex
+ * - `handleAuthRequest`: Proxies /api/auth/* requests to Convex
  * - `getToken`: Gets JWT from session cookies (for SSR auth in beforeLoad)
- * - `fetchAuthQuery/Mutation/Action`: Call Convex functions with auth from server fns
  *
  * Env vars CONVEX_URL and CONVEX_SITE_URL come from Worker bindings or local
  * Worker env files during development.
  * Ref: https://labs.convex.dev/better-auth/framework-guides/tanstack-start
  */
-type AuthRuntime = ReturnType<typeof convexBetterAuthReactStart>;
-
-let cachedAuthRuntime: AuthRuntime | null = null;
-let cachedAuthRuntimeKey: string | null = null;
-
 function resolveAuthRuntimeConfig(env = getWebRuntimeEnv()) {
-  const convexUrl = getWebEnv('CONVEX_URL', env) ?? '';
   const convexSiteUrl = resolveConvexSiteUrl(env) ?? '';
 
   return {
-    convexUrl,
     convexSiteUrl,
-    key: `${convexUrl}|${convexSiteUrl}`,
   };
 }
 
-function getAuthRuntime(): AuthRuntime {
-  const config = resolveAuthRuntimeConfig();
-  if (!cachedAuthRuntime || cachedAuthRuntimeKey !== config.key) {
-    cachedAuthRuntime = convexBetterAuthReactStart({
-      convexUrl: config.convexUrl,
-      convexSiteUrl: config.convexSiteUrl,
-      ...AUTH_TOKEN_OPTIONS,
-    });
-    cachedAuthRuntimeKey = config.key;
+function parseJwtExpiration(token: string): number | undefined {
+  const payload = token.split('.')[1];
+  if (!payload) {
+    return undefined;
   }
 
-  return cachedAuthRuntime;
+  try {
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const paddingLength = (4 - (normalized.length % 4)) % 4;
+    const decoded = JSON.parse(atob(normalized.padEnd(normalized.length + paddingLength, '='))) as {
+      exp?: unknown;
+    };
+    return typeof decoded.exp === 'number' ? decoded.exp : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function getCachedConvexJwt(cookieHeader: string | null): string | undefined {
+  if (!cookieHeader) {
+    return undefined;
+  }
+
+  const expectedNames = new Set(AUTH_COOKIE_NAME_PREFIXES.map((prefix) => `${prefix}convex_jwt`));
+  for (const entry of cookieHeader.split(';')) {
+    const separatorIndex = entry.indexOf('=');
+    if (separatorIndex < 1) {
+      continue;
+    }
+
+    const name = entry.slice(0, separatorIndex).trim();
+    if (!expectedNames.has(name)) {
+      continue;
+    }
+
+    const value = entry.slice(separatorIndex + 1).trim();
+    if (value) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+async function fetchConvexAuthToken(
+  convexSiteUrl: string,
+  headers: Headers,
+  options: typeof AUTH_TOKEN_OPTIONS & { forceRefresh?: boolean }
+): Promise<{ isFresh: boolean; token?: string }> {
+  if (options.jwtCache.enabled && !options.forceRefresh) {
+    const cachedToken = getCachedConvexJwt(headers.get('cookie'));
+    const expiration = cachedToken ? parseJwtExpiration(cachedToken) : undefined;
+    const refreshFloor = Math.floor(Date.now() / 1000) + 60;
+    if (cachedToken && expiration !== undefined && expiration > refreshFloor) {
+      return { isFresh: false, token: cachedToken };
+    }
+  }
+
+  const response = await fetch(new URL('/api/auth/convex/token', convexSiteUrl), {
+    headers,
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    throw new Error(`Convex auth token fetch failed with status ${response.status}`);
+  }
+
+  const payload = (await response.json()) as { token?: unknown } | null;
+  return {
+    isFresh: true,
+    token: typeof payload?.token === 'string' ? payload.token : undefined,
+  };
+}
+
+async function proxyAuthRequest(request: Request, convexSiteUrl: string): Promise<Response> {
+  const requestUrl = new URL(request.url);
+  const targetUrl = new URL(`${requestUrl.pathname}${requestUrl.search}`, convexSiteUrl);
+  const headers = new Headers(request.headers);
+  headers.delete('transfer-encoding');
+  headers.delete('content-length');
+  headers.delete('connection');
+  headers.set('accept-encoding', 'application/json');
+  headers.set('host', targetUrl.host);
+  headers.set('x-forwarded-host', requestUrl.host);
+  headers.set('x-forwarded-proto', requestUrl.protocol.replace(/:$/, ''));
+  headers.set('x-better-auth-forwarded-host', requestUrl.host);
+  headers.set('x-better-auth-forwarded-proto', requestUrl.protocol.replace(/:$/, ''));
+
+  const init: RequestInit & { duplex?: 'half' } = {
+    method: request.method,
+    headers,
+    redirect: 'manual',
+  };
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    init.body = request.body;
+    init.duplex = 'half';
+  }
+
+  return fetch(targetUrl, init);
 }
 
 interface BetterAuthSessionUser {
@@ -129,7 +201,8 @@ export function convertPostRedirectToJson(method: string, response: Response): R
  * return a JSON body the JS client can act on.
  */
 export async function handleAuthRequest(request: Request): Promise<Response> {
-  const res = await getAuthRuntime().handler(request);
+  const { convexSiteUrl } = resolveAuthRuntimeConfig();
+  const res = await proxyAuthRequest(request, convexSiteUrl);
   return convertPostRedirectToJson(request.method, res);
 }
 
@@ -167,6 +240,43 @@ async function clearRecoverableAuthCookies(cookieHeader: string | null): Promise
         ? { secure: true }
         : {}),
     });
+  }
+}
+
+function getRenewedAuthCookies(headers: Headers): string[] {
+  const getSetCookie = (
+    headers as Headers & {
+      getSetCookie?: () => string[];
+    }
+  ).getSetCookie;
+  const cookies =
+    typeof getSetCookie === 'function'
+      ? getSetCookie.call(headers)
+      : [headers.get('set-cookie')].filter((value): value is string => Boolean(value));
+
+  return cookies.filter((cookie) => {
+    const separatorIndex = cookie.indexOf('=');
+    if (separatorIndex < 1) {
+      return false;
+    }
+
+    const cookieName = cookie.slice(0, separatorIndex).trim();
+    return AUTH_COOKIE_NAME_PREFIXES.some((prefix) => cookieName.startsWith(prefix));
+  });
+}
+
+async function forwardRenewedAuthCookies(headers: Headers): Promise<void> {
+  const cookies = getRenewedAuthCookies(headers);
+  if (cookies.length === 0) {
+    return;
+  }
+
+  // Better Auth renews the durable session cookie through get-session:
+  // https://better-auth.com/docs/concepts/session-management#session-expiration
+  const { getResponseHeaders } = await import('@tanstack/react-start/server');
+  const responseHeaders = getResponseHeaders();
+  for (const cookie of cookies) {
+    responseHeaders.append('set-cookie', cookie);
   }
 }
 
@@ -304,6 +414,8 @@ export async function getSession(): Promise<AuthSessionState> {
     if (!response.ok) {
       throw new Error(`Better Auth session fetch failed with status ${response.status}`);
     }
+
+    await forwardRenewedAuthCookies(response.headers);
 
     const payload = (await response.json()) as BetterAuthSessionResponse | null;
     const user = payload?.user;

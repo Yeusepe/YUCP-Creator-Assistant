@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { ACTIVE_PROTECTION_POLICY_ID } from './protectionPolicyId';
 import { signUploadCapability, verifyUploadCapability } from './uploadSigning';
 
 describe('upload capability signing', () => {
@@ -9,9 +10,12 @@ describe('upload capability signing', () => {
   test('binds the intended catalog target, version ID, and expiry to the server key', async () => {
     const capability = await signUploadCapability({
       catalogProductId: 'catalog-product-123',
+      creatorId: 'creator-1',
+      editionId: 'commercial',
       expiresAt,
       key,
       packageId: 'com.yucp.avatar-tools',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       version: '1.2.3',
       versionId: 'd7eb9f28-b970-4a3c-b55e-c100fb9f81ed',
     });
@@ -24,6 +28,9 @@ describe('upload capability signing', () => {
       )
     ).resolves.toBe(false);
     await expect(
+      verifyUploadCapability({ ...capability, now, editionId: 'personal' }, key)
+    ).resolves.toBe(false);
+    await expect(
       verifyUploadCapability({ ...capability, now, packageId: 'com.attacker.package' }, key)
     ).resolves.toBe(false);
     await expect(
@@ -31,6 +38,12 @@ describe('upload capability signing', () => {
     ).resolves.toBe(false);
     await expect(
       verifyUploadCapability({ ...capability, now, catalogProductId: 'other-product' }, key)
+    ).resolves.toBe(false);
+    await expect(
+      verifyUploadCapability({ ...capability, now, creatorId: 'creator-2' }, key)
+    ).resolves.toBe(false);
+    await expect(
+      verifyUploadCapability({ ...capability, now, protectionPolicyId: 'common-only-v1' }, key)
     ).resolves.toBe(false);
     await expect(verifyUploadCapability({ ...capability, now }, 'attacker-key')).resolves.toBe(
       false

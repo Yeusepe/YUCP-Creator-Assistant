@@ -1,19 +1,11 @@
 import { createLazyFileRoute } from '@tanstack/react-router';
 import confetti from 'canvas-confetti';
-import {
-  ArrowLeft,
-  ArrowRight,
-  Check,
-  CheckCircle,
-  Copy,
-  PartyPopper,
-  PlusCircle,
-} from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, apiClient } from '@/api/client';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { buildSetupAuthQuery, withSetupAuthUserId } from '@/lib/setupAuth';
 import '@/styles/payhip-setup.css';
+import { Icon } from '@/components/ui/Icon';
 
 export const Route = createLazyFileRoute('/setup/payhip')({
   component: PayhipSetupPage,
@@ -82,57 +74,15 @@ function getDashboardUrl(): string {
 /* ── Mockup SVG icons ──────────────────────────────────── */
 
 function MockCheckSvg() {
-  return (
-    <svg width="7" height="7" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-      <path
-        d="M2 5l2.5 2.5L8 3"
-        stroke="white"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
+  return <Icon name="check" size={7} />;
 }
 
 function CustomerSvg() {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="#505060"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="12" cy="8" r="4" />
-      <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
-    </svg>
-  );
+  return <Icon name="profile" size={18} />;
 }
 
 function CreatorBotSvg() {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="#3b82f6"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="3" y="7" width="18" height="13" rx="3" />
-      <path d="M9 7V5a3 3 0 016 0v2" />
-      <circle cx="9" cy="14" r="1.2" fill="#3b82f6" stroke="none" />
-      <circle cx="15" cy="14" r="1.2" fill="#3b82f6" stroke="none" />
-    </svg>
-  );
+  return <Icon name="bot" size={18} className="text-[#3b82f6]" />;
 }
 
 function DiscordSvg() {
@@ -427,7 +377,7 @@ function PayhipSetupPage() {
             className="fixed top-6 left-6 z-50 inline-flex items-center gap-2 px-4 py-2 bg-black/40 backdrop-blur-xl border border-white/10 rounded-xl text-white/70 hover:text-white hover:bg-white/10 transition-all font-bold text-sm shadow-xl"
             style={{ textDecoration: 'none' }}
           >
-            <ArrowLeft className="w-3.5 h-3.5" strokeWidth={2.5} />
+            <Icon name="arrowLeft" className="w-3.5 h-3.5" />
             Dashboard
           </a>
         )}
@@ -701,8 +651,8 @@ function PayhipSetupPage() {
                                 copyToClipboard(webhookUrl, 'webhook', e.currentTarget)
                               }
                             >
-                              <Copy className="w-4 h-4 copy-icon text-white/50" />
-                              <Check className="w-4 h-4 checkmark text-[#3b82f6]" />
+                              <Icon name="copy" className="w-4 h-4 copy-icon text-white/50" />
+                              <Icon name="check" className="w-4 h-4 checkmark text-[#3b82f6]" />
                             </button>
                           </div>
                         </div>
@@ -845,7 +795,7 @@ function PayhipSetupPage() {
                       </div>
                     ) : (
                       <div className="p-4 rounded-xl bg-green-500/10 border border-green-500/20 flex items-center gap-3">
-                        <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0" />
+                        <Icon name="success" className="w-5 h-5 text-green-400 flex-shrink-0" />
                         <span className="text-green-300 font-semibold text-sm">
                           Webhook received! Payhip is connected.
                         </span>
@@ -976,18 +926,7 @@ function PayhipSetupPage() {
                             title="Remove"
                             onClick={() => removeProduct(product.id)}
                           >
-                            <svg
-                              width="12"
-                              height="12"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2.5"
-                              strokeLinecap="round"
-                              aria-hidden="true"
-                            >
-                              <path d="M18 6L6 18M6 6l12 12" />
-                            </svg>
+                            <Icon name="close" size={12} />
                           </button>
                           <div className="product-card-fields">
                             <div>
@@ -1041,7 +980,7 @@ function PayhipSetupPage() {
                       className="flex items-center gap-2 text-sm text-[#3b82f6] hover:text-blue-300 transition-colors font-semibold w-full justify-center py-2.5 border border-dashed border-[#3b82f6]/25 rounded-xl hover:border-[#3b82f6]/50 hover:bg-[#3b82f6]/5"
                       onClick={addProduct}
                     >
-                      <PlusCircle className="w-4 h-4" />
+                      <Icon name="addCircle" className="w-4 h-4" />
                       Add a product
                     </button>
 
@@ -1072,7 +1011,7 @@ function PayhipSetupPage() {
                 disabled={currentStep === 1}
                 onClick={goPrev}
               >
-                <ArrowLeft className="w-4 h-4" /> Back
+                <Icon name="arrowLeft" className="w-4 h-4" /> Back
               </button>
 
               {currentStep < TOTAL_STEPS ? (
@@ -1087,7 +1026,10 @@ function PayhipSetupPage() {
                   ) : (
                     <>
                       Next Step{' '}
-                      <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
+                      <Icon
+                        name="arrowRight"
+                        className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform"
+                      />
                     </>
                   )}
                 </button>
@@ -1107,7 +1049,7 @@ function PayhipSetupPage() {
                       <span className="group-hover:tracking-wider transition-all">
                         Complete Setup
                       </span>
-                      <PartyPopper className="w-5 h-5 animate-bounce" />
+                      <Icon name="party" className="w-5 h-5 animate-bounce" />
                     </>
                   )}
                 </button>

@@ -1,11 +1,34 @@
 import { describe, expect, it } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { loadMaterializationControlClient } from '../apps/api/src/lib/materializationControlClient';
+import {
+  loadPackageInstallerTufRepositoryConfig,
+  type PackageInstallerTufRepositoryEnvironment,
+} from '../apps/api/src/lib/packageInstallerTufRepository';
 
 const repoRoot = path.resolve(import.meta.dir, '..');
 
 async function readOpsFile(relativePath: string) {
   return readFile(path.join(repoRoot, relativePath), 'utf8');
+}
+
+function readTemplateValue(template: string, key: string): string {
+  const match = template.match(new RegExp(`^\\s+${key}:\\s+"([^"]+)"\\s*$`, 'm'));
+  if (!match?.[1]) {
+    throw new Error(`Missing Infisical template value for ${key}`);
+  }
+  return match[1];
+}
+
+function readRequiredEnvironmentNames(source: string): string[] {
+  return [
+    ...new Set(
+      [...source.matchAll(/requiredEnv\('([A-Z0-9_]+)'\)/g)].flatMap((match) =>
+        match[1] ? [match[1]] : []
+      )
+    ),
+  ].sort();
 }
 
 describe('Convex Infisical prod helpers', () => {
@@ -33,5 +56,70 @@ describe('Convex Infisical prod helpers', () => {
     expect(syncConvexEnv).toContain("'DISCORD_BOT_TOKEN'");
     expect(secretsTemplate).toContain('ROLE_SYNC_VIA_WORKPOOL');
     expect(secretsTemplate).toContain('DISCORD_BOT_TOKEN');
+  });
+
+  it('documents a production-safe exact-storage TUF repository', async () => {
+    const secretsTemplate = await readOpsFile('ops/infisical/secrets.template.yaml');
+    const exactStorageKeys = [
+      'PACKAGE_INSTALLER_TUF_CATALOG_DATABASE_URL',
+      'PACKAGE_INSTALLER_TUF_REPOSITORY_ID',
+      'PACKAGE_INSTALLER_TUF_S3_ACCESS_KEY_ID',
+      'PACKAGE_INSTALLER_TUF_S3_BUCKET',
+      'PACKAGE_INSTALLER_TUF_S3_ENDPOINT',
+      'PACKAGE_INSTALLER_TUF_S3_REGION',
+      'PACKAGE_INSTALLER_TUF_S3_REQUEST_TIMEOUT_MS',
+      'PACKAGE_INSTALLER_TUF_S3_SECRET_ACCESS_KEY',
+    ];
+
+    expect(secretsTemplate).not.toContain('PACKAGE_INSTALLER_TUF_REPOSITORY_ROOT:');
+    for (const key of exactStorageKeys) {
+      expect(secretsTemplate).toContain(`${key}:`);
+    }
+    const templateEnvironment = Object.fromEntries(
+      exactStorageKeys.map((key) => [key, readTemplateValue(secretsTemplate, key)])
+    ) as PackageInstallerTufRepositoryEnvironment;
+    expect(
+      loadPackageInstallerTufRepositoryConfig({
+        ...templateEnvironment,
+        NODE_ENV: 'production',
+      })
+    ).toMatchObject({
+      kind: 'exact-storage',
+      repositoryId: 'package-installer',
+    });
+  });
+
+  it('configures the protected-package materialization control plane for the production API', async () => {
+    const secretsTemplate = await readOpsFile('ops/infisical/secrets.template.yaml');
+    const environment = {
+      MATERIALIZATION_API_SHARED_SECRET: readTemplateValue(
+        secretsTemplate,
+        'MATERIALIZATION_API_SHARED_SECRET'
+      ),
+      MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL: readTemplateValue(
+        secretsTemplate,
+        'MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL'
+      ),
+    };
+
+    expect(loadMaterializationControlClient(environment)).not.toBeNull();
+  });
+
+  it('documents every required materialization control-plane value without storing credentials', async () => {
+    const [serverSource, secretsTemplate] = await Promise.all([
+      readOpsFile('ops/materialization/server.ts'),
+      readOpsFile('ops/infisical/secrets.template.yaml'),
+    ]);
+    const requiredEnvironmentNames = readRequiredEnvironmentNames(serverSource);
+    const sensitiveName =
+      /(?:ACCESS_KEY_ID|DATABASE_URL|PRIVATE_KEY|SECRET_ACCESS_KEY|SHARED_SECRET)$/;
+
+    expect(requiredEnvironmentNames.length).toBeGreaterThan(0);
+    for (const name of requiredEnvironmentNames) {
+      const value = readTemplateValue(secretsTemplate, name);
+      if (sensitiveName.test(name)) {
+        expect(value).toContain('placeholder');
+      }
+    }
   });
 });

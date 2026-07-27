@@ -994,7 +994,7 @@ describe('real API user journeys against self-hosted Convex', () => {
     const manualRequirement = manualRequirements[0];
     expect(manualRequirement).toEqual(
       expect.objectContaining({
-        methodKey: 'manual-manual-license',
+        methodKey: `manual-manual-license-${catalogProductId}`,
         providerKey: 'manual',
         kind: 'manual_license',
         capability: expect.objectContaining({

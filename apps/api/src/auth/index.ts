@@ -76,7 +76,7 @@ interface BetterAuthOAuthClientResponse {
 
 interface BetterAuthApiKeyResponse {
   id: string;
-  userId: string;
+  referenceId: string;
   name: string | null;
   start: string | null;
   prefix: string | null;

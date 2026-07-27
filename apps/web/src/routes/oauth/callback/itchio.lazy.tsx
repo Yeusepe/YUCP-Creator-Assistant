@@ -1,7 +1,7 @@
 import { createLazyFileRoute } from '@tanstack/react-router';
-import { ArrowLeft } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { Icon } from '@/components/ui/Icon';
 import { buildSetupAuthQuery } from '@/lib/setupAuth';
 import { resolveSetupApiBase } from '../../setup/-lemonsqueezySetupSupport';
 
@@ -257,7 +257,7 @@ function ItchioSetupPage() {
             className="mt-6 inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white/70 transition-colors hover:bg-white/10 hover:text-white"
             style={{ textDecoration: 'none' }}
           >
-            <ArrowLeft size={14} />
+            <Icon name="arrowLeft" size={14} />
             Back to dashboard
           </a>
         </div>

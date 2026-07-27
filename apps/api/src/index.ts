@@ -4,12 +4,19 @@
 
 import path from 'node:path';
 import { getInternalRpcSharedSecret } from '@yucp/shared';
+import {
+  Catalog,
+  type CatalogDatabase,
+  openCatalogDatabase,
+  PackageOperationAuthorizationStore,
+} from '../../../ops/catalog';
 import { type Auth, createAuth } from './auth';
 import { createInternalRpcRouter, INTERNAL_RPC_PATH } from './internalRpc/router';
+import { loadCatalogControlClient } from './lib/catalogControlClient';
 import { getClientAddress } from './lib/clientAddress';
 import { getConfiguredConvexSiteUrlForProxy } from './lib/convexSiteProxy';
 import { buildApiAllowedCorsOrigins, buildApiCorsHeaders } from './lib/cors';
-import { validateCouplingServiceBaseUrl } from './lib/couplingRuntimeConfig';
+import { validateCouplingServiceBaseUrl } from './lib/couplingServiceConfig';
 import { getRequired, loadEnv, loadEnvAsync } from './lib/env';
 import { applyResponseSecurityHeaders } from './lib/httpSecurity';
 import {
@@ -18,18 +25,30 @@ import {
   isLegacyFrontendAsset,
 } from './lib/legacyFrontend';
 import { logger } from './lib/logger';
+import { loadMaterializationControlClient } from './lib/materializationControlClient';
+import { bindDefaultOAuthResource } from './lib/oauthTokenResource';
 import {
   annotateApiSpan,
   getActiveTraceIds,
   initApiObservability,
   withApiRequestSpan,
 } from './lib/observability';
+import { verifyPackageBrokerAccessRequest } from './lib/packageBrokerAccessToken';
+import { createConvexPackageInstallAccess } from './lib/packageInstallAccess';
+import {
+  buildPackageInstallerTufRepository,
+  loadPackageInstallerTufRepositoryConfig,
+  type PackageInstallerTufRepositoryRuntime,
+} from './lib/packageInstallerTufRepository';
+import { loadPackageInstallSessionConfig } from './lib/packageInstallSessionConfig';
 import {
   buildPublicApiRateLimitKey,
   checkPublicApiRateLimit,
   getPublicApiRateLimitStore,
 } from './lib/publicApiRateLimit';
 import { detectTunnelUrl } from './lib/tunnel';
+import { createConfiguredVpmAliasArtifactStore } from './lib/vpmAliasArtifactStore';
+import { loadVpmBootstrapMediaReader } from './lib/vpmBootstrapMediaReader';
 import { buildYucpKeysResponse } from './lib/yucpKeys';
 import {
   createAccountSecurityRoutes,
@@ -47,11 +66,18 @@ import {
   type VerificationConfig,
 } from './routes';
 import { createCollabRoutes } from './routes/collab';
-import { createCouplingRuntimeRoutes } from './routes/couplingRuntimeGateway';
+import { createPackageInstallerTufRoute } from './routes/packageInstallerTuf';
+import {
+  createPackageInstallSessionRenewalRoute,
+  createPackageInstallSessionRoute,
+  createPackageMaterializationStatusRoute,
+  createPackageOperationAuthorizationRoute,
+} from './routes/packageInstallSessions';
 import { createPublicRoutes } from './routes/public';
 import { createPublicV2Routes } from './routes/publicV2';
 import { createSuiteRoutes } from './routes/suite';
 import { createVersionRouteHandler } from './routes/version';
+import { parsePublicImporterReleaseLedgerJson } from './routes/vpmImporterPackage';
 
 // Global auth instance
 let auth: Auth | null = null;
@@ -66,7 +92,6 @@ let creatorUploadRoutes: ReturnType<typeof createCreatorUploadRoutes> | null = n
 let vpmRoutes: ReturnType<typeof createVpmRoutes> | null = null;
 let accountSecurityRoutes: ReturnType<typeof createAccountSecurityRoutes> | null = null;
 let forensicsRoutes: ReturnType<typeof createForensicsRoutes> | null = null;
-let couplingRuntimeRoutes: ReturnType<typeof createCouplingRuntimeRoutes> | null = null;
 let providerPlatformRoutes: ReturnType<typeof createProviderPlatformRoutes> | null = null;
 let webhookHandler: ReturnType<typeof createWebhookHandler> | null = null;
 let collabRoutes: ReturnType<typeof createCollabRoutes> | null = null;
@@ -74,6 +99,14 @@ let publicRoutes: ReturnType<typeof createPublicRoutes> | null = null;
 let publicV2Routes: ReturnType<typeof createPublicV2Routes> | null = null;
 let suiteRoutes: ReturnType<typeof createSuiteRoutes> | null = null;
 let internalRpcRouter: ReturnType<typeof createInternalRpcRouter> | null = null;
+let packageInstallSessionRoute: ((request: Request) => Promise<Response>) | null = null;
+let packageInstallSessionRenewalRoute: ((request: Request) => Promise<Response>) | null = null;
+let packageOperationAuthorizationRoute: ((request: Request) => Promise<Response>) | null = null;
+let packageOperationAuthorizationDatabase: CatalogDatabase | null = null;
+let vpmAliasPublicationDatabase: CatalogDatabase | null = null;
+let packageMaterializationStatusRoute: ((request: Request) => Promise<Response>) | null = null;
+let packageInstallerTufRoute: ((request: Request) => Promise<Response>) | null = null;
+let packageInstallerTufRuntime: PackageInstallerTufRepositoryRuntime | null = null;
 let allowedCorsOrigins = new Set<string>();
 
 // Resolved after initializeAuth - used for apiBase injection and CORS
@@ -92,9 +125,7 @@ function parseBearerToken(authHeader: string | null): string | null {
 }
 
 function getCouplingServiceSharedSecret(env: ReturnType<typeof loadEnv>): string {
-  return (
-    env.YUCP_COUPLING_SERVICE_SHARED_SECRET?.trim() || env.COUPLING_SERVICE_SECRET?.trim() || ''
-  );
+  return env.YUCP_COUPLING_SERVICE_SHARED_SECRET?.trim() ?? '';
 }
 
 function safeDecodeURIComponent(value: string): string | null {
@@ -220,9 +251,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     getRequired('YUCP_COUPLING_SERVICE_BASE_URL');
     getPublicApiRateLimitStore();
     if (!couplingServiceSharedSecret) {
-      throw new Error(
-        'YUCP_COUPLING_SERVICE_SHARED_SECRET or COUPLING_SERVICE_SECRET must be configured in production'
-      );
+      throw new Error('YUCP_COUPLING_SERVICE_SHARED_SECRET must be configured in production');
     }
   }
   const configuredPolarKeys = [env.POLAR_ACCESS_TOKEN, env.POLAR_WEBHOOK_SECRET].filter(
@@ -317,19 +346,20 @@ function initializeAuth(webhookBaseUrl?: string) {
     discordBotToken: env.DISCORD_BOT_TOKEN,
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexUrl,
-    deliveryBaseUrl: env.DELIVERY_BASE_URL,
-    deliveryHmacKey: env.DELIVERY_HMAC_KEY,
     gumroadClientId: env.GUMROAD_CLIENT_ID ?? env.GUMROAD_API_KEY,
     gumroadClientSecret: env.GUMROAD_CLIENT_SECRET ?? env.GUMROAD_SECRET_KEY,
     itchioClientId: env.ITCHIO_CLIENT_ID,
     patreonClientId: env.PATREON_CLIENT_ID,
     patreonClientSecret: env.PATREON_CLIENT_SECRET,
     encryptionSecret,
+    vpmBaseUrl: env.VPM_BASE_URL,
   } satisfies Parameters<typeof createConnectRoutes>[1];
   connectRoutes = createConnectRoutes(auth, connectConfig);
 
+  const catalogControl = loadCatalogControlClient(env);
   creatorPackageRoutes = createCreatorPackageRoutes({
     auth,
+    catalogControl,
     config: {
       apiBaseUrl: publicBaseUrl,
       frontendBaseUrl: frontendUrl,
@@ -350,18 +380,105 @@ function initializeAuth(webhookBaseUrl?: string) {
     },
   });
 
+  vpmAliasPublicationDatabase?.end({ timeout: 1 }).catch(() => undefined);
+  vpmAliasPublicationDatabase = env.VPM_ALIAS_PUBLICATION_CATALOG_DATABASE_URL
+    ? openCatalogDatabase(env.VPM_ALIAS_PUBLICATION_CATALOG_DATABASE_URL)
+    : null;
+  const vpmAliasArtifactStore = vpmAliasPublicationDatabase
+    ? createConfiguredVpmAliasArtifactStore(env as NodeJS.ProcessEnv, vpmAliasPublicationDatabase)
+    : undefined;
   vpmRoutes = createVpmRoutes({
     auth,
+    ...(vpmAliasArtifactStore ? { aliasArtifactStore: vpmAliasArtifactStore } : {}),
+    bootstrapMediaReader: loadVpmBootstrapMediaReader(env as NodeJS.ProcessEnv),
     config: {
       apiBaseUrl: publicBaseUrl,
       frontendBaseUrl: frontendUrl,
       convexApiSecret: env.CONVEX_API_SECRET ?? '',
       convexUrl,
-      deliveryBaseUrl: env.DELIVERY_BASE_URL,
-      deliveryHmacKey: env.DELIVERY_HMAC_KEY,
+      publicImporterReleaseLedger: parsePublicImporterReleaseLedgerJson(
+        env.VPM_IMPORTER_RELEASE_LEDGER_JSON
+      ),
+      publicVpmIndexUrl: env.VPM_PUBLIC_INDEX_URL,
       vpmBaseUrl: env.VPM_BASE_URL,
     },
   });
+
+  const packageInstallConfig = loadPackageInstallSessionConfig(env);
+  const materializationControl = loadMaterializationControlClient(env);
+  packageOperationAuthorizationDatabase?.end({ timeout: 1 }).catch(() => undefined);
+  packageOperationAuthorizationDatabase = env.PACKAGE_OPERATION_AUTHORIZATION_DATABASE_URL
+    ? openCatalogDatabase(env.PACKAGE_OPERATION_AUTHORIZATION_DATABASE_URL)
+    : null;
+  const operationAuthorizationStore = packageOperationAuthorizationDatabase
+    ? new PackageOperationAuthorizationStore(packageOperationAuthorizationDatabase)
+    : null;
+  const packagePublicationAuthority = packageOperationAuthorizationDatabase
+    ? new Catalog(packageOperationAuthorizationDatabase)
+    : null;
+  const packageInstallRouteOptions =
+    packageInstallConfig && operationAuthorizationStore && packagePublicationAuthority
+      ? {
+          accessPort: createConvexPackageInstallAccess({
+            convexApiSecret: env.CONVEX_API_SECRET ?? '',
+            convexUrl,
+            publicationAuthority: packagePublicationAuthority,
+          }),
+          authorizationPort: operationAuthorizationStore,
+          audience: packageInstallConfig.audience,
+          issuer: packageInstallConfig.issuer,
+          keyId: packageInstallConfig.keyId,
+          verificationBaseUrl: frontendUrl,
+          ...(materializationControl ? { materializationControl } : {}),
+          ...(catalogControl ? { releasePins: catalogControl } : {}),
+          privateKey: packageInstallConfig.privateKey,
+          async verifyAccessRequest(request: Request) {
+            const result = await verifyPackageBrokerAccessRequest(request, {
+              convexSiteUrl,
+              dpopReplayStore: operationAuthorizationStore.dpopReplayStore(),
+              logger,
+              logContext: 'Package install DPoP verification failed',
+              requiredAuthorizedParty: 'yucp-package-broker',
+              requiredScopes: ['package:operate'],
+            });
+            return result.ok
+              ? {
+                  buyerId: result.token.sub,
+                  deviceKeyThumbprint: result.token.deviceKeyThumbprint,
+                  ok: true as const,
+                }
+              : {
+                  ok: false as const,
+                  status: result.reason === 'insufficient_scope' ? (403 as const) : (401 as const),
+                };
+          },
+        }
+      : null;
+  packageOperationAuthorizationRoute = packageInstallRouteOptions
+    ? createPackageOperationAuthorizationRoute(packageInstallRouteOptions)
+    : null;
+  packageInstallSessionRoute = packageInstallRouteOptions
+    ? createPackageInstallSessionRoute(packageInstallRouteOptions)
+    : null;
+  packageInstallSessionRenewalRoute = packageInstallRouteOptions
+    ? createPackageInstallSessionRenewalRoute(packageInstallRouteOptions)
+    : null;
+  packageMaterializationStatusRoute =
+    packageInstallConfig && materializationControl
+      ? createPackageMaterializationStatusRoute({
+          audience: packageInstallConfig.audience,
+          issuer: packageInstallConfig.issuer,
+          keyId: packageInstallConfig.keyId,
+          materializationControl,
+          privateKey: packageInstallConfig.privateKey,
+        })
+      : null;
+  packageInstallerTufRuntime = buildPackageInstallerTufRepository(
+    loadPackageInstallerTufRepositoryConfig(env)
+  );
+  packageInstallerTufRoute = packageInstallerTufRuntime
+    ? createPackageInstallerTufRoute(packageInstallerTufRuntime.repository)
+    : null;
 
   accountSecurityRoutes = createAccountSecurityRoutes(auth, {
     convexUrl,
@@ -376,13 +493,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexUrl,
     encryptionSecret,
-  });
-
-  couplingRuntimeRoutes = createCouplingRuntimeRoutes({
-    convexUrl,
-    convexApiSecret: env.CONVEX_API_SECRET ?? '',
-    couplingServiceBaseUrl: env.YUCP_COUPLING_SERVICE_BASE_URL ?? '',
-    couplingServiceSharedSecret,
+    ...(materializationControl ? { materializationControl } : {}),
   });
 
   providerPlatformRoutes = createProviderPlatformRoutes(auth, {
@@ -529,14 +640,6 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname.startsWith('/api/creator/packages')) {
     if (isRateLimited(`creator-packages:${clientAddress}`, 120, 60_000)) {
-      return new Response(JSON.stringify({ error: 'Too many requests' }), {
-        status: 429,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-  }
-  if (pathname.startsWith('/api/access/')) {
-    if (isRateLimited(`buyer-download:${clientAddress}`, 120, 60_000)) {
       return new Response(JSON.stringify({ error: 'Too many requests' }), {
         status: 429,
         headers: { 'Content-Type': 'application/json' },
@@ -701,13 +804,6 @@ async function routeRequest(request: Request): Promise<Response> {
   // requests to Convex. Auth, YUCP OAuth, and the versioned public API (/v1/)
   // all live on Convex .site.
   // When the API runs on localhost, proxy so everything works from a single origin.
-  if (pathname.startsWith('/v1/') && couplingRuntimeRoutes) {
-    const couplingResponse = await couplingRuntimeRoutes.handleRequest(request);
-    if (couplingResponse) {
-      return couplingResponse;
-    }
-  }
-
   if (pathname.startsWith('/v1/') && providerPlatformRoutes) {
     const localV1Response = await providerPlatformRoutes.handleRequest(request);
     if (localV1Response) {
@@ -734,14 +830,8 @@ async function routeRequest(request: Request): Promise<Response> {
       proxyHeaders.delete('host');
       proxyHeaders.set('host', new URL(convexSiteUrl).host);
 
-      // ── RFC 8252 loopback redirect_uri rewrite for token exchange ──────────
-      // During authorize, /api/yucp/oauth/authorize already replaced the
-      // loopback redirect_uri with the fixed Convex callback URL so that
-      // Better Auth can validate it.  During token exchange the client sends
-      // the original loopback URI again (as required by RFC 6749 §4.1.3), but
-      // Better Auth will reject it because it no longer matches what was stored.
-      // Solution: when we see a loopback (127.0.0.1 or ::1) redirect_uri in the
-      // token exchange body we silently rewrite it to the same fixed URL.
+      // Better Auth owns RFC 8252 redirect and resource validation. The proxy
+      // supplies the public API resource only when a client omits one.
       let proxyBody: BodyInit | undefined =
         request.method !== 'GET' && request.method !== 'HEAD'
           ? ((request.body as BodyInit | null | undefined) ?? undefined)
@@ -753,23 +843,16 @@ async function routeRequest(request: Request): Promise<Response> {
         (request.headers.get('content-type') ?? '').includes('x-www-form-urlencoded')
       ) {
         const text = await request.text();
-        const params = new URLSearchParams(text);
-        const redir = params.get('redirect_uri') ?? '';
-        const hadResource = params.has('resource');
-        if (/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])/.test(redir)) {
-          params.set('redirect_uri', `${convexSiteUrl}/api/yucp/oauth/callback`);
-        }
+        const requestParams = new URLSearchParams(text);
+        const hadResource = requestParams.has('resource');
         // Always inject the resource parameter so the oauth-provider issues a
         // JWT access token (audience-bound) rather than an opaque token.
         // Without `resource`, isJwtAccessToken is false and verifyAccessToken
         // later fails with "no token payload".
-        if (!hadResource) {
-          params.set('resource', 'yucp-public-api');
-        }
+        const params = bindDefaultOAuthResource(requestParams);
         const rewritten = params.toString();
-        logger.info('Token exchange rewrite', {
+        logger.info('Token exchange resource binding', {
           grant_type: params.get('grant_type'),
-          redirect_uri_rewritten: redir ? redir.substring(0, 40) : '(none)',
           resource_was_present: hadResource,
           resource_now: params.get('resource'),
         });
@@ -888,6 +971,17 @@ async function routeRequest(request: Request): Promise<Response> {
   if (pathname === '/api/creator/packages' && creatorPackageRoutes) {
     return creatorPackageRoutes.listPackages(request);
   }
+  const creatorPackageVersionPageMatch = pathname.match(
+    /^\/api\/creator\/packages\/by-package\/([^/]+)\/editions\/([^/]+)\/versions$/
+  );
+  if (creatorPackageVersionPageMatch && creatorPackageRoutes) {
+    const packageId = safeDecodeURIComponent(creatorPackageVersionPageMatch[1] ?? '');
+    const editionId = safeDecodeURIComponent(creatorPackageVersionPageMatch[2] ?? '');
+    if (packageId === null || editionId === null) {
+      return badPathEncodingResponse();
+    }
+    return creatorPackageRoutes.listVersions(request, packageId, editionId);
+  }
   const creatorPackageMatch = pathname.match(/^\/api\/creator\/packages\/([^/]+)$/);
   if (creatorPackageMatch && creatorPackageRoutes) {
     const catalogProductId = safeDecodeURIComponent(creatorPackageMatch[1] ?? '');
@@ -896,19 +990,152 @@ async function routeRequest(request: Request): Promise<Response> {
     }
     return creatorPackageRoutes.getPackage(request, catalogProductId);
   }
+  const creatorPackageVersionMatch = pathname.match(
+    /^\/api\/creator\/packages\/by-package\/([^/]+)\/editions\/([^/]+)\/versions\/([^/]+)$/
+  );
+  if (creatorPackageVersionMatch && creatorPackageRoutes) {
+    const packageId = safeDecodeURIComponent(creatorPackageVersionMatch[1] ?? '');
+    const editionId = safeDecodeURIComponent(creatorPackageVersionMatch[2] ?? '');
+    const versionId = safeDecodeURIComponent(creatorPackageVersionMatch[3] ?? '');
+    if (packageId === null || editionId === null || versionId === null) {
+      return badPathEncodingResponse();
+    }
+    return creatorPackageRoutes.deleteVersion(request, packageId, editionId, versionId);
+  }
+  const creatorPackageVersionStatusMatch = pathname.match(
+    /^\/api\/creator\/packages\/by-package\/([^/]+)\/editions\/([^/]+)\/versions\/([^/]+)\/status$/
+  );
+  if (creatorPackageVersionStatusMatch && creatorPackageRoutes) {
+    const packageId = safeDecodeURIComponent(creatorPackageVersionStatusMatch[1] ?? '');
+    const editionId = safeDecodeURIComponent(creatorPackageVersionStatusMatch[2] ?? '');
+    const versionId = safeDecodeURIComponent(creatorPackageVersionStatusMatch[3] ?? '');
+    if (packageId === null || editionId === null || versionId === null) {
+      return badPathEncodingResponse();
+    }
+    return creatorPackageRoutes.getVersionStatus(request, packageId, editionId, versionId);
+  }
+  const creatorPackageEditionMatch = pathname.match(
+    /^\/api\/creator\/packages\/([^/]+)\/editions\/([^/]+)$/
+  );
+  if (creatorPackageEditionMatch && creatorPackageRoutes) {
+    const catalogProductId = safeDecodeURIComponent(creatorPackageEditionMatch[1] ?? '');
+    const editionId = safeDecodeURIComponent(creatorPackageEditionMatch[2] ?? '');
+    if (catalogProductId === null || editionId === null) {
+      return badPathEncodingResponse();
+    }
+    return creatorPackageRoutes.manageEdition(request, catalogProductId, editionId);
+  }
+  const creatorPackageStorefrontMatch = pathname.match(
+    /^\/api\/creator\/packages\/([^/]+)\/storefronts\/([^/]+)$/
+  );
+  if (creatorPackageStorefrontMatch && creatorPackageRoutes) {
+    const catalogProductId = safeDecodeURIComponent(creatorPackageStorefrontMatch[1] ?? '');
+    const targetCatalogProductId = safeDecodeURIComponent(creatorPackageStorefrontMatch[2] ?? '');
+    if (catalogProductId === null || targetCatalogProductId === null) {
+      return badPathEncodingResponse();
+    }
+    return creatorPackageRoutes.manageStorefrontBinding(
+      request,
+      catalogProductId,
+      targetCatalogProductId
+    );
+  }
+  const creatorPackagePresentationMatch = pathname.match(
+    /^\/api\/creator\/packages\/by-package\/([^/]+)\/presentation$/
+  );
+  if (creatorPackagePresentationMatch && vpmRoutes) {
+    const packageId = safeDecodeURIComponent(creatorPackagePresentationMatch[1] ?? '');
+    if (packageId === null) {
+      return badPathEncodingResponse();
+    }
+    return vpmRoutes.manageCreatorPresentation(request, packageId);
+  }
+  const creatorPackageVccLinkMatch = pathname.match(
+    /^\/api\/creator\/packages\/by-package\/([^/]+)\/vcc-link$/
+  );
+  if (creatorPackageVccLinkMatch && vpmRoutes) {
+    const packageId = safeDecodeURIComponent(creatorPackageVccLinkMatch[1] ?? '');
+    if (packageId === null) {
+      return badPathEncodingResponse();
+    }
+    return vpmRoutes.manageCreatorLink(request, packageId);
+  }
+  const creatorPackageBootstrapMatch = pathname.match(
+    /^\/api\/creator\/packages\/by-package\/([^/]+)\/bootstrap$/
+  );
+  if (creatorPackageBootstrapMatch && vpmRoutes) {
+    const packageId = safeDecodeURIComponent(creatorPackageBootstrapMatch[1] ?? '');
+    if (packageId === null) {
+      return badPathEncodingResponse();
+    }
+    return vpmRoutes.downloadCreatorBootstrap(request, packageId);
+  }
   if (pathname === '/api/creator/uploads/authorize' && creatorUploadRoutes) {
     return creatorUploadRoutes.authorizeUpload(request);
   }
-  if (pathname === '/api/vpm/repo-token' && vpmRoutes) {
-    return vpmRoutes.mintRepoToken(request);
+  if (pathname === '/api/v2/package-installs/sessions') {
+    if (!packageInstallSessionRoute) {
+      return Response.json(
+        { error: 'Package install sessions are not configured' },
+        { status: 503, headers: { 'Cache-Control': 'private, no-store' } }
+      );
+    }
+    return packageInstallSessionRoute(request);
   }
-  const vpmIndexMatch = pathname.match(/^\/api\/vpm\/([^/]+)\/index\.json$/);
-  if (vpmIndexMatch && vpmRoutes) {
-    const token = safeDecodeURIComponent(vpmIndexMatch[1] ?? '');
-    if (token === null) {
+  if (pathname === '/api/v2/package-installs/renewals') {
+    if (!packageInstallSessionRenewalRoute) {
+      return Response.json(
+        { error: 'Package install session renewal is not configured' },
+        { status: 503, headers: { 'Cache-Control': 'private, no-store' } }
+      );
+    }
+    return packageInstallSessionRenewalRoute(request);
+  }
+  if (pathname === '/api/v2/package-installs/authorizations') {
+    if (!packageOperationAuthorizationRoute) {
+      return Response.json(
+        { error: 'Package operation authorizations are not configured' },
+        { status: 503, headers: { 'Cache-Control': 'private, no-store' } }
+      );
+    }
+    return packageOperationAuthorizationRoute(request);
+  }
+  if (pathname === '/api/v2/package-installs/materialization-status') {
+    if (!packageMaterializationStatusRoute) {
+      return Response.json(
+        { error: 'Protected materialization is not configured' },
+        { status: 503, headers: { 'Cache-Control': 'private, no-store' } }
+      );
+    }
+    return packageMaterializationStatusRoute(request);
+  }
+  if (pathname.startsWith('/api/v2/package-installer/tuf/')) {
+    if (!packageInstallerTufRoute) {
+      return Response.json(
+        { error: 'Package installer trust repository is not configured' },
+        { status: 503, headers: { 'Cache-Control': 'private, no-store' } }
+      );
+    }
+    return packageInstallerTufRoute(request);
+  }
+  const vpmAliasPublicationMatch = pathname.match(
+    /^\/api\/vpm\/alias-publications\/([^/]+)\/([^/]+)\.zip$/
+  );
+  if (vpmAliasPublicationMatch && vpmRoutes) {
+    const publicationId = safeDecodeURIComponent(vpmAliasPublicationMatch[1] ?? '');
+    const version = safeDecodeURIComponent(vpmAliasPublicationMatch[2] ?? '');
+    if (publicationId === null || version === null) {
       return badPathEncodingResponse();
     }
-    return vpmRoutes.serveIndex(request, token);
+    return vpmRoutes.serveAliasPublication(request, publicationId, version);
+  }
+  const creatorVpmIndexMatch = pathname.match(/^\/api\/vpm\/access\/([^/]+)\/index\.json$/);
+  if (creatorVpmIndexMatch && vpmRoutes) {
+    const linkId = safeDecodeURIComponent(creatorVpmIndexMatch[1] ?? '');
+    if (linkId === null) {
+      return badPathEncodingResponse();
+    }
+    return vpmRoutes.serveCreatorLinkIndex(request, linkId);
   }
   if (pathname === '/api/connect/bootstrap' && connectRoutes) {
     return connectRoutes.exchangeConnectBootstrap(request);
@@ -925,14 +1152,6 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname === '/api/connect/user/verify/start' && connectRoutes) {
     return connectRoutes.postUserVerifyStart(request);
-  }
-  const buyerDownloadMatch = pathname.match(/^\/api\/access\/([^/]+)\/download$/);
-  if (buyerDownloadMatch && connectRoutes) {
-    const catalogProductId = safeDecodeURIComponent(buyerDownloadMatch[1]);
-    if (catalogProductId === null) {
-      return badPathEncodingResponse();
-    }
-    return connectRoutes.downloadBuyerProductAccess(request, catalogProductId);
   }
   const buyerProductAccessMatch = pathname.match(/^\/api\/connect\/user\/product-access\/([^/]+)$/);
   if (buyerProductAccessMatch && connectRoutes) {
@@ -1378,10 +1597,29 @@ async function main() {
   );
 
   // Start HTTP server
-  Bun.serve({
+  const server = Bun.serve({
     hostname,
     port,
     fetch: requestHandler,
+  });
+
+  let stopping = false;
+  const stop = async (signal: NodeJS.Signals): Promise<void> => {
+    if (stopping) {
+      return;
+    }
+    stopping = true;
+    await server.stop(false);
+    await packageInstallerTufRuntime?.close?.();
+    await packageOperationAuthorizationDatabase?.end({ timeout: 1 });
+    await vpmAliasPublicationDatabase?.end({ timeout: 1 });
+    process.exit(signal === 'SIGINT' ? 130 : 143);
+  };
+  process.once('SIGINT', () => {
+    void stop('SIGINT');
+  });
+  process.once('SIGTERM', () => {
+    void stop('SIGTERM');
   });
 
   logger.info('API server ready', {

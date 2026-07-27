@@ -18,10 +18,10 @@ async function deploy(env: Record<string, string>): Promise<void> {
 async function main(): Promise<void> {
   // This is intentionally a real deploy with Convex codegen and typecheck.
   // Test-only module loading flags and deploy bypass flags are not allowed.
+  await ensureRealBackendUp();
+  const env = selfHostedConvexEnv(await getRealBackendAdminKey());
+  const requiredEnv = requiredConvexDeploymentEnvRequirements();
   await withSelfHostedConvexEnvFileMovedAside(async () => {
-    await ensureRealBackendUp();
-    const env = selfHostedConvexEnv(await getRealBackendAdminKey());
-    const requiredEnv = requiredConvexDeploymentEnvRequirements();
     await assertRequiredConvexDeploymentEnv(env, requiredEnv);
     console.log(
       `Convex deployment required-env preflight passed (${requiredEnv.map((names) => names.join(' or ')).join(', ')}).`

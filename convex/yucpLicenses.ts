@@ -45,43 +45,21 @@ import { PII_PURPOSES } from './lib/credentialKeys';
 import { upsertLicenseSubjectLink } from './lib/licenseSubjectLink';
 import { encryptPii } from './lib/piiCrypto';
 import {
-  decryptProtectedBlobContentKey,
-  encryptProtectedBlobContentKey,
-} from './lib/protectedAssetKeyCrypto';
-import { resolveProtectedAssetUnlockMode } from './lib/protectedAssetUnlockMode';
-import { verifyLicenseWithProviderRuntime } from './lib/providerLicenseVerification';
+  type ProviderLicenseVerificationResult,
+  verifyLicenseWithProviderRuntime,
+} from './lib/providerLicenseVerification';
 import { buildPublicAuthIssuer, resolveConfiguredPublicApiBaseUrl } from './lib/publicAuthIssuer';
 import {
-  RELEASE_ARTIFACT_KEYS,
-  RELEASE_CHANNELS,
-  RELEASE_PLATFORMS,
-} from './lib/releaseArtifactKeys';
-import {
-  type CouplingRuntimeArtifactClaims,
-  type CouplingRuntimeClaims,
   type LicenseClaims,
-  type ProtectedUnlockClaims,
   resolvePinnedYucpSigningRoot,
-  signCouplingRuntimeArtifactJwt,
-  signCouplingRuntimeJwt,
   signLicenseJwt,
-  signProtectedUnlockJwt,
   verifyLicenseJwtAgainstPinnedRoots,
-  verifyProtectedUnlockJwtAgainstPinnedRoots,
 } from './lib/yucpCrypto';
 
 const TOKEN_TTL_SECONDS = 3600; // 1 hour -- kept short; disk cache handles offline re-use
-const PROTECTED_UNLOCK_TTL_SECONDS = 10 * 60;
-const COUPLING_ASSET_PATH_MAX_LENGTH = 512;
-const MAX_PROTECTED_ASSETS_PER_REQUEST = 100;
 const MAX_MANUAL_LICENSE_KEY_LENGTH = 4_096;
-const COUPLING_SEED_RELAY_TIMEOUT_MS = 5_000;
-const COUPLING_SEED_RELAY_RESPONSE_MAX_CHARS = 256 * 1024;
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
-const PROTECTED_ASSET_ID_RE = /^[a-f0-9]{32}$/;
 const MACHINE_FINGERPRINT_RE = /^[a-z0-9:_-]{16,256}$/i;
-const PROJECT_ID_RE = /^[a-f0-9]{32}$/;
-const CONTENT_HASH_RE = /^[0-9a-f]{64}$/;
 
 type ManualLicenseHashVerificationResult =
   | { valid: true; licenseId: Id<'manual_licenses'> }
@@ -94,6 +72,11 @@ type LicenseProofResult = {
   creatorAuthUserId?: string;
   productId?: string;
   catalogProductId?: Id<'product_catalog'>;
+  providerUserId?: string;
+  externalOrderId?: string;
+  externalLicenseId?: string;
+  providerProductId?: string;
+  providerTierRef?: string;
 };
 
 async function hashManualLicenseKey(licenseKey: string): Promise<string> {
@@ -140,15 +123,6 @@ type ProductByProviderRefResult = {
   catalogProductId: Id<'product_catalog'>;
   displayName?: string;
 } | null;
-const PROTECTED_ASSET_REGISTRATION = v.object({
-  protectedAssetId: v.string(),
-  unlockMode: v.union(v.literal('wrapped_content_key'), v.literal('content_key_b64')),
-  wrappedContentKey: v.optional(v.string()),
-  contentKeyBase64: v.optional(v.string()),
-  contentHash: v.optional(v.string()),
-  manifestBindingSha256: v.optional(v.string()),
-  displayName: v.optional(v.string()),
-});
 
 // =============================================================================
 // Internal queries (callable from internalAction via ctx.runQuery)
@@ -251,6 +225,32 @@ export const lookupProductByProviderRef = query({
   handler: async (ctx, args): Promise<ProductByProviderRefResult> => {
     requireApiSecret(args.apiSecret);
     return await ctx.runQuery(internal.yucpLicenses.getProductByProviderRef, {
+      provider: args.provider,
+      providerProductRef: args.providerProductRef,
+    });
+  },
+});
+
+export const lookupProductByProviderRefForCreator = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    provider: v.string(),
+    providerProductRef: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      authUserId: v.string(),
+      productId: v.string(),
+      catalogProductId: v.id('product_catalog'),
+      displayName: v.optional(v.string()),
+    })
+  ),
+  handler: async (ctx, args): Promise<ProductByProviderRefResult> => {
+    requireApiSecret(args.apiSecret);
+    return await ctx.runQuery(internal.yucpLicenses.getProductByProviderRefForCreator, {
+      authUserId: args.authUserId,
       provider: args.provider,
       providerProductRef: args.providerProductRef,
     });
@@ -662,6 +662,11 @@ export const verifyLicenseProof = internalAction({
     creatorAuthUserId: v.optional(v.string()),
     productId: v.optional(v.string()),
     catalogProductId: v.optional(v.id('product_catalog')),
+    providerUserId: v.optional(v.string()),
+    externalOrderId: v.optional(v.string()),
+    externalLicenseId: v.optional(v.string()),
+    providerProductId: v.optional(v.string()),
+    providerTierRef: v.optional(v.string()),
   }),
   handler: async (ctx, args): Promise<LicenseProofResult> => {
     if (!args.packageId || !args.licenseKey || !args.provider || !args.productPermalink) {
@@ -671,7 +676,7 @@ export const verifyLicenseProof = internalAction({
       return { success: false, error: 'License verification failed' };
     }
 
-    let verifyResult: { valid: boolean; reason?: string } | null = null;
+    let verifyResult: ProviderLicenseVerificationResult | null = null;
 
     const product =
       args.provider === 'manual' && args.creatorAuthUserId && args.productId
@@ -731,11 +736,44 @@ export const verifyLicenseProof = internalAction({
       });
     }
 
-    if (!verifyResult?.valid) {
+    if (!verifyResult?.valid || !product) {
       return { success: false, error: verifyResult?.reason ?? 'License verification failed' };
     }
 
-    return { success: true };
+    let verifiedProduct = product;
+    const returnedProviderProductId = verifyResult.providerProductId?.trim();
+    if (
+      returnedProviderProductId &&
+      returnedProviderProductId !== args.productPermalink.trim()
+    ) {
+      const returnedProduct = await ctx.runQuery(
+        internal.yucpLicenses.getProductByProviderRefForCreator,
+        {
+          authUserId: product.authUserId,
+          provider: args.provider,
+          providerProductRef: returnedProviderProductId,
+        }
+      );
+      if (!returnedProduct || returnedProduct.productId !== product.productId) {
+        return {
+          success: false,
+          error: 'License does not belong to the requested product',
+        };
+      }
+      verifiedProduct = returnedProduct;
+    }
+
+    return {
+      success: true,
+      creatorAuthUserId: verifiedProduct.authUserId,
+      productId: verifiedProduct.productId,
+      catalogProductId: verifiedProduct.catalogProductId,
+      providerUserId: verifyResult.providerUserId,
+      externalOrderId: verifyResult.externalOrderId,
+      externalLicenseId: verifyResult.externalLicenseId,
+      providerProductId: verifyResult.providerProductId,
+      providerTierRef: verifyResult.providerTierRef,
+    };
   },
 });
 
@@ -761,182 +799,6 @@ export const checkAndConsumeNonce = internalMutation({
       nonce: args.nonce,
       authUserId: '',
       usedAt: Date.now(),
-    });
-  },
-});
-
-export const upsertProtectedAssets = internalMutation({
-  args: {
-    packageId: v.string(),
-    contentHash: v.string(),
-    packageVersion: v.optional(v.string()),
-    publisherId: v.string(),
-    yucpUserId: v.string(),
-    certNonce: v.string(),
-    protectedAssets: v.array(PROTECTED_ASSET_REGISTRATION),
-  },
-  handler: async (ctx, args) => {
-    if (!PACKAGE_ID_RE.test(args.packageId)) {
-      throw new ConvexError(`Invalid packageId format: ${args.packageId}`);
-    }
-    if (args.protectedAssets.length > MAX_PROTECTED_ASSETS_PER_REQUEST) {
-      throw new ConvexError(
-        `Maximum of ${MAX_PROTECTED_ASSETS_PER_REQUEST} protected assets per request`
-      );
-    }
-
-    const now = Date.now();
-    for (const asset of args.protectedAssets) {
-      if (!PROTECTED_ASSET_ID_RE.test(asset.protectedAssetId)) {
-        throw new ConvexError(`Invalid protectedAssetId format: ${asset.protectedAssetId}`);
-      }
-      const assetContentHash = asset.contentHash ?? args.contentHash;
-      if (!CONTENT_HASH_RE.test(assetContentHash)) {
-        throw new ConvexError('contentHash must be 64 lowercase hex characters');
-      }
-      if (
-        asset.manifestBindingSha256 !== undefined &&
-        !CONTENT_HASH_RE.test(asset.manifestBindingSha256)
-      ) {
-        throw new ConvexError('manifestBindingSha256 must be 64 lowercase hex characters');
-      }
-      if (asset.unlockMode === 'wrapped_content_key') {
-        if (!asset.wrappedContentKey) {
-          throw new ConvexError('wrappedContentKey is required for wrapped_content_key assets');
-        }
-      } else if (asset.unlockMode === 'content_key_b64') {
-        if (!asset.contentKeyBase64) {
-          throw new ConvexError('contentKeyBase64 is required for content_key_b64 assets');
-        }
-      }
-
-      const encryptedContentKey =
-        asset.unlockMode === 'content_key_b64' && asset.contentKeyBase64
-          ? await encryptProtectedBlobContentKey(asset.contentKeyBase64)
-          : undefined;
-
-      const existing = await ctx.db
-        .query('protected_assets')
-        .withIndex('by_package_and_asset', (q) =>
-          q.eq('packageId', args.packageId).eq('protectedAssetId', asset.protectedAssetId)
-        )
-        .first();
-
-      if (existing) {
-        await ctx.db.patch(existing._id, {
-          unlockMode: asset.unlockMode,
-          wrappedContentKey:
-            asset.unlockMode === 'wrapped_content_key' ? asset.wrappedContentKey : undefined,
-          encryptedContentKey,
-          displayName: asset.displayName,
-          contentHash: assetContentHash,
-          manifestBindingSha256: asset.manifestBindingSha256,
-          packageVersion: args.packageVersion,
-          publisherId: args.publisherId,
-          yucpUserId: args.yucpUserId,
-          certNonce: args.certNonce,
-          updatedAt: now,
-        });
-      } else {
-        await ctx.db.insert('protected_assets', {
-          packageId: args.packageId,
-          protectedAssetId: asset.protectedAssetId,
-          unlockMode: asset.unlockMode,
-          wrappedContentKey:
-            asset.unlockMode === 'wrapped_content_key' ? asset.wrappedContentKey : undefined,
-          encryptedContentKey,
-          displayName: asset.displayName,
-          contentHash: assetContentHash,
-          manifestBindingSha256: asset.manifestBindingSha256,
-          packageVersion: args.packageVersion,
-          publisherId: args.publisherId,
-          yucpUserId: args.yucpUserId,
-          certNonce: args.certNonce,
-          registeredAt: now,
-          updatedAt: now,
-        });
-      }
-    }
-  },
-});
-
-export const getProtectedAsset = internalQuery({
-  args: {
-    packageId: v.string(),
-    protectedAssetId: v.string(),
-  },
-  returns: v.union(
-    v.null(),
-    v.object({
-      _id: v.id('protected_assets'),
-      unlockMode: v.union(v.literal('wrapped_content_key'), v.literal('content_key_b64')),
-      wrappedContentKey: v.optional(v.string()),
-      encryptedContentKey: v.optional(v.string()),
-      contentHash: v.string(),
-      manifestBindingSha256: v.optional(v.string()),
-      yucpUserId: v.string(),
-    })
-  ),
-  handler: async (ctx, args) => {
-    const row = await ctx.db
-      .query('protected_assets')
-      .withIndex('by_package_and_asset', (q) =>
-        q.eq('packageId', args.packageId).eq('protectedAssetId', args.protectedAssetId)
-      )
-      .first();
-    if (!row) return null;
-    const unlockMode = resolveProtectedAssetUnlockMode(row);
-    return {
-      _id: row._id,
-      unlockMode,
-      wrappedContentKey: row.wrappedContentKey,
-      encryptedContentKey: row.encryptedContentKey,
-      contentHash: row.contentHash,
-      manifestBindingSha256: row.manifestBindingSha256,
-      yucpUserId: row.yucpUserId,
-    };
-  },
-});
-
-export const recordProtectedUnlockIssuance = internalMutation({
-  args: {
-    packageId: v.string(),
-    protectedAssetId: v.string(),
-    licenseSubject: v.string(),
-    machineFingerprint: v.string(),
-    projectId: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const now = Date.now();
-    const existing = await ctx.db
-      .query('protected_asset_unlocks')
-      .withIndex('by_package_asset_machine_project', (q) =>
-        q
-          .eq('packageId', args.packageId)
-          .eq('protectedAssetId', args.protectedAssetId)
-          .eq('machineFingerprint', args.machineFingerprint)
-          .eq('projectId', args.projectId)
-      )
-      .first();
-
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        licenseSubject: args.licenseSubject,
-        lastIssuedAt: now,
-        issueCount: existing.issueCount + 1,
-      });
-      return;
-    }
-
-    await ctx.db.insert('protected_asset_unlocks', {
-      packageId: args.packageId,
-      protectedAssetId: args.protectedAssetId,
-      licenseSubject: args.licenseSubject,
-      machineFingerprint: args.machineFingerprint,
-      projectId: args.projectId,
-      firstUnlockedAt: now,
-      lastIssuedAt: now,
-      issueCount: 1,
     });
   },
 });
@@ -969,70 +831,6 @@ export const recordLicenseSubjectLink = internalMutation({
       externalOrderId: args.externalOrderId,
       providerProductId: args.providerProductId,
     });
-  },
-});
-
-export const recordProtectedMaterializationReceipt = internalMutation({
-  args: {
-    grantId: v.string(),
-    authUserId: v.string(),
-    machineFingerprint: v.string(),
-    projectId: v.string(),
-  },
-  returns: v.object({
-    success: v.boolean(),
-    updatedCount: v.number(),
-    error: v.optional(v.string()),
-  }),
-  handler: async (ctx, args) => {
-    const machineFingerprintHash = await sha256Hex(args.machineFingerprint);
-    const projectIdHash = await sha256Hex(args.projectId);
-    const grantRows = await ctx.db
-      .query('coupling_trace_records')
-      .withIndex('by_grant_id', (q) => q.eq('grantId', args.grantId))
-      .collect();
-
-    const matchingRows = grantRows.filter(
-      (row) =>
-        row.authUserId === args.authUserId &&
-        row.machineFingerprintHash === machineFingerprintHash &&
-        row.projectIdHash === projectIdHash
-    );
-
-    if (matchingRows.length === 0) {
-      return {
-        success: false,
-        updatedCount: 0,
-        error: 'Protected materialization grant receipt did not match any issued traces',
-      };
-    }
-
-    const now = Date.now();
-    for (const row of matchingRows) {
-      await ctx.db.patch(row._id, {
-        grantIssuanceStatus: 'receipted',
-        grantReceiptedAt: now,
-      });
-    }
-
-    await ctx.db.insert('audit_events', {
-      authUserId: args.authUserId,
-      eventType: 'protected.materialization.grant.receipted',
-      actorType: 'system',
-      metadata: {
-        grantId: args.grantId,
-        packageId: matchingRows[0]?.packageId,
-        licenseSubject: matchingRows[0]?.licenseSubject,
-        assetCount: matchingRows.length,
-      },
-      correlationId: matchingRows[0]?.correlationId ?? crypto.randomUUID(),
-      createdAt: now,
-    });
-
-    return {
-      success: true,
-      updatedCount: matchingRows.length,
-    };
   },
 });
 
@@ -1295,801 +1093,5 @@ export const issueAliasInstallLicenseToken = action({
 
     const token = await signLicenseJwt(claims, signingRoot.privateKeyBase64, signingRoot.keyId);
     return { success: true, token, expiresAt: exp };
-  },
-});
-
-const COUPLING_RUNTIME_TOKEN_TTL_SECONDS = 10 * 60;
-
-/** Inserts one coupling_trace_records row per coupled asset (hash-only forensics). */
-export const recordCouplingTraces = internalMutation({
-  args: {
-    authUserId: v.string(),
-    packageId: v.string(),
-    licenseSubject: v.string(),
-    provider: v.optional(v.string()),
-    machineFingerprintHash: v.string(),
-    projectIdHash: v.string(),
-    runtimeArtifactVersion: v.string(),
-    runtimePlaintextSha256: v.string(),
-    correlationId: v.string(),
-    entries: v.array(
-      v.object({ assetPath: v.string(), tokenHash: v.string(), tokenLength: v.number() })
-    ),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const now = Date.now();
-    for (const entry of args.entries) {
-      await ctx.db.insert('coupling_trace_records', {
-        authUserId: args.authUserId,
-        packageId: args.packageId,
-        licenseSubject: args.licenseSubject,
-        assetPath: entry.assetPath,
-        tokenHash: entry.tokenHash,
-        tokenLength: entry.tokenLength,
-        machineFingerprintHash: args.machineFingerprintHash,
-        projectIdHash: args.projectIdHash,
-        runtimeArtifactVersion: args.runtimeArtifactVersion,
-        runtimePlaintextSha256: args.runtimePlaintextSha256,
-        correlationId: args.correlationId,
-        createdAt: now,
-        provider: args.provider,
-      });
-    }
-    return null;
-  },
-});
-
-/**
- * Issues per-asset coupling tokens for an entitled VPM/alias install and records the
- * forensic traces. Validates the machine-bound license token server-side and binds the
- * traces to the token's licenseSubject so a later watermark hit resolves to the buyer.
- *
- * Self-guarding: if no coupling-runtime artifact is active, returns success with no files
- * (skipReason) so the importer skips coupling instead of failing the install.
- */
-
-/**
- * Asks the closed coupling service to derive the per-(asset, buyer) placement seeds. Returns a
- * map of assetPath -> seedHex, or null when the service is unconfigured/unreachable (caller then
- * skips coupling rather than blocking the install). The watermark master never lives in this
- * open-source server.
- */
-const COUPLING_SEED_RELAY_HTTP_LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
-
-function isAllowedCouplingSeedRelayEndpoint(endpoint: URL): boolean {
-  if (endpoint.username || endpoint.password) {
-    return false;
-  }
-  if (endpoint.protocol === 'https:') {
-    return true;
-  }
-  return (
-    endpoint.protocol === 'http:' && COUPLING_SEED_RELAY_HTTP_LOOPBACK_HOSTS.has(endpoint.hostname)
-  );
-}
-
-async function readBoundedResponseText(
-  response: Response,
-  maxBytes: number
-): Promise<string | null> {
-  if (!response.body) {
-    const text = await response.text();
-    return text.length <= maxBytes ? text : null;
-  }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  const chunks: string[] = [];
-  let bytesRead = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      bytesRead += value.byteLength;
-      if (bytesRead > maxBytes) {
-        await reader.cancel();
-        return null;
-      }
-      chunks.push(decoder.decode(value, { stream: true }));
-    }
-    chunks.push(decoder.decode());
-  } finally {
-    reader.releaseLock();
-  }
-  const text = chunks.join('');
-  return text.length <= maxBytes ? text : null;
-}
-
-async function deriveCouplingSeeds(
-  licenseSubject: string,
-  assetPaths: string[]
-): Promise<Map<string, string> | null> {
-  const baseUrl = process.env.YUCP_COUPLING_SERVICE_BASE_URL?.trim();
-  const secret =
-    process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET?.trim() ||
-    process.env.COUPLING_SERVICE_SECRET?.trim();
-  if (!baseUrl || !secret) {
-    return null;
-  }
-  let endpoint: URL;
-  try {
-    endpoint = new URL(
-      'v1/coupling/internal/derive-seeds',
-      baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
-    );
-  } catch {
-    return null;
-  }
-  if (!isAllowedCouplingSeedRelayEndpoint(endpoint)) {
-    return null;
-  }
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), COUPLING_SEED_RELAY_TIMEOUT_MS);
-  try {
-    const res = await fetch(endpoint.toString(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${secret}` },
-      body: JSON.stringify({ licenseSubject, assetPaths }),
-      redirect: 'error',
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      return null;
-    }
-    const text = await readBoundedResponseText(res, COUPLING_SEED_RELAY_RESPONSE_MAX_CHARS);
-    if (!text) {
-      return null;
-    }
-    const data = JSON.parse(text) as { seeds?: { assetPath: string; seedHex: string }[] };
-    if (!Array.isArray(data?.seeds)) {
-      return null;
-    }
-    const map = new Map<string, string>();
-    for (const seed of data.seeds) {
-      if (seed?.assetPath && /^[0-9a-f]{64}$/i.test(seed?.seedHex ?? '')) {
-        map.set(seed.assetPath, seed.seedHex.toLowerCase());
-      }
-    }
-    return map;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-type CouplingLicenseVerificationResult =
-  | { success: true; issuer: string; claims: LicenseClaims; error?: undefined }
-  | { success: false; issuer?: undefined; claims?: undefined; error: string };
-
-async function verifyCouplingJobLicenseClaims(args: {
-  packageId: string;
-  machineFingerprint: string;
-  licenseToken: string;
-}): Promise<CouplingLicenseVerificationResult> {
-  const publicIssuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
-  if (!publicIssuerBaseUrl) {
-    return { success: false, error: 'Service not configured' };
-  }
-
-  const issuer = buildPublicAuthIssuer(publicIssuerBaseUrl);
-  const claims = await verifyLicenseJwtAgainstPinnedRoots(args.licenseToken, issuer);
-  if (!claims) {
-    return { success: false, error: 'License token is invalid or expired' };
-  }
-  if (claims.package_id !== args.packageId) {
-    return { success: false, error: 'License token package mismatch' };
-  }
-  if (claims.machine_fingerprint !== args.machineFingerprint) {
-    return { success: false, error: 'License token machine mismatch' };
-  }
-
-  return { success: true, issuer, claims };
-}
-
-export const issueCouplingJob = internalAction({
-  args: {
-    packageId: v.string(),
-    projectId: v.string(),
-    machineFingerprint: v.string(),
-    licenseToken: v.string(),
-    assetPaths: v.array(v.string()),
-    issuerBaseUrl: v.string(),
-  },
-  returns: v.object({
-    success: v.boolean(),
-    runtimeToken: v.optional(v.string()),
-    runtimeSha256: v.optional(v.string()),
-    expiresAt: v.optional(v.number()),
-    skipReason: v.optional(v.string()),
-    error: v.optional(v.string()),
-    files: v.optional(
-      v.array(v.object({ assetPath: v.string(), tokenHex: v.string(), seedHex: v.string() }))
-    ),
-  }),
-  handler: async (
-    ctx,
-    args
-  ): Promise<{
-    success: boolean;
-    runtimeToken?: string;
-    runtimeSha256?: string;
-    expiresAt?: number;
-    skipReason?: string;
-    error?: string;
-    files?: { assetPath: string; tokenHex: string; seedHex: string }[];
-  }> => {
-    if (!PACKAGE_ID_RE.test(args.packageId)) {
-      return { success: false, error: 'Invalid packageId format' };
-    }
-    if (!PROJECT_ID_RE.test(args.projectId)) {
-      return { success: false, error: 'Invalid projectId format' };
-    }
-    if (!MACHINE_FINGERPRINT_RE.test(args.machineFingerprint)) {
-      return { success: false, error: 'Invalid machine fingerprint' };
-    }
-    if (args.assetPaths.length === 0) {
-      return { success: true, files: [], skipReason: 'no_assets' };
-    }
-    if (args.assetPaths.length > MAX_PROTECTED_ASSETS_PER_REQUEST) {
-      return { success: false, error: 'Too many coupling asset paths' };
-    }
-    for (const assetPath of args.assetPaths) {
-      if (!assetPath || assetPath.length > COUPLING_ASSET_PATH_MAX_LENGTH) {
-        return { success: false, error: 'Invalid coupling asset path' };
-      }
-    }
-
-    // Validate the machine-bound license token server-side; never trust the client.
-    const issuer = buildPublicAuthIssuer(args.issuerBaseUrl);
-    const claims = await verifyLicenseJwtAgainstPinnedRoots(args.licenseToken, issuer);
-    if (!claims) {
-      return { success: false, error: 'License token is invalid or expired' };
-    }
-    if (claims.package_id !== args.packageId) {
-      return { success: false, error: 'License token package mismatch' };
-    }
-    if (claims.machine_fingerprint !== args.machineFingerprint) {
-      return { success: false, error: 'License token machine mismatch' };
-    }
-
-    const registration = await ctx.runQuery(internal.packageRegistry.getRegistration, {
-      packageId: args.packageId,
-    });
-    if (!registration) {
-      return { success: false, error: 'Package not found' };
-    }
-
-    const artifact = await ctx.runQuery(internal.releaseArtifacts.getActiveArtifact, {
-      artifactKey: RELEASE_ARTIFACT_KEYS.couplingRuntime,
-      channel: RELEASE_CHANNELS.stable,
-      platform: RELEASE_PLATFORMS.winX64,
-    });
-    if (!artifact) {
-      // No runtime published yet → skip coupling without failing the install.
-      return { success: true, files: [], skipReason: 'no_runtime' };
-    }
-
-    // The per-asset placement seed is derived in the closed coupling service (the watermark master
-    // never lives here). Without seeds the client cannot place a v2 mark, so coupling is skipped
-    // rather than failing the install.
-    const seedMap = await deriveCouplingSeeds(claims.sub, args.assetPaths);
-    if (!seedMap) {
-      return { success: true, files: [], skipReason: 'seed_unavailable' };
-    }
-
-    const files: { assetPath: string; tokenHex: string; seedHex: string }[] = [];
-    const entries: { assetPath: string; tokenHash: string; tokenLength: number }[] = [];
-    // Both v2 encoders (image xg_0122, FBX mesh xg_0124) carry a 64-bit (8-byte) token - broad
-    // low-poly/low-resolution coverage, exact recovery via ECC+CRC. Token length is recorded per
-    // asset so the forensic decoder reconstructs the exact hex before hashing.
-    for (const assetPath of args.assetPaths) {
-      const seedHex = seedMap.get(assetPath);
-      if (!seedHex) {
-        continue; // no seed for this asset → cannot place a mark → skip it (never blocks)
-      }
-      const tokenBytes = crypto.getRandomValues(new Uint8Array(8));
-      const tokenHex = Array.from(tokenBytes)
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('');
-      files.push({ assetPath, tokenHex, seedHex });
-      entries.push({
-        assetPath,
-        tokenHash: await sha256Hex(tokenHex),
-        tokenLength: tokenBytes.length,
-      });
-    }
-
-    if (files.length === 0) {
-      return { success: true, files: [], skipReason: 'seed_unavailable' };
-    }
-
-    const signingRoot = await getPinnedSigningRoot(process.env.YUCP_ROOT_KEY_ID ?? null);
-    const iat = Math.floor(Date.now() / 1000);
-    const exp = iat + COUPLING_RUNTIME_TOKEN_TTL_SECONDS;
-    const runtimeClaims: CouplingRuntimeClaims = {
-      iss: issuer,
-      aud: 'yucp-coupling-runtime',
-      sub: claims.sub,
-      jti: crypto.randomUUID(),
-      package_id: args.packageId,
-      machine_fingerprint: args.machineFingerprint,
-      artifact_version: artifact.version,
-      plaintext_sha256: artifact.plaintextSha256,
-      iat,
-      exp,
-    };
-    const runtimeToken = await signCouplingRuntimeJwt(
-      runtimeClaims,
-      signingRoot.privateKeyBase64,
-      signingRoot.keyId
-    );
-
-    const correlationId = crypto.randomUUID();
-    await ctx.runMutation(internal.yucpLicenses.recordCouplingTraces, {
-      authUserId: registration.yucpUserId,
-      packageId: args.packageId,
-      licenseSubject: claims.sub,
-      provider: claims.provider,
-      machineFingerprintHash: await sha256Hex(args.machineFingerprint),
-      projectIdHash: await sha256Hex(args.projectId),
-      runtimeArtifactVersion: artifact.version,
-      runtimePlaintextSha256: artifact.plaintextSha256,
-      correlationId,
-      entries,
-    });
-
-    return {
-      success: true,
-      runtimeToken,
-      runtimeSha256: artifact.plaintextSha256,
-      expiresAt: exp,
-      files,
-    };
-  },
-});
-
-export const verifyCouplingJobLicense = action({
-  args: {
-    apiSecret: v.string(),
-    packageId: v.string(),
-    machineFingerprint: v.string(),
-    licenseToken: v.string(),
-  },
-  returns: v.object({
-    success: v.boolean(),
-    licenseSubject: v.optional(v.string()),
-    error: v.optional(v.string()),
-  }),
-  handler: async (
-    ctx,
-    args
-  ): Promise<{ success: boolean; licenseSubject?: string; error?: string }> => {
-    requireApiSecret(args.apiSecret);
-
-    if (!PACKAGE_ID_RE.test(args.packageId)) {
-      return { success: false, error: 'Invalid packageId format' };
-    }
-    if (!MACHINE_FINGERPRINT_RE.test(args.machineFingerprint)) {
-      return { success: false, error: 'Invalid machine fingerprint' };
-    }
-
-    const verified = await verifyCouplingJobLicenseClaims(args);
-    if (!verified.success) {
-      return { success: false, error: verified.error };
-    }
-
-    const registration = await ctx.runQuery(internal.packageRegistry.getRegistration, {
-      packageId: args.packageId,
-    });
-    if (!registration) {
-      return { success: false, error: 'Package not found' };
-    }
-
-    return { success: true, licenseSubject: verified.claims.sub };
-  },
-});
-
-/**
- * API coupling gateway assembler. The public API (which alone can reach the private coupling
- * service) fetches the git-served runtime manifest + derives the placement seeds, then hands them
- * here. This action does the control-plane half: re-verify the machine-bound license, mint per-asset
- * tokens, record forensic traces, and sign the full-manifest runtime download token the coupling
- * service will validate. The runtime DLL never touches Convex, only its manifest metadata does.
- */
-export const assembleCouplingJob = action({
-  args: {
-    apiSecret: v.string(),
-    packageId: v.string(),
-    projectId: v.string(),
-    machineFingerprint: v.string(),
-    licenseToken: v.string(),
-    assetPaths: v.array(v.string()),
-    runtimeManifest: v.object({
-      artifactKey: v.string(),
-      channel: v.string(),
-      platform: v.string(),
-      version: v.string(),
-      metadataVersion: v.number(),
-      deliveryName: v.string(),
-      contentType: v.string(),
-      envelopeCipher: v.string(),
-      envelopeIvBase64: v.string(),
-      ciphertextSha256: v.string(),
-      ciphertextSize: v.number(),
-      plaintextSha256: v.string(),
-      plaintextSize: v.number(),
-      codeSigningSubject: v.optional(v.string()),
-      codeSigningThumbprint: v.optional(v.string()),
-    }),
-    seeds: v.array(v.object({ assetPath: v.string(), seedHex: v.string() })),
-  },
-  returns: v.object({
-    success: v.boolean(),
-    runtimeToken: v.optional(v.string()),
-    runtimeSha256: v.optional(v.string()),
-    expiresAt: v.optional(v.number()),
-    skipReason: v.optional(v.string()),
-    error: v.optional(v.string()),
-    files: v.optional(
-      v.array(v.object({ assetPath: v.string(), tokenHex: v.string(), seedHex: v.string() }))
-    ),
-  }),
-  handler: async (
-    ctx,
-    args
-  ): Promise<{
-    success: boolean;
-    runtimeToken?: string;
-    runtimeSha256?: string;
-    expiresAt?: number;
-    skipReason?: string;
-    error?: string;
-    files?: { assetPath: string; tokenHex: string; seedHex: string }[];
-  }> => {
-    requireApiSecret(args.apiSecret);
-
-    if (!PACKAGE_ID_RE.test(args.packageId)) {
-      return { success: false, error: 'Invalid packageId format' };
-    }
-    if (!PROJECT_ID_RE.test(args.projectId)) {
-      return { success: false, error: 'Invalid projectId format' };
-    }
-    if (!MACHINE_FINGERPRINT_RE.test(args.machineFingerprint)) {
-      return { success: false, error: 'Invalid machine fingerprint' };
-    }
-    if (args.assetPaths.length === 0) {
-      return { success: true, files: [], skipReason: 'no_assets' };
-    }
-    if (args.assetPaths.length > MAX_PROTECTED_ASSETS_PER_REQUEST) {
-      return { success: false, error: 'Too many coupling asset paths' };
-    }
-    for (const assetPath of args.assetPaths) {
-      if (!assetPath || assetPath.length > COUPLING_ASSET_PATH_MAX_LENGTH) {
-        return { success: false, error: 'Invalid coupling asset path' };
-      }
-    }
-
-    const verified = await verifyCouplingJobLicenseClaims(args);
-    if (!verified.success) {
-      return { success: false, error: verified.error };
-    }
-    const { claims, issuer } = verified;
-
-    const registration = await ctx.runQuery(internal.packageRegistry.getRegistration, {
-      packageId: args.packageId,
-    });
-    if (!registration) {
-      return { success: false, error: 'Package not found' };
-    }
-
-    const manifest = args.runtimeManifest;
-    if (manifest.artifactKey !== RELEASE_ARTIFACT_KEYS.couplingRuntime) {
-      // The API only ever passes a coupling-runtime manifest; treat anything else as "no runtime".
-      return { success: true, files: [], skipReason: 'no_runtime' };
-    }
-
-    const seedMap = new Map<string, string>();
-    for (const seed of args.seeds) {
-      if (seed?.assetPath && /^[0-9a-f]{64}$/i.test(seed.seedHex ?? '')) {
-        seedMap.set(seed.assetPath, seed.seedHex.toLowerCase());
-      }
-    }
-
-    const files: { assetPath: string; tokenHex: string; seedHex: string }[] = [];
-    const entries: { assetPath: string; tokenHash: string; tokenLength: number }[] = [];
-    for (const assetPath of args.assetPaths) {
-      const seedHex = seedMap.get(assetPath);
-      if (!seedHex) {
-        continue; // no seed for this asset, cannot place a mark, skip it without blocking
-      }
-      const tokenBytes = crypto.getRandomValues(new Uint8Array(8));
-      const tokenHex = Array.from(tokenBytes)
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('');
-      files.push({ assetPath, tokenHex, seedHex });
-      entries.push({
-        assetPath,
-        tokenHash: await sha256Hex(tokenHex),
-        tokenLength: tokenBytes.length,
-      });
-    }
-
-    if (files.length === 0) {
-      return { success: true, files: [], skipReason: 'seed_unavailable' };
-    }
-
-    const signingRoot = await getPinnedSigningRoot(process.env.YUCP_ROOT_KEY_ID ?? null);
-    const iat = Math.floor(Date.now() / 1000);
-    const exp = iat + COUPLING_RUNTIME_TOKEN_TTL_SECONDS;
-    const runtimeClaims: CouplingRuntimeArtifactClaims = {
-      iss: issuer,
-      aud: 'yucp-coupling-runtime',
-      sub: claims.sub,
-      jti: crypto.randomUUID(),
-      package_id: args.packageId,
-      machine_fingerprint: args.machineFingerprint,
-      project_id: args.projectId,
-      artifact_key: manifest.artifactKey,
-      artifact_channel: manifest.channel,
-      artifact_platform: manifest.platform,
-      artifact_version: manifest.version,
-      metadata_version: manifest.metadataVersion,
-      delivery_name: manifest.deliveryName,
-      content_type: manifest.contentType,
-      envelope_cipher: manifest.envelopeCipher,
-      envelope_iv_b64: manifest.envelopeIvBase64,
-      ciphertext_sha256: manifest.ciphertextSha256,
-      ciphertext_size: manifest.ciphertextSize,
-      plaintext_sha256: manifest.plaintextSha256,
-      plaintext_size: manifest.plaintextSize,
-      ...(manifest.codeSigningSubject ? { code_signing_subject: manifest.codeSigningSubject } : {}),
-      ...(manifest.codeSigningThumbprint
-        ? { code_signing_thumbprint: manifest.codeSigningThumbprint }
-        : {}),
-      iat,
-      exp,
-    };
-    const runtimeToken = await signCouplingRuntimeArtifactJwt(
-      runtimeClaims,
-      signingRoot.privateKeyBase64,
-      signingRoot.keyId
-    );
-
-    const correlationId = crypto.randomUUID();
-    await ctx.runMutation(internal.yucpLicenses.recordCouplingTraces, {
-      authUserId: registration.yucpUserId,
-      packageId: args.packageId,
-      licenseSubject: claims.sub,
-      provider: claims.provider,
-      machineFingerprintHash: await sha256Hex(args.machineFingerprint),
-      projectIdHash: await sha256Hex(args.projectId),
-      runtimeArtifactVersion: manifest.version,
-      runtimePlaintextSha256: manifest.plaintextSha256,
-      correlationId,
-      entries,
-    });
-
-    return {
-      success: true,
-      runtimeToken,
-      runtimeSha256: manifest.plaintextSha256,
-      expiresAt: exp,
-      files,
-    };
-  },
-});
-
-export const issueProtectedUnlock = internalAction({
-  args: {
-    packageId: v.string(),
-    protectedAssetId: v.string(),
-    machineFingerprint: v.string(),
-    projectId: v.string(),
-    licenseToken: v.string(),
-    issuerBaseUrl: v.string(),
-  },
-  returns: v.object({
-    success: v.boolean(),
-    unlockToken: v.optional(v.string()),
-    expiresAt: v.optional(v.number()),
-    error: v.optional(v.string()),
-  }),
-  handler: async (ctx, args) => {
-    if (!PACKAGE_ID_RE.test(args.packageId)) {
-      return { success: false, error: 'Invalid packageId format' };
-    }
-    if (!PROTECTED_ASSET_ID_RE.test(args.protectedAssetId)) {
-      return { success: false, error: 'Invalid protected asset identifier' };
-    }
-    if (!MACHINE_FINGERPRINT_RE.test(args.machineFingerprint)) {
-      return { success: false, error: 'Invalid machine fingerprint' };
-    }
-    if (!PROJECT_ID_RE.test(args.projectId)) {
-      return { success: false, error: 'Invalid project identifier' };
-    }
-    if (!args.licenseToken) {
-      return { success: false, error: 'licenseToken is required' };
-    }
-
-    const signingRoot = await getPinnedSigningRoot(process.env.YUCP_ROOT_KEY_ID ?? null);
-
-    const issuer = buildPublicAuthIssuer(args.issuerBaseUrl);
-    const licenseClaims = await verifyLicenseJwtAgainstPinnedRoots(args.licenseToken, issuer);
-
-    if (!licenseClaims) {
-      return { success: false, error: 'License token is invalid or expired' };
-    }
-    if (licenseClaims.package_id !== args.packageId) {
-      return { success: false, error: 'License token package mismatch' };
-    }
-    if (licenseClaims.machine_fingerprint !== args.machineFingerprint) {
-      return { success: false, error: 'License token machine mismatch' };
-    }
-    const machineFingerprintHash = await sha256Hex(args.machineFingerprint);
-
-    const protectedAsset = await ctx.runQuery(internal.yucpLicenses.getProtectedAsset, {
-      packageId: args.packageId,
-      protectedAssetId: args.protectedAssetId,
-    });
-    if (!protectedAsset) {
-      return { success: false, error: 'Protected asset registration not found' };
-    }
-
-    const packageReg = await ctx.runQuery(internal.packageRegistry.getRegistration, {
-      packageId: args.packageId,
-    });
-    if (!packageReg || packageReg.yucpUserId !== protectedAsset.yucpUserId) {
-      return { success: false, error: 'Protected asset owner mismatch' };
-    }
-    if (!CONTENT_HASH_RE.test(protectedAsset.contentHash)) {
-      return { success: false, error: 'Protected asset content hash is invalid' };
-    }
-
-    // Anti-ripper gate: refuse the unlock if this buyer resolves to an identity node that a confirmed
-    // trace blocked. The attestation must be for the same machine fingerprint as this unlock token,
-    // so a clean helper machine cannot satisfy the gate for a blocked current machine.
-    const blockCheck = await ctx.runQuery(internal.attestation.isIdentityBlocked, {
-      licenseSubject: licenseClaims.sub,
-      machineFingerprintHash,
-    });
-    if (blockCheck.blocked) {
-      return { success: false, error: 'This purchase is not eligible for unlock on this account' };
-    }
-    if (!blockCheck.attested) {
-      return { success: false, error: 'Attestation is required before protected unlock' };
-    }
-
-    await ctx.runMutation(internal.yucpLicenses.recordProtectedUnlockIssuance, {
-      packageId: args.packageId,
-      protectedAssetId: args.protectedAssetId,
-      licenseSubject: licenseClaims.sub,
-      machineFingerprint: args.machineFingerprint,
-      projectId: args.projectId,
-    });
-
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    const exp = nowSeconds + PROTECTED_UNLOCK_TTL_SECONDS;
-    const contentKeyB64 =
-      protectedAsset.unlockMode === 'content_key_b64' && protectedAsset.encryptedContentKey
-        ? await decryptProtectedBlobContentKey(protectedAsset.encryptedContentKey)
-        : undefined;
-    const claims: ProtectedUnlockClaims = {
-      iss: issuer,
-      aud: 'yucp-protected-unlock',
-      sub: licenseClaims.sub,
-      jti: crypto.randomUUID(),
-      package_id: args.packageId,
-      protected_asset_id: args.protectedAssetId,
-      machine_fingerprint: args.machineFingerprint,
-      project_id: args.projectId,
-      unlock_mode: protectedAsset.unlockMode,
-      wrapped_content_key:
-        protectedAsset.unlockMode === 'wrapped_content_key'
-          ? protectedAsset.wrappedContentKey
-          : undefined,
-      content_key_b64: protectedAsset.unlockMode === 'content_key_b64' ? contentKeyB64 : undefined,
-      content_hash: protectedAsset.contentHash,
-      iat: nowSeconds,
-      exp,
-    };
-
-    const unlockToken = await signProtectedUnlockJwt(
-      claims,
-      signingRoot.privateKeyBase64,
-      signingRoot.keyId
-    );
-    return { success: true, unlockToken, expiresAt: exp };
-  },
-});
-
-type ProtectedMaterializationGrantIssueResult =
-  | {
-      success: true;
-      grant: string;
-      expiresAt: number;
-      error?: undefined;
-    }
-  | {
-      success: false;
-      grant?: undefined;
-      expiresAt?: undefined;
-      error: string;
-    };
-
-type ProtectedUnlockIssueResult = {
-  success: boolean;
-  unlockToken?: string;
-  expiresAt?: number;
-  error?: string;
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Phase 9, Grant revocation (forward-looking only)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Check whether a grant has been revoked.
- * NOTE: revocation is forward-looking only. It cannot claw back already-materialized plaintext.
- */
-export const isGrantRevoked = internalQuery({
-  args: {
-    grantId: v.string(),
-  },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const record = await ctx.db
-      .query('revoked_grants')
-      .withIndex('by_grant_id', (q) => q.eq('grantId', args.grantId))
-      .first();
-    return record !== null;
-  },
-});
-
-/**
- * Revoke a protected materialization grant.
- * NOTE: revocation is forward-looking only. It cannot claw back already-materialized plaintext.
- */
-export const revokeGrant = internalMutation({
-  args: {
-    grantId: v.string(),
-    reason: v.string(),
-    revokedByUserId: v.string(),
-  },
-  returns: v.object({
-    success: v.boolean(),
-    error: v.optional(v.string()),
-  }),
-  handler: async (ctx, args) => {
-    // NOTE: revocation is forward-looking only. It cannot claw back already-materialized plaintext.
-    const existing = await ctx.db
-      .query('revoked_grants')
-      .withIndex('by_grant_id', (q) => q.eq('grantId', args.grantId))
-      .first();
-    if (existing) {
-      return { success: false, error: 'Grant is already revoked' };
-    }
-    const now = Date.now();
-    await ctx.db.insert('revoked_grants', {
-      grantId: args.grantId,
-      revokedAt: now,
-      reason: args.reason,
-      revokedByUserId: args.revokedByUserId,
-      createdAt: now,
-    });
-    await ctx.db.insert('audit_events', {
-      authUserId: args.revokedByUserId,
-      eventType: 'protected.materialization.grant.revoked',
-      actorType: 'admin',
-      metadata: {
-        grantId: args.grantId,
-        reason: args.reason,
-      },
-      correlationId: crypto.randomUUID(),
-      createdAt: now,
-    });
-    return { success: true };
   },
 });

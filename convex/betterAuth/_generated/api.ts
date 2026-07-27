@@ -14,6 +14,7 @@ import type * as jwks from "../jwks.js";
 import type * as jwtAdapter from "../jwtAdapter.js";
 import type * as oauthProviderScopes from "../oauthProviderScopes.js";
 import type * as options from "../options.js";
+import type * as reservationBridge from "../reservationBridge.js";
 
 import type {
   ApiFromModules,
@@ -29,6 +30,7 @@ const fullApi: ApiFromModules<{
   jwtAdapter: typeof jwtAdapter;
   oauthProviderScopes: typeof oauthProviderScopes;
   options: typeof options;
+  reservationBridge: typeof reservationBridge;
 }> = anyApi as any;
 
 /**

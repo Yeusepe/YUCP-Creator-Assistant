@@ -138,4 +138,57 @@ describe('account verify route', () => {
     expect(window.location.href).toBe(initialHref);
     expect(connectButton).toBeEnabled();
   });
+
+  it('uses plain verification language instead of protocol terms and raw status values', async () => {
+    const Component = AccountVerifyRoute.options.component;
+    if (!Component) {
+      throw new Error('Account verify route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    expect(
+      await screen.findAllByText(
+        'Complete the purchase check here. Unity will resume when your package access is ready.'
+      )
+    ).not.toHaveLength(0);
+    expect(screen.getByText('Waiting for verification')).toBeInTheDocument();
+    expect(screen.queryByText('pending')).not.toBeInTheDocument();
+    expect(screen.queryByText('buyer_provider_link')).not.toBeInTheDocument();
+    expect(screen.queryByText(/verification grant/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/machine-bound token/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/code challenge/i)).not.toBeInTheDocument();
+  });
+
+  it('does not use a raw provider account identifier as the linked account label', async () => {
+    vi.mocked(dashboardApi.listUserAccounts).mockResolvedValue([
+      {
+        id: 'gumroad-link-raw',
+        provider: 'gumroad',
+        label: '',
+        connectionType: 'verification',
+        status: 'active',
+        webhookConfigured: false,
+        hasApiKey: false,
+        hasAccessToken: false,
+        providerUserId: 'raw-provider-user-1738',
+        providerUsername: null,
+        verificationMethod: 'account_link',
+        linkedAt: 10,
+        lastValidatedAt: 12,
+        expiresAt: null,
+        createdAt: 10,
+        updatedAt: 12,
+      },
+    ]);
+    const Component = AccountVerifyRoute.options.component;
+    if (!Component) {
+      throw new Error('Account verify route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    expect(await screen.findByText('Connected store account')).toBeInTheDocument();
+    expect(screen.queryByText('raw-provider-user-1738')).not.toBeInTheDocument();
+  });
 });

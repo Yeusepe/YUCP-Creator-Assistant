@@ -12,6 +12,8 @@ import { dirname, join, resolve } from 'node:path';
 import {
   API_SECRET,
   BACKEND_URL,
+  BETTER_AUTH_SECRET,
+  ENCRYPTION_SECRET,
   INTERNAL_SERVICE_AUTH_SECRET,
   PROJECT_NAME,
   SITE_URL,
@@ -22,8 +24,46 @@ const COMPOSE_FILE = join(import.meta.dir, 'docker-compose.yml');
 const DEFAULT_COMMAND_TIMEOUT_MS = 300_000;
 const BACKEND_FETCH_TIMEOUT_MS = 10_000;
 const FORCE_KILL_GRACE_MS = 5_000;
+const ENV_ISOLATION_LOCK_TIMEOUT_MS = 300_000;
+const ENV_ISOLATION_LOCK_READY = 'READY';
 
-const composeArgs = ['compose', '-p', PROJECT_NAME, '-f', COMPOSE_FILE];
+export interface SelfHostedConvexProfile {
+  backendPort: number;
+  dashboardPort: number;
+  projectName: string;
+  sitePort: number;
+}
+
+const DEFAULT_PROFILE: SelfHostedConvexProfile = {
+  backendPort: Number(new URL(BACKEND_URL).port),
+  dashboardPort: 6791,
+  projectName: PROJECT_NAME,
+  sitePort: Number(new URL(SITE_URL).port),
+};
+
+function resolveProfile(profile: SelfHostedConvexProfile = DEFAULT_PROFILE) {
+  return {
+    ...profile,
+    backendUrl: `http://127.0.0.1:${profile.backendPort}`,
+    siteUrl: `http://127.0.0.1:${profile.sitePort}`,
+  };
+}
+
+function composeArgs(profile: SelfHostedConvexProfile): string[] {
+  return ['compose', '-p', profile.projectName, '-f', COMPOSE_FILE];
+}
+
+function composeEnvironment(profile: SelfHostedConvexProfile): Record<string, string> {
+  return {
+    ...process.env,
+    CONVEX_CLOUD_ORIGIN: `http://127.0.0.1:${profile.backendPort}`,
+    CONVEX_SITE_ORIGIN: `http://127.0.0.1:${profile.sitePort}`,
+    DASHBOARD_PORT: String(profile.dashboardPort),
+    NEXT_PUBLIC_DEPLOYMENT_URL: `http://127.0.0.1:${profile.backendPort}`,
+    PORT: String(profile.backendPort),
+    SITE_PROXY_PORT: String(profile.sitePort),
+  } as Record<string, string>;
+}
 
 type RunOptions = {
   env?: Record<string, string>;
@@ -77,12 +117,13 @@ export async function runSelfHostedConvexCli(
   return await run(['bun', 'x', 'convex', ...args], { ...options, env });
 }
 
-async function waitForBackend(): Promise<void> {
+async function waitForBackend(profile: SelfHostedConvexProfile = DEFAULT_PROFILE): Promise<void> {
+  const { backendUrl } = resolveProfile(profile);
   const deadline = Date.now() + 180_000;
   let lastError: unknown;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(`${BACKEND_URL}/version`, {
+      const response = await fetch(`${backendUrl}/version`, {
         signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
       });
       if (response.ok) {
@@ -98,11 +139,14 @@ async function waitForBackend(): Promise<void> {
   throw new Error(`Convex backend did not become healthy: ${String(lastError)}`);
 }
 
-async function pullImagesWithRetry(): Promise<void> {
+async function pullImagesWithRetry(
+  profile: SelfHostedConvexProfile = DEFAULT_PROFILE
+): Promise<void> {
   const attempts = 3;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      await run(['docker', ...composeArgs, 'pull'], {
+      await run(['docker', ...composeArgs(profile), 'pull'], {
+        env: composeEnvironment(profile),
         timeoutMs: 300_000,
       });
       return;
@@ -147,10 +191,12 @@ function ensureBetterAuthResolvable(): void {
   }
 }
 
-export async function getRealBackendAdminKey(): Promise<string> {
+export async function getRealBackendAdminKey(
+  profile: SelfHostedConvexProfile = DEFAULT_PROFILE
+): Promise<string> {
   const output = await run(
-    ['docker', ...composeArgs, 'exec', '-T', 'backend', './generate_admin_key.sh'],
-    { quiet: true }
+    ['docker', ...composeArgs(profile), 'exec', '-T', 'backend', './generate_admin_key.sh'],
+    { env: composeEnvironment(profile), quiet: true }
   );
   const adminKey = output
     .split(/\r?\n/)
@@ -165,20 +211,52 @@ export async function getRealBackendAdminKey(): Promise<string> {
  * the deploy gate. Keep this list here so every self-hosted path provisions
  * exactly the same deployment contract.
  */
-export function writeRealBackendEnvFile(): string {
-  const envFile = join(tmpdir(), 'yucp-convex-real-env.vars');
+export function writeRealBackendEnvFile(
+  profile: SelfHostedConvexProfile = DEFAULT_PROFILE,
+  options: {
+    betterAuthAdditionalTrustedOrigins?: readonly string[];
+  } = {}
+): string {
+  const resolved = resolveProfile(profile);
+  const additionalTrustedOrigins = options.betterAuthAdditionalTrustedOrigins ?? [];
+  if (
+    additionalTrustedOrigins.length > 16 ||
+    additionalTrustedOrigins.some((origin) => {
+      try {
+        const parsed = new URL(origin);
+        return (
+          parsed.origin !== origin ||
+          !['http:', 'https:'].includes(parsed.protocol) ||
+          Boolean(
+            parsed.username ||
+              parsed.password ||
+              parsed.pathname !== '/' ||
+              parsed.search ||
+              parsed.hash
+          )
+        );
+      } catch {
+        return true;
+      }
+    }) ||
+    new Set(additionalTrustedOrigins).size !== additionalTrustedOrigins.length
+  ) {
+    throw new Error('The additional Better Auth origins are invalid');
+  }
+  const envFile = join(tmpdir(), `yucp-convex-real-env-${profile.projectName}.vars`);
   writeFileSync(
     envFile,
     [
-      `CONVEX_URL=${BACKEND_URL}`,
-      `CONVEX_SITE_URL=${SITE_URL}`,
-      'BETTER_AUTH_SECRET=test-better-auth-secret-for-convex-real-backend',
-      'ENCRYPTION_SECRET=test-encryption-secret-for-convex-real-backend',
+      `CONVEX_URL=${resolved.backendUrl}`,
+      `CONVEX_SITE_URL=${resolved.siteUrl}`,
+      `BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}`,
+      `BETTER_AUTH_ADDITIONAL_TRUSTED_ORIGINS_JSON=${JSON.stringify(additionalTrustedOrigins)}`,
+      `ENCRYPTION_SECRET=${ENCRYPTION_SECRET}`,
       'ACCOUNT_RECOVERY_CONTEXT_SECRET=test-account-recovery-secret-for-convex-real-backend',
       `INTERNAL_SERVICE_AUTH_SECRET=${INTERNAL_SERVICE_AUTH_SECRET}`,
       `CONVEX_API_SECRET=${API_SECRET}`,
       'VRCHAT_PROVIDER_SESSION_SECRET=test-vrchat-provider-session-secret',
-      `BETTER_AUTH_URL=${SITE_URL}/api/auth`,
+      `BETTER_AUTH_URL=${resolved.siteUrl}/api/auth`,
       'API_BASE_URL=http://127.0.0.1:3001',
       'DISCORD_CLIENT_ID=000000000000000000',
       'DISCORD_CLIENT_SECRET=test-discord-client-secret',
@@ -204,7 +282,11 @@ export function writeRealBackendEnvFile(): string {
   return envFile;
 }
 
-export function selfHostedConvexEnv(adminKey: string): Record<string, string> {
+export function selfHostedConvexEnv(
+  adminKey: string,
+  profile: SelfHostedConvexProfile = DEFAULT_PROFILE
+): Record<string, string> {
+  const resolved = resolveProfile(profile);
   const env: Record<string, string> = {};
   for (const [name, value] of Object.entries(process.env)) {
     if (value !== undefined) env[name] = value;
@@ -219,7 +301,7 @@ export function selfHostedConvexEnv(adminKey: string): Record<string, string> {
 
   return {
     ...env,
-    CONVEX_SELF_HOSTED_URL: BACKEND_URL,
+    CONVEX_SELF_HOSTED_URL: resolved.backendUrl,
     CONVEX_SELF_HOSTED_ADMIN_KEY: adminKey,
   };
 }
@@ -230,9 +312,9 @@ export function selfHostedConvexEnv(adminKey: string): Record<string, string> {
  * `CONVEX_DEPLOYMENT` selectors can never select Convex Cloud. The original
  * files are restored even when a command fails.
  */
-export async function withSelfHostedConvexEnvFileMovedAside<T>(
+async function withSelfHostedConvexEnvFileMovedAsideUnlocked<T>(
   operation: () => Promise<T>,
-  envDirectory = ROOT_DIR
+  envDirectory: string
 ): Promise<T> {
   const movedEnvFiles = ['.env', '.env.local']
     .map((name) => join(envDirectory, name))
@@ -313,17 +395,197 @@ export async function withSelfHostedConvexEnvFileMovedAside<T>(
   return result as T;
 }
 
-export async function provisionRealBackendEnv(adminKey: string): Promise<void> {
+export function selfHostedConvexEnvLockPath(envDirectory = ROOT_DIR): string {
+  return join(resolve(envDirectory), '.orchestration', 'locks', 'convex-self-hosted-env.lock');
+}
+
+function envIsolationLockCommand(lockPath: string): {
+  command: string[];
+  env: NodeJS.ProcessEnv;
+} {
+  if (process.platform === 'linux') {
+    // util-linux flock holds one kernel lock until the helper exits.
+    // https://man7.org/linux/man-pages/man1/flock.1.html
+    return {
+      command: [
+        '/usr/bin/flock',
+        '--exclusive',
+        '--timeout',
+        String(ENV_ISOLATION_LOCK_TIMEOUT_MS / 1_000),
+        lockPath,
+        '/bin/sh',
+        '-c',
+        `printf '${ENV_ISOLATION_LOCK_READY}\\n'; cat >/dev/null`,
+      ],
+      env: { PATH: '/usr/bin:/bin' },
+    };
+  }
+  if (process.platform === 'win32') {
+    // FileShare.None makes the file handle an OS-owned exclusive lock.
+    // https://learn.microsoft.com/dotnet/api/system.io.file.open
+    const script = [
+      '$deadline = [DateTimeOffset]::UtcNow.AddMilliseconds([double]$env:YUCP_ENV_LOCK_TIMEOUT_MS)',
+      'while ($true) {',
+      '  try {',
+      "    $stream = [System.IO.File]::Open($env:YUCP_ENV_LOCK_PATH, 'OpenOrCreate', 'ReadWrite', 'None')",
+      '    break',
+      '  } catch [System.IO.IOException] {',
+      '    if ([DateTimeOffset]::UtcNow -ge $deadline) { exit 73 }',
+      '    Start-Sleep -Milliseconds 50',
+      '  }',
+      '}',
+      'try {',
+      `  [Console]::Out.WriteLine('${ENV_ISOLATION_LOCK_READY}')`,
+      '  [Console]::Out.Flush()',
+      '  [Console]::In.ReadToEnd() | Out-Null',
+      '} finally {',
+      '  $stream.Dispose()',
+      '}',
+    ].join('\n');
+    return {
+      command: [
+        join(
+          process.env.SystemRoot ?? 'C:\\Windows',
+          'System32',
+          'WindowsPowerShell',
+          'v1.0',
+          'powershell.exe'
+        ),
+        '-NoLogo',
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-Command',
+        script,
+      ],
+      env: {
+        SystemRoot: process.env.SystemRoot ?? 'C:\\Windows',
+        YUCP_ENV_LOCK_PATH: lockPath,
+        YUCP_ENV_LOCK_TIMEOUT_MS: String(ENV_ISOLATION_LOCK_TIMEOUT_MS),
+      },
+    };
+  }
+  throw new Error('Self-hosted Convex environment locking requires Linux or Windows');
+}
+
+async function waitForEnvIsolationLockReady(input: {
+  exited: Promise<number>;
+  stdout: ReadableStream<Uint8Array>;
+  terminate: () => void;
+}): Promise<void> {
+  const reader = input.stdout.getReader();
+  const decoder = new TextDecoder();
+  let output = '';
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      input.terminate();
+      reject(new Error('Timed out waiting for the self-hosted Convex environment lock'));
+    }, ENV_ISOLATION_LOCK_TIMEOUT_MS + 5_000);
+  });
+  const exited = input.exited.then((exitCode) => {
+    throw new Error(
+      `Self-hosted Convex environment lock helper exited with status ${String(exitCode)}`
+    );
+  });
+  const ready = (async () => {
+    while (output.length <= 64) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        break;
+      }
+      output += decoder.decode(chunk.value, { stream: true });
+      const newline = output.indexOf('\n');
+      if (newline >= 0) {
+        if (output.slice(0, newline).trim() !== ENV_ISOLATION_LOCK_READY) {
+          throw new Error('Self-hosted Convex environment lock helper returned invalid output');
+        }
+        return;
+      }
+    }
+    throw new Error('Self-hosted Convex environment lock helper returned no readiness result');
+  })();
+  try {
+    await Promise.race([ready, exited, timedOut]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    reader.releaseLock();
+  }
+}
+
+async function acquireEnvIsolationLock(envDirectory: string): Promise<() => Promise<void>> {
+  const lockPath = selfHostedConvexEnvLockPath(envDirectory);
+  mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 });
+  const spec = envIsolationLockCommand(lockPath);
+  const child = Bun.spawn(spec.command, {
+    env: spec.env,
+    stderr: 'ignore',
+    stdin: 'pipe',
+    stdout: 'pipe',
+    windowsHide: true,
+  });
+  try {
+    await waitForEnvIsolationLockReady({
+      exited: child.exited,
+      stdout: child.stdout,
+      terminate: () => child.kill(),
+    });
+  } catch (error) {
+    child.kill();
+    await child.exited.catch(() => undefined);
+    throw error;
+  }
+  let released = false;
+  return async () => {
+    if (released) {
+      throw new Error('Self-hosted Convex environment lock was already released');
+    }
+    released = true;
+    child.stdin.end();
+    const exitCode = await child.exited;
+    if (exitCode !== 0) {
+      throw new Error(
+        `Self-hosted Convex environment lock helper exited with status ${String(exitCode)}`
+      );
+    }
+  };
+}
+
+export async function withSelfHostedConvexEnvFileMovedAside<T>(
+  operation: () => Promise<T>,
+  envDirectory = ROOT_DIR
+): Promise<T> {
+  const release = await acquireEnvIsolationLock(envDirectory);
+  try {
+    return await withSelfHostedConvexEnvFileMovedAsideUnlocked(operation, envDirectory);
+  } finally {
+    await release();
+  }
+}
+
+export async function provisionRealBackendEnv(
+  adminKey: string,
+  profile: SelfHostedConvexProfile = DEFAULT_PROFILE,
+  options: {
+    betterAuthAdditionalTrustedOrigins?: readonly string[];
+  } = {}
+): Promise<void> {
   await withSelfHostedConvexEnvFileMovedAside(() =>
     runSelfHostedConvexCli(
-      ['env', 'set', '--from-file', writeRealBackendEnvFile(), '--force'],
-      selfHostedConvexEnv(adminKey)
+      ['env', 'set', '--from-file', writeRealBackendEnvFile(profile, options), '--force'],
+      selfHostedConvexEnv(adminKey, profile)
     )
   );
 }
 
-export async function enableRealBackendTestHelpers(adminKey: string): Promise<void> {
-  const env = selfHostedConvexEnv(adminKey);
+export async function enableRealBackendTestHelpers(
+  adminKey: string,
+  profile: SelfHostedConvexProfile = DEFAULT_PROFILE
+): Promise<void> {
+  const env = selfHostedConvexEnv(adminKey, profile);
   await withSelfHostedConvexEnvFileMovedAside(async () => {
     await runSelfHostedConvexCli(['env', 'set', 'IS_TEST', 'true'], env);
     await runSelfHostedConvexCli(['env', 'set', 'YUCP_REAL_BACKEND_TEST_HELPERS', 'true'], env);
@@ -334,17 +596,27 @@ export function ensureConvexDependenciesResolvable(): void {
   ensureBetterAuthResolvable();
 }
 
-export async function up(): Promise<void> {
-  await pullImagesWithRetry();
-  await run(['docker', ...composeArgs, 'up', '-d']);
-  await waitForBackend();
-  await provisionRealBackendEnv(await getRealBackendAdminKey());
+export async function up(
+  profile: SelfHostedConvexProfile = DEFAULT_PROFILE,
+  options: {
+    betterAuthAdditionalTrustedOrigins?: readonly string[];
+  } = {}
+): Promise<void> {
+  await pullImagesWithRetry(profile);
+  await run(['docker', ...composeArgs(profile), 'up', '-d'], {
+    env: composeEnvironment(profile),
+  });
+  await waitForBackend(profile);
+  await provisionRealBackendEnv(await getRealBackendAdminKey(profile), profile, options);
 }
 
-async function backendIsHealthy(): Promise<boolean> {
+export async function isRealBackendHealthy(
+  profile: SelfHostedConvexProfile = DEFAULT_PROFILE
+): Promise<boolean> {
+  const { backendUrl } = resolveProfile(profile);
   try {
     return (
-      await fetch(`${BACKEND_URL}/version`, {
+      await fetch(`${backendUrl}/version`, {
         signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
       })
     ).ok;
@@ -353,20 +625,29 @@ async function backendIsHealthy(): Promise<boolean> {
   }
 }
 
-export async function ensureRealBackendUp(): Promise<void> {
-  if (await backendIsHealthy()) {
-    await provisionRealBackendEnv(await getRealBackendAdminKey());
+export async function ensureRealBackendUp(
+  profile: SelfHostedConvexProfile = DEFAULT_PROFILE,
+  options: {
+    betterAuthAdditionalTrustedOrigins?: readonly string[];
+  } = {}
+): Promise<void> {
+  if (await isRealBackendHealthy(profile)) {
+    await provisionRealBackendEnv(await getRealBackendAdminKey(profile), profile, options);
     return;
   }
-  await up();
+  await up(profile, options);
 }
 
-async function down(): Promise<void> {
-  await run(['docker', ...composeArgs, 'down', '-v']);
+export async function stopRealBackend(
+  profile: SelfHostedConvexProfile = DEFAULT_PROFILE
+): Promise<void> {
+  await run(['docker', ...composeArgs(profile), 'down', '-v'], {
+    env: composeEnvironment(profile),
+  });
 }
 
 async function logs(): Promise<void> {
-  await run(['docker', ...composeArgs, 'logs', '--no-color', '--tail=300']);
+  await run(['docker', ...composeArgs(DEFAULT_PROFILE), 'logs', '--no-color', '--tail=300']);
 }
 
 async function main(): Promise<void> {
@@ -374,7 +655,7 @@ async function main(): Promise<void> {
   if (command === 'up') return await up();
   if (command === 'test-signals')
     return await enableRealBackendTestHelpers(await getRealBackendAdminKey());
-  if (command === 'down') return await down();
+  if (command === 'down') return await stopRealBackend();
   if (command === 'logs') return await logs();
   throw new Error('Usage: bun run ops/convex-real/manage.ts <up|test-signals|down|logs>');
 }

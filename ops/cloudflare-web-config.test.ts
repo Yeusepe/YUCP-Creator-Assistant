@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   DELIVERY_WORKER_BINDING_KEYS,
   getDeliveryWorkerBindingValues,
@@ -6,6 +8,7 @@ import {
   resolveWebEnvValues,
   resolveWebLocalEnvPath,
 } from './cloudflare-web-config';
+import { DESYNC_STORAGE_FORMAT_VERSION } from './storage-core/deliveryManifest';
 
 describe('cloudflare-web-config', () => {
   test('defaults local worker NODE_ENV to development without ambient shell leakage', () => {
@@ -47,27 +50,65 @@ describe('cloudflare-web-config', () => {
 
   test('selects only the delivery Worker bindings from the Infisical export', () => {
     expect(DELIVERY_WORKER_BINDING_KEYS).toEqual([
-      'CAS_S3_ENDPOINT',
-      'CAS_S3_REGION',
-      'CAS_S3_BUCKET',
-      'CAS_S3_READONLY_ACCESS_KEY_ID',
-      'CAS_S3_READONLY_SECRET_ACCESS_KEY',
-      'CAS_INDEX_PREFIX',
-      'CAS_CHUNK_PREFIX',
-      'DELIVERY_HMAC_KEY',
+      'COMMON_S3_ENDPOINT',
+      'COMMON_S3_REGION',
+      'COMMON_S3_BUCKET',
+      'COMMON_S3_READONLY_ACCESS_KEY_ID',
+      'COMMON_S3_READONLY_SECRET_ACCESS_KEY',
+      'COMMON_CHUNK_PREFIX',
+      'METADATA_S3_ENDPOINT',
+      'METADATA_S3_REGION',
+      'METADATA_S3_BUCKET',
+      'METADATA_S3_READONLY_ACCESS_KEY_ID',
+      'METADATA_S3_READONLY_SECRET_ACCESS_KEY',
+      'METADATA_INDEX_PREFIX',
+      'PACKAGE_DELIVERY_AUDIENCE',
+      'PACKAGE_INSTALL_ISSUER',
+      'PACKAGE_INSTALL_SIGNING_KEY_ID',
+      'PACKAGE_INSTALL_SIGNING_PUBLIC_KEY',
       'STORAGE_FORMAT_VERSION',
     ]);
     const source = Object.fromEntries(
       DELIVERY_WORKER_BINDING_KEYS.map((key) => [key, `placeholder-${key.toLowerCase()}`])
     );
-    source.CAS_S3_ACCESS_KEY_ID = 'placeholder-write-key-must-not-sync';
-    source.CAS_S3_SECRET_ACCESS_KEY = 'placeholder-write-secret-must-not-sync';
-    source.DELIVERY_BASE_URL = 'https://delivery.example.invalid';
+    source.COMMON_S3_ACCESS_KEY_ID = 'placeholder-write-key-must-not-sync';
+    source.COMMON_S3_SECRET_ACCESS_KEY = 'placeholder-write-secret-must-not-sync';
+    source.METADATA_S3_ACCESS_KEY_ID = 'placeholder-write-key-must-not-sync';
+    source.METADATA_S3_SECRET_ACCESS_KEY = 'placeholder-write-secret-must-not-sync';
+    source.PACKAGE_INSTALL_SIGNING_PRIVATE_KEY = 'private-key-must-not-sync';
 
     expect(getDeliveryWorkerBindingValues(source)).toEqual(
       Object.fromEntries(
         DELIVERY_WORKER_BINDING_KEYS.map((key) => [key, `placeholder-${key.toLowerCase()}`])
       )
     );
+  });
+
+  test('documents every role-specific delivery Worker binding in the Infisical inventory', () => {
+    const template = readFileSync(
+      resolve(import.meta.dir, 'infisical', 'secrets.template.yaml'),
+      'utf8'
+    );
+    const inventory = readFileSync(resolve(import.meta.dir, 'infisical', 'README.md'), 'utf8');
+
+    for (const key of DELIVERY_WORKER_BINDING_KEYS) {
+      expect(template).toContain(`${key}:`);
+      expect(inventory).toContain(key);
+    }
+    expect(inventory).not.toContain('CAS_S3_READONLY_ACCESS_KEY_ID');
+    expect(inventory).not.toContain('CAS_S3_READONLY_SECRET_ACCESS_KEY');
+  });
+
+  test('keeps the Infisical storage format equal to the canonical manifest format', () => {
+    const template = readFileSync(
+      resolve(import.meta.dir, 'infisical', 'secrets.template.yaml'),
+      'utf8'
+    );
+    const configuredFormats = Array.from(
+      template.matchAll(/^\s+STORAGE_FORMAT_VERSION:\s+"([^"]+)"\s*$/gm),
+      (match) => match[1]
+    );
+
+    expect(configuredFormats).toEqual([DESYNC_STORAGE_FORMAT_VERSION]);
   });
 });

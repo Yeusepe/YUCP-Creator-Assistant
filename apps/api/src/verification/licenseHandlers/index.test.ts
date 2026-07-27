@@ -33,6 +33,9 @@ mock.module('../../../../../convex/_generated/api', () => ({
     licenseVerification: {
       completeLicenseVerification: 'licenseVerification.completeLicenseVerification',
     },
+    yucpLicenses: {
+      lookupProductByProviderRefForCreator: 'yucpLicenses.lookupProductByProviderRefForCreator',
+    },
   },
   internal: {},
   components: {},
@@ -55,6 +58,12 @@ describe('license verification handler registry', () => {
 
   it('derives handlers directly from the provider runtime registry', async () => {
     const convex = {
+      query: mock(async (_reference: string, args: { providerProductRef: string }) => ({
+        authUserId: 'auth_user_123',
+        productId: 'logical_product_123',
+        catalogProductId: 'catalog_product_123',
+        providerProductRef: args.providerProductRef,
+      })),
       mutation: mock(async () => ({
         success: true,
         entitlementIds: ['ent_123'],
@@ -98,7 +107,8 @@ describe('license verification handler registry', () => {
         },
         productsToGrant: [
           {
-            productId: 'provider_product_123',
+            catalogProductId: 'catalog_product_123',
+            productId: 'logical_product_123',
             sourceReference: 'with-verification:order_123:license_abc',
             providerTierRefs: ['version_advanced'],
           },
@@ -109,6 +119,11 @@ describe('license verification handler registry', () => {
 
   it('uses creator identity for license lookup and buyer identity for account linking', async () => {
     const convex = {
+      query: mock(async () => ({
+        authUserId: 'creator_auth_user_123',
+        productId: 'logical_product_456',
+        catalogProductId: 'catalog_product_456',
+      })),
       mutation: mock(async () => ({
         success: true,
         entitlementIds: ['ent_123'],
@@ -150,6 +165,49 @@ describe('license verification handler registry', () => {
         subjectId: 'buyer_subject_456',
       })
     );
+  });
+
+  it('rejects a verified license for another creator product', async () => {
+    const convex = {
+      query: mock(async (_reference: string, args: { providerProductRef: string }) => ({
+        authUserId: 'creator_auth_user_123',
+        productId:
+          args.providerProductRef === 'product_123'
+            ? 'logical_product_123'
+            : 'logical_product_other',
+        catalogProductId:
+          args.providerProductRef === 'product_123'
+            ? 'catalog_product_123'
+            : 'catalog_product_other',
+      })),
+      mutation: mock(async () => ({
+        success: true,
+        entitlementIds: ['ent_123'],
+      })),
+    };
+
+    const handler = getHandler('with-verification');
+    const result = await handler?.verify(
+      {
+        licenseKey: 'license_for_other_product',
+        productId: 'product_123',
+        creatorAuthUserId: 'creator_auth_user_123',
+        buyerAuthUserId: 'buyer_auth_user_456',
+        buyerSubjectId: 'buyer_subject_456',
+      } as never,
+      {
+        convexApiSecret: 'convex-api-secret',
+        convexUrl: 'https://convex.example',
+        encryptionSecret: 'encryption-secret',
+      } as never,
+      convex as never
+    );
+
+    expect(result).toEqual({
+      success: false,
+      error: 'License does not belong to the requested product',
+    });
+    expect(convex.mutation).not.toHaveBeenCalled();
   });
 
   it('returns null when a provider does not expose a verification plugin', () => {

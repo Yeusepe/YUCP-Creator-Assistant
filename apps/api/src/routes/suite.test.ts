@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 
 let queryImpl: (functionReference: unknown, args: unknown) => Promise<unknown>;
-let verifyBetterAuthAccessTokenImpl: (token: string, options: unknown) => Promise<unknown>;
+let verifyPublicApiAccessTokenImpl: (token: string, options: unknown) => Promise<unknown>;
 
 const queryMock = mock((functionReference: unknown, args: unknown) =>
   queryImpl(functionReference, args)
@@ -28,9 +28,9 @@ mock.module('../lib/convex', () => ({
   getConvexClientFromUrl: () => ({ query: queryMock }),
 }));
 
-mock.module('../lib/oauthAccessToken', () => ({
-  verifyBetterAuthAccessToken: (token: string, options: unknown) =>
-    verifyBetterAuthAccessTokenImpl(token, options),
+mock.module('../lib/publicApiAccessToken', () => ({
+  verifyPublicApiAccessToken: (token: string, options: unknown) =>
+    verifyPublicApiAccessTokenImpl(token, options),
 }));
 
 const { getVerificationStatus } = await import('./suite');
@@ -43,7 +43,7 @@ const config = {
 
 beforeEach(() => {
   queryMock.mockClear();
-  verifyBetterAuthAccessTokenImpl = async () => ({
+  verifyPublicApiAccessTokenImpl = async () => ({
     ok: true,
     token: { sub: 'auth-user-1', grantedScopes: ['verification:read'] },
   });

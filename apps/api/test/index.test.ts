@@ -76,10 +76,13 @@ describe('API server, production app harness', () => {
 
   afterAll(() => app.dispose());
 
-  it('boots and serves health with optional delivery and VPM variables unset', async () => {
-    expect(process.env.DELIVERY_HMAC_KEY).toBeUndefined();
-    expect(process.env.DELIVERY_BASE_URL).toBeUndefined();
+  it('boots and serves health with optional package install and VPM variables unset', async () => {
+    expect(process.env.PACKAGE_DELIVERY_AUDIENCE).toBeUndefined();
+    expect(process.env.PACKAGE_INSTALL_SIGNING_KEY_ID).toBeUndefined();
+    expect(process.env.PACKAGE_INSTALL_SIGNING_PRIVATE_KEY).toBeUndefined();
     expect(process.env.VPM_BASE_URL).toBeUndefined();
+    expect(process.env.VPM_PUBLIC_INDEX_URL).toBeUndefined();
+    expect(process.env).not.toHaveProperty('VPM_TOKEN_KEY');
 
     const res = await app.fetch('/health');
     expect(res.status).toBe(200);
@@ -91,16 +94,86 @@ describe('API server, production app harness', () => {
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
   });
 
-  it('mounts VPM routes while optional delivery configuration is unset', async () => {
-    const mintResponse = await app.fetch('/api/vpm/repo-token', { method: 'POST' });
-    expect(mintResponse.status).toBe(401);
-    await expect(mintResponse.json()).resolves.toEqual({ error: 'Authentication required' });
+  it('mounts only durable public-bootstrap VPM routes', async () => {
+    const removedMintResponse = await app.fetch('/api/vpm/repo-token', { method: 'POST' });
+    expect(removedMintResponse.status).toBe(404);
 
-    const indexResponse = await app.fetch('/api/vpm/invalid-token/index.json');
-    expect(indexResponse.status).toBe(503);
-    await expect(indexResponse.json()).resolves.toEqual({
+    const removedTokenIndexResponse = await app.fetch('/api/vpm/invalid-token/index.json');
+    expect(removedTokenIndexResponse.status).toBe(404);
+
+    const creatorLinkResponse = await app.fetch(
+      '/api/creator/packages/by-package/com.yucp.product/vcc-link'
+    );
+    expect(creatorLinkResponse.status).toBe(401);
+    await expect(creatorLinkResponse.json()).resolves.toEqual({
+      error: 'Authentication required',
+    });
+
+    const presentationResponse = await app.fetch(
+      '/api/creator/packages/by-package/com.yucp.product/presentation'
+    );
+    expect(presentationResponse.status).toBe(401);
+    await expect(presentationResponse.json()).resolves.toEqual({
+      error: 'Authentication required',
+    });
+
+    const bootstrapResponse = await app.fetch(
+      '/api/creator/packages/by-package/com.yucp.product/bootstrap'
+    );
+    expect(bootstrapResponse.status).toBe(401);
+    await expect(bootstrapResponse.json()).resolves.toEqual({
+      error: 'Authentication required',
+    });
+
+    const creatorIndexResponse = await app.fetch(`/api/vpm/access/${'A'.repeat(43)}/index.json`);
+    expect(creatorIndexResponse.status).toBe(503);
+    await expect(creatorIndexResponse.json()).resolves.toEqual({
       error: 'VPM delivery is not configured',
     });
+
+    const legacyAliasResponse = await app.fetch('/api/vpm/aliases/descriptor/1.0.0.zip');
+    expect(legacyAliasResponse.status).toBe(404);
+
+    const publicationResponse = await app.fetch(
+      '/api/vpm/alias-publications/00000000-0000-4000-8000-000000000001/1.0.0.zip'
+    );
+    expect(publicationResponse.status).toBe(503);
+    await expect(publicationResponse.json()).resolves.toEqual({
+      error: 'VPM delivery is not configured',
+    });
+  });
+
+  it('mounts the provider-neutral creator package version page', async () => {
+    const response = await app.fetch(
+      '/api/creator/packages/by-package/com.yucp.product/editions/commercial/versions?limit=50'
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Authentication required',
+    });
+
+    const deleteResponse = await app.fetch(
+      '/api/creator/packages/by-package/com.yucp.product/editions/commercial/versions/version-1',
+      { method: 'DELETE' }
+    );
+    expect(deleteResponse.status).toBe(401);
+
+    const statusResponse = await app.fetch(
+      '/api/creator/packages/by-package/com.yucp.product/editions/commercial/versions/version-1/status'
+    );
+    expect(statusResponse.status).toBe(401);
+
+    const removedStorefrontRoute = await app.fetch(
+      '/api/creator/packages/catalog-product-1/versions/version-1',
+      { method: 'DELETE' }
+    );
+    expect(removedStorefrontRoute.status).toBe(404);
+
+    const removedStorefrontStatusRoute = await app.fetch(
+      '/api/creator/packages/catalog-product-1/versions/version-1/status?packageId=com.yucp.product'
+    );
+    expect(removedStorefrontStatusRoute.status).toBe(404);
   });
 
   it('GET /v1/keys serves the importer trust bootstrap on the API host', async () => {
@@ -147,13 +220,15 @@ describe('API server, production app harness', () => {
     expect(body.paths).toHaveProperty('/verification/check');
   });
 
-  it('mounts the buyer download route through the API dispatcher', async () => {
-    const response = await app.fetch('/api/access/catalog-product-123/download', {
+  it('mounts the signed package install session route through the API dispatcher', async () => {
+    const response = await app.fetch('/api/v2/package-installs/sessions', {
       method: 'POST',
     });
 
-    expect(response.status).toBe(405);
-    await expect(response.json()).resolves.toEqual({ error: 'Method not allowed' });
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Package install sessions are not configured',
+    });
   });
 
   it('keeps every migrated page route on its prior frontend redirect', async () => {

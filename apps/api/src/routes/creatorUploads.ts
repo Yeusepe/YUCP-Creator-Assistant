@@ -1,5 +1,9 @@
+import { createHash } from 'node:crypto';
+import { catalogTierPackageEditionId } from '@yucp/shared/packageEdition';
 import { api } from '../../../../convex/_generated/api';
+import type { Id } from '../../../../convex/_generated/dataModel';
 import { BILLING_CAPABILITY_KEYS } from '../../../../convex/lib/billingCapabilities';
+import { ACTIVE_PROTECTION_POLICY_ID } from '../../../../ops/storage-core/protectionPolicyId';
 import {
   signUploadCapability,
   UPLOAD_CAPABILITY_HEADERS,
@@ -12,6 +16,7 @@ import { RequestBodyError, readJsonObjectBodyWithLimit } from '../lib/requestBod
 
 export const UPLOAD_TTL_MS = 24 * 60 * 60 * 1000;
 const AUTHORIZE_BODY_MAX_BYTES = 4096;
+const UPLOAD_VERSION_ID_PURPOSE = 'yucp-upload-version-v2';
 
 export interface CreatorUploadConfig {
   apiBaseUrl: string;
@@ -34,6 +39,62 @@ function allowedOrigins(config: CreatorUploadConfig): Set<string> {
 function requiredString(body: Record<string, unknown>, key: string): string | null {
   const value = body[key];
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function optionalCatalogProductIds(body: Record<string, unknown>): string[] | null | undefined {
+  const value = body.catalogProductIds;
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value) || value.length === 0 || value.length > 32) {
+    return null;
+  }
+  const ids = value.map((candidate) => (typeof candidate === 'string' ? candidate.trim() : ''));
+  if (ids.some((id) => id.length === 0) || new Set(ids).size !== ids.length) {
+    return null;
+  }
+  return ids;
+}
+
+function optionalCatalogTierId(body: Record<string, unknown>): string | null | undefined {
+  const value = body.catalogTierId;
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'string' || !value.trim()) {
+    return null;
+  }
+  return value.trim();
+}
+
+function addLengthPrefixedHashValue(hash: ReturnType<typeof createHash>, value: string): void {
+  const body = Buffer.from(value, 'utf8');
+  const length = Buffer.allocUnsafe(4);
+  length.writeUInt32BE(body.byteLength);
+  hash.update(length);
+  hash.update(body);
+}
+
+export function deriveUploadVersionId(input: {
+  creatorId: string;
+  editionId?: string;
+  packageId: string;
+  version: string;
+}): string {
+  const hash = createHash('sha256');
+  addLengthPrefixedHashValue(hash, UPLOAD_VERSION_ID_PURPOSE);
+  addLengthPrefixedHashValue(hash, input.creatorId);
+  addLengthPrefixedHashValue(hash, input.packageId);
+  addLengthPrefixedHashValue(hash, input.editionId?.trim() || 'standard');
+  addLengthPrefixedHashValue(hash, input.version);
+  const bytes = hash.digest().subarray(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x80;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(
+    16,
+    20
+  )}-${hex.slice(20)}`;
 }
 
 export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadRoutesOptions) {
@@ -63,14 +124,40 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
     }
 
     const packageId = requiredString(body, 'packageId');
+    const editionId = body.editionId === undefined ? 'standard' : requiredString(body, 'editionId');
     const version = requiredString(body, 'version');
-    let catalogProductId =
-      body.catalogProductId === undefined ? undefined : requiredString(body, 'catalogProductId');
-    if (!packageId || !version || (body.catalogProductId !== undefined && !catalogProductId)) {
+    let catalogProductIds = optionalCatalogProductIds(body);
+    const catalogTierId = optionalCatalogTierId(body);
+    let catalogProductId: string | undefined;
+    if (
+      !packageId ||
+      !editionId ||
+      !/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(editionId) ||
+      !version ||
+      catalogProductIds === null ||
+      catalogTierId === null
+    ) {
       return Response.json(
-        { error: 'packageId and version are required; catalogProductId must be non-empty' },
+        {
+          error:
+            'packageId and version are required; catalog product and tier identifiers must be valid',
+        },
         { status: 400 }
       );
+    }
+    let expectedCatalogTierEditionId: string | undefined;
+    if (catalogTierId) {
+      try {
+        expectedCatalogTierEditionId = catalogTierPackageEditionId(catalogTierId);
+      } catch {
+        return Response.json({ error: 'Catalog tier identifier is invalid' }, { status: 400 });
+      }
+      if (editionId !== expectedCatalogTierEditionId) {
+        return Response.json(
+          { error: 'Catalog tier does not match the package edition' },
+          { status: 400 }
+        );
+      }
     }
 
     const actor = await createAuthUserActorBinding({
@@ -84,12 +171,12 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
       packageId,
     })) as { status: 'active' | 'archived'; yucpUserId: string } | null;
     if (
-      !registration ||
-      registration.yucpUserId !== session.user.id ||
-      registration.status !== 'active'
+      registration &&
+      (registration.yucpUserId !== session.user.id || registration.status !== 'active')
     ) {
       return Response.json({ error: 'Active package ownership required' }, { status: 403 });
     }
+
     const billing = (await convex.query(api.certificateBilling.getAccountOverview, {
       apiSecret: config.convexApiSecret,
       authUserId: session.user.id,
@@ -104,27 +191,70 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
     if (!canUpload) {
       return Response.json({ error: 'VPM repository capability required' }, { status: 403 });
     }
-    if (catalogProductId) {
-      const product = (await convex.query(
-        api.packageRegistry.getBuyerAccessContextByCatalogProductId,
-        {
-          apiSecret: config.convexApiSecret,
-          actor,
-          catalogProductId,
+    if (!registration && !catalogProductIds) {
+      return Response.json({ error: 'Catalog product ownership required' }, { status: 403 });
+    }
+
+    if (catalogProductIds) {
+      const resolvedCatalogProductIds: string[] = [];
+      for (const requestedCatalogProductId of catalogProductIds) {
+        const product = (await convex.query(
+          api.packageRegistry.getBuyerAccessContextByCatalogProductId,
+          {
+            apiSecret: config.convexApiSecret,
+            actor,
+            catalogProductId: requestedCatalogProductId,
+          }
+        )) as { catalogProductId: string; creatorAuthUserId: string; packageId?: string } | null;
+        if (
+          !product ||
+          product.creatorAuthUserId !== session.user.id ||
+          (product.packageId !== undefined && product.packageId !== packageId)
+        ) {
+          return Response.json({ error: 'Catalog product ownership required' }, { status: 403 });
         }
-      )) as { catalogProductId: string; creatorAuthUserId: string; packageId?: string } | null;
-      // packageId is only known once the catalog product has a READY version. Before that (e.g. the
-      // first upload) it is undefined and the product is not yet bound to any package, so only reject a
-      // CONCRETE mismatch — a product already bound to a different package. Creator ownership of the
-      // requested packageId is already proven by the registration check above.
-      if (
-        !product ||
-        product.creatorAuthUserId !== session.user.id ||
-        (product.packageId !== undefined && product.packageId !== packageId)
-      ) {
-        return Response.json({ error: 'Catalog product ownership required' }, { status: 403 });
+        resolvedCatalogProductIds.push(product.catalogProductId);
       }
-      catalogProductId = product.catalogProductId;
+      if (new Set(resolvedCatalogProductIds).size !== resolvedCatalogProductIds.length) {
+        return Response.json({ error: 'Catalog product selection is ambiguous' }, { status: 409 });
+      }
+      catalogProductIds = resolvedCatalogProductIds;
+      catalogProductId = catalogProductIds[0];
+    }
+    let ensureCatalogTierEdition = false;
+    if (editionId !== 'standard') {
+      if (!catalogProductIds?.length) {
+        return Response.json(
+          { error: 'Catalog product required for this edition' },
+          { status: 400 }
+        );
+      }
+      const editions = (await convex.query(api.packageEditions.listForCreator, {
+        apiSecret: config.convexApiSecret,
+        actor,
+        authUserId: session.user.id,
+        packageId,
+      })) as Array<{
+        catalogProductIds: Array<Id<'product_catalog'>>;
+        editionId: string;
+        status: 'active' | 'archived';
+      }>;
+      const selectedEdition = editions.find(
+        (edition) =>
+          edition.editionId === editionId &&
+          edition.status === 'active' &&
+          edition.catalogProductIds.some((id) => catalogProductIds.includes(String(id)))
+      );
+      if (catalogTierId && editionId === expectedCatalogTierEditionId) {
+        ensureCatalogTierEdition = true;
+      } else if (!selectedEdition) {
+        return Response.json({ error: 'Active package edition required' }, { status: 403 });
+      }
+    } else if (catalogTierId) {
+      return Response.json(
+        { error: 'The standard edition cannot target a catalog tier' },
+        { status: 400 }
+      );
     }
 
     const uploadHmacKey = config.uploadHmacKey?.trim();
@@ -133,12 +263,75 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
       return Response.json({ error: 'Creator uploads are not configured' }, { status: 503 });
     }
 
-    const versionId = crypto.randomUUID();
+    if (catalogProductIds?.length) {
+      const claim = (await convex.mutation(api.packageRegistry.claimPackageForCreatorUpload, {
+        apiSecret: config.convexApiSecret,
+        actor,
+        authUserId: session.user.id,
+        catalogProductIds: catalogProductIds as Array<Id<'product_catalog'>>,
+        packageId,
+      })) as
+        | { registered: true; conflict: false; archived: false }
+        | { registered: false; conflict: true; archived: false }
+        | { registered: false; conflict: false; archived: true; reason: string }
+        | {
+            registered: false;
+            conflict: false;
+            archived: false;
+            catalogProductRejected: true;
+          };
+
+      if ('catalogProductRejected' in claim) {
+        return Response.json({ error: 'Catalog product ownership required' }, { status: 403 });
+      }
+      if (claim.conflict) {
+        return Response.json({ error: 'Package ID is already registered' }, { status: 409 });
+      }
+      if (claim.archived) {
+        return Response.json({ error: claim.reason }, { status: 403 });
+      }
+    }
+    if (editionId === 'standard' && catalogProductIds?.length) {
+      await convex.mutation(api.packageEditions.ensureStandardForCreatorUpload, {
+        apiSecret: config.convexApiSecret,
+        actor,
+        authUserId: session.user.id,
+        catalogProductIds: catalogProductIds as Array<Id<'product_catalog'>>,
+        packageId,
+      });
+    }
+    if (ensureCatalogTierEdition && catalogProductIds?.length && catalogTierId) {
+      const ensured = (await convex.mutation(
+        api.packageEditions.ensureCatalogTierForCreatorUpload,
+        {
+          apiSecret: config.convexApiSecret,
+          actor,
+          authUserId: session.user.id,
+          catalogProductIds: catalogProductIds as Array<Id<'product_catalog'>>,
+          catalogTierId: catalogTierId as Id<'catalog_tiers'>,
+          editionId,
+          packageId,
+        }
+      )) as { catalogProductId?: Id<'product_catalog'> };
+      if (ensured.catalogProductId) {
+        catalogProductId = String(ensured.catalogProductId);
+      }
+    }
+
+    const versionId = deriveUploadVersionId({
+      creatorId: session.user.id,
+      editionId,
+      packageId,
+      version,
+    });
     const capability = await signUploadCapability({
       catalogProductId: catalogProductId ?? undefined,
+      creatorId: session.user.id,
+      editionId,
       versionId,
       key: uploadHmacKey,
       packageId,
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       version,
       expiresAt: Date.now() + UPLOAD_TTL_MS,
     });
@@ -152,7 +345,10 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
         : {}),
       [UPLOAD_CAPABILITY_HEADERS.versionId]: capability.versionId,
       [UPLOAD_CAPABILITY_HEADERS.exp]: capability.exp,
+      [UPLOAD_CAPABILITY_HEADERS.creatorId]: encodeURIComponent(capability.creatorId),
+      [UPLOAD_CAPABILITY_HEADERS.editionId]: capability.editionId,
       [UPLOAD_CAPABILITY_HEADERS.packageId]: encodeURIComponent(capability.packageId),
+      [UPLOAD_CAPABILITY_HEADERS.protectionPolicyId]: capability.protectionPolicyId,
       [UPLOAD_CAPABILITY_HEADERS.sig]: capability.sig,
       [UPLOAD_CAPABILITY_HEADERS.version]: encodeURIComponent(capability.version),
     };
@@ -164,6 +360,8 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
         sig: capability.sig,
         tusEndpoint: `${ingestTusUrl.replace(/\/+$/, '')}/files`,
         headers,
+        editionId: capability.editionId,
+        protectionPolicyId: capability.protectionPolicyId,
         ...(catalogProductId ? { catalogProductId } : {}),
       },
       { headers: { 'Cache-Control': 'private, no-store' } }

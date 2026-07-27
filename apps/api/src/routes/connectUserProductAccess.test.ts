@@ -1,5 +1,4 @@
 import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { verifyDeliveryUrl } from '../../../../ops/storage-core/deliverySigning';
 import type { PublicApiRateLimitStore } from '../lib/publicApiRateLimit';
 import type { ConnectConfig } from '../providers/types';
 import { createTestLogger } from '../testSupport/loggerMock';
@@ -17,6 +16,9 @@ const sharedActual = await import('@yucp/shared');
 const verificationConfigActual = await import('../verification/verificationConfig');
 
 const apiMock = {
+  creatorVpmLinks: {
+    getActiveForPackageAccess: 'creatorVpmLinks.getActiveForPackageAccess',
+  },
   packageRegistry: {
     getBuyerAccessContextByCatalogProductId:
       'packageRegistry.getBuyerAccessContextByCatalogProductId',
@@ -25,9 +27,6 @@ const apiMock = {
   },
   entitlements: {
     listByAuthUser: 'entitlements.listByAuthUser',
-  },
-  packageVersions: {
-    resolveDownloadableVersion: 'packageVersions.resolveDownloadableVersion',
   },
   verificationIntents: {
     createVerificationIntent: 'verificationIntents.createVerificationIntent',
@@ -109,7 +108,7 @@ mock.module('@yucp/providers/providerMetadata', () => ({
         buyerVerificationMethods: ['account_link', 'license_key'],
         capabilities: ['catalog_sync', 'tier_catalog', 'license_verification'],
         supportsAutoDiscovery: false,
-        supportsBuyerOAuthLink: true,
+        supportsBuyerOAuthLink: false,
       },
       lemonsqueezy: {
         buyerVerificationMethods: ['account_link', 'license_key'],
@@ -166,95 +165,31 @@ const testConfig: ConnectConfig = {
   convexApiSecret: 'test-convex-secret',
   convexUrl: 'http://localhost:3210',
   encryptionSecret: 'test-encryption-secret-32chars!!',
+  vpmBaseUrl: 'https://vpm.test',
 };
 
-const deliveryHmacKey = 'buyer-download-route-test-hmac-key';
-const downloadConfig = {
-  ...testConfig,
-  deliveryBaseUrl: 'https://delivery.example.test/',
-  deliveryHmacKey,
-};
-
-function createRoutes(configOverrides: Partial<typeof downloadConfig> = {}) {
+function createRoutes(
+  configOverrides: Partial<ConnectConfig> = {},
+  authUserId = 'buyer-auth-user'
+) {
   return createConnectUserProductAccessRoutes({
     auth: {
       getSession: async () => ({
         user: {
-          id: 'buyer-auth-user',
+          id: authUserId,
         },
       }),
     } as never,
-    config: { ...downloadConfig, ...configOverrides },
+    config: { ...testConfig, ...configOverrides },
   });
 }
 
-function createSignedOutRoutes(configOverrides: Partial<typeof downloadConfig> = {}) {
+function createSignedOutRoutes(configOverrides: Partial<ConnectConfig> = {}) {
   return createConnectUserProductAccessRoutes({
     auth: {
       getSession: async () => null,
     } as never,
-    config: { ...downloadConfig, ...configOverrides },
-  });
-}
-
-function downloadRequest(headers?: HeadersInit): Request {
-  return new Request('http://localhost:3001/api/access/catalog_123/download', { headers });
-}
-
-function mockDownloadAccess(options: {
-  activeEntitlement: boolean | { catalogProductId?: string | null };
-  downloadableVersion?: { versionId: string } | null;
-  requestedCatalogProductId?: string;
-  resolvedCatalogProductId?: string;
-}) {
-  const requestedCatalogProductId = options.requestedCatalogProductId ?? 'catalog_123';
-  const resolvedCatalogProductId = options.resolvedCatalogProductId ?? 'catalog_123';
-  convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
-    if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
-      expect(args).toEqual({
-        apiSecret: 'test-convex-secret',
-        actor: 'service-actor-binding',
-        catalogProductId: requestedCatalogProductId,
-      });
-      return {
-        catalogProductId: resolvedCatalogProductId,
-        creatorAuthUserId: 'creator-auth-user',
-        productId: 'product_123',
-        provider: 'gumroad',
-        providerProductRef: 'gumroad-ref',
-        displayName: 'Avatar Bundle',
-        status: 'active',
-      };
-    }
-    if (reference === apiMock.entitlements.listByAuthUser) {
-      expect(args).toEqual({
-        apiSecret: 'test-convex-secret',
-        actor: 'service-actor-binding',
-        authUserId: 'buyer-auth-user',
-        scope: 'subject_holder',
-        productId: 'product_123',
-        status: 'active',
-        limit: 100,
-      });
-      const activeEntitlement =
-        options.activeEntitlement === true
-          ? { catalogProductId: resolvedCatalogProductId }
-          : options.activeEntitlement || null;
-      return {
-        data: activeEntitlement ? [{ id: 'ent_1', ...activeEntitlement }] : [],
-        hasMore: false,
-      };
-    }
-    if (reference === apiMock.packageVersions.resolveDownloadableVersion) {
-      expect(args).toEqual({
-        apiSecret: 'test-convex-secret',
-        actor: 'service-actor-binding',
-        catalogProductId: resolvedCatalogProductId,
-      });
-      return options.downloadableVersion ?? null;
-    }
-
-    throw new Error(`Unexpected query reference: ${String(reference)}`);
+    config: { ...testConfig, ...configOverrides },
   });
 }
 
@@ -283,7 +218,7 @@ describe('connect user product access routes', () => {
     };
     const routes = createConnectUserProductAccessRoutes({
       auth: { getSession: getSessionMock } as never,
-      config: downloadConfig,
+      config: testConfig,
       rateLimitStore,
     });
 
@@ -300,175 +235,6 @@ describe('connect user product access routes', () => {
     expect(convexQueryMock).not.toHaveBeenCalled();
   });
 
-  it('returns 401 from buyer downloads without a Better Auth session', async () => {
-    const response = await createSignedOutRoutes().downloadBuyerProductAccess(
-      downloadRequest(),
-      'catalog_123'
-    );
-
-    expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toEqual({ error: 'Authentication required' });
-    expect(convexQueryMock).not.toHaveBeenCalled();
-  });
-
-  it('returns 503 to an entitled buyer when downloads are not configured', async () => {
-    mockDownloadAccess({ activeEntitlement: true });
-
-    const response = await createRoutes({
-      deliveryBaseUrl: undefined,
-      deliveryHmacKey: undefined,
-    }).downloadBuyerProductAccess(downloadRequest(), 'catalog_123');
-
-    expect(response.status).toBe(503);
-    await expect(response.json()).resolves.toEqual({ error: 'Downloads are not configured' });
-    expect(convexQueryMock).not.toHaveBeenCalledWith(
-      apiMock.packageVersions.resolveDownloadableVersion,
-      expect.anything()
-    );
-  });
-
-  it('returns 403 from buyer downloads without an active entitlement', async () => {
-    mockDownloadAccess({ activeEntitlement: false });
-
-    const response = await createRoutes().downloadBuyerProductAccess(
-      downloadRequest(),
-      'catalog_123'
-    );
-
-    expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({ error: 'Active entitlement required' });
-    expect(convexQueryMock).not.toHaveBeenCalledWith(
-      apiMock.packageVersions.resolveDownloadableVersion,
-      expect.anything()
-    );
-  });
-
-  it('302 redirects an entitled buyer to a short-lived signed READY-version URL', async () => {
-    mockDownloadAccess({
-      activeEntitlement: true,
-      downloadableVersion: { versionId: 'version-ready-123' },
-    });
-    const beforeRequest = Date.now();
-
-    const response = await createRoutes().downloadBuyerProductAccess(
-      downloadRequest(),
-      'catalog_123'
-    );
-
-    const afterRequest = Date.now();
-    expect(response.status).toBe(302);
-    expect(response.headers.get('Cache-Control')).toBe('no-store');
-    const location = response.headers.get('Location');
-    expect(location).not.toBeNull();
-    const deliveryUrl = new URL(location ?? '');
-    expect(deliveryUrl.origin).toBe('https://delivery.example.test');
-    expect(deliveryUrl.pathname).toBe('/d/version-ready-123');
-    const exp = deliveryUrl.searchParams.get('exp') ?? '';
-    const sig = deliveryUrl.searchParams.get('sig') ?? '';
-    expect(
-      await verifyDeliveryUrl({
-        versionId: 'version-ready-123',
-        key: deliveryHmacKey,
-        exp,
-        sig,
-        now: beforeRequest,
-      })
-    ).toBe(true);
-    const expiryMilliseconds = Number(exp) * 1000;
-    expect(expiryMilliseconds).toBeGreaterThanOrEqual(beforeRequest + 5 * 60_000 - 1000);
-    expect(expiryMilliseconds).toBeLessThanOrEqual(afterRequest + 5 * 60_000);
-  });
-
-  it('resolves a download slug to its catalog product id before the version lookup', async () => {
-    mockDownloadAccess({
-      activeEntitlement: true,
-      downloadableVersion: { versionId: 'version-ready-from-slug' },
-      requestedCatalogProductId: 'avatar-bundle',
-      resolvedCatalogProductId: 'catalog_resolved_123',
-    });
-
-    const response = await createRoutes().downloadBuyerProductAccess(
-      downloadRequest(),
-      'avatar-bundle'
-    );
-
-    expect(response.status).toBe(302);
-    expect(response.headers.get('location')).toContain('/d/version-ready-from-slug');
-    expect(convexQueryMock).toHaveBeenCalledWith(
-      apiMock.packageVersions.resolveDownloadableVersion,
-      expect.objectContaining({ catalogProductId: 'catalog_resolved_123' })
-    );
-  });
-
-  it('302 redirects for a product-level entitlement without a catalog product id', async () => {
-    mockDownloadAccess({
-      activeEntitlement: {},
-      downloadableVersion: { versionId: 'version-ready-product-level' },
-    });
-
-    const response = await createRoutes().downloadBuyerProductAccess(
-      downloadRequest(),
-      'catalog_123'
-    );
-
-    expect(response.status).toBe(302);
-    expect(response.headers.get('location')).toContain('/d/version-ready-product-level');
-  });
-
-  it('302 redirects when the matching entitlement belongs to a second linked subject', async () => {
-    convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
-      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
-        return {
-          catalogProductId: 'catalog_123',
-          creatorAuthUserId: 'creator-auth-user',
-          productId: 'product_123',
-          provider: 'gumroad',
-          providerProductRef: 'gumroad-ref',
-          status: 'active',
-        };
-      }
-      if (reference === apiMock.entitlements.listByAuthUser) {
-        const query = args as { cursor?: string; scope?: string };
-        expect(query.scope).toBe('subject_holder');
-        return query.cursor
-          ? { data: [{ id: 'ent_2', catalogProductId: 'catalog_123' }], hasMore: false }
-          : {
-              data: [{ id: 'ent_1', catalogProductId: 'catalog_other' }],
-              hasMore: true,
-              nextCursor: 'second-linked-subject-page',
-            };
-      }
-      if (reference === apiMock.packageVersions.resolveDownloadableVersion) {
-        return { versionId: 'version-ready-second-subject' };
-      }
-      throw new Error(`Unexpected query reference: ${String(reference)}`);
-    });
-
-    const response = await createRoutes().downloadBuyerProductAccess(
-      downloadRequest(),
-      'catalog_123'
-    );
-
-    expect(response.status).toBe(302);
-    expect(response.headers.get('location')).toContain('/d/version-ready-second-subject');
-    expect(convexQueryMock).toHaveBeenCalledWith(
-      apiMock.entitlements.listByAuthUser,
-      expect.objectContaining({ cursor: 'second-linked-subject-page' })
-    );
-  });
-
-  it('returns 404 to an entitled buyer when no READY version exists', async () => {
-    mockDownloadAccess({ activeEntitlement: true, downloadableVersion: null });
-
-    const response = await createRoutes().downloadBuyerProductAccess(
-      downloadRequest(),
-      'catalog_123'
-    );
-
-    expect(response.status).toBe(404);
-    await expect(response.json()).resolves.toEqual({ error: 'Product is not yet published' });
-  });
-
   it('returns product entitlement state for the signed-in buyer', async () => {
     convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
       if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
@@ -480,6 +246,7 @@ describe('connect user product access routes', () => {
         return {
           catalogProductId: 'catalog_123',
           creatorAuthUserId: 'creator-auth-user',
+          packageId: 'com.yucp.avatar-bundle',
           productId: 'product_123',
           provider: 'gumroad',
           providerProductRef: 'gumroad-ref',
@@ -487,6 +254,14 @@ describe('connect user product access routes', () => {
           canonicalSlug: 'avatar-bundle',
           thumbnailUrl: 'https://cdn.test/avatar.png',
           status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'catalog_123',
+              productId: 'product_123',
+              provider: 'gumroad',
+              providerProductRef: 'gumroad-ref',
+            },
+          ],
         };
       }
       if (reference === apiMock.entitlements.listByAuthUser) {
@@ -502,6 +277,21 @@ describe('connect user product access routes', () => {
         return {
           data: [{ id: 'ent_1', catalogProductId: 'catalog_123' }],
           hasMore: false,
+        };
+      }
+      if (reference === apiMock.creatorVpmLinks.getActiveForPackageAccess) {
+        expect(args).toEqual({
+          apiSecret: 'test-convex-secret',
+          actor: 'service-actor-binding',
+          authUserId: 'creator-auth-user',
+          packageId: 'com.yucp.avatar-bundle',
+        });
+        return {
+          catalogProductId: 'catalog_123',
+          createdAt: 1_700_000_000_000,
+          linkId: 'A'.repeat(43),
+          packageId: 'com.yucp.avatar-bundle',
+          status: 'active',
         };
       }
 
@@ -525,11 +315,89 @@ describe('connect user product access routes', () => {
         provider: 'gumroad',
         providerLabel: 'Gumroad',
         storefrontUrl: 'https://store.test/gumroad/gumroad-ref',
+        storefronts: [
+          {
+            catalogProductId: 'catalog_123',
+            provider: 'gumroad',
+            providerLabel: 'Gumroad',
+            storefrontUrl: 'https://store.test/gumroad/gumroad-ref',
+          },
+        ],
       },
       accessState: {
         hasActiveEntitlement: true,
         requiresVerification: false,
       },
+      repository: {
+        addRepoUrl:
+          'vcc://vpm/addRepo?url=https%3A%2F%2Fvpm.test%2Fapi%2Fvpm%2Faccess%2FAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%2Findex.json',
+        indexUrl:
+          'https://vpm.test/api/vpm/access/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/index.json',
+      },
+    });
+  });
+
+  it('returns the same durable repository URL to two entitled buyers', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        return {
+          catalogProductId: 'catalog_123',
+          creatorAuthUserId: 'creator-auth-user',
+          packageId: 'com.yucp.avatar-bundle',
+          productId: 'product_123',
+          provider: 'gumroad',
+          providerProductRef: 'gumroad-ref',
+          displayName: 'Avatar Bundle',
+          status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'catalog_123',
+              productId: 'product_123',
+              provider: 'gumroad',
+              providerProductRef: 'gumroad-ref',
+            },
+          ],
+        };
+      }
+      if (reference === apiMock.entitlements.listByAuthUser) {
+        const authUserId = (args as { authUserId?: string }).authUserId;
+        expect(['buyer-one', 'buyer-two']).toContain(String(authUserId));
+        return {
+          data: [{ id: `entitlement-${authUserId}`, catalogProductId: 'catalog_123' }],
+          hasMore: false,
+        };
+      }
+      if (reference === apiMock.creatorVpmLinks.getActiveForPackageAccess) {
+        return {
+          catalogProductId: 'catalog_123',
+          createdAt: 1_700_000_000_000,
+          linkId: 'S'.repeat(43),
+          packageId: 'com.yucp.avatar-bundle',
+          status: 'active',
+        };
+      }
+      throw new Error(`Unexpected query reference: ${String(reference)}`);
+    });
+
+    const first = await createRoutes({}, 'buyer-one').getBuyerProductAccess(
+      new Request('http://localhost:3001/api/connect/user/product-access/catalog_123'),
+      'catalog_123'
+    );
+    const second = await createRoutes({}, 'buyer-two').getBuyerProductAccess(
+      new Request('http://localhost:3001/api/connect/user/product-access/catalog_123'),
+      'catalog_123'
+    );
+    const firstBody = (await first.json()) as { repository: unknown };
+    const secondBody = (await second.json()) as { repository: unknown };
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(firstBody.repository).toEqual(secondBody.repository);
+    expect(firstBody.repository).toEqual({
+      addRepoUrl:
+        'vcc://vpm/addRepo?url=https%3A%2F%2Fvpm.test%2Fapi%2Fvpm%2Faccess%2FSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS%2Findex.json',
+      indexUrl:
+        'https://vpm.test/api/vpm/access/SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS/index.json',
     });
   });
 
@@ -551,6 +419,14 @@ describe('connect user product access routes', () => {
           canonicalSlug: 'avatar-bundle',
           thumbnailUrl: 'https://cdn.test/avatar.png',
           status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'catalog_123',
+              productId: 'product_123',
+              provider: 'gumroad',
+              providerProductRef: 'gumroad-ref',
+            },
+          ],
         };
       }
 
@@ -598,6 +474,14 @@ describe('connect user product access routes', () => {
           displayName: 'Avatar Bundle',
           canonicalSlug: 'avatar-bundle',
           status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'creator-scoped-catalog-product',
+              productId: 'product_123',
+              provider: 'gumroad',
+              providerProductRef: 'gumroad-ref',
+            },
+          ],
         };
       }
 
@@ -636,19 +520,6 @@ describe('connect user product access routes', () => {
     expect(serializedLogs).not.toContain(creatorRef);
   });
 
-  it('omits catalog references from download error telemetry', async () => {
-    const catalogProductId = 'private-download-reference-never-log';
-    convexQueryMock.mockRejectedValueOnce(new Error('download lookup failed'));
-
-    const response = await createRoutes().downloadBuyerProductAccess(
-      new Request(`http://localhost:3001/api/access/${catalogProductId}/download`),
-      catalogProductId
-    );
-
-    expect(response.status).toBe(500);
-    expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain(catalogProductId);
-  });
-
   it('omits catalog references from verification-intent error telemetry', async () => {
     const catalogProductId = 'private-intent-reference-never-log';
     convexQueryMock.mockRejectedValueOnce(new Error('intent lookup failed'));
@@ -684,6 +555,14 @@ describe('connect user product access routes', () => {
           canonicalSlug: 'avatar-bundle',
           thumbnailUrl: 'https://cdn.test/avatar.png',
           status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'catalog_123',
+              productId: 'product_123',
+              provider: 'gumroad',
+              providerProductRef: 'gumroad-ref',
+            },
+          ],
         };
       }
       if (reference === apiMock.entitlements.listByAuthUser) {
@@ -757,6 +636,14 @@ describe('connect user product access routes', () => {
           providerProductRef: 'gumroad-ref',
           displayName: 'Avatar Bundle',
           status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'catalog_123',
+              productId: 'product_123',
+              provider: 'gumroad',
+              providerProductRef: 'gumroad-ref',
+            },
+          ],
         };
       }
 
@@ -831,6 +718,92 @@ describe('connect user product access routes', () => {
     );
   });
 
+  it('offers every linked storefront verification method for one logical product', async () => {
+    let createdIntent:
+      | {
+          packageId: string;
+          packageName: string;
+          requirements: Array<Record<string, unknown>>;
+        }
+      | undefined;
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        return {
+          catalogProductId: 'catalog_jammr_gumroad',
+          catalogProductIds: ['catalog_jammr_gumroad', 'catalog_jammr_jinxxy'],
+          creatorAuthUserId: 'creator-auth-user',
+          packageId: 'com.yucp.jammr',
+          productId: 'jammr-gumroad',
+          provider: 'gumroad',
+          providerProductRef: 'gumroad-jammr-ref',
+          displayName: 'JAMMR',
+          status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'catalog_jammr_gumroad',
+              productId: 'jammr-gumroad',
+              provider: 'gumroad',
+              providerProductRef: 'gumroad-jammr-ref',
+            },
+            {
+              catalogProductId: 'catalog_jammr_jinxxy',
+              productId: 'jammr-jinxxy',
+              provider: 'jinxxy',
+              providerProductRef: 'jinxxy-jammr-ref',
+            },
+          ],
+        };
+      }
+      throw new Error(`Unexpected query reference: ${String(reference)}`);
+    });
+    convexMutationMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference === apiMock.verificationIntents.createVerificationIntent) {
+        createdIntent = args as typeof createdIntent;
+        return { intentId: 'intent_jammr' };
+      }
+      throw new Error(`Unexpected mutation reference: ${String(reference)}`);
+    });
+    convexActionMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.verificationIntents.getVerificationIntent) {
+        return { id: 'intent_jammr' };
+      }
+      throw new Error(`Unexpected action reference: ${String(reference)}`);
+    });
+
+    const response = await createRoutes().postBuyerProductAccessVerificationIntent(
+      new Request('http://localhost:3001/api/connect/user/product-access/catalog_jammr_gumroad', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      }),
+      'catalog_jammr_gumroad'
+    );
+
+    expect(response.status).toBe(200);
+    expect(createdIntent?.packageId).toBe('com.yucp.jammr');
+    expect(createdIntent?.packageName).toBe('JAMMR');
+    expect(
+      createdIntent?.requirements
+        .filter((requirement) => requirement.kind === 'manual_license')
+        .map((requirement) => ({
+          providerKey: requirement.providerKey,
+          productId: requirement.productId,
+          providerProductRef: requirement.providerProductRef,
+        }))
+    ).toEqual([
+      {
+        providerKey: 'gumroad',
+        productId: 'jammr-gumroad',
+        providerProductRef: 'gumroad-jammr-ref',
+      },
+      {
+        providerKey: 'jinxxy',
+        productId: 'jammr-jinxxy',
+        providerProductRef: 'jinxxy-jammr-ref',
+      },
+    ]);
+  });
+
   it('rejects oversized buyer verification intent bodies before reading product access state', async () => {
     const routes = createRoutes();
     const response = await routes.postBuyerProductAccessVerificationIntent(
@@ -869,6 +842,14 @@ describe('connect user product access routes', () => {
           providerProductRef: 'gumroad-ref',
           displayName: 'Avatar Bundle',
           status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'catalog_123',
+              productId: 'product_123',
+              provider: 'gumroad',
+              providerProductRef: 'gumroad-ref',
+            },
+          ],
         };
       }
 
@@ -929,6 +910,14 @@ describe('connect user product access routes', () => {
           providerProductRef: 'lemonsqueezy-ref',
           displayName: 'Avatar Bundle',
           status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'catalog_123',
+              productId: 'product_123',
+              provider: 'lemonsqueezy',
+              providerProductRef: 'lemonsqueezy-ref',
+            },
+          ],
         };
       }
 

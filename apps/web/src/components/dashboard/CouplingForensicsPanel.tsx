@@ -1,7 +1,8 @@
-import { Autocomplete, Button, Chip, ListBox, SearchField, useFilter } from '@heroui/react';
+import { Autocomplete, Button, Chip, Label, ListBox, SearchField, useFilter } from '@heroui/react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { DialogContext, Heading } from 'react-aria-components';
 import { ApiError } from '@/api/client';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
 import { DashboardGridSkeleton } from '@/components/dashboard/DashboardSkeletons';
@@ -56,10 +57,11 @@ function noRetryOn4xx(failureCount: number, error: unknown): boolean {
 function getVerdictKind(
   status: CouplingForensicsLookupResponse['lookupStatus'],
   buyerCount: number
-): 'match' | 'trace_unresolved' | 'tampered' | 'no_match' | 'no_assets' {
+): 'match' | 'trace_unresolved' | 'tampered' | 'no_signal' | 'no_match' | 'no_assets' {
   if (status === 'attributed' && buyerCount > 0) return 'match';
   if (status === 'attributed') return 'trace_unresolved';
   if (status === 'tampered_suspected') return 'tampered';
+  if (status === 'no_signal_found') return 'no_signal';
   if (status === 'no_candidate_assets') return 'no_assets';
   return 'no_match';
 }
@@ -68,11 +70,14 @@ function getBuyerDisplayLabel(match: {
   buyerSubjectDisplayName?: string | null;
   buyerProviderUsername?: string | null;
   licenseMasked?: string | null;
+  buyerSubjectPseudonym?: string | null;
 }) {
+  const pseudonym = match.buyerSubjectPseudonym?.trim();
   return (
     match.buyerSubjectDisplayName?.trim() ||
     match.buyerProviderUsername?.trim() ||
     match.licenseMasked?.trim() ||
+    (pseudonym ? `Buyer ${pseudonym.slice(0, 10)}` : null) ||
     null
   );
 }
@@ -92,6 +97,12 @@ const VERDICT_CONFIG = {
     description:
       "This file was modified to remove identifying information. We can't trace it to a specific buyer, but the file was tampered with.",
   },
+  no_signal: {
+    tone: 'info',
+    title: 'No tracking signal found',
+    description:
+      'The file has no valid buyer signal. It can be an original file, an older release, or a modified copy.',
+  },
   no_assets: {
     tone: 'info',
     title: 'No trackable files found',
@@ -108,38 +119,12 @@ const VERDICT_CONFIG = {
 
 function FxNoteIcon({ tone }: { tone: FxTone }) {
   if (tone === 'success') {
-    return (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        aria-hidden="true"
-      >
-        <path d="M20 6 9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    );
+    return <Icon name="check" />;
   }
   if (tone === 'warning' || tone === 'danger') {
-    return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-        <path
-          d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <line x1="12" y1="9" x2="12" y2="13" strokeLinecap="round" />
-        <line x1="12" y1="17" x2="12.01" y2="17" strokeLinecap="round" />
-      </svg>
-    );
+    return <Icon name="alert" />;
   }
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="16" x2="12" y2="12" strokeLinecap="round" />
-      <line x1="12" y1="8" x2="12.01" y2="8" strokeLinecap="round" />
-    </svg>
-  );
+  return <Icon name="info" />;
 }
 
 function FxNote({
@@ -209,16 +194,19 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
     if (!file) {
       setSelectedFile(null);
       setInlineError(null);
+      setLookupResult(null);
       return true;
     }
     const validationError = getForensicsFileValidationError(file);
     if (validationError) {
       setSelectedFile(null);
       setInlineError(validationError);
+      setLookupResult(null);
       return false;
     }
     setSelectedFile(file);
     setInlineError(null);
+    setLookupResult(null);
     return true;
   };
 
@@ -296,13 +284,13 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
     const buyers: Array<{
       buyerMatchId: string;
       createdAt: number;
-      runtimeArtifactVersion?: string | null;
       packFamily?: string | null;
       packVersion?: string | null;
       provider?: string | null;
       licenseMasked?: string | null;
       buyerProviderUsername?: string | null;
       buyerSubjectDisplayName?: string | null;
+      buyerSubjectPseudonym?: string | null;
       buyerDisplayLabel: string;
     }> = [];
     for (const entry of lookupResult.results) {
@@ -316,13 +304,13 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
           buyers.push({
             buyerMatchId,
             createdAt: match.createdAt,
-            runtimeArtifactVersion: match.runtimeArtifactVersion,
             packFamily: match.packFamily,
             packVersion: match.packVersion,
             provider: match.provider,
             licenseMasked: match.licenseMasked,
             buyerProviderUsername: match.buyerProviderUsername,
             buyerSubjectDisplayName: match.buyerSubjectDisplayName,
+            buyerSubjectPseudonym: match.buyerSubjectPseudonym,
             buyerDisplayLabel,
           });
         }
@@ -387,12 +375,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
           <section className="intg-card animate-in bento-col-12">
             <div className="intg-header">
               <div className="intg-icon">
-                <img
-                  src="/Icons/Shield.png"
-                  alt=""
-                  aria-hidden="true"
-                  style={{ width: '22px', height: '22px', objectFit: 'contain' }}
-                />
+                <Icon name="shield" size={22} />
               </div>
               <div className="intg-copy">
                 <h1 className="intg-title">Creator scope required</h1>
@@ -517,52 +500,69 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                     </span>
                   </div>
                   <Autocomplete
-                    aria-label="Product to scan"
                     className="pm-package-picker w-full max-w-md"
                     placeholder="Choose a product"
                     selectionMode="single"
                     isDisabled={lookupMutation.isPending || packageOptions.length === 0}
                     value={selectedPackageId || null}
-                    onChange={(key) => setSelectedPackageId(key ? String(key) : '')}
-                    onClear={() => setSelectedPackageId('')}
+                    onChange={(key) => {
+                      setSelectedPackageId(key ? String(key) : '');
+                      setLookupResult(null);
+                    }}
+                    onClear={() => {
+                      setSelectedPackageId('');
+                      setLookupResult(null);
+                    }}
                   >
+                    <Label className="sr-only">Product to scan</Label>
                     <Autocomplete.Trigger>
                       <Autocomplete.Value />
                       <Autocomplete.ClearButton />
                       <Autocomplete.Indicator />
                     </Autocomplete.Trigger>
-                    <Autocomplete.Popover className="pm-package-picker-popover">
-                      <Autocomplete.Filter filter={contains}>
-                        <SearchField autoFocus name="forensics-product-search" variant="secondary">
-                          <SearchField.Group>
-                            <SearchField.SearchIcon />
-                            <SearchField.Input
-                              aria-label="Search products"
-                              placeholder="Search products..."
-                            />
-                            <SearchField.ClearButton />
-                          </SearchField.Group>
-                        </SearchField>
-                        <ListBox
-                          renderEmptyState={() => (
-                            <div className="pm-subtle-copy px-3 py-2 text-sm">
-                              No products match that search.
-                            </div>
-                          )}
-                        >
-                          {packageOptions.map((option) => (
-                            <ListBox.Item
-                              key={option.value}
-                              id={option.value}
-                              textValue={option.label}
-                            >
-                              {option.label}
-                              <ListBox.ItemIndicator />
-                            </ListBox.Item>
-                          ))}
-                        </ListBox>
-                      </Autocomplete.Filter>
-                    </Autocomplete.Popover>
+                    <DialogContext.Provider value={{ 'aria-label': 'Choose a product to scan' }}>
+                      <Autocomplete.Popover className="pm-package-picker-popover">
+                        <Heading className="sr-only" slot="title">
+                          Choose a product to scan
+                        </Heading>
+                        <Autocomplete.Filter filter={contains}>
+                          <SearchField
+                            autoFocus
+                            name="forensics-product-search"
+                            variant="secondary"
+                          >
+                            <Label className="sr-only">Search products</Label>
+                            <SearchField.Group>
+                              <SearchField.SearchIcon />
+                              <SearchField.Input
+                                aria-label="Search products"
+                                placeholder="Search products..."
+                              />
+                              <SearchField.ClearButton />
+                            </SearchField.Group>
+                          </SearchField>
+                          <ListBox
+                            aria-label="Products available to scan"
+                            renderEmptyState={() => (
+                              <div className="pm-subtle-copy px-3 py-2 text-sm">
+                                No products match that search.
+                              </div>
+                            )}
+                          >
+                            {packageOptions.map((option) => (
+                              <ListBox.Item
+                                key={option.value}
+                                id={option.value}
+                                textValue={option.label}
+                              >
+                                {option.label}
+                                <ListBox.ItemIndicator />
+                              </ListBox.Item>
+                            ))}
+                          </ListBox>
+                        </Autocomplete.Filter>
+                      </Autocomplete.Popover>
+                    </DialogContext.Provider>
                   </Autocomplete>
                 </div>
 
@@ -578,20 +578,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                   {selectedFile ? (
                     <div className="fx-pane flex items-center gap-3 p-4">
                       <span className="fx-icon-chip text-foreground/60 flex size-10 shrink-0 items-center justify-center rounded-xl">
-                        <svg
-                          width="18"
-                          height="18"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden="true"
-                        >
-                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                          <polyline points="14 2 14 8 20 8" />
-                        </svg>
+                        <Icon name="auditLog" size={18} />
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="text-foreground truncate text-sm font-medium">
@@ -613,19 +600,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                           if (fileInputRef.current) fileInputRef.current.value = '';
                         }}
                       >
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.5"
-                          strokeLinecap="round"
-                          aria-hidden="true"
-                        >
-                          <line x1="18" y1="6" x2="6" y2="18" />
-                          <line x1="6" y1="6" x2="18" y2="18" />
-                        </svg>
+                        <Icon name="close" size={14} />
                       </Button>
                       <input
                         ref={fileInputRef}
@@ -668,21 +643,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                         }}
                       />
                       <span className="fx-icon-chip text-foreground/60 flex size-11 items-center justify-center rounded-full">
-                        <svg
-                          width="20"
-                          height="20"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden="true"
-                        >
-                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                          <polyline points="17 8 12 3 7 8" />
-                          <line x1="12" y1="3" x2="12" y2="15" />
-                        </svg>
+                        <Icon name="upload" size={20} />
                       </span>
                       <p className="text-foreground text-sm font-medium">
                         {isDragOver ? 'Drop to upload' : 'Click to upload or drag & drop'}
@@ -765,12 +726,6 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                           {buyer.licenseMasked ? (
                             <MetaField label="License" full mono>
                               {buyer.licenseMasked}
-                            </MetaField>
-                          ) : null}
-
-                          {buyer.runtimeArtifactVersion ? (
-                            <MetaField label="Package version" mono>
-                              {buyer.runtimeArtifactVersion}
                             </MetaField>
                           ) : null}
                         </dl>

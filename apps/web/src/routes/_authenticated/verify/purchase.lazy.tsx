@@ -3,7 +3,6 @@ import { createLazyFileRoute, useSearch } from '@tanstack/react-router';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { CloudBackground } from '@/components/three/CloudBackground';
-import { YucpButton } from '@/components/ui/YucpButton';
 import { useAuth } from '@/hooks/useAuth';
 import { usePageLoadingTransition } from '@/hooks/usePageLoadingTransition';
 import {
@@ -23,7 +22,6 @@ import {
   type UserProvider,
   type UserProviderDisplay,
 } from '@/lib/dashboard';
-import { mintBuyerVpmRepository } from '@/lib/productAccess';
 import { getSafeInternalRedirectTarget } from '@/lib/safeRedirects';
 import {
   getPurchaseIntentLoadErrorState,
@@ -31,6 +29,7 @@ import {
   shouldAutoCheckExistingEntitlement,
 } from './-purchaseUiState';
 import '@/styles/verify-purchase.css';
+import { Icon } from '@/components/ui/Icon';
 
 export const Route = createLazyFileRoute('/_authenticated/verify/purchase')({
   component: VerifyPurchasePage,
@@ -93,8 +92,8 @@ interface OAuthButtonProps {
   onSuccess: () => void;
 }
 
-function getLinkedAccountLabel(account: UserAccountConnection): string | null {
-  return account.providerUsername ?? account.providerUserId ?? account.label ?? null;
+function getLinkedAccountLabel(account: UserAccountConnection): string {
+  return account.providerUsername?.trim() || account.label?.trim() || 'Connected store account';
 }
 
 function getProviderVisual(
@@ -121,6 +120,9 @@ function resolveVerificationProviderIcon(
 
 function formatLinkedAccountLine(label: string): string {
   const trimmed = label.trim();
+  if (trimmed === 'Connected store account') {
+    return trimmed;
+  }
   return trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
 }
 
@@ -305,7 +307,7 @@ function OAuthMethodButton({
 
   const rowPhase = isVerified ? 'verified' : isConnected ? 'connected' : 'disconnected';
 
-  // Verified state ΓÇö green row
+  // Verified state with a green row.
   if (isVerified) {
     return (
       <Fragment key={rowPhase}>
@@ -323,9 +325,7 @@ function OAuthMethodButton({
             </div>
           </div>
           <span className="vp-status-badge vp-status-badge--connected">
-            <svg viewBox="0 0 16 16" aria-hidden="true" className="vp-status-badge-icon">
-              <polyline points="3 8 6 11 13 5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <Icon name="check" className="vp-status-badge-icon" />
             Verified
           </span>
         </div>
@@ -333,7 +333,7 @@ function OAuthMethodButton({
     );
   }
 
-  // Connected ΓÇö show account info + Verify button
+  // Connected state with account details and a verification button.
   if (isConnected) {
     return (
       <Fragment key={rowPhase}>
@@ -504,9 +504,7 @@ function LinkedEntitlementMethodButton({
             </div>
           </div>
           <span className="vp-status-badge vp-status-badge--connected">
-            <svg viewBox="0 0 16 16" aria-hidden="true" className="vp-status-badge-icon">
-              <polyline points="3 8 6 11 13 5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <Icon name="check" className="vp-status-badge-icon" />
             Verified
           </span>
         </div>
@@ -857,14 +855,6 @@ function VerifyPurchasePage() {
     () => Boolean(returnToUrl && !returnsToBuyerAccess && isLoopbackReturnUrl(returnToUrl)),
     [returnToUrl, returnsToBuyerAccess]
   );
-  const repoAccessQuery = useQuery({
-    queryKey: ['vp-buyer-vpm-repository', intentId],
-    queryFn: mintBuyerVpmRepository,
-    enabled: intent?.status === 'verified' && returnsToBuyerAccess,
-    retry: false,
-    staleTime: 60_000,
-  });
-
   const accountsByProvider = useMemo(() => {
     const m = new Map<string, UserAccountConnection[]>();
     for (const acc of accountsQuery.data ?? []) {
@@ -1054,18 +1044,13 @@ function VerifyPurchasePage() {
 
         <p className="vp-success-subtitle fade-up" style={{ animationDelay: '0.45s' }}>
           {returnsToBuyerAccess
-            ? `${intent.packageName || intent.packageId} is ready. Add your private repo in VCC, then continue to the product access page.`
-            : `${intent.packageName || intent.packageId} is ready. Return to Unity to continue.`}
+            ? `${intent.packageName || intent.packageId} is ready. Continue to the product page to add it to VCC.`
+            : returnToUrl
+              ? `${intent.packageName || intent.packageId} is ready. Return to Unity to continue.`
+              : `${intent.packageName || intent.packageId} is verified and ready.`}
         </p>
 
-        {repoAccessQuery.isPending && returnsToBuyerAccess ? (
-          <div className="vp-checking-section fade-up" style={{ animationDelay: '0.6s' }}>
-            <span className="vp-spinner vp-spinner--lg" aria-hidden="true" />
-            <p className="vp-checking-text">Preparing your VCC access...</p>
-          </div>
-        ) : null}
-
-        {returnsToBuyerAccess && repoAccessQuery.data ? (
+        {returnsToBuyerAccess && returnToUrl ? (
           <div
             className="fade-up"
             style={{
@@ -1077,57 +1062,12 @@ function VerifyPurchasePage() {
               padding: '0 2rem 2rem',
             }}
           >
-            <a href={repoAccessQuery.data.addRepoUrl} className="vp-primary-btn">
-              Add to VCC
+            <a href={returnToUrl} className="vp-primary-btn">
+              Continue to product access
             </a>
-            {returnToUrl ? (
-              <a href={returnToUrl} className="vp-primary-btn">
-                Continue after adding the repo
-              </a>
-            ) : null}
             <p className="vp-section-desc" style={{ marginBottom: 0, maxWidth: '32rem' }}>
-              Your entitled VPM source is ready for this buyer account.
+              Your purchase is connected to this account.
             </p>
-            <details
-              style={{
-                width: '100%',
-                maxWidth: '32rem',
-                textAlign: 'left',
-                border: '1px solid color-mix(in srgb, currentColor 14%, transparent)',
-                borderRadius: '16px',
-                padding: '1rem 1rem 0',
-              }}
-            >
-              <summary
-                style={{
-                  cursor: 'pointer',
-                  fontSize: '0.875rem',
-                  fontWeight: 600,
-                  marginBottom: '1rem',
-                }}
-              >
-                Manual setup and troubleshooting
-              </summary>
-              <div style={{ paddingBottom: '1rem' }}>
-                <p className="vp-section-desc" style={{ marginBottom: '0.75rem' }}>
-                  Use Add to VCC for the normal flow. If support asks for the repository index, use
-                  the entitled address below.
-                </p>
-                <code
-                  style={{
-                    display: 'block',
-                    overflowWrap: 'anywhere',
-                    borderRadius: '12px',
-                    border: '1px solid color-mix(in srgb, currentColor 12%, transparent)',
-                    padding: '0.875rem 1rem',
-                    fontSize: '0.8rem',
-                    lineHeight: 1.55,
-                  }}
-                >
-                  {repoAccessQuery.data.indexUrl}
-                </code>
-              </div>
-            </details>
           </div>
         ) : !returnsToBuyerAccess && returnToUrl ? (
           <div
@@ -1148,31 +1088,11 @@ function VerifyPurchasePage() {
           </div>
         ) : null}
 
-        {returnsToBuyerAccess && repoAccessQuery.isError ? (
-          <div className="fade-up" style={{ animationDelay: '0.7s', paddingBottom: '2rem' }}>
-            <p className="vp-success-subtitle">
-              The purchase is verified, but the VPM handoff could not be prepared just now.
-            </p>
-            <YucpButton
-              yucp="secondary"
-              isLoading={repoAccessQuery.isFetching}
-              onPress={() => void repoAccessQuery.refetch()}
-            >
-              Retry VPM access
-            </YucpButton>
-            {returnToUrl ? (
-              <a href={returnToUrl} className="vp-primary-btn">
-                Continue to product access
-              </a>
-            ) : null}
+        {!returnToUrl ? (
+          <div className="vp-unity-handoff fade-up" style={{ animationDelay: '0.6s' }}>
+            <p className="vp-unity-handoff-title">Continue in Unity</p>
+            <p className="vp-unity-handoff-copy">Installation is ready to continue.</p>
           </div>
-        ) : !returnToUrl ? (
-          <p
-            className="vp-success-subtitle fade-up"
-            style={{ animationDelay: '0.7s', marginBottom: '2rem' }}
-          >
-            You can close this window and return to Unity.
-          </p>
         ) : null}
       </div>
     );
@@ -1375,8 +1295,8 @@ function VerifyPurchasePage() {
       <div className="vp-card-footer">
         <p className="vp-footer-note">
           {returnsToBuyerAccess
-            ? 'Verification is handled securely in your browser. After confirmation, YUCP prepares entitled VPM access for this account.'
-            : 'Verification is handled securely in your browser. After confirmation, YUCP returns the verification grant to Unity.'}
+            ? 'Verification is handled securely in your browser. After confirmation, YUCP prepares private Unity package access for this account.'
+            : 'Verification is handled securely in your browser. After confirmation, YUCP returns you to Unity.'}
         </p>
       </div>
     </div>

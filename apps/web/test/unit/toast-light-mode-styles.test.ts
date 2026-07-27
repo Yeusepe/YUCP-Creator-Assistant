@@ -2,35 +2,28 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const TOAST_CSS_PATH = join(__dirname, '../../src/styles/toast.css');
+const TOAST_COMPONENT_PATH = join(__dirname, '../../src/components/ui/Toast.tsx');
 
-function readToastStyles(): string {
-  return readFileSync(TOAST_CSS_PATH, 'utf8');
+function readToastComponent(): string {
+  return readFileSync(TOAST_COMPONENT_PATH, 'utf8');
 }
 
-describe('Toast light mode style contracts', () => {
-  it('defines dedicated light and dark palette tokens for toast surfaces', () => {
-    const source = readToastStyles();
+describe('Toast design system contracts', () => {
+  it('delegates toast rendering and theme treatment to HeroUI', () => {
+    const source = readToastComponent();
 
-    expect(source).toContain('--toast-surface:');
-    expect(source).toContain('--toast-border:');
-    expect(source).toContain('.dark {');
-    expect(source).toContain('--toast-surface: rgba(8, 12, 24, 0.72);');
+    expect(source).toContain("from '@heroui/react'");
+    expect(source).toContain('<HeroUIToast.Provider');
+    expect(source).not.toContain('toast-viewport');
+    expect(source).not.toContain('setTimeout');
   });
 
-  it('defines separate light and dark treatments for info and success toasts', () => {
-    const source = readToastStyles();
+  it('maps every application notification type to a HeroUI variant', () => {
+    const source = readToastComponent();
 
-    expect(source).toContain('.toast.toast-info {');
-    expect(source).toContain('.dark .toast.toast-info {');
-    expect(source).toContain('.toast.toast-success {');
-    expect(source).toContain('.toast-success .toast-icon {');
-  });
-
-  it('keeps persistent toast accents visible in both themes', () => {
-    const source = readToastStyles();
-
-    expect(source).toContain('.toast.toast-persistent::after {');
-    expect(source).toContain('.dark .toast.toast-persistent::after {');
+    expect(source).toContain('toast.success');
+    expect(source).toContain('toast.danger');
+    expect(source).toContain('toast.warning');
+    expect(source).toContain('toast.info');
   });
 });

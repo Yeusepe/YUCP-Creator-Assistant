@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { cleanup, render, screen } from '@testing-library/react';
 import type { PropsWithChildren } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -119,6 +121,28 @@ describe('initial load behavior', () => {
     expect(markup).toContain('data-testid="route-outlet"');
     expect(markup).not.toContain('data-testid="cloud-background"');
     expect(markup).not.toContain('data-testid="cloud-background-layer"');
+  });
+
+  it('owns the toast provider at the document boundary shared by normal and error renders', () => {
+    const source = readFileSync(resolve(__dirname, '../../src/routes/__root.tsx'), 'utf8');
+    const rootDocument = source.match(
+      /function RootDocument\([\s\S]+?\n\}\n\nfunction resolveDocumentRuntimeConfig/u
+    )?.[0];
+
+    expect(rootDocument).toContain('<ToastProvider>');
+    expect(rootDocument).toContain('</ToastProvider>');
+  });
+
+  it('keeps toast context identity outside the hot-reloaded toast renderer module', () => {
+    const toastRenderer = readFileSync(
+      resolve(__dirname, '../../src/components/ui/Toast.tsx'),
+      'utf8'
+    );
+
+    expect(toastRenderer).not.toContain('createContext');
+    expect(toastRenderer).not.toContain('useContext');
+    expect(toastRenderer).not.toContain('export function useToast');
+    expect(toastRenderer).toContain("from '@/components/ui/toastContext'");
   });
 
   it('shows the sign-in shell without waiting for the decorative cloud to report ready', () => {

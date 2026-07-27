@@ -4,6 +4,11 @@ import { getWebApiBaseUrl, getWebRuntimeEnv } from './runtimeEnv';
 
 const API_PROXY_REQUEST_BODY_MAX_BYTES = 16 * 1024 * 1024;
 const API_PROXY_UPSTREAM_TIMEOUT_MS = 30_000;
+const FORENSICS_ARCHIVE_MAX_BYTES = 100 * 1024 * 1024;
+const FORENSICS_MULTIPART_OVERHEAD_BYTES = 1024 * 1024;
+const FORENSICS_PROXY_REQUEST_BODY_MAX_BYTES =
+  FORENSICS_ARCHIVE_MAX_BYTES + FORENSICS_MULTIPART_OVERHEAD_BYTES;
+const FORENSICS_PROXY_UPSTREAM_TIMEOUT_MS = 120_000;
 
 class ApiProxyRequestBodyTooLargeError extends Error {
   constructor(readonly limitBytes: number) {
@@ -39,7 +44,25 @@ function readContentLength(headers: Headers): number | null {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
-async function readRequestBodyWithLimit(request: Request, maxBytes: number): Promise<ArrayBuffer> {
+function getRequestBodyLimit(pathname: string): number {
+  return pathname === '/api/forensics/lookup'
+    ? FORENSICS_PROXY_REQUEST_BODY_MAX_BYTES
+    : API_PROXY_REQUEST_BODY_MAX_BYTES;
+}
+
+function getUpstreamTimeout(pathname: string): number {
+  return pathname === '/api/forensics/lookup'
+    ? FORENSICS_PROXY_UPSTREAM_TIMEOUT_MS
+    : API_PROXY_UPSTREAM_TIMEOUT_MS;
+}
+
+async function createBoundedRequestBody(
+  request: Request,
+  maxBytes: number
+): Promise<{
+  body: ArrayBuffer | ReadableStream<Uint8Array> | undefined;
+  exceededLimit: () => boolean;
+}> {
   const contentLength = readContentLength(request.headers);
   if (contentLength !== null && contentLength > maxBytes) {
     throw new ApiProxyRequestBodyTooLargeError(maxBytes);
@@ -50,36 +73,32 @@ async function readRequestBodyWithLimit(request: Request, maxBytes: number): Pro
     if (bytes.byteLength > maxBytes) {
       throw new ApiProxyRequestBodyTooLargeError(maxBytes);
     }
-    return bytes;
+    return {
+      body: bytes,
+      exceededLimit: () => false,
+    };
   }
 
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
+  let limitExceeded = false;
   let byteLength = 0;
-  try {
-    for (;;) {
-      const chunk = await reader.read();
-      if (chunk.done) {
-        break;
-      }
-      byteLength += chunk.value.byteLength;
-      if (byteLength > maxBytes) {
-        await reader.cancel('request body exceeded limit').catch(() => undefined);
-        throw new ApiProxyRequestBodyTooLargeError(maxBytes);
-      }
-      chunks.push(chunk.value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
+  const body = request.body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        byteLength += chunk.byteLength;
+        if (byteLength > maxBytes) {
+          limitExceeded = true;
+          controller.error(new ApiProxyRequestBodyTooLargeError(maxBytes));
+          return;
+        }
+        controller.enqueue(chunk);
+      },
+    })
+  );
 
-  const bodyBytes = new Uint8Array(byteLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bodyBytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bodyBytes.buffer;
+  return {
+    body,
+    exceededLimit: () => limitExceeded,
+  };
 }
 
 async function fetchApiTargetWithTimeout(
@@ -129,11 +148,13 @@ export async function proxyApiRequest(request: Request): Promise<Response> {
   }
 
   const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
-  let body: ArrayBuffer | undefined;
+  const requestBodyLimit = getRequestBodyLimit(url.pathname);
+  let boundedBody: Awaited<ReturnType<typeof createBoundedRequestBody>> = {
+    body: undefined,
+    exceededLimit: () => false,
+  };
   try {
-    body = hasBody
-      ? await readRequestBodyWithLimit(request, API_PROXY_REQUEST_BODY_MAX_BYTES)
-      : undefined;
+    boundedBody = hasBody ? await createBoundedRequestBody(request, requestBodyLimit) : boundedBody;
   } catch (error) {
     if (error instanceof ApiProxyRequestBodyTooLargeError) {
       return Response.json(
@@ -154,12 +175,21 @@ export async function proxyApiRequest(request: Request): Promise<Response> {
       {
         method: request.method,
         headers,
-        body,
+        body: boundedBody.body,
         redirect: 'manual',
       },
-      API_PROXY_UPSTREAM_TIMEOUT_MS
+      getUpstreamTimeout(url.pathname)
     );
   } catch (error) {
+    if (boundedBody.exceededLimit()) {
+      return Response.json(
+        {
+          error: 'Request body too large',
+          limitBytes: requestBodyLimit,
+        },
+        { status: 413 }
+      );
+    }
     if (error instanceof ApiProxyUpstreamTimeoutError) {
       return Response.json(
         {

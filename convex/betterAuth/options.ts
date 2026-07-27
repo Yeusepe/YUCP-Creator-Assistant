@@ -9,6 +9,7 @@ import {
 } from '@yucp/shared';
 import type { BetterAuthOptions } from 'better-auth/minimal';
 import { emailOTP, jwt, twoFactor } from 'better-auth/plugins';
+import { oneTimeToken } from 'better-auth/plugins/one-time-token';
 import { createJwtJwksAdapter } from './jwtAdapter';
 import { OAUTH_PROVIDER_SCOPES } from './oauthProviderScopes';
 
@@ -17,6 +18,16 @@ export const createSchemaAuthOptions = (): BetterAuthOptions =>
     secret: process.env.BETTER_AUTH_SECRET ?? 'MISSING_BETTER_AUTH_SECRET_CONFIGURE_CONVEX_ENV',
     baseURL: 'https://example.com',
     database: {} as never,
+    user: {
+      additionalFields: {
+        userId: {
+          type: 'string',
+          required: false,
+          input: false,
+          returned: false,
+        },
+      },
+    },
     plugins: [
       apiKey({
         defaultPrefix: PUBLIC_API_KEY_PREFIX,
@@ -46,7 +57,8 @@ export const createSchemaAuthOptions = (): BetterAuthOptions =>
         loginPage: 'https://example.com/oauth/login',
         consentPage: 'https://example.com/oauth/consent',
         scopes: [...OAUTH_PROVIDER_SCOPES],
-        validAudiences: [PUBLIC_API_AUDIENCE],
+        cachedResources: new Set([PUBLIC_API_AUDIENCE]),
+        enforcePerClientResources: true,
         cachedTrustedClients: new Set<string>(),
         allowDynamicClientRegistration: false,
         allowUnauthenticatedClientRegistration: false,
@@ -54,6 +66,10 @@ export const createSchemaAuthOptions = (): BetterAuthOptions =>
         silenceWarnings: {
           oauthAuthServerConfig: true,
         },
+      }),
+      oneTimeToken({
+        expiresIn: 1,
+        storeToken: 'hashed',
       }),
       emailOTP({
         sendVerificationOTP: async () => {},

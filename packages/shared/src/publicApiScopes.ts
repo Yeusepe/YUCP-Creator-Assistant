@@ -1,4 +1,5 @@
-export const PUBLIC_API_AUDIENCE = 'yucp-public-api';
+export const PUBLIC_API_AUDIENCE = 'https://api.creators.yucp.club';
+export const PACKAGE_BROKER_AUDIENCE = 'https://api.creators.yucp.club/package-operations';
 export const PUBLIC_API_KEY_PERMISSION_NAMESPACE = 'publicApi';
 export const PUBLIC_API_KEY_PREFIX = 'ypsk_';
 
@@ -214,12 +215,18 @@ export interface OAuthScopeDisplay {
 
 /**
  * Standard OpenID Connect / OAuth 2.0 scopes that are not YUCP API scopes but may
- * still be requested by clients (e.g. the Unity editor requests `offline_access` to
- * stay signed in). Kept separate from PublicApiScope so they never appear as
+ * still be requested by clients. The native package broker requests `offline_access`
+ * to stay signed in. Kept separate from PublicApiScope so they never appear as
  * assignable API-key permissions, but still render with proper copy on consent.
  * Reference: https://openid.net/specs/openid-connect-core-1_0.html#ScopeClaims
  */
 export const STANDARD_OAUTH_SCOPE_DEFINITIONS: Record<string, OAuthScopeDisplay> = {
+  'package:operate': {
+    label: 'Manage your package installation',
+    description:
+      'Verify, install, update, repair, restore, or remove a package that belongs to you.',
+    badge: 'Packages',
+  },
   offline_access: {
     label: 'Stay signed in',
     description:

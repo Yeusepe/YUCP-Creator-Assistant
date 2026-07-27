@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildTrustedBrowserOrigins, normalizeOrigin } from './trustedOrigins';
+import {
+  buildTrustedBrowserOrigins,
+  normalizeOrigin,
+  parseConfiguredTrustedOrigins,
+} from './trustedOrigins';
 
 describe('normalizeOrigin', () => {
   it('extracts origin from a full URL', () => {
@@ -105,5 +109,19 @@ describe('buildTrustedBrowserOrigins', () => {
     expect(origins).toContain('http://127.0.0.1:3001');
     expect(origins).not.toContain('http://localhost:*');
     expect(origins).toContain('https://prod.example.com');
+  });
+});
+
+describe('parseConfiguredTrustedOrigins', () => {
+  it('accepts only a bounded JSON array of canonical HTTP origins', () => {
+    expect(
+      parseConfiguredTrustedOrigins('["http://192.0.2.10:3000","https://example.com"]')
+    ).toEqual(['http://192.0.2.10:3000', 'https://example.com']);
+    expect(() => parseConfiguredTrustedOrigins('["http://user@example.com"]')).toThrow(
+      'configured trusted origins'
+    );
+    expect(() => parseConfiguredTrustedOrigins('["https://example.com/path"]')).toThrow(
+      'configured trusted origins'
+    );
   });
 });

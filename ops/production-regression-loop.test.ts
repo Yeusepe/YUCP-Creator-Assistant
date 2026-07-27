@@ -35,12 +35,17 @@ describe('production-regression-loop', () => {
   });
 
   it('keeps the external integration gate mapped to every production incident surface', () => {
-    const coveredSurfaces = new Set(
-      EXTERNAL_INTEGRATION_GATE_STEPS.flatMap((step) => step.covers)
-    );
+    const coveredSurfaces = new Set(EXTERNAL_INTEGRATION_GATE_STEPS.flatMap((step) => step.covers));
 
     for (const surface of PRODUCTION_REGRESSION_SURFACES) {
       expect(coveredSurfaces.has(surface.id)).toBe(true);
     }
+  });
+
+  it('keeps durable VCC links and install verification routing in the verification gate', () => {
+    const gateArguments = EXTERNAL_INTEGRATION_GATE_STEPS.flatMap((step) => step.args);
+
+    expect(gateArguments).toContain('./convex/creatorVpmLinks.realtest.ts');
+    expect(gateArguments).toContain('./src/routes/packageInstallSessions.test.ts');
   });
 });

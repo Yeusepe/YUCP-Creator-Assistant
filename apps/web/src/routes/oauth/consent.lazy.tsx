@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { authClient } from '@/lib/auth-client';
 import '@/styles/oauth-consent.css';
+import { Icon } from '@/components/ui/Icon';
 
 export const Route = createLazyFileRoute('/oauth/consent')({
   component: OAuthConsentPage,
@@ -12,52 +13,15 @@ export const Route = createLazyFileRoute('/oauth/consent')({
 // Scope copy (label/description/badge) lives in @yucp/shared so it never drifts.
 // Icons are presentation-only and stay here, keyed by scope.
 const SCOPE_ICONS: Record<string, React.ReactNode> = {
-  'verification:read': (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-      <polyline points="9 12 11 14 15 10" />
-    </svg>
-  ),
-  'subjects:read': (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="8" r="4" />
-      <path d="M6 20v-2a6 6 0 0 1 12 0v2" />
-    </svg>
-  ),
-  'cert:issue': (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-    </svg>
-  ),
-  'profile:read': (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="8" r="4" />
-      <path d="M4 20a8 8 0 0 1 16 0" />
-    </svg>
-  ),
-  'products:read': (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-      <line x1="12" y1="22.08" x2="12" y2="12" />
-    </svg>
-  ),
-  offline_access: (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <polyline points="23 4 23 10 17 10" />
-      <polyline points="1 20 1 14 7 14" />
-      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-    </svg>
-  ),
+  'verification:read': <Icon name="shield" />,
+  'subjects:read': <Icon name="user" />,
+  'cert:issue': <Icon name="lock" />,
+  'profile:read': <Icon name="profile" />,
+  'products:read': <Icon name="package" />,
+  offline_access: <Icon name="refresh" />,
 };
 
-const DEFAULT_SCOPE_ICON = (
-  <svg viewBox="0 0 24 24" aria-hidden="true">
-    <circle cx="12" cy="12" r="3" />
-    <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
-  </svg>
-);
+const DEFAULT_SCOPE_ICON = <Icon name="settings" />;
 
 function OAuthConsentPage() {
   const [clientId, setClientId] = useState('');
@@ -113,10 +77,7 @@ function OAuthConsentPage() {
           {/* App connector */}
           <div className="app-connector">
             <div className="app-icon client">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <rect x="2" y="3" width="20" height="14" rx="2" />
-                <path d="M8 21h8M12 17v4" />
-              </svg>
+              <Icon name="desktop" />
             </div>
             <div className="connector-arrow">
               <div className="connector-dot"></div>
@@ -152,9 +113,7 @@ function OAuthConsentPage() {
           </ul>
 
           <div className="security-notice">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            </svg>
+            <Icon name="shield" />
             <p>
               This app will only access the permissions listed above. You can revoke access at any
               time from your dashboard.

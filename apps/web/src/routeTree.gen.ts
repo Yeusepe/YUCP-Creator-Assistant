@@ -26,6 +26,7 @@ import { Route as SetupDiscordRoleRouteImport } from './routes/setup/discord-rol
 import { Route as OauthLoginRouteImport } from './routes/oauth/login'
 import { Route as OauthErrorRouteImport } from './routes/oauth/error'
 import { Route as OauthConsentRouteImport } from './routes/oauth/consent'
+import { Route as LegalVerificationAndAttestationRouteImport } from './routes/legal/verification-and-attestation'
 import { Route as LegalTermsOfServiceRouteImport } from './routes/legal/terms-of-service'
 import { Route as LegalPrivacyPolicyRouteImport } from './routes/legal/privacy-policy'
 import { Route as InstallSuccessRouteImport } from './routes/install/success'
@@ -145,6 +146,12 @@ const OauthConsentRoute = OauthConsentRouteImport.update({
   path: '/oauth/consent',
   getParentRoute: () => rootRouteImport,
 } as any).lazy(() => import('./routes/oauth/consent.lazy').then((d) => d.Route))
+const LegalVerificationAndAttestationRoute =
+  LegalVerificationAndAttestationRouteImport.update({
+    id: '/legal/verification-and-attestation',
+    path: '/legal/verification-and-attestation',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const LegalTermsOfServiceRoute = LegalTermsOfServiceRouteImport.update({
   id: '/legal/terms-of-service',
   path: '/legal/terms-of-service',
@@ -421,6 +428,7 @@ export interface FileRoutesByFullPath {
   '/install/success': typeof InstallSuccessRoute
   '/legal/privacy-policy': typeof LegalPrivacyPolicyRoute
   '/legal/terms-of-service': typeof LegalTermsOfServiceRoute
+  '/legal/verification-and-attestation': typeof LegalVerificationAndAttestationRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/oauth/error': typeof OauthErrorRoute
   '/oauth/login': typeof OauthLoginRoute
@@ -469,6 +477,7 @@ export interface FileRoutesByTo {
   '/install/success': typeof InstallSuccessRoute
   '/legal/privacy-policy': typeof LegalPrivacyPolicyRoute
   '/legal/terms-of-service': typeof LegalTermsOfServiceRoute
+  '/legal/verification-and-attestation': typeof LegalVerificationAndAttestationRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/oauth/error': typeof OauthErrorRoute
   '/oauth/login': typeof OauthLoginRoute
@@ -521,6 +530,7 @@ export interface FileRoutesById {
   '/install/success': typeof InstallSuccessRoute
   '/legal/privacy-policy': typeof LegalPrivacyPolicyRoute
   '/legal/terms-of-service': typeof LegalTermsOfServiceRoute
+  '/legal/verification-and-attestation': typeof LegalVerificationAndAttestationRoute
   '/oauth/consent': typeof OauthConsentRoute
   '/oauth/error': typeof OauthErrorRoute
   '/oauth/login': typeof OauthLoginRoute
@@ -573,6 +583,7 @@ export interface FileRouteTypes {
     | '/install/success'
     | '/legal/privacy-policy'
     | '/legal/terms-of-service'
+    | '/legal/verification-and-attestation'
     | '/oauth/consent'
     | '/oauth/error'
     | '/oauth/login'
@@ -621,6 +632,7 @@ export interface FileRouteTypes {
     | '/install/success'
     | '/legal/privacy-policy'
     | '/legal/terms-of-service'
+    | '/legal/verification-and-attestation'
     | '/oauth/consent'
     | '/oauth/error'
     | '/oauth/login'
@@ -672,6 +684,7 @@ export interface FileRouteTypes {
     | '/install/success'
     | '/legal/privacy-policy'
     | '/legal/terms-of-service'
+    | '/legal/verification-and-attestation'
     | '/oauth/consent'
     | '/oauth/error'
     | '/oauth/login'
@@ -722,6 +735,7 @@ export interface RootRouteChildren {
   InstallSuccessRoute: typeof InstallSuccessRoute
   LegalPrivacyPolicyRoute: typeof LegalPrivacyPolicyRoute
   LegalTermsOfServiceRoute: typeof LegalTermsOfServiceRoute
+  LegalVerificationAndAttestationRoute: typeof LegalVerificationAndAttestationRoute
   OauthConsentRoute: typeof OauthConsentRoute
   OauthErrorRoute: typeof OauthErrorRoute
   OauthLoginRoute: typeof OauthLoginRoute
@@ -856,6 +870,13 @@ declare module '@tanstack/react-router' {
       path: '/oauth/consent'
       fullPath: '/oauth/consent'
       preLoaderRoute: typeof OauthConsentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/legal/verification-and-attestation': {
+      id: '/legal/verification-and-attestation'
+      path: '/legal/verification-and-attestation'
+      fullPath: '/legal/verification-and-attestation'
+      preLoaderRoute: typeof LegalVerificationAndAttestationRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/legal/terms-of-service': {
@@ -1181,6 +1202,7 @@ const rootRouteChildren: RootRouteChildren = {
   InstallSuccessRoute: InstallSuccessRoute,
   LegalPrivacyPolicyRoute: LegalPrivacyPolicyRoute,
   LegalTermsOfServiceRoute: LegalTermsOfServiceRoute,
+  LegalVerificationAndAttestationRoute: LegalVerificationAndAttestationRoute,
   OauthConsentRoute: OauthConsentRoute,
   OauthErrorRoute: OauthErrorRoute,
   OauthLoginRoute: OauthLoginRoute,

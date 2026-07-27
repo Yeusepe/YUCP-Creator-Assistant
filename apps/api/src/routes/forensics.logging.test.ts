@@ -1,13 +1,11 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
-import { createHash } from 'node:crypto';
+import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 import type { Auth } from '../auth';
 
 const apiMock = {
   couplingForensics: {
-    listCouplingTraceCandidatesForAuthUser:
-      'couplingForensics.listCouplingTraceCandidatesForAuthUser',
-    lookupTraceMatchesForAuthUser: 'couplingForensics.lookupTraceMatchesForAuthUser',
+    authorizeCouplingForensicsLookupForAuthUser:
+      'couplingForensics.authorizeCouplingForensicsLookupForAuthUser',
     recordLookupAudit: 'couplingForensics.recordLookupAudit',
   },
 } as const;
@@ -20,26 +18,16 @@ const loggerWarnMock = mock((_message: string, _metadata?: Record<string, unknow
 const loggerDebugMock = mock((_message: string, _metadata?: Record<string, unknown>) => {});
 const unsafeAssetPath = 'Assets/Customers/buyer@example.com/private.png';
 
-class MockCouplingServiceConfigurationError extends Error {}
-class MockCouplingServiceRequestError extends Error {
-  constructor(
-    message: string,
-    public readonly status: number
-  ) {
-    super(message);
-  }
-}
-
 mock.module('../../../../convex/_generated/api', () => ({
   api: apiMock,
-  internal: apiMock,
   components: {},
+  internal: apiMock,
 }));
 
 mock.module('../lib/convex', () => ({
   getConvexClientFromUrl: () => ({
-    query: queryMock,
     mutation: mutationMock,
+    query: queryMock,
   }),
 }));
 
@@ -69,26 +57,7 @@ mock.module('../lib/couplingForensicsArchives', () => ({
   }),
 }));
 
-mock.module('../lib/couplingForensicsService', () => ({
-  CouplingServiceConfigurationError: MockCouplingServiceConfigurationError,
-  CouplingServiceRequestError: MockCouplingServiceRequestError,
-  runCouplingAttribution: async () => [
-    {
-      assetPath: unsafeAssetPath,
-      assetType: 'png',
-      decoderKind: 'png',
-      preclassification: 'decoded',
-      tokenHex: 'deadbeef',
-      tokenLength: 8,
-    },
-  ],
-}));
-
 const { createForensicsRoutes } = await import('./forensics');
-
-function sha256Hex(text: string): string {
-  return createHash('sha256').update(text).digest('hex');
-}
 
 describe('forensics route safe logging', () => {
   const routes = createForensicsRoutes(
@@ -97,12 +66,39 @@ describe('forensics route safe logging', () => {
     } as unknown as Auth,
     {
       apiBaseUrl: 'http://localhost:3001',
-      couplingServiceBaseUrl: 'https://coupling.internal',
+      couplingServiceBaseUrl: 'ftp://coupling.internal',
       couplingServiceSharedSecret: 'unit-test-coupling-bearer',
-      frontendBaseUrl: 'http://localhost:3000',
       convexApiSecret: 'unit-test-convex-api-token',
       convexUrl: 'http://convex.invalid',
       encryptionSecret: 'unit-test-encryption-key',
+      frontendBaseUrl: 'http://localhost:3000',
+      materializationControl: {
+        listAttributionCandidates: async (input) => ({
+          candidateLimit: input.candidateLimit ?? 512,
+          candidates: [
+            {
+              algorithmVersion: 'png-dct-qim-v2',
+              attributionId: 'attribution-1',
+              attributionTokenHash: '66'.repeat(32),
+              buyerSubjectPseudonym: Buffer.alloc(32, 0x77).toString('base64url'),
+              capabilityId: 'capability-1',
+              createdAt: 2_000_000_000_000,
+              creatorId: 'creator-user',
+              jobId: 'job-1',
+              keyEpoch: 3,
+              leaseGeneration: 2,
+              materializerType: 'png',
+              normalizedPath: unsafeAssetPath,
+              outputFormat: 'zip',
+              pluginVersion: 'png-plugin-2',
+              protectedSourceRoot: '33'.repeat(32),
+              releaseRoot: '11'.repeat(32),
+              sourceSha256: '44'.repeat(32),
+            },
+          ],
+          truncated: false,
+        }),
+      },
     }
   );
 
@@ -115,51 +111,38 @@ describe('forensics route safe logging', () => {
     loggerWarnMock.mockReset();
   });
 
-  it('does not log uploaded asset paths when decoded matches are missing subjects', async () => {
-    const expectedTokenHash = sha256Hex('deadbeef');
-    queryMock.mockImplementation(async (ref: unknown) => {
-      if (ref === apiMock.couplingForensics.listCouplingTraceCandidatesForAuthUser) {
-        return {
-          capabilityEnabled: true,
-          packageOwned: true,
-          candidates: [
-            {
-              assetPath: unsafeAssetPath,
-              licenseSubject: 'f'.repeat(64),
-              tokenHash: expectedTokenHash,
-            },
-          ],
-        };
-      }
-      throw new Error(`Unexpected query ${String(ref)}`);
+  test('does not log uploaded asset paths when attribution fails', async () => {
+    queryMock.mockResolvedValue({
+      capabilityEnabled: true,
+      packageOwned: true,
     });
     mutationMock.mockResolvedValue(undefined);
-
     const formData = new FormData();
     formData.set('packageId', 'creator.package');
     formData.set(
       'file',
-      new File([Uint8Array.from([1, 2, 3])], 'bundle.zip', { type: 'application/zip' })
+      new File([Uint8Array.from([1, 2, 3])], 'bundle.zip', {
+        type: 'application/zip',
+      })
     );
 
     const response = await routes.lookup(
       new Request('http://localhost:3001/api/forensics/lookup', {
-        method: 'POST',
         body: formData,
+        method: 'POST',
       })
     );
 
-    expect(response.status).toBe(502);
-    await expect(response.json()).resolves.toEqual({
-      error: 'Coupling forensics lookup failed',
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: 'Coupling forensics is not configured',
     });
     expect(loggerErrorMock).toHaveBeenCalledWith(
-      'Coupling service scan failed',
+      'Coupling service is not configured for lookup requests',
       expect.objectContaining({
-        error: 'Coupling attribution returned a decoded match without a license subject',
+        error: 'Coupling service base URL must use http or https',
       })
     );
-    const loggedMetadata = loggerErrorMock.mock.calls[0]?.[1];
-    expect(JSON.stringify(loggedMetadata)).not.toContain(unsafeAssetPath);
+    expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain(unsafeAssetPath);
   });
 });

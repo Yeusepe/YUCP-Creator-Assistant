@@ -115,6 +115,13 @@ describe('desync S3 CAS against throwaway MinIO', () => {
       CAS_S3_SECRET_ACCESS_KEY: secretAccessKey,
     });
     await createS3Bucket(config);
+    await runCommand('docker', [
+      'exec',
+      containerId,
+      '/bin/sh',
+      '-ceu',
+      'mc alias set local http://127.0.0.1:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"',
+    ]);
     const store = s3CasStore(config);
 
     scratchPath = await mkdtemp(join(tmpdir(), 'yucp-cas-s3-e2e-'));
@@ -145,6 +152,28 @@ describe('desync S3 CAS against throwaway MinIO', () => {
       indexId: 'v1.caibx',
       store,
     });
+    await storeArtifactToStore({
+      artifactPath: canonicalV1.path,
+      indexId: 'v1.caibx',
+      store,
+    });
+    const canonicalIndexVersions = (
+      await runCommand('docker', [
+        'exec',
+        containerId,
+        'mc',
+        'ls',
+        '--versions',
+        '--json',
+        `local/${bucket}/${config.indexPrefix}v1.caibx`,
+      ])
+    ).stdout
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { type?: string })
+      .filter((entry) => entry.type === 'file');
+    expect(canonicalIndexVersions).toHaveLength(1);
     const afterV1 = await listS3Objects(config);
     expect(afterV1.some((object) => object.key.startsWith(config.chunkPrefix))).toBeTrue();
     expect(afterV1.some((object) => object.key === `${config.indexPrefix}v1.caibx`)).toBeTrue();
@@ -196,6 +225,24 @@ describe('desync S3 CAS against throwaway MinIO', () => {
     );
     expect(objectsDeleted).toBe(afterV2.length);
     expect(await listS3Objects(config)).toEqual([]);
+    const retainedPhysicalVersions = (
+      await runCommand('docker', [
+        'exec',
+        containerId,
+        'mc',
+        'ls',
+        '--recursive',
+        '--versions',
+        '--json',
+        `local/${bucket}`,
+      ])
+    ).stdout
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { type?: string })
+      .filter((entry) => entry.type === 'file');
+    expect(retainedPhysicalVersions).toEqual([]);
 
     console.log(
       `CAS_S3_E2E_RESULT roundTripSha256=match uncompressedChunks=yes v1Objects=${afterV1.length} v1StoredBytes=${v1StoredBytes} v2DeltaObjects=${v2DeltaObjects} v2DeltaBytes=${v2DeltaBytes} objectsDeleted=${objectsDeleted}`

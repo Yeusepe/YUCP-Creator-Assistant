@@ -3,6 +3,8 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Catalog, CatalogOwnershipLostError } from '../catalog';
+import { localCasStore } from '../storage-core/desyncCas';
+import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId';
 import { assembleVersion } from './ingestPipeline';
 
 describe('ingest pipeline ownership loss', () => {
@@ -17,8 +19,6 @@ describe('ingest pipeline ownership loss', () => {
 
   it('does not start assembly side effects for an aborted ownership signal', async () => {
     scratchPath = await mkdtemp(join(tmpdir(), 'yucp-ingest-abort-test-'));
-    const storePath = join(scratchPath, 'store');
-    const indexDir = join(scratchPath, 'indexes');
     let catalogCallCount = 0;
     const sql = Object.assign(
       async () => {
@@ -38,9 +38,13 @@ describe('ingest pipeline ownership loss', () => {
       assembleVersion(
         {
           catalog: new Catalog(sql as never),
-          indexDir,
+          commonStore: localCasStore(join(scratchPath, 'common')),
+          creatorId: 'creator-aborted',
           inputPath: join(scratchPath, 'artifact.zip'),
-          storePath,
+          metadataStore: localCasStore(join(scratchPath, 'metadata')),
+          protectedStore: localCasStore(join(scratchPath, 'protected')),
+          protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
+          scratchRoot: scratchPath,
           versionId: 'version-aborted',
         },
         controller.signal

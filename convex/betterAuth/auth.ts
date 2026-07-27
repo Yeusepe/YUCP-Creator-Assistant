@@ -4,8 +4,17 @@
  */
 
 import { betterAuth } from 'better-auth';
+import { convexAdapter } from '@convex-dev/better-auth';
 import { createSchemaAuthOptions } from './options';
 
-export const auth = betterAuth(createSchemaAuthOptions());
+const schemaGenerationDatabase = convexAdapter(
+  {} as never,
+  { adapter: {} } as never
+);
+
+export const auth = betterAuth({
+  ...createSchemaAuthOptions(),
+  database: schemaGenerationDatabase,
+});
 
 export default auth;

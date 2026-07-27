@@ -1,9 +1,11 @@
 import { createLazyFileRoute, Link, Outlet, useRouterState } from '@tanstack/react-router';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { CloudBackground } from '@/components/three/CloudBackground';
+import { Icon } from '@/components/ui/Icon';
 import { useAccountShell } from '@/hooks/useAccountShell';
 import { useAuth } from '@/hooks/useAuth';
 import { DashboardSessionProvider } from '@/hooks/useDashboardSession';
+import type { IconName } from '@/icons/manifest';
 
 export const Route = createLazyFileRoute('/_authenticated/account')({
   component: AccountLayout,
@@ -12,196 +14,81 @@ export const Route = createLazyFileRoute('/_authenticated/account')({
 const NAV_GROUPS = [
   {
     label: 'Overview',
+    theme: 'sky',
     items: [
       {
         to: '/account' as const,
         exact: true,
         label: 'Profile',
         headerTitle: 'Profile',
-        icon: (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <circle cx="12" cy="8" r="4" />
-            <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
-          </svg>
-        ),
+        icon: 'profile',
       },
       {
         to: '/account/connections' as const,
         exact: false,
         label: 'Connected Accounts',
         headerTitle: 'Connected Accounts',
-        icon: (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-          </svg>
-        ),
+        icon: 'link',
       },
     ],
   },
   {
     label: 'Access',
+    theme: 'amber',
     items: [
       {
         to: '/account/licenses' as const,
         exact: false,
         label: 'My Licenses',
         headerTitle: 'Verified Purchases',
-        icon: (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <path d="M9 9h6M9 13h6M9 17h4" />
-          </svg>
-        ),
+        icon: 'userKey',
       },
       {
         to: '/account/authorized-apps' as const,
         exact: false,
         label: 'Authorized Apps',
         headerTitle: 'Authorized Apps',
-        icon: (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z" />
-          </svg>
-        ),
+        icon: 'plug',
       },
       {
         to: '/account/machines' as const,
         exact: false,
         label: 'Authorized Machines',
         headerTitle: 'Authorized Machines',
-        icon: (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <rect x="2" y="4" width="20" height="13" rx="2" />
-            <path d="M2 20h20" />
-          </svg>
-        ),
+        icon: 'desktop',
       },
     ],
   },
   {
     label: 'Billing',
+    theme: 'teal',
     items: [
       {
         to: '/account/billing' as const,
         exact: false,
         label: 'Billing & Plans',
         headerTitle: 'Billing',
-        icon: (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <rect x="2.5" y="5" width="19" height="14" rx="3" />
-            <path d="M2.5 10h19" />
-            <path d="M6.5 15h4" />
-          </svg>
-        ),
+        icon: 'billing',
       },
     ],
   },
   {
     label: 'Privacy',
+    theme: 'violet',
     items: [
       {
         to: '/account/security' as const,
         exact: false,
         label: 'Security',
         headerTitle: 'Security',
-        icon: (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            <path d="M9 12l2 2 4-4" />
-          </svg>
-        ),
+        icon: 'shield',
       },
       {
         to: '/account/privacy' as const,
         exact: false,
         label: 'Privacy & Data',
         headerTitle: 'Privacy & Data',
-        icon: (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-          </svg>
-        ),
+        icon: 'privacy',
       },
     ],
   },
@@ -305,7 +192,11 @@ function AccountLayout() {
             <div className="sidebar-scroll">
               <nav className="sidebar-nav" aria-label="Account sections">
                 {NAV_GROUPS.map((group) => (
-                  <div key={group.label} className="sidebar-nav-group">
+                  <div
+                    key={group.label}
+                    className="sidebar-nav-group"
+                    data-icon-theme={group.theme}
+                  >
                     <span className="sidebar-nav-label">{group.label}</span>
                     {group.items.map((item) => (
                       <Link
@@ -314,7 +205,7 @@ function AccountLayout() {
                         onClick={closeAccountSidebar}
                         className={`sidebar-nav-btn${isNavItemActive(item, currentPath) ? ' is-active' : ''}`}
                       >
-                        <span className="sidebar-nav-icon">{item.icon}</span>
+                        <Icon name={item.icon satisfies IconName} className="sidebar-nav-icon" />
                         {item.label}
                       </Link>
                     ))}
@@ -325,31 +216,7 @@ function AccountLayout() {
 
             <div className="sidebar-footer">
               <a href={footerHref} className="sidebar-account-btn">
-                <svg
-                  width="15"
-                  height="15"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  {isCreator ? (
-                    <>
-                      <rect x="3" y="3" width="7" height="7" rx="1" />
-                      <rect x="14" y="3" width="7" height="7" rx="1" />
-                      <rect x="3" y="14" width="7" height="7" rx="1" />
-                      <rect x="14" y="14" width="7" height="7" rx="1" />
-                    </>
-                  ) : (
-                    <>
-                      <line x1="12" y1="5" x2="12" y2="19" />
-                      <line x1="5" y1="12" x2="19" y2="12" />
-                    </>
-                  )}
-                </svg>
+                <Icon name={isCreator ? 'layoutGrid' : 'add'} size={15} />
                 {footerLabel}
               </a>
               <button
@@ -359,21 +226,7 @@ function AccountLayout() {
                   void signOut();
                 }}
               >
-                <svg
-                  width="15"
-                  height="15"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                  <polyline points="16 17 21 12 16 7" />
-                  <line x1="21" y1="12" x2="9" y2="12" />
-                </svg>
+                <Icon name="logout" size={15} />
                 Sign out
               </button>
             </div>

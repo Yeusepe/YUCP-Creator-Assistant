@@ -12,7 +12,7 @@ import {
   storeArtifact,
   verifyDesyncCli,
 } from './desyncCas';
-import { runCommand } from './process';
+import { resolveGnuArchiveTools, runCommand } from './process';
 
 const scratchPaths: string[] = [];
 
@@ -96,19 +96,27 @@ async function createRawUnityPackage(
   timestamp: Date
 ): Promise<void> {
   const tarPath = `${outputPath}.tar`;
-  await runCommand('tar', [
-    '--force-local',
-    '--create',
-    '--file',
-    tarPath,
-    '--format=gnu',
-    '--sort=name',
-    '--directory',
-    sourcePath,
-    '.',
-  ]);
+  const archiveTools = await resolveGnuArchiveTools();
+  await runCommand(
+    archiveTools.tarCommand,
+    [
+      '--force-local',
+      '--create',
+      '--file',
+      tarPath,
+      '--format=gnu',
+      '--sort=name',
+      '--directory',
+      sourcePath,
+      '.',
+    ],
+    { env: archiveTools.env }
+  );
   await utimes(tarPath, timestamp, timestamp);
-  await runCommand('gzip', ['--stdout', '--', tarPath], { stdoutPath: outputPath });
+  await runCommand(archiveTools.gzipCommand, ['--stdout', '--', tarPath], {
+    env: archiveTools.env,
+    stdoutPath: outputPath,
+  });
   await rm(tarPath, { force: true });
 }
 
@@ -207,8 +215,8 @@ describe('local canonical storage core', () => {
         return true;
       },
     });
-    expect(canonicalZipEntries['Textures/albedo.png']).toEqual(zipTexture);
-    expect(canonicalZipEntries['package.json']).toEqual(zipPackageJson);
+    expect(canonicalZipEntries['Textures/albedo.png']).toEqual(Uint8Array.from(zipTexture));
+    expect(canonicalZipEntries['package.json']).toEqual(Uint8Array.from(zipPackageJson));
     expect(zipCompression.get('Textures/albedo.png')).toBe(0);
     expect(zipCompression.get('package.json')).toBe(8);
 

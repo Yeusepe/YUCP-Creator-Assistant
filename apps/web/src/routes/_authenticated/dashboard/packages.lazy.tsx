@@ -40,7 +40,6 @@ export default function DashboardPackages() {
     billing?.capabilities,
     BILLING_CAPABILITY_KEYS.couplingTraceability
   );
-
   if (activeView === 'registry' && isLoading) {
     return <DashboardPackagesPending />;
   }
@@ -95,10 +94,9 @@ function PackageWorkspaceHeader({
   return (
     <header className="pm-workspace-header">
       <div className="pm-workspace-heading">
-        <h1 className="pm-workspace-title">Private VPM Registry</h1>
+        <h1 className="pm-workspace-title">Unity Package Library</h1>
         <p className="pm-workspace-subtitle">
-          Publish package updates to your Unity (VCC) repo and trace leaked files back to a buyer,
-          all from one workspace.
+          Publish Unity updates and trace shared files back to a buyer from one workspace.
         </p>
       </div>
       <div className="pm-workspace-segment" role="tablist" aria-label="Package views">

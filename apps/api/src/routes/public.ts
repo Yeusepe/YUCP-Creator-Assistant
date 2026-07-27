@@ -2,7 +2,7 @@ import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { logger } from '../lib/logger';
-import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
+import { verifyPublicApiAccessToken } from '../lib/publicApiAccessToken';
 import { PUBLIC_API_KEY_PREFIX } from '../lib/publicApiKeys';
 import { buildTimedResponse, RouteTimingCollector } from '../lib/requestTiming';
 import { createPublicApiSupportError } from '../lib/verificationSupport';
@@ -17,7 +17,6 @@ export interface PublicRouteConfig {
   convexUrl: string;
   convexApiSecret: string;
   convexSiteUrl: string;
-  oauthAudience?: string;
 }
 
 export interface SubjectSelectorById {
@@ -78,7 +77,7 @@ interface BetterAuthPermissionStatements {
 
 interface BetterAuthVerifiedApiKey {
   id: string;
-  userId?: string;
+  referenceId: string;
   name?: string | null;
   prefix?: string | null;
   start?: string | null;
@@ -295,9 +294,8 @@ async function defaultVerifyAccessToken(
   config: PublicRouteConfig,
   scopes: string[]
 ): Promise<{ sub: string } | null> {
-  const result = await verifyBetterAuthAccessToken(token, {
+  const result = await verifyPublicApiAccessToken(token, {
     convexSiteUrl: config.convexSiteUrl,
-    audience: config.oauthAudience ?? 'yucp-public-api',
     requiredScopes: scopes,
     logger,
     logContext: 'Public API OAuth token verification failed',
@@ -320,7 +318,7 @@ async function defaultVerifyApiKey(
       error: { code: string; message: string | null } | null;
       key: {
         id: string;
-        userId: string;
+        referenceId: string;
         name: string | null;
         start: string | null;
         prefix: string | null;
@@ -339,7 +337,7 @@ async function defaultVerifyApiKey(
 
     return {
       id: result.key.id,
-      userId: result.key.userId,
+      referenceId: result.key.referenceId,
       name: result.key.name,
       start: result.key.start,
       prefix: result.key.prefix,
@@ -520,7 +518,7 @@ async function authenticateServiceKey(
   if (
     metadata?.kind !== 'public-api' ||
     metadata.authUserId !== authUserId ||
-    (typeof verified.userId === 'string' && verified.userId !== authUserId)
+    verified.referenceId !== authUserId
   ) {
     return {
       response: await errorResponseWithSupportCode(

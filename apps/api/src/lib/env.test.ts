@@ -57,15 +57,35 @@ describe('resolveSiteUrl', () => {
 
 describe('loadEnv', () => {
   it('keeps delivery and VPM configuration optional when all values are unset', () => {
-    delete process.env.DELIVERY_HMAC_KEY;
-    delete process.env.DELIVERY_BASE_URL;
+    delete process.env.PACKAGE_DELIVERY_AUDIENCE;
+    delete process.env.PACKAGE_INSTALL_ISSUER;
+    delete process.env.PACKAGE_INSTALL_SIGNING_KEY_ID;
+    delete process.env.PACKAGE_INSTALL_SIGNING_PRIVATE_KEY;
+    delete process.env.PACKAGE_OPERATION_AUTHORIZATION_DATABASE_URL;
+    delete process.env.VPM_ALIAS_PUBLICATION_CATALOG_DATABASE_URL;
     delete process.env.VPM_BASE_URL;
+    delete process.env.VPM_IMPORTER_RELEASE_LEDGER_JSON;
+    delete process.env.VPM_PUBLIC_INDEX_URL;
 
     const env = loadEnv();
 
-    expect(env).toHaveProperty('DELIVERY_HMAC_KEY', undefined);
-    expect(env).toHaveProperty('DELIVERY_BASE_URL', undefined);
+    expect(env).toHaveProperty('PACKAGE_DELIVERY_AUDIENCE', undefined);
+    expect(env).toHaveProperty('PACKAGE_INSTALL_ISSUER', undefined);
+    expect(env).toHaveProperty('PACKAGE_INSTALL_SIGNING_KEY_ID', undefined);
+    expect(env).toHaveProperty('PACKAGE_INSTALL_SIGNING_PRIVATE_KEY', undefined);
+    expect(env).toHaveProperty('PACKAGE_OPERATION_AUTHORIZATION_DATABASE_URL', undefined);
+    expect(env).toHaveProperty('VPM_ALIAS_PUBLICATION_CATALOG_DATABASE_URL', undefined);
     expect(env).toHaveProperty('VPM_BASE_URL', undefined);
+    expect(env).toHaveProperty('VPM_IMPORTER_RELEASE_LEDGER_JSON', undefined);
+    expect(env).toHaveProperty('VPM_PUBLIC_INDEX_URL', undefined);
+    expect(env).not.toHaveProperty('VPM_TOKEN_KEY');
+  });
+
+  it('includes the injected importer release ledger when present', () => {
+    const ledger = '{"schemaVersion":1,"releases":{"0.1.54":{"sha256":"abc"}}}';
+    process.env.VPM_IMPORTER_RELEASE_LEDGER_JSON = ledger;
+
+    expect(loadEnv()).toHaveProperty('VPM_IMPORTER_RELEASE_LEDGER_JSON', ledger);
   });
 
   it('includes Polar billing fields when present', () => {
@@ -77,6 +97,30 @@ describe('loadEnv', () => {
       POLAR_ACCESS_TOKEN: 'polar-access-token',
       POLAR_WEBHOOK_SECRET: 'polar-webhook-secret',
       POLAR_SERVER: 'sandbox',
+    });
+  });
+
+  it('includes metadata storage fields required by bootstrap media delivery', () => {
+    process.env.METADATA_S3_ACCESS_KEY_ID = 'metadata-access-key';
+    process.env.METADATA_S3_SECRET_ACCESS_KEY = 'metadata-secret-key';
+    process.env.METADATA_S3_BUCKET = 'metadata';
+    process.env.METADATA_S3_ENDPOINT = 'http://127.0.0.1:9000';
+    process.env.METADATA_S3_REGION = 'us-east-1';
+    process.env.METADATA_S3_REQUEST_TIMEOUT_MS = '5000';
+    process.env.METADATA_INDEX_PREFIX = 'indexes/';
+    process.env.VPM_ALIAS_PUBLICATION_CATALOG_DATABASE_URL =
+      'postgres://publisher:secret@127.0.0.1:5432/catalog';
+
+    expect(loadEnv()).toMatchObject({
+      METADATA_S3_ACCESS_KEY_ID: 'metadata-access-key',
+      METADATA_S3_SECRET_ACCESS_KEY: 'metadata-secret-key',
+      METADATA_S3_BUCKET: 'metadata',
+      METADATA_S3_ENDPOINT: 'http://127.0.0.1:9000',
+      METADATA_S3_REGION: 'us-east-1',
+      METADATA_S3_REQUEST_TIMEOUT_MS: '5000',
+      METADATA_INDEX_PREFIX: 'indexes/',
+      VPM_ALIAS_PUBLICATION_CATALOG_DATABASE_URL:
+        'postgres://publisher:secret@127.0.0.1:5432/catalog',
     });
   });
 
@@ -123,13 +167,5 @@ describe('loadEnv', () => {
     } finally {
       process.chdir(originalCwd);
     }
-  });
-
-  it('falls back to COUPLING_SERVICE_SECRET when the YUCP alias is absent', () => {
-    process.env.COUPLING_SERVICE_SECRET = 'legacy-secret';
-
-    expect(loadEnv()).toMatchObject({
-      YUCP_COUPLING_SERVICE_SHARED_SECRET: 'legacy-secret',
-    });
   });
 });

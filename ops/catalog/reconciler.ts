@@ -20,12 +20,13 @@ const OUTBOX_PUBLISH_CLAIM_TTL_MS = 5 * 60 * 1000;
 
 interface ReconcileVersionRow {
   catalog_product_id: string | null;
+  edition_id: string;
   id: string;
   package_id: string;
   version: string;
-  format_tag: string | null;
-  canonical_sha256: string | null;
-  cas_index_id: string | null;
+  source_format: string | null;
+  release_root: string | null;
+  assembly_object_id: string | null;
   state: (typeof retryableStates)[number];
   error: string | null;
   attempts: number;
@@ -79,19 +80,35 @@ export interface ReconcileCatalogResult {
 
 function toPackageVersion(row: ReconcileVersionRow): PackageVersion {
   return {
+    activeContentDigest: null,
+    activePolicyVersion: null,
+    bindingRoot: null,
     catalogProductId: row.catalog_product_id,
+    commonRoot: null,
     id: row.id,
+    logicalBytes: null,
+    logicalFiles: null,
+    manifestSha256: null,
     packageId: row.package_id,
+    protectedFiles: null,
+    protectedSourceRoot: null,
+    protectionPolicyDigest: null,
+    protectionPolicyId: null,
     version: row.version,
-    formatTag: row.format_tag,
-    canonicalSha256: row.canonical_sha256,
-    casIndexId: row.cas_index_id,
+    sourceFormat: row.source_format,
+    releaseRoot: row.release_root,
+    assemblyObjectId: row.assembly_object_id,
     state: row.state,
     error: row.error,
+    deletedAt: null,
+    deletionReason: null,
+    editionId: row.edition_id,
     attempts: row.attempts,
     nextAttemptAt: toCatalogDate(row.next_attempt_at),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    vpmDependencies: {},
+    vpmRepositories: {},
   };
 }
 

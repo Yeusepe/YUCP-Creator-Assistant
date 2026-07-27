@@ -7,6 +7,7 @@ import {
   normalizeYucpAliasPackageContract,
   resolveSharedYucpAliasIdFromCatalogProducts,
   resolveYucpAliasIdFromCatalogProduct,
+  YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION,
   YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_VERSION,
   YUCP_ALIAS_PACKAGE_IMPORTER_PACKAGES,
   YUCP_ALIAS_PACKAGE_INSTALL_STRATEGIES,
@@ -14,6 +15,11 @@ import {
 } from './yucpAliasPackageContract';
 
 describe('normalizeYucpAliasPackageContract', () => {
+  it('requires the current immutable importer release', () => {
+    expect(YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION).toBe('0.1.36');
+    expect(YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_VERSION).toBe('>=0.1.36');
+  });
+
   it('normalizes the shared alias package contract shape', () => {
     expect(
       normalizeYucpAliasPackageContract({
@@ -32,12 +38,11 @@ describe('normalizeYucpAliasPackageContract', () => {
       installStrategy: YUCP_ALIAS_PACKAGE_INSTALL_STRATEGIES.serverAuthorized,
       importerPackage: YUCP_ALIAS_PACKAGE_IMPORTER_PACKAGES.importer,
       minImporterVersion: '1.2.0',
-      catalogProductIds: ['product-a', 'product-b'],
       channel: 'stable',
     });
   });
 
-  it('preserves alias package identity and install footprint metadata', () => {
+  it('preserves only public alias package identity metadata', () => {
     expect(
       normalizeYucpAliasPackageContract({
         kind: 'alias-v1',
@@ -47,21 +52,6 @@ describe('normalizeYucpAliasPackageContract', () => {
         packageVersion: ' 1.0.12 ',
         installStrategy: 'server-authorized',
         importerPackage: 'com.yucp.importer',
-        installPlan: {
-          id: ' plan-1 ',
-          version: ' 1 ',
-          operation: ' install ',
-          status: ' ready ',
-          managedPaths: [
-            ' Packages/com.yucp.songthing/package.json ',
-            'Assets/YUCP Assets/Song Thing/Marker.txt',
-            'Assets/YUCP Assets/Song Thing/Marker.txt',
-          ],
-          generatedPaths: [
-            ' Packages/yucp.installed-packages/Media/com.yucp.songthing/1.0.12/icon.png ',
-          ],
-          sharedPaths: [' Packages/packages-lock.json '],
-        },
       })
     ).toEqual({
       kind: YUCP_ALIAS_PACKAGE_KIND,
@@ -71,21 +61,80 @@ describe('normalizeYucpAliasPackageContract', () => {
       packageVersion: '1.0.12',
       installStrategy: YUCP_ALIAS_PACKAGE_INSTALL_STRATEGIES.serverAuthorized,
       importerPackage: YUCP_ALIAS_PACKAGE_IMPORTER_PACKAGES.importer,
-      installPlan: {
-        planId: 'plan-1',
-        planVersion: '1',
-        operation: 'install',
-        status: 'ready',
-        managedPaths: [
-          'Packages/com.yucp.songthing/package.json',
-          'Assets/YUCP Assets/Song Thing/Marker.txt',
-        ],
-        generatedPaths: [
-          'Packages/yucp.installed-packages/Media/com.yucp.songthing/1.0.12/icon.png',
-        ],
-        sharedPaths: ['Packages/packages-lock.json'],
-      },
     });
+  });
+
+  it('normalizes friendly package metadata and local media references', () => {
+    expect(
+      normalizeYucpAliasPackageContract({
+        kind: 'alias-v1',
+        aliasId: 'jammr',
+        installStrategy: 'server-authorized',
+        importerPackage: 'com.yucp.importer',
+        packageMetadata: {
+          packageName: ' JAMMR ',
+          version: ' 0.1.15 ',
+          author: ' Mapache ',
+          description: ' Avatar tools. ',
+          tagline: ' Ready to use. ',
+        },
+        media: [
+          {
+            kind: 'icon',
+            localPath: 'Documentation~/YUCP/icon.png',
+            contentType: 'image/png',
+            byteSize: 1024,
+            sha256: 'a'.repeat(64),
+          },
+        ],
+      })
+    ).toMatchObject({
+      packageMetadata: {
+        packageName: 'JAMMR',
+        author: 'Mapache',
+        description: 'Avatar tools.',
+        tagline: 'Ready to use.',
+      },
+      media: [
+        {
+          kind: 'icon',
+          localPath: 'Documentation~/YUCP/icon.png',
+          contentType: 'image/png',
+          byteSize: 1024,
+          sha256: 'a'.repeat(64),
+        },
+      ],
+    });
+  });
+
+  it('rejects removed install-plan and resolved artifact fields', () => {
+    expect(() =>
+      normalizeYucpAliasPackageContract({
+        kind: 'alias-v1',
+        aliasId: 'song-thing',
+        installStrategy: 'server-authorized',
+        importerPackage: 'com.yucp.importer',
+        installPlan: { id: 'removed-plan' },
+      })
+    ).toThrow('installPlan is not supported');
+    expect(() =>
+      normalizeYucpAliasPackageContract({
+        kind: 'alias-v1',
+        aliasId: 'song-thing',
+        installStrategy: 'server-authorized',
+        importerPackage: 'com.yucp.importer',
+        resolvedArtifact: { artifactId: 'removed-artifact' },
+      })
+    ).toThrow('resolvedArtifact is not supported');
+    expect(() =>
+      normalizeYucpAliasPackageContract({
+        kind: 'alias-v1',
+        aliasId: 'song-thing',
+        installStrategy: 'server-authorized',
+        importerPackage: 'com.yucp.importer',
+        resolvedRelease: { releaseId: 'removed-release' },
+      })
+    ).toThrow('resolvedRelease is not supported');
   });
 
   it('returns undefined when the contract is absent', () => {
@@ -180,6 +229,19 @@ describe('resolveSharedYucpAliasIdFromCatalogProducts', () => {
 });
 
 describe('mergeYucpAliasPackageMetadata', () => {
+  it('emits only the stable package identity for storefront-independent aliases', () => {
+    const merged = mergeYucpAliasPackageMetadata({
+      aliasId: 'com.yucp.jammr',
+      channel: 'stable',
+    } as Parameters<typeof mergeYucpAliasPackageMetadata>[0]);
+
+    expect(merged.yucp).toMatchObject({
+      aliasId: 'com.yucp.jammr',
+      kind: 'alias-v1',
+    });
+    expect(merged.yucp).not.toHaveProperty('catalogProductIds');
+  });
+
   it('adds the shared alias contract without dropping existing metadata', () => {
     expect(
       mergeYucpAliasPackageMetadata({
@@ -187,7 +249,6 @@ describe('mergeYucpAliasPackageMetadata', () => {
           description: 'Legacy package',
         },
         aliasId: 'song-thing',
-        catalogProductIds: ['product-a', 'product-a', 'product-b'],
         channel: 'stable',
       })
     ).toEqual({
@@ -197,8 +258,7 @@ describe('mergeYucpAliasPackageMetadata', () => {
         aliasId: 'song-thing',
         installStrategy: 'server-authorized',
         importerPackage: 'com.yucp.importer',
-        minImporterVersion: '0.1.9',
-        catalogProductIds: ['product-a', 'product-b'],
+        minImporterVersion: YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION,
         channel: 'stable',
       },
     });
@@ -217,11 +277,54 @@ describe('mergeYucpAliasPackageMetadata', () => {
           },
         },
         aliasId: 'song-thing',
-        catalogProductIds: ['product-a'],
         channel: 'stable',
       }).yucp
     ).toMatchObject({
-      minImporterVersion: '0.1.9',
+      minImporterVersion: YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION,
+    });
+  });
+
+  it('preserves normalized friendly metadata when merging the alias contract', () => {
+    const merged = mergeYucpAliasPackageMetadata({
+      metadata: {
+        yucp: {
+          kind: 'alias-v1',
+          aliasId: 'jammr',
+          installStrategy: 'server-authorized',
+          importerPackage: 'com.yucp.importer',
+          packageMetadata: {
+            packageName: 'JAMMR',
+            author: 'Mapache',
+          },
+          media: [
+            {
+              kind: 'icon',
+              localPath: 'Documentation~/YUCP/icon.png',
+              contentType: 'image/png',
+              byteSize: 1024,
+              sha256: 'a'.repeat(64),
+            },
+          ],
+        },
+      },
+      aliasId: 'jammr',
+      channel: 'stable',
+    });
+
+    expect(merged.yucp).toMatchObject({
+      packageMetadata: {
+        packageName: 'JAMMR',
+        author: 'Mapache',
+      },
+      media: [
+        {
+          kind: 'icon',
+          localPath: 'Documentation~/YUCP/icon.png',
+          contentType: 'image/png',
+          byteSize: 1024,
+          sha256: 'a'.repeat(64),
+        },
+      ],
     });
   });
 
@@ -238,11 +341,10 @@ describe('mergeYucpAliasPackageMetadata', () => {
           },
         },
         aliasId: 'song-thing',
-        catalogProductIds: ['product-a'],
         channel: 'stable',
       }).yucp
     ).toMatchObject({
-      minImporterVersion: '0.1.9',
+      minImporterVersion: YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION,
     });
   });
 });
@@ -289,9 +391,31 @@ describe('applyYucpAliasPackageManifestDefaults', () => {
         aliasId: 'creator-alias',
         installStrategy: 'server-authorized',
         importerPackage: 'com.yucp.importer',
+        minImporterVersion: YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION,
       },
       vpmDependencies: {
         'com.yucp.importer': YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_VERSION,
+      },
+    });
+  });
+
+  it('replaces a stale manifest dependency with the alias contract minimum', () => {
+    expect(
+      applyYucpAliasPackageManifestDefaults({
+        vpmDependencies: {
+          'com.yucp.importer': '>=0.1.25',
+        },
+        yucp: {
+          kind: 'alias-v1',
+          aliasId: 'creator-alias',
+          installStrategy: 'server-authorized',
+          importerPackage: 'com.yucp.importer',
+          minImporterVersion: '0.1.31',
+        },
+      })
+    ).toMatchObject({
+      vpmDependencies: {
+        'com.yucp.importer': '>=0.1.36',
       },
     });
   });

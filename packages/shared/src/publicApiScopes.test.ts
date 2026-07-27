@@ -15,6 +15,15 @@ describe('getOAuthScopeDisplay', () => {
     expect(offline.badge).not.toBe('Access');
   });
 
+  it('describes package broker access without technical scope copy', () => {
+    expect(getOAuthScopeDisplay('package:operate')).toEqual({
+      badge: 'Packages',
+      description:
+        'Verify, install, update, repair, restore, or remove a package that belongs to you.',
+      label: 'Manage your package installation',
+    });
+  });
+
   it('falls back gracefully for unknown scopes', () => {
     expect(getOAuthScopeDisplay('totally:made-up')).toEqual({
       label: 'totally:made-up',

@@ -134,7 +134,7 @@ export const getCatalogTier = query({
   },
 });
 
-async function activeCatalogTierIdsForEntitlement(
+export async function activeCatalogTierIdsForEntitlement(
   ctx: QueryCtx,
   entitlementId: Id<'entitlements'>
 ): Promise<Array<Id<'catalog_tiers'>>> {

@@ -271,6 +271,24 @@ describe('licensed icon CI regeneration', () => {
     }
   });
 
+  test('restores the licensed icon module from a fingerprint-pure cache in every licensed job', () => {
+    // The cache key must hash exactly the inputs of createLicensedIconGenerationFingerprint
+    // (manifest + generation sources + fingerprintVersion) so a restored module always passes
+    // isLicensedIconGeneratedModuleFresh and a fingerprint change always misses the cache.
+    const expectedKey =
+      `licensed-icons-${githubExpressionPrefix} hashFiles(` +
+      "'apps/web/src/icons/manifest.ts', " +
+      "'ops/icons/generationFingerprint.ts', " +
+      "'ops/icons/renderGeneratedModule.ts', " +
+      "'ops/icons/transform.ts') }}";
+    for (const jobName of ['web-build', 'external-integrations', 'web-tests']) {
+      const job = getJob(jobName);
+      expect(job).toContain('- name: Restore licensed icon module');
+      expect(job).toContain('path: apps/web/src/icons/generated.tsx');
+      expect(job).toContain(`key: ${expectedKey}`);
+    }
+  });
+
   test('supplies read-only icon credentials to the shared web build entrypoint', () => {
     const buildStep = getJob('web-build').split('- name: Build web app')[1] ?? '';
 

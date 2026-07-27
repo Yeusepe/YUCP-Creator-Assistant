@@ -6,11 +6,10 @@ info:
     Use OAuth 2.1 (Authorization Code + PKCE) to obtain an access token, then call these endpoints
     with `Authorization: Bearer <access_token>`.
 
-    **Native app authorize bridge:** start authorization at `{API_BASE_URL}/api/yucp/oauth/authorize`.
-    The API host proxies this route to the Convex native-app OAuth endpoint, which stores loopback
-    redirect URIs server-side and forwards Better Auth to the fixed Convex callback. Authorization
-    requests to `/api/yucp/oauth/authorize` must include a cryptographically random URL-safe
-    `state` value that is at least 32 characters long.
+    Native apps start authorization at `{API_BASE_URL}/api/auth/oauth2/authorize`.
+    Better Auth applies RFC 8252 matching to registered loopback redirect URIs.
+    Native apps use a random loopback port and the exact registered callback path.
+    Authorization requests include a random URL-safe `state` value with at least 32 characters.
 
     **OAuth base URL:** `{CONVEX_SITE_URL}/api/auth` (e.g. `https://<deployment>.convex.site/api/auth`)
     - Authorize: `GET /api/auth/oauth2/authorize`

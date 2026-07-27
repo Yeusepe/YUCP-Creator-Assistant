@@ -115,6 +115,38 @@ describe('proxyApiRequest', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it('streams a forensics archive above the generic proxy limit without buffering it', async () => {
+    const bodyBytes = new TextEncoder().encode('bounded-stream-body');
+    const requestBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bodyBytes);
+        controller.close();
+      },
+    });
+    mockFetch.mockImplementationOnce(async (_input, init) => {
+      const forwardedBytes = new Uint8Array(await new Response(init?.body).arrayBuffer());
+      expect(forwardedBytes).toEqual(bodyBytes);
+      return Response.json({ lookupStatus: 'no_candidate_assets' });
+    });
+
+    const { proxyApiRequest } = await import('@/lib/server/api-proxy');
+    const response = await proxyApiRequest({
+      url: 'http://localhost:3000/api/forensics/lookup',
+      method: 'POST',
+      headers: new Headers({
+        'content-length': String(20 * 1024 * 1024),
+        'content-type': 'multipart/form-data; boundary=test-boundary',
+      }),
+      body: requestBody,
+      arrayBuffer: () => {
+        throw new Error('forensics body must not be buffered');
+      },
+    } as unknown as Request);
+
+    expect(response.status).toBe(200);
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
   it('times out hung upstream API fetches with a controlled response', async () => {
     vi.useFakeTimers();
     mockFetch.mockImplementationOnce((_input, init) => {

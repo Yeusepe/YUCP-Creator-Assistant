@@ -5,11 +5,14 @@ import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http
 import { extname, resolve } from 'node:path';
 import { FileStore } from '@tus/file-store';
 import { Server, type Upload } from '@tus/server';
-import { type Catalog, withCatalogHeartbeat } from '../catalog';
+import { type Catalog, CatalogInvariantError, withCatalogHeartbeat } from '../catalog';
+import type { StorageGcCatalog } from '../catalog/storageGcCatalog';
 import { assembleVersion, beginVersion } from '../ingest-pipeline';
-import { loadCasConfig } from '../storage-core/config';
-import { type CasStore, s3CasStore } from '../storage-core/desyncCas';
+import type { CasStore } from '../storage-core/desyncCas';
+import { isProtectionPolicyId, type ProtectionPolicyId } from '../storage-core/protectionPolicyId';
 import { UPLOAD_CAPABILITY_HEADERS, verifyUploadCapability } from '../storage-core/uploadSigning';
+import { createCatalogControlHandler, isCatalogControlRequest } from './catalogControl';
+import { persistCompletedUpload, type QuarantineStoragePort } from './quarantine';
 
 export const DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024;
 export const INGEST_TUS_PATH = '/files';
@@ -30,6 +33,8 @@ const CORS_ALLOW_HEADERS = [
 const CORS_EXPOSE_HEADERS = 'Location,Upload-Offset,Upload-Length';
 
 const VERSION_ID_METADATA_KEY = '_catalogVersionId';
+const CREATOR_ID_METADATA_KEY = '_creatorId';
+const PROTECTION_POLICY_METADATA_KEY = '_protectionPolicyId';
 const ALLOWED_EXTENSIONS = new Set(['.spp', '.unitypackage', '.zip']);
 const UPLOAD_ID_PATTERN = /^[0-9a-f]{32}(?:\.(?:spp|unitypackage|zip))?$/;
 const GENERIC_BINARY_TYPES = new Set(['application/octet-stream']);
@@ -55,23 +60,20 @@ type TusHookError = {
 export interface CreateIngestTusServerInput {
   allowedOrigin?: string;
   catalog: Catalog;
-  store?: CasStore;
-  indexDir?: string;
+  commonStore: CasStore;
+  metadataStore: CasStore;
+  protectedStore: CasStore;
+  quarantineStorage: QuarantineStoragePort;
+  scratchRoot: string;
   uploadDir: string;
   maxBytes?: number;
   uploadHmacKey: string;
+  catalogControlSharedSecret: string;
+  releasePins?: Pick<StorageGcCatalog, 'createReleasePin' | 'releaseReleasePin'>;
 }
 
 function tusError(status_code: number, body: string): TusHookError {
   return { status_code, body: `${body}\n` };
-}
-
-function requiredLocalIndexDir(indexDir: string | undefined): string {
-  const normalized = indexDir?.trim();
-  if (!normalized) {
-    throw new Error('A local CAS store requires indexDir');
-  }
-  return normalized;
 }
 
 function requiredMetadata(metadata: Upload['metadata'], key: string, label = key): string {
@@ -82,9 +84,34 @@ function requiredMetadata(metadata: Upload['metadata'], key: string, label = key
   return value;
 }
 
+function requiredProtectionPolicyId(metadata: Upload['metadata']): ProtectionPolicyId {
+  const value = requiredMetadata(metadata, PROTECTION_POLICY_METADATA_KEY, 'protection policy');
+  if (!isProtectionPolicyId(value)) {
+    throw tusError(403, 'Upload protection policy is not supported.');
+  }
+  return value;
+}
+
 function normalizedContentType(metadata: Upload['metadata']): string | undefined {
   const value = metadata?.filetype ?? metadata?.type;
   return value?.split(';', 1)[0]?.trim().toLowerCase() || undefined;
+}
+
+function quarantineContentType(upload: Upload): string {
+  const declared = normalizedContentType(upload.metadata);
+  if (declared && !GENERIC_BINARY_TYPES.has(declared)) {
+    return declared;
+  }
+  switch (uploadExtension(upload.metadata)) {
+    case '.zip':
+      return 'application/zip';
+    case '.unitypackage':
+      return 'application/x-unitypackage';
+    case '.spp':
+      return 'application/vnd.substance-painter';
+    default:
+      throw tusError(415, 'Completed upload type is not supported.');
+  }
 }
 
 function validateArtifactMetadata(upload: Upload): {
@@ -222,17 +249,41 @@ async function authorizeUploadRequest(
   hmacKey: string
 ): Promise<
   | { status: 401 | 403 }
-  | { catalogProductId?: string; packageId: string; version: string; versionId: string }
+  | {
+      catalogProductId?: string;
+      creatorId: string;
+      editionId: string;
+      packageId: string;
+      protectionPolicyId: ProtectionPolicyId;
+      version: string;
+      versionId: string;
+    }
 > {
   const exp = singleRequestHeader(request, UPLOAD_CAPABILITY_HEADERS.exp);
   const sig = singleRequestHeader(request, UPLOAD_CAPABILITY_HEADERS.sig);
   const versionId = singleRequestHeader(request, UPLOAD_CAPABILITY_HEADERS.versionId);
   const encodedPackageId = singleRequestHeader(request, UPLOAD_CAPABILITY_HEADERS.packageId);
+  const encodedCreatorId = singleRequestHeader(request, UPLOAD_CAPABILITY_HEADERS.creatorId);
+  const editionId = singleRequestHeader(request, UPLOAD_CAPABILITY_HEADERS.editionId);
+  const protectionPolicyId = singleRequestHeader(
+    request,
+    UPLOAD_CAPABILITY_HEADERS.protectionPolicyId
+  );
   const encodedVersion = singleRequestHeader(request, UPLOAD_CAPABILITY_HEADERS.version);
-  if (!exp || !sig || !versionId || !encodedPackageId || !encodedVersion) {
+  if (
+    !exp ||
+    !sig ||
+    !versionId ||
+    !encodedCreatorId ||
+    !editionId ||
+    !encodedPackageId ||
+    !encodedVersion ||
+    !protectionPolicyId
+  ) {
     return { status: 401 };
   }
   let catalogProductId: string | undefined;
+  let creatorId: string;
   let packageId: string;
   let version: string;
   try {
@@ -243,6 +294,7 @@ async function authorizeUploadRequest(
     catalogProductId = encodedCatalogProductId
       ? decodeURIComponent(encodedCatalogProductId)
       : undefined;
+    creatorId = decodeURIComponent(encodedCreatorId);
     packageId = decodeURIComponent(encodedPackageId);
     version = decodeURIComponent(encodedVersion);
   } catch {
@@ -250,13 +302,34 @@ async function authorizeUploadRequest(
   }
   if (
     !(await verifyUploadCapability(
-      { catalogProductId, exp, packageId, sig, version, versionId },
+      {
+        catalogProductId,
+        creatorId,
+        editionId,
+        exp,
+        packageId,
+        protectionPolicyId,
+        sig,
+        version,
+        versionId,
+      },
       hmacKey
     ))
   ) {
     return { status: 403 };
   }
-  return { catalogProductId, packageId, version, versionId };
+  if (!isProtectionPolicyId(protectionPolicyId)) {
+    return { status: 403 };
+  }
+  return {
+    catalogProductId,
+    creatorId,
+    editionId,
+    packageId,
+    protectionPolicyId,
+    version,
+    versionId,
+  };
 }
 
 function requestUploadId(request: IncomingMessage): string | undefined {
@@ -361,14 +434,15 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
   if (!input.uploadHmacKey.trim()) {
     throw new Error('uploadHmacKey must not be empty');
   }
-  const store = input.store ?? s3CasStore(loadCasConfig());
-  const assemblyStorage =
-    store.kind === 's3' ? { store } : { store, indexDir: requiredLocalIndexDir(input.indexDir) };
-
   const uploadDir = resolve(input.uploadDir);
   mkdirSync(uploadDir, { recursive: true });
   const fileStore = new FileStore({ directory: uploadDir });
   const heartbeatSignals = new AsyncLocalStorage<AbortSignal>();
+  const catalogControlHandler = createCatalogControlHandler({
+    catalog: input.catalog,
+    ...(input.releasePins ? { releasePins: input.releasePins } : {}),
+    sharedSecret: input.catalogControlSharedSecret,
+  });
   const tusServer = new Server({
     path: INGEST_TUS_PATH,
     datastore: fileStore,
@@ -380,8 +454,17 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
     allowedHeaders: Object.values(UPLOAD_CAPABILITY_HEADERS),
     allowedOrigins: allowedOrigin ? [allowedOrigin] : undefined,
     exposedHeaders: ['Location', 'Upload-Offset', 'Upload-Length'],
-    namingFunction(_request, metadata) {
-      return `${randomBytes(16).toString('hex')}${uploadExtension(metadata)}`;
+    namingFunction(request, metadata) {
+      const versionId = request.headers.get(UPLOAD_CAPABILITY_HEADERS.versionId)?.trim();
+      if (
+        !versionId ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          versionId
+        )
+      ) {
+        return `${randomBytes(16).toString('hex')}${uploadExtension(metadata)}`;
+      }
+      return `${versionId.replaceAll('-', '').toLowerCase()}${uploadExtension(metadata)}`;
     },
     async onUploadCreate(request, upload) {
       if (upload.size === undefined) {
@@ -394,8 +477,14 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
       const metadata = validateArtifactMetadata(upload);
       const versionId = request.headers.get(UPLOAD_CAPABILITY_HEADERS.versionId)?.trim();
       const encodedPackageId = request.headers.get(UPLOAD_CAPABILITY_HEADERS.packageId)?.trim();
+      const encodedCreatorId = request.headers.get(UPLOAD_CAPABILITY_HEADERS.creatorId)?.trim();
+      const editionId = request.headers.get(UPLOAD_CAPABILITY_HEADERS.editionId)?.trim();
+      const protectionPolicyId = request.headers
+        .get(UPLOAD_CAPABILITY_HEADERS.protectionPolicyId)
+        ?.trim();
       const encodedVersion = request.headers.get(UPLOAD_CAPABILITY_HEADERS.version)?.trim();
       let signedCatalogProductId: string | undefined;
+      let signedCreatorId: string;
       let signedPackageId: string;
       let signedVersion: string;
       try {
@@ -405,6 +494,7 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
         signedCatalogProductId = encodedCatalogProductId
           ? decodeURIComponent(encodedCatalogProductId)
           : undefined;
+        signedCreatorId = decodeURIComponent(encodedCreatorId ?? '');
         signedPackageId = decodeURIComponent(encodedPackageId ?? '');
         signedVersion = decodeURIComponent(encodedVersion ?? '');
       } catch {
@@ -412,19 +502,35 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
       }
       if (
         !versionId ||
+        !signedCreatorId ||
+        !editionId ||
+        !protectionPolicyId ||
+        !isProtectionPolicyId(protectionPolicyId) ||
         metadata.packageId !== signedPackageId ||
         metadata.version !== signedVersion ||
         metadata.catalogProductId !== signedCatalogProductId
       ) {
         throw tusError(403, 'Upload metadata does not match the signed capability.');
       }
-      const uploading = await beginVersion({
-        catalog: input.catalog,
-        catalogProductId: metadata.catalogProductId,
-        packageId: metadata.packageId,
-        version: metadata.version,
-        versionId,
-      });
+      let uploading: Awaited<ReturnType<typeof beginVersion>>;
+      try {
+        uploading = await beginVersion({
+          catalog: input.catalog,
+          catalogProductId: metadata.catalogProductId,
+          editionId,
+          packageId: metadata.packageId,
+          version: metadata.version,
+          versionId,
+        });
+      } catch (error) {
+        if (
+          error instanceof CatalogInvariantError ||
+          (error instanceof Error && error.message.includes('immutable after upload completion'))
+        ) {
+          throw tusError(409, 'This package version already exists. Use a new version number.');
+        }
+        throw error;
+      }
       console.info(
         JSON.stringify({
           event: 'ingest_tus.upload_created',
@@ -438,8 +544,10 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
           ...upload.metadata,
           ...(metadata.catalogProductId ? { catalogProductId: metadata.catalogProductId } : {}),
           filename: metadata.filename,
+          [CREATOR_ID_METADATA_KEY]: signedCreatorId,
           packageId: metadata.packageId,
           version: metadata.version,
+          [PROTECTION_POLICY_METADATA_KEY]: protectionPolicyId,
           [VERSION_ID_METADATA_KEY]: uploading.id,
         },
       };
@@ -454,14 +562,44 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
         throw tusError(500, 'Completed upload is missing its file storage path.');
       }
 
+      try {
+        await persistCompletedUpload({
+          catalog: input.catalog,
+          contentType: quarantineContentType(storedUpload),
+          path: storedUpload.storage.path,
+          storage: input.quarantineStorage,
+          versionId,
+        });
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            event: 'ingest_tus.quarantine_failed',
+            uploadId: upload.id,
+            versionId,
+            reason: error instanceof Error ? error.name : 'unknown_error',
+            durationMs: Math.round(performance.now() - startedAt),
+          })
+        );
+        throw tusError(503, 'Upload quarantine is temporarily unavailable.');
+      }
+
       let assembled: Awaited<ReturnType<typeof assembleVersion>>;
       try {
         assembled = await assembleVersion(
           {
             catalog: input.catalog,
+            commonStore: input.commonStore,
+            creatorId: requiredMetadata(
+              storedUpload.metadata,
+              CREATOR_ID_METADATA_KEY,
+              'creator identity'
+            ),
+            metadataStore: input.metadataStore,
+            protectedStore: input.protectedStore,
+            protectionPolicyId: requiredProtectionPolicyId(storedUpload.metadata),
+            scratchRoot: input.scratchRoot,
             versionId,
             inputPath: storedUpload.storage.path,
-            ...assemblyStorage,
           },
           heartbeatSignals.getStore()
         );
@@ -494,6 +632,10 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
 
   return (request, response) => {
     const startedAt = performance.now();
+    if (isCatalogControlRequest(request)) {
+      catalogControlHandler(request, response);
+      return;
+    }
     if (isHealthRequest(request)) {
       sendHealth(response);
       return;

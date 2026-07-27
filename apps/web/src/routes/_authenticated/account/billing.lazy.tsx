@@ -11,6 +11,7 @@ import {
   formatQuota,
 } from '@/components/dashboard/CertificateWorkspacePanels';
 import { DashboardBillingSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { Icon } from '@/components/ui/Icon';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { useCreatorCertificateWorkspace } from '@/hooks/useCreatorCertificateWorkspace';
@@ -357,19 +358,7 @@ export default function DashboardBilling() {
                     {plan.highlights.map((feat) => (
                       <li key={`${plan.planKey}-${feat}`} className="billing-plan-feature-v2">
                         <span className="billing-plan-check-v2" aria-hidden="true">
-                          <svg
-                            width="8"
-                            height="8"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="3.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <title>Included</title>
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
+                          <Icon name="success" size={8} />
                         </span>
                         <span>{feat}</span>
                       </li>
@@ -407,21 +396,7 @@ export default function DashboardBilling() {
       ) : (
         <div className="billing-empty-v2">
           <div className="billing-empty-icon-v2">
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="8" x2="12" y2="12" />
-              <line x1="12" y1="16" x2="12.01" y2="16" />
-            </svg>
+            <Icon name="alert" size={20} />
           </div>
           <h3 className="billing-empty-title-v2">No published plans yet</h3>
           <p className="billing-empty-desc-v2">
@@ -480,23 +455,7 @@ export default function DashboardBilling() {
                     className="rounded-full text-[13px]"
                     onClick={() => portalMut.mutate()}
                   >
-                    {!portalMut.isPending && (
-                      <svg
-                        width="13"
-                        height="13"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden="true"
-                      >
-                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                        <polyline points="15 3 21 3 21 9" />
-                        <line x1="10" y1="14" x2="21" y2="3" />
-                      </svg>
-                    )}
+                    {!portalMut.isPending && <Icon name="externalLink" size={13} />}
                     {portalMut.isPending ? 'Opening…' : 'Manage Subscription'}
                   </YucpButton>
                 </div>
@@ -636,19 +595,7 @@ export default function DashboardBilling() {
                             ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                         }}
                       >
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden="true"
-                        >
-                          <polyline points="6 9 12 15 18 9" />
-                        </svg>
+                        <Icon name="chevronDown" size={14} />
                         See Plans
                       </button>
                       <Link to="/account/machines" className="billing-hero-link">
@@ -662,22 +609,22 @@ export default function DashboardBilling() {
                     {(
                       [
                         {
-                          icon: '/Icons/Shield.png',
+                          icon: 'shield',
                           title: 'Protected exports',
                           tag: 'Export gating',
                         },
                         {
-                          icon: '/Icons/Key.png',
+                          icon: 'key',
                           title: 'Certificate signing',
                           tag: 'Signing & revocation',
                         },
                         {
-                          icon: '/Icons/Laptop.png',
+                          icon: 'desktop',
                           title: 'Moderation lookup',
                           tag: 'Trust tooling',
                         },
                         {
-                          icon: '/Icons/Wrench.png',
+                          icon: 'leakTrace',
                           title: 'Coupling traceability',
                           tag: 'Forensics & lineage',
                         },
@@ -685,14 +632,7 @@ export default function DashboardBilling() {
                     ).map(({ icon, title, tag }) => (
                       <div key={title} className="billing-hero-feat-tile">
                         <div className="billing-hero-feat-icon">
-                          <img
-                            src={icon}
-                            alt=""
-                            aria-hidden="true"
-                            width="16"
-                            height="16"
-                            style={{ objectFit: 'contain' }}
-                          />
+                          <Icon name={icon} size={16} />
                         </div>
                         <div>
                           <p className="billing-hero-feat-title">{title}</p>
@@ -714,22 +654,22 @@ export default function DashboardBilling() {
                   {(
                     [
                       {
-                        icon: '/Icons/Shield.png',
+                        icon: 'shield',
                         title: 'Protected exports',
                         desc: 'Gate high-trust releases to verified buyers only. No more hoping your files stay where you send them.',
                       },
                       {
-                        icon: '/Icons/Wrench.png',
+                        icon: 'leakTrace',
                         title: 'Coupling traceability',
                         desc: 'Every package linked back to its origin. Forensics and lineage always a click away.',
                       },
                       {
-                        icon: '/Icons/Key.png',
+                        icon: 'key',
                         title: 'Moderation lookup',
                         desc: 'Surface trust signals and moderation history when you need to make access decisions fast.',
                       },
                       {
-                        icon: '/Icons/Laptop.png',
+                        icon: 'desktop',
                         title: 'Certificate operations',
                         desc: 'Enroll machines, sign releases, and revoke access from one place -- independent of your storefront.',
                       },
@@ -737,14 +677,7 @@ export default function DashboardBilling() {
                   ).map(({ icon, title, desc }) => (
                     <div key={title} className="billing-unlock-card">
                       <div className="billing-unlock-icon">
-                        <img
-                          src={icon}
-                          alt=""
-                          aria-hidden="true"
-                          width="18"
-                          height="18"
-                          style={{ objectFit: 'contain' }}
-                        />
+                        <Icon name={icon} size={18} />
                       </div>
                       <div>
                         <p className="billing-unlock-title">{title}</p>

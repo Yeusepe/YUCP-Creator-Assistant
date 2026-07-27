@@ -44,6 +44,7 @@ const PUBLIC_ROUTES = [
   'index.tsx',
   'legal/terms-of-service.tsx',
   'legal/privacy-policy.tsx',
+  'legal/verification-and-attestation.tsx',
 ];
 
 // Setup wizard routes use setup tokens, not session auth.

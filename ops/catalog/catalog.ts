@@ -14,6 +14,7 @@ export const CATALOG_STATES = [
   'PROMOTING',
   'READY',
   'FAILED',
+  'DELETED',
 ] as const;
 
 export type CatalogState = (typeof CATALOG_STATES)[number];
@@ -22,12 +23,13 @@ export type LiveCatalogState = Extract<CatalogState, 'UPLOADING' | 'PROMOTING'>;
 export const CATALOG_HEARTBEAT_INTERVAL_MS = 30_000;
 
 const allowedTransitions = {
-  CREATED: ['UPLOADING', 'FAILED'],
+  CREATED: ['UPLOADING', 'FAILED', 'DELETED'],
   UPLOADING: ['ASSEMBLED', 'FAILED'],
   ASSEMBLED: ['PROMOTING', 'FAILED'],
   PROMOTING: ['READY', 'FAILED'],
-  READY: [],
-  FAILED: ['UPLOADING'],
+  READY: ['DELETED'],
+  FAILED: ['UPLOADING', 'DELETED'],
+  DELETED: [],
 } as const satisfies Record<CatalogState, readonly CatalogState[]>;
 
 export const ALLOWED_CATALOG_TRANSITIONS: Readonly<Record<CatalogState, readonly CatalogState[]>> =
@@ -44,40 +46,119 @@ export interface CatalogEvent {
   payload?: JsonObject;
 }
 
+export interface ProtectedPackageFile extends JsonObject {
+  materializerType: string;
+  normalizedPath: string;
+  required: boolean;
+  sourceSha256: string;
+}
+
 export interface PackageVersion {
+  activeContentDigest: string | null;
+  activePolicyVersion: string | null;
+  bindingRoot: string | null;
   catalogProductId: string | null;
+  commonRoot: string | null;
+  editionId: string;
   id: string;
+  logicalBytes: number | null;
+  logicalFiles: number | null;
+  manifestSha256: string | null;
   packageId: string;
+  protectedFiles: ProtectedPackageFile[] | null;
+  protectedSourceRoot: string | null;
+  protectionPolicyDigest: string | null;
+  protectionPolicyId: string | null;
+  releaseSchemaVersion?: 3 | 4;
   version: string;
-  formatTag: string | null;
-  canonicalSha256: string | null;
-  casIndexId: string | null;
+  sourceFormat: string | null;
+  releaseRoot: string | null;
+  assemblyObjectId: string | null;
   state: CatalogState;
   error: string | null;
+  deletedAt: Date | null;
+  deletionReason: string | null;
   attempts: number;
   nextAttemptAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  vpmDependencies: Record<string, string>;
+  vpmRepositories: Record<string, string>;
+}
+
+export interface PackageVersionPageCursor {
+  createdAt: Date;
+  versionId: string;
+}
+
+export interface PackageVersionPage {
+  data: PackageVersion[];
+  hasMore: boolean;
+  nextCursor: PackageVersionPageCursor | null;
+}
+
+export interface PackageQuarantineObject {
+  bytes: number;
+  contentType: string;
+  createdAt: Date;
+  fileIdentifier: string | null;
+  objectKey: string;
+  providerVersion: string | null;
+  sha256: string;
+  state: 'COMMITTED' | 'PENDING' | 'UNCERTAIN';
+  updatedAt: Date;
+  versionId: string;
+}
+
+interface PackageQuarantineObjectRow {
+  bytes: number | string;
+  content_type: string;
+  created_at: Date;
+  file_identifier: string | null;
+  object_key: string;
+  provider_version: string | null;
+  sha256: string;
+  state: PackageQuarantineObject['state'];
+  updated_at: Date;
+  version_id: string;
 }
 
 interface PackageVersionRow {
+  active_content_digest: string | null;
+  active_policy_version: string | null;
+  binding_root: string | null;
   catalog_product_id: string | null;
+  common_root: string | null;
+  edition_id: string;
   id: string;
+  logical_bytes: number | string | null;
+  logical_files: number | null;
+  manifest_sha256: string | null;
   package_id: string;
+  protected_files: ProtectedPackageFile[] | null;
+  protected_source_root: string | null;
+  protection_policy_digest: string | null;
+  protection_policy_id: string | null;
+  release_schema_version: 3 | 4;
   version: string;
-  format_tag: string | null;
-  canonical_sha256: string | null;
-  cas_index_id: string | null;
+  source_format: string | null;
+  release_root: string | null;
+  assembly_object_id: string | null;
   state: CatalogState;
   error: string | null;
+  deleted_at: Date | null;
+  deletion_reason: string | null;
   attempts: number;
   next_attempt_at: CatalogTimestamp | null;
   created_at: Date;
   updated_at: Date;
+  vpm_dependencies: Record<string, string>;
+  vpm_repositories: Record<string, string>;
 }
 
 export interface CreateVersionInput {
   catalogProductId?: string;
+  editionId?: string;
   id?: string;
   packageId: string;
   version: string;
@@ -85,10 +166,24 @@ export interface CreateVersionInput {
 }
 
 export interface TransitionFields {
-  formatTag?: string;
-  canonicalSha256?: string;
-  casIndexId?: string;
+  activeContentDigest?: string;
+  activePolicyVersion?: string;
+  sourceFormat?: string;
+  releaseRoot?: string;
+  assemblyObjectId?: string;
+  bindingRoot?: string;
+  commonRoot?: string;
   error?: string;
+  deletionReason?: string;
+  logicalBytes?: number;
+  logicalFiles?: number;
+  manifestSha256?: string;
+  protectedFiles?: ProtectedPackageFile[];
+  protectedSourceRoot?: string;
+  protectionPolicyDigest?: string;
+  protectionPolicyId?: string;
+  vpmDependencies?: Record<string, string>;
+  vpmRepositories?: Record<string, string>;
 }
 
 export interface TransitionOptions {
@@ -127,6 +222,35 @@ export class CatalogInvariantError extends Error {
   }
 }
 
+const PACKAGE_VERSION_IDENTITY_CONSTRAINTS = new Set([
+  'package_versions_pkey',
+  'package_versions_package_version_unique',
+]);
+
+function isPackageVersionIdentityConflict(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const candidate = error as {
+    code?: unknown;
+    constraint?: unknown;
+    constraint_name?: unknown;
+  };
+  const constraint =
+    typeof candidate.constraint_name === 'string'
+      ? candidate.constraint_name
+      : typeof candidate.constraint === 'string'
+        ? candidate.constraint
+        : undefined;
+
+  return (
+    candidate.code === '23505' &&
+    constraint !== undefined &&
+    PACKAGE_VERSION_IDENTITY_CONSTRAINTS.has(constraint)
+  );
+}
+
 export class CatalogOwnershipLostError extends Error {
   override name = 'AbortError';
 
@@ -136,20 +260,60 @@ export class CatalogOwnershipLostError extends Error {
 }
 
 function toPackageVersion(row: PackageVersionRow): PackageVersion {
+  const logicalBytes = row.logical_bytes === null ? null : Number(row.logical_bytes);
+  if (logicalBytes !== null && (!Number.isSafeInteger(logicalBytes) || logicalBytes < 0)) {
+    throw new CatalogInvariantError('Package version contains an invalid logical byte length');
+  }
   return {
+    activeContentDigest: row.active_content_digest,
+    activePolicyVersion: row.active_policy_version,
+    bindingRoot: row.binding_root,
     catalogProductId: row.catalog_product_id,
+    commonRoot: row.common_root,
+    editionId: row.edition_id,
     id: row.id,
+    logicalBytes,
+    logicalFiles: row.logical_files,
+    manifestSha256: row.manifest_sha256,
     packageId: row.package_id,
+    protectedFiles: row.protected_files,
+    protectedSourceRoot: row.protected_source_root,
+    protectionPolicyDigest: row.protection_policy_digest,
+    protectionPolicyId: row.protection_policy_id,
+    releaseSchemaVersion: row.release_schema_version,
     version: row.version,
-    formatTag: row.format_tag,
-    canonicalSha256: row.canonical_sha256,
-    casIndexId: row.cas_index_id,
+    sourceFormat: row.source_format,
+    releaseRoot: row.release_root,
+    assemblyObjectId: row.assembly_object_id,
     state: row.state,
     error: row.error,
+    deletedAt: row.deleted_at,
+    deletionReason: row.deletion_reason,
     attempts: row.attempts,
     nextAttemptAt: toCatalogDate(row.next_attempt_at),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    vpmDependencies: row.vpm_dependencies,
+    vpmRepositories: row.vpm_repositories,
+  };
+}
+
+function toPackageQuarantineObject(row: PackageQuarantineObjectRow): PackageQuarantineObject {
+  const bytes = Number(row.bytes);
+  if (!Number.isSafeInteger(bytes) || bytes < 0) {
+    throw new CatalogInvariantError('Quarantine object contains an invalid byte length');
+  }
+  return {
+    bytes,
+    contentType: row.content_type,
+    createdAt: row.created_at,
+    fileIdentifier: row.file_identifier,
+    objectKey: row.object_key,
+    providerVersion: row.provider_version,
+    sha256: row.sha256,
+    state: row.state,
+    updatedAt: row.updated_at,
+    versionId: row.version_id,
   };
 }
 
@@ -158,40 +322,139 @@ function validateTransitionFields(
   targetState: CatalogState,
   fields: TransitionFields
 ): {
-  formatTag: string | null;
-  canonicalSha256: string | null;
-  casIndexId: string | null;
+  sourceFormat: string | null;
+  releaseRoot: string | null;
+  assemblyObjectId: string | null;
+  activeContentDigest: string | null;
+  activePolicyVersion: string | null;
+  bindingRoot: string | null;
+  commonRoot: string | null;
   error: string | null;
+  deletionReason: string | null;
+  logicalBytes: number | null;
+  logicalFiles: number | null;
+  manifestSha256: string | null;
+  protectedFiles: ProtectedPackageFile[] | null;
+  protectedSourceRoot: string | null;
+  protectionPolicyDigest: string | null;
+  protectionPolicyId: string | null;
+  vpmDependencies: Record<string, string>;
+  vpmRepositories: Record<string, string>;
 } {
-  const formatTag = fields.formatTag ?? current.format_tag;
-  const canonicalSha256 = fields.canonicalSha256 ?? current.canonical_sha256;
-  const casIndexId = fields.casIndexId ?? current.cas_index_id;
+  const sourceFormat = fields.sourceFormat ?? current.source_format;
+  const releaseRoot = fields.releaseRoot ?? current.release_root;
+  const assemblyObjectId = fields.assemblyObjectId ?? current.assembly_object_id;
+  const deletionReason = fields.deletionReason?.trim() ?? current.deletion_reason;
+  const activeContentDigest = fields.activeContentDigest ?? current.active_content_digest;
+  const activePolicyVersion = fields.activePolicyVersion?.trim() ?? current.active_policy_version;
+  const bindingRoot = fields.bindingRoot ?? current.binding_root;
+  const commonRoot = fields.commonRoot ?? current.common_root;
+  const logicalBytes =
+    fields.logicalBytes ?? (current.logical_bytes === null ? null : Number(current.logical_bytes));
+  const logicalFiles = fields.logicalFiles ?? current.logical_files;
+  const manifestSha256 = fields.manifestSha256 ?? current.manifest_sha256;
+  const protectedFiles = fields.protectedFiles ?? current.protected_files;
+  const protectedSourceRoot = fields.protectedSourceRoot ?? current.protected_source_root;
+  const protectionPolicyDigest = fields.protectionPolicyDigest ?? current.protection_policy_digest;
+  const protectionPolicyId = fields.protectionPolicyId?.trim() ?? current.protection_policy_id;
+  const vpmDependencies = fields.vpmDependencies ?? current.vpm_dependencies;
+  const vpmRepositories = fields.vpmRepositories ?? current.vpm_repositories;
 
-  if ((canonicalSha256 === null) !== (casIndexId === null)) {
+  if (
+    Object.keys(vpmDependencies).length > 64 ||
+    Object.values(vpmDependencies).some((value) => typeof value !== 'string') ||
+    Object.keys(vpmRepositories).length > 16 ||
+    Object.values(vpmRepositories).some((value) => typeof value !== 'string')
+  ) {
+    throw new CatalogInvariantError('VPM bootstrap metadata is invalid');
+  }
+
+  if ((releaseRoot === null) !== (assemblyObjectId === null)) {
     throw new CatalogInvariantError(
-      'canonicalSha256 and casIndexId must either both be present or both be absent'
+      'releaseRoot and assemblyObjectId must either both be present or both be absent'
     );
   }
   if (
     (targetState === 'ASSEMBLED' || targetState === 'PROMOTING' || targetState === 'READY') &&
-    (formatTag === null || canonicalSha256 === null || casIndexId === null)
+    (sourceFormat === null || releaseRoot === null || assemblyObjectId === null)
   ) {
     throw new CatalogInvariantError(
-      `${targetState} requires formatTag, canonicalSha256, and casIndexId`
+      `${targetState} requires sourceFormat, releaseRoot, and assemblyObjectId`
     );
+  }
+  if (
+    targetState === 'READY' &&
+    (!activeContentDigest ||
+      !activePolicyVersion ||
+      !bindingRoot ||
+      !commonRoot ||
+      logicalBytes === null ||
+      logicalFiles === null ||
+      !manifestSha256 ||
+      protectedFiles === null ||
+      !protectedSourceRoot ||
+      !protectionPolicyDigest ||
+      !protectionPolicyId)
+  ) {
+    throw new CatalogInvariantError('READY requires complete logical release v4 publication data');
   }
 
   if (targetState === 'FAILED') {
     if (!fields.error?.trim()) {
       throw new CatalogInvariantError('FAILED requires a non-empty error');
     }
-    return { formatTag, canonicalSha256, casIndexId, error: fields.error };
+    return {
+      activeContentDigest,
+      activePolicyVersion,
+      bindingRoot,
+      commonRoot,
+      sourceFormat,
+      releaseRoot,
+      assemblyObjectId,
+      error: fields.error,
+      deletionReason: null,
+      logicalBytes,
+      logicalFiles,
+      manifestSha256,
+      protectedFiles,
+      protectedSourceRoot,
+      protectionPolicyDigest,
+      protectionPolicyId,
+      vpmDependencies,
+      vpmRepositories,
+    };
   }
   if (fields.error !== undefined) {
     throw new CatalogInvariantError('error can only be set when transitioning to FAILED');
   }
 
-  return { formatTag, canonicalSha256, casIndexId, error: null };
+  if (targetState === 'DELETED' && !deletionReason) {
+    throw new CatalogInvariantError('DELETED requires a non-empty deletion reason');
+  }
+  if (targetState !== 'DELETED' && fields.deletionReason !== undefined) {
+    throw new CatalogInvariantError('deletionReason can only be set when transitioning to DELETED');
+  }
+
+  return {
+    activeContentDigest,
+    activePolicyVersion,
+    bindingRoot,
+    commonRoot,
+    sourceFormat,
+    releaseRoot,
+    assemblyObjectId,
+    error: null,
+    deletionReason: targetState === 'DELETED' ? deletionReason : null,
+    logicalBytes,
+    logicalFiles,
+    manifestSha256,
+    protectedFiles,
+    protectedSourceRoot,
+    protectionPolicyDigest,
+    protectionPolicyId,
+    vpmDependencies,
+    vpmRepositories,
+  };
 }
 
 function eventPayload(
@@ -204,11 +467,20 @@ function eventPayload(
     ...event.payload,
     versionId: version.id,
     packageId: version.package_id,
+    editionId: version.edition_id,
     version: version.version,
     ...(version.catalog_product_id ? { catalogProductId: version.catalog_product_id } : {}),
     previousState,
     state,
   };
+}
+
+function deletionReason(value: string): string {
+  const reason = value.trim();
+  if (!reason) {
+    throw new CatalogInvariantError('Deletion requires a non-empty reason');
+  }
+  return reason;
 }
 
 export class Catalog {
@@ -221,38 +493,188 @@ export class Catalog {
     this.retryPolicy = resolveRetryPolicy(retryPolicyOptions);
   }
 
+  async beginQuarantineObject(input: {
+    bytes: number;
+    contentType: string;
+    objectKey: string;
+    sha256: string;
+    versionId: string;
+  }): Promise<PackageQuarantineObject> {
+    const inserted = await this.sql<PackageQuarantineObjectRow[]>`
+      INSERT INTO package_quarantine_objects (
+        version_id,
+        object_key,
+        sha256,
+        bytes,
+        content_type,
+        state
+      )
+      SELECT
+        id,
+        ${input.objectKey},
+        ${input.sha256},
+        ${input.bytes},
+        ${input.contentType},
+        'PENDING'
+      FROM package_versions
+      WHERE id = ${input.versionId}
+        AND state = 'UPLOADING'
+      ON CONFLICT (version_id) DO NOTHING
+      RETURNING *
+    `;
+    const row = inserted[0]
+      ? toPackageQuarantineObject(inserted[0])
+      : await this.getQuarantineObject(input.versionId);
+    if (!row) {
+      const version = await this.getVersion(input.versionId);
+      if (!version) {
+        throw new PackageVersionNotFoundError(input.versionId);
+      }
+      throw new CatalogInvariantError(
+        'Quarantine write intent requires an uploading package version'
+      );
+    }
+    if (
+      row.objectKey !== input.objectKey ||
+      row.sha256 !== input.sha256 ||
+      row.bytes !== input.bytes ||
+      row.contentType !== input.contentType
+    ) {
+      throw new CatalogInvariantError('Quarantine write intent does not match the accepted upload');
+    }
+    return row;
+  }
+
+  async commitQuarantineObject(input: {
+    fileIdentifier: string;
+    providerVersion: string;
+    versionId: string;
+  }): Promise<PackageQuarantineObject> {
+    const updated = await this.sql<PackageQuarantineObjectRow[]>`
+      UPDATE package_quarantine_objects
+      SET
+        state = 'COMMITTED',
+        provider_version = ${input.providerVersion},
+        file_identifier = ${input.fileIdentifier},
+        updated_at = clock_timestamp()
+      WHERE version_id = ${input.versionId}
+        AND state IN ('PENDING', 'UNCERTAIN')
+      RETURNING *
+    `;
+    if (updated[0]) {
+      return toPackageQuarantineObject(updated[0]);
+    }
+    const current = await this.getQuarantineObject(input.versionId);
+    if (!current) {
+      throw new CatalogInvariantError('Quarantine write intent was not found');
+    }
+    if (
+      current.state !== 'COMMITTED' ||
+      current.providerVersion !== input.providerVersion ||
+      current.fileIdentifier !== input.fileIdentifier
+    ) {
+      throw new CatalogInvariantError('Quarantine object exact version is immutable');
+    }
+    return current;
+  }
+
+  async markQuarantineObjectUncertain(versionId: string): Promise<PackageQuarantineObject> {
+    const rows = await this.sql<PackageQuarantineObjectRow[]>`
+      UPDATE package_quarantine_objects
+      SET state = 'UNCERTAIN', updated_at = clock_timestamp()
+      WHERE version_id = ${versionId}
+        AND state IN ('PENDING', 'UNCERTAIN')
+      RETURNING *
+    `;
+    const row = rows[0];
+    if (!row) {
+      throw new CatalogInvariantError('Quarantine write intent cannot become uncertain');
+    }
+    return toPackageQuarantineObject(row);
+  }
+
+  async getQuarantineObject(versionId: string): Promise<PackageQuarantineObject | null> {
+    const rows = await this.sql<PackageQuarantineObjectRow[]>`
+      SELECT *
+      FROM package_quarantine_objects
+      WHERE version_id = ${versionId}
+    `;
+    return rows[0] ? toPackageQuarantineObject(rows[0]) : null;
+  }
+
   async createVersion(input: CreateVersionInput): Promise<PackageVersion> {
     const id = input.id ?? randomUUID();
     const event = input.event ?? { type: 'catalog.version.created' };
+    const editionId = input.editionId?.trim() || 'standard';
+    if (!/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(editionId)) {
+      throw new CatalogInvariantError('Package edition ID is invalid');
+    }
 
-    return this.sql.begin(async (transaction) => {
-      const rows = await transaction<PackageVersionRow[]>`
-        INSERT INTO package_versions (id, package_id, version, catalog_product_id, state)
-        VALUES (
-          ${id},
-          ${input.packageId},
-          ${input.version},
-          ${input.catalogProductId ?? null},
-          'CREATED'
-        )
-        RETURNING *
-      `;
-      const created = rows[0];
-      if (!created) {
-        throw new Error('PostgreSQL did not return the created package version');
+    try {
+      return await this.sql.begin(async (transaction) => {
+        const rows = await transaction<PackageVersionRow[]>`
+          INSERT INTO package_versions (
+            id,
+            package_id,
+            edition_id,
+            version,
+            catalog_product_id,
+            state
+          )
+          VALUES (
+            ${id},
+            ${input.packageId},
+            ${editionId},
+            ${input.version},
+            ${input.catalogProductId ?? null},
+            'CREATED'
+          )
+          ON CONFLICT DO NOTHING
+          RETURNING *
+        `;
+        const created = rows[0];
+        if (!created) {
+          const existingRows = await transaction<PackageVersionRow[]>`
+            SELECT *
+            FROM package_versions
+            WHERE id = ${id}
+               OR (
+                 package_id = ${input.packageId}
+                 AND edition_id = ${editionId}
+                 AND version = ${input.version}
+               )
+            FOR UPDATE
+          `;
+          const existing = existingRows[0];
+          if (
+            !existing ||
+            existing.id !== id ||
+            existing.package_id !== input.packageId ||
+            existing.edition_id !== editionId ||
+            existing.version !== input.version
+          ) {
+            throw new CatalogInvariantError('Package version identity is already in use');
+          }
+          return toPackageVersion(existing);
+        }
+
+        await transaction`
+          INSERT INTO catalog_outbox (id, aggregate_id, event_type, payload)
+          VALUES (
+            ${randomUUID()},
+            ${created.id},
+            ${event.type},
+            ${transaction.json(eventPayload(event, created, null, 'CREATED'))}
+          )
+        `;
+        return toPackageVersion(created);
+      });
+    } catch (error) {
+      if (isPackageVersionIdentityConflict(error)) {
+        throw new CatalogInvariantError('Package version identity is already in use');
       }
-
-      await transaction`
-        INSERT INTO catalog_outbox (id, aggregate_id, event_type, payload)
-        VALUES (
-          ${randomUUID()},
-          ${created.id},
-          ${event.type},
-          ${transaction.json(eventPayload(event, created, null, 'CREATED'))}
-        )
-      `;
-      return toPackageVersion(created);
-    });
+      throw error;
+    }
   }
 
   async getVersion(versionId: string): Promise<PackageVersion | null> {
@@ -260,6 +682,256 @@ export class Catalog {
       SELECT * FROM package_versions WHERE id = ${versionId}
     `;
     return rows[0] ? toPackageVersion(rows[0]) : null;
+  }
+
+  async completeLegacyReadyMigration(
+    versionId: string,
+    options: {
+      event: CatalogEvent;
+      fields: Required<
+        Pick<
+          TransitionFields,
+          | 'activeContentDigest'
+          | 'activePolicyVersion'
+          | 'assemblyObjectId'
+          | 'bindingRoot'
+          | 'commonRoot'
+          | 'logicalBytes'
+          | 'logicalFiles'
+          | 'manifestSha256'
+          | 'protectedFiles'
+          | 'protectedSourceRoot'
+          | 'protectionPolicyDigest'
+          | 'protectionPolicyId'
+          | 'releaseRoot'
+          | 'sourceFormat'
+          | 'vpmDependencies'
+          | 'vpmRepositories'
+        >
+      >;
+    }
+  ): Promise<PackageVersion> {
+    return this.sql.begin(async (transaction) => {
+      const currentRows = await transaction<PackageVersionRow[]>`
+        SELECT *
+        FROM package_versions
+        WHERE id = ${versionId}
+        FOR UPDATE
+      `;
+      const current = currentRows[0];
+      if (!current) {
+        throw new PackageVersionNotFoundError(versionId);
+      }
+      if (current.release_schema_version === 4) {
+        if (
+          current.state !== 'READY' ||
+          current.release_root !== options.fields.releaseRoot ||
+          current.manifest_sha256 !== options.fields.manifestSha256
+        ) {
+          throw new CatalogInvariantError('Legacy release migration completion conflicts');
+        }
+        return toPackageVersion(current);
+      }
+      if (current.state !== 'READY' || current.release_schema_version !== 3) {
+        throw new CatalogInvariantError('Package version is not a legacy READY release');
+      }
+
+      const fields = validateTransitionFields(current, 'READY', options.fields);
+      const updatedRows = await transaction<PackageVersionRow[]>`
+        UPDATE package_versions
+        SET
+          release_schema_version = 4,
+          source_format = ${fields.sourceFormat},
+          release_root = ${fields.releaseRoot},
+          assembly_object_id = ${fields.assemblyObjectId},
+          active_content_digest = ${fields.activeContentDigest},
+          active_policy_version = ${fields.activePolicyVersion},
+          binding_root = ${fields.bindingRoot},
+          common_root = ${fields.commonRoot},
+          logical_bytes = ${fields.logicalBytes},
+          logical_files = ${fields.logicalFiles},
+          manifest_sha256 = ${fields.manifestSha256},
+          protected_files = ${transaction.json(fields.protectedFiles ?? [])},
+          protected_source_root = ${fields.protectedSourceRoot},
+          protection_policy_digest = ${fields.protectionPolicyDigest},
+          protection_policy_id = ${fields.protectionPolicyId},
+          vpm_dependencies = ${transaction.json(fields.vpmDependencies)},
+          vpm_repositories = ${transaction.json(fields.vpmRepositories)},
+          updated_at = clock_timestamp()
+        WHERE id = ${versionId}
+          AND state = 'READY'
+          AND release_schema_version = 3
+        RETURNING *
+      `;
+      const updated = updatedRows[0];
+      if (!updated) {
+        throw new CatalogInvariantError('Legacy release migration ownership changed');
+      }
+      await transaction`
+        INSERT INTO catalog_outbox (id, aggregate_id, event_type, payload)
+        VALUES (
+          ${randomUUID()},
+          ${versionId},
+          ${options.event.type},
+          ${transaction.json(eventPayload(options.event, updated, 'READY', 'READY'))}
+        )
+      `;
+      return toPackageVersion(updated);
+    });
+  }
+
+  async resolveReadyVersion(input: {
+    editionId: string;
+    packageId: string;
+    releaseRoot: string;
+  }): Promise<PackageVersion | null> {
+    const rows = await this.sql<PackageVersionRow[]>`
+      SELECT *
+      FROM package_versions
+      WHERE package_id = ${input.packageId}
+        AND edition_id = ${input.editionId}
+        AND release_root = ${input.releaseRoot}
+        AND state = 'READY'
+        AND deleted_at IS NULL
+      ORDER BY created_at DESC, id DESC
+      LIMIT 2
+    `;
+    if (rows.length > 1) {
+      throw new CatalogInvariantError('Release root resolves to multiple ready package versions');
+    }
+    return rows[0] ? toPackageVersion(rows[0]) : null;
+  }
+
+  async resolveInstalledVersion(input: {
+    editionId: string;
+    packageId: string;
+    releaseRoot: string;
+  }): Promise<PackageVersion | null> {
+    const rows = await this.sql<PackageVersionRow[]>`
+      SELECT *
+      FROM package_versions
+      WHERE package_id = ${input.packageId}
+        AND edition_id = ${input.editionId}
+        AND release_root = ${input.releaseRoot}
+        AND state IN ('READY', 'DELETED')
+        AND release_schema_version = 4
+      ORDER BY created_at DESC, id DESC
+      LIMIT 2
+    `;
+    if (rows.length > 1) {
+      throw new CatalogInvariantError(
+        'Release root resolves to multiple installed package versions'
+      );
+    }
+    return rows[0] ? toPackageVersion(rows[0]) : null;
+  }
+
+  async listVersions(
+    packageId: string,
+    options: { editionId?: string; includeDeleted?: boolean } = {}
+  ): Promise<PackageVersion[]> {
+    let rows: PackageVersionRow[];
+    if (options.editionId) {
+      rows = options.includeDeleted
+        ? await this.sql<PackageVersionRow[]>`
+            SELECT *
+            FROM package_versions
+            WHERE package_id = ${packageId} AND edition_id = ${options.editionId}
+            ORDER BY created_at, id
+          `
+        : await this.sql<PackageVersionRow[]>`
+            SELECT *
+            FROM package_versions
+            WHERE package_id = ${packageId}
+              AND edition_id = ${options.editionId}
+              AND state <> 'DELETED'
+            ORDER BY created_at, id
+          `;
+    } else {
+      rows = options.includeDeleted
+        ? await this.sql<PackageVersionRow[]>`
+          SELECT *
+          FROM package_versions
+          WHERE package_id = ${packageId}
+          ORDER BY created_at, id
+        `
+        : await this.sql<PackageVersionRow[]>`
+          SELECT *
+          FROM package_versions
+          WHERE package_id = ${packageId} AND state <> 'DELETED'
+          ORDER BY created_at, id
+        `;
+    }
+    return rows.map(toPackageVersion);
+  }
+
+  async listVersionsPage(
+    packageId: string,
+    options: {
+      cursor?: PackageVersionPageCursor;
+      editionId: string;
+      limit: number;
+    }
+  ): Promise<PackageVersionPage> {
+    if (
+      !packageId.trim() ||
+      packageId !== packageId.trim() ||
+      Buffer.byteLength(packageId, 'utf8') > 256 ||
+      !options.editionId.trim() ||
+      options.editionId !== options.editionId.trim() ||
+      Buffer.byteLength(options.editionId, 'utf8') > 64 ||
+      !Number.isSafeInteger(options.limit) ||
+      options.limit < 1 ||
+      options.limit > 100
+    ) {
+      throw new CatalogInvariantError('Package version page request is invalid');
+    }
+    if (
+      options.cursor &&
+      (!(options.cursor.createdAt instanceof Date) ||
+        !Number.isFinite(options.cursor.createdAt.getTime()) ||
+        !options.cursor.versionId.trim() ||
+        options.cursor.versionId !== options.cursor.versionId.trim() ||
+        Buffer.byteLength(options.cursor.versionId, 'utf8') > 128)
+    ) {
+      throw new CatalogInvariantError('Package version page cursor is invalid');
+    }
+
+    const rowLimit = options.limit + 1;
+    const rows = options.cursor
+      ? await this.sql<PackageVersionRow[]>`
+          SELECT *
+          FROM package_versions
+          WHERE package_id = ${packageId}
+            AND edition_id = ${options.editionId}
+            AND state <> 'DELETED'
+            AND (created_at, id) < (${options.cursor.createdAt}, ${options.cursor.versionId})
+          ORDER BY created_at DESC, id DESC
+          LIMIT ${rowLimit}
+        `
+      : await this.sql<PackageVersionRow[]>`
+          SELECT *
+          FROM package_versions
+          WHERE package_id = ${packageId}
+            AND edition_id = ${options.editionId}
+            AND state <> 'DELETED'
+          ORDER BY created_at DESC, id DESC
+          LIMIT ${rowLimit}
+        `;
+    const hasMore = rows.length > options.limit;
+    const pageRows = rows.slice(0, options.limit);
+    const last = pageRows.at(-1);
+    return {
+      data: pageRows.map(toPackageVersion),
+      hasMore,
+      nextCursor:
+        hasMore && last
+          ? {
+              createdAt: last.created_at,
+              versionId: last.id,
+            }
+          : null,
+    };
   }
 
   async heartbeatVersion(versionId: string, state: LiveCatalogState): Promise<boolean> {
@@ -297,10 +969,30 @@ export class Catalog {
         UPDATE package_versions
         SET
           state = ${targetState},
-          format_tag = ${fields.formatTag},
-          canonical_sha256 = ${fields.canonicalSha256},
-          cas_index_id = ${fields.casIndexId},
+          source_format = ${fields.sourceFormat},
+          release_root = ${fields.releaseRoot},
+          assembly_object_id = ${fields.assemblyObjectId},
+          active_content_digest = ${fields.activeContentDigest},
+          active_policy_version = ${fields.activePolicyVersion},
+          binding_root = ${fields.bindingRoot},
+          common_root = ${fields.commonRoot},
+          logical_bytes = ${fields.logicalBytes},
+          logical_files = ${fields.logicalFiles},
+          manifest_sha256 = ${fields.manifestSha256},
+          protected_files = ${
+            fields.protectedFiles === null ? null : transaction.json(fields.protectedFiles)
+          },
+          protected_source_root = ${fields.protectedSourceRoot},
+          protection_policy_digest = ${fields.protectionPolicyDigest},
+          protection_policy_id = ${fields.protectionPolicyId},
+          vpm_dependencies = ${transaction.json(fields.vpmDependencies)},
+          vpm_repositories = ${transaction.json(fields.vpmRepositories)},
           error = ${fields.error},
+          deleted_at = CASE
+            WHEN ${targetState === 'DELETED'} THEN clock_timestamp()
+            ELSE NULL
+          END,
+          deletion_reason = ${fields.deletionReason},
           attempts = ${nextAttempts},
           next_attempt_at = CASE
             WHEN ${enteringFailed}
@@ -331,7 +1023,7 @@ export class Catalog {
 
   async advanceVersion(
     versionId: string,
-    targetState: Exclude<CatalogState, 'CREATED' | 'FAILED'>,
+    targetState: Exclude<CatalogState, 'CREATED' | 'FAILED' | 'DELETED'>,
     options: TransitionOptions
   ): Promise<PackageVersion> {
     return this.transition(versionId, targetState, options);
@@ -343,6 +1035,134 @@ export class Catalog {
     event: CatalogEvent = { type: 'catalog.version.failed' }
   ): Promise<PackageVersion> {
     return this.transition(versionId, 'FAILED', { fields: { error }, event });
+  }
+
+  async deleteVersion(
+    versionId: string,
+    input: {
+      editionId: string;
+      packageId: string;
+      reason: string;
+      event?: CatalogEvent;
+    }
+  ): Promise<PackageVersion> {
+    const reason = deletionReason(input.reason);
+    const event = input.event ?? {
+      type: 'catalog.version.deleted',
+      payload: { reason },
+    };
+    return await this.sql.begin(async (transaction) => {
+      const currentRows = await transaction<PackageVersionRow[]>`
+        SELECT *
+        FROM package_versions
+        WHERE id = ${versionId}
+          AND package_id = ${input.packageId}
+          AND edition_id = ${input.editionId}
+        FOR UPDATE
+      `;
+      const current = currentRows[0];
+      if (!current) {
+        throw new PackageVersionNotFoundError(versionId);
+      }
+      if (current.state === 'DELETED') {
+        return toPackageVersion(current);
+      }
+      if (!(allowedTransitions[current.state] as readonly CatalogState[]).includes('DELETED')) {
+        throw new IllegalCatalogTransitionError(versionId, current.state, 'DELETED');
+      }
+
+      const updatedRows = await transaction<PackageVersionRow[]>`
+        UPDATE package_versions
+        SET
+          state = 'DELETED',
+          deleted_at = clock_timestamp(),
+          deletion_reason = ${reason},
+          updated_at = clock_timestamp()
+        WHERE id = ${versionId}
+          AND package_id = ${input.packageId}
+          AND edition_id = ${input.editionId}
+        RETURNING *
+      `;
+      const updated = updatedRows[0];
+      if (!updated) {
+        throw new Error('PostgreSQL did not return the deleted package version');
+      }
+      await transaction`
+        INSERT INTO catalog_outbox (id, aggregate_id, event_type, payload)
+        VALUES (
+          ${randomUUID()},
+          ${versionId},
+          ${event.type},
+          ${transaction.json(eventPayload(event, updated, current.state, 'DELETED'))}
+        )
+      `;
+      return toPackageVersion(updated);
+    });
+  }
+
+  async deletePackageVersions(
+    packageId: string,
+    input: { reason: string }
+  ): Promise<PackageVersion[]> {
+    const reason = deletionReason(input.reason);
+    const result = await this.sql.begin(async (transaction) => {
+      const rows = await transaction<PackageVersionRow[]>`
+        SELECT *
+        FROM package_versions
+        WHERE package_id = ${packageId}
+        ORDER BY created_at, id
+        FOR UPDATE
+      `;
+      const activeRows = rows.filter((row) => row.state !== 'DELETED');
+      const blocked = activeRows.find(
+        (row) => !(allowedTransitions[row.state] as readonly CatalogState[]).includes('DELETED')
+      );
+      if (blocked) {
+        return {
+          blocked: {
+            id: blocked.id,
+            state: blocked.state,
+          },
+          deleted: [] as PackageVersion[],
+        };
+      }
+      const deleted: PackageVersion[] = [];
+      for (const current of activeRows) {
+        const updatedRows = await transaction<PackageVersionRow[]>`
+          UPDATE package_versions
+          SET
+            state = 'DELETED',
+            deleted_at = clock_timestamp(),
+            deletion_reason = ${reason},
+            updated_at = clock_timestamp()
+          WHERE id = ${current.id}
+          RETURNING *
+        `;
+        const updated = updatedRows[0];
+        if (!updated) {
+          throw new Error('PostgreSQL did not return a deleted package version');
+        }
+        const event = {
+          type: 'catalog.version.deleted',
+          payload: { reason },
+        };
+        await transaction`
+          INSERT INTO catalog_outbox (id, aggregate_id, event_type, payload)
+          VALUES (
+            ${randomUUID()},
+            ${updated.id},
+            ${event.type},
+            ${transaction.json(eventPayload(event, updated, current.state, 'DELETED'))}
+          )
+        `;
+        deleted.push(toPackageVersion(updated));
+      }
+      return { blocked: null, deleted };
+    });
+    if (result.blocked) {
+      throw new IllegalCatalogTransitionError(result.blocked.id, result.blocked.state, 'DELETED');
+    }
+    return result.deleted;
   }
 }
 

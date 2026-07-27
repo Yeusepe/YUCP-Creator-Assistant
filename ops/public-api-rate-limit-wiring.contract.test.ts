@@ -7,7 +7,7 @@ function readApiEntrypoint(): string {
 }
 
 describe('public API rate-limit wiring', () => {
-  test('rate limits upload authorization and buyer downloads before dispatch', () => {
+  test('rate limits upload authorization and VPM access before dispatch', () => {
     const source = readApiEntrypoint();
     const uploadLimiterIndex = source.indexOf(
       "if (pathname.startsWith('/api/creator/uploads/authorize'))"
@@ -15,17 +15,18 @@ describe('public API rate-limit wiring', () => {
     const uploadDispatchIndex = source.indexOf(
       "if (pathname === '/api/creator/uploads/authorize' && creatorUploadRoutes)"
     );
-    const downloadLimiterIndex = source.indexOf("if (pathname.startsWith('/api/access/'))");
-    const downloadDispatchIndex = source.indexOf(
-      'const buyerDownloadMatch = pathname.match(/^\\/api\\/access\\/([^/]+)\\/download$/);'
-    );
+    const vpmLimiterIndex = source.indexOf("if (pathname.startsWith('/api/vpm/'))");
+    const vpmDispatchIndex = source.indexOf('const creatorVpmIndexMatch =');
 
     expect(uploadLimiterIndex).toBeGreaterThan(-1);
     expect(uploadDispatchIndex).toBeGreaterThan(uploadLimiterIndex);
-    expect(source).toContain("isRateLimited(`creator-upload-authorize:${clientAddress}`, 30, 60_000)");
-    expect(downloadLimiterIndex).toBeGreaterThan(-1);
-    expect(downloadDispatchIndex).toBeGreaterThan(downloadLimiterIndex);
-    expect(source).toContain("isRateLimited(`buyer-download:${clientAddress}`, 120, 60_000)");
+    expect(source).toContain(
+      'isRateLimited(`creator-upload-authorize:${clientAddress}`, 30, 60_000)'
+    );
+    expect(vpmLimiterIndex).toBeGreaterThan(-1);
+    expect(vpmDispatchIndex).toBeGreaterThan(vpmLimiterIndex);
+    expect(source).toContain('isRateLimited(`vpm:${clientAddress}`, 120, 60_000)');
+    expect(source).not.toContain("pathname.startsWith('/api/access/')");
   });
 
   test('checks public API requests before dispatching v1 or v2 handlers', () => {

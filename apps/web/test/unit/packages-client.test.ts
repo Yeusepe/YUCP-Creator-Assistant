@@ -93,7 +93,7 @@ describe('creator package client pagination', () => {
     ]);
   });
 
-  it('keeps distinct products with identical display names in separate picker entries', async () => {
+  it('keeps matching cross-store products separate until explicit association', async () => {
     const sharedFields = {
       aliases: ['Shared display label'],
       catalogTiers: [],
@@ -136,9 +136,49 @@ describe('creator package client pagination', () => {
       'catalog:catalog_product_distinct_a',
       'catalog:catalog_product_distinct_b',
     ]);
-    expect(pickerProducts.map((entry) => entry.products[0]?._id)).toEqual([
-      'catalog_product_distinct_a',
-      'catalog_product_distinct_b',
+  });
+
+  it('does not merge two products from the same provider by display name', async () => {
+    const sharedFields = {
+      aliases: ['Shared display label'],
+      catalogTiers: [],
+      displayName: 'Shared display label',
+      provider: 'gumroad',
+      status: 'active' as const,
+      supportsAutoDiscovery: true,
+      createdAt: 1,
+      updatedAt: 2,
+      canArchive: true,
+      canRestore: false,
+      canDelete: true,
+    };
+    apiClientGetMock.mockResolvedValueOnce({
+      data: [
+        {
+          ...sharedFields,
+          _id: 'catalog_product_same_provider_a',
+          canonicalSlug: 'first-product',
+          productId: 'first-product',
+          providerProductRef: 'gumroad-first-ref',
+        },
+        {
+          ...sharedFields,
+          _id: 'catalog_product_same_provider_b',
+          canonicalSlug: 'second-product',
+          productId: 'second-product',
+          providerProductRef: 'gumroad-second-ref',
+        },
+      ],
+      hasMore: false,
+      nextCursor: null,
+    });
+
+    const pickerProducts = await listCreatorPackagePickerProducts();
+
+    expect(pickerProducts).toHaveLength(2);
+    expect(pickerProducts.map((entry) => entry.identityKey)).toEqual([
+      'catalog:catalog_product_same_provider_a',
+      'catalog:catalog_product_same_provider_b',
     ]);
   });
 

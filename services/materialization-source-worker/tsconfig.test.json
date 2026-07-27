@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "types": ["node", "bun"]
+  },
+  "include": [
+    "./worker-test-runtime.d.ts",
+    "./materializationSourceWorker.test.ts",
+    "./testDevServer.ts",
+    "./src/**/*.ts",
+    "../../ops/testing/**/*.ts"
+  ]
+}

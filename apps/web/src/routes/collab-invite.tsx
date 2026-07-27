@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import confetti from 'canvas-confetti';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { Icon } from '@/components/ui/Icon';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 import { copyToClipboard } from '@/lib/utils';
 
@@ -620,20 +621,7 @@ function CollabInvitePage() {
             className="fixed top-6 left-6 z-[100] inline-flex items-center gap-2 px-4 py-2 bg-black/40 backdrop-blur-xl border border-white/10 rounded-xl text-[rgba(255,255,255,0.8)] hover:text-white hover:bg-white/10 transition-all font-bold text-sm shadow-xl"
             style={{ textDecoration: 'none' }}
           >
-            <svg
-              aria-hidden="true"
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M19 12H5M12 19l-7-7 7-7" />
-            </svg>
+            <Icon name="arrowLeft" size={16} />
             Back to Dashboard
           </a>
         )}
@@ -670,18 +658,18 @@ function CollabInvitePage() {
                 <h3>What this grants access to:</h3>
                 <ul>
                   <li>
-                    <img src="/Icons/Checkmark.png" width="16" height="16" alt="" />
+                    <Icon name="check" size={16} />
                     <span>{providerUI.consentDescription}</span>
                   </li>
                   <li>
-                    <img src="/Icons/Checkmark.png" width="16" height="16" alt="" />
+                    <Icon name="check" size={16} />
                     <span>
                       The Assistant will only check if a license key is valid. No personal data is
                       stored beyond your Discord&reg; ID
                     </span>
                   </li>
                   <li>
-                    <img src="/Icons/Checkmark.png" width="16" height="16" alt="" />
+                    <Icon name="check" size={16} />
                     <span>You can revoke access at any time by contacting the server owner</span>
                   </li>
                 </ul>
@@ -744,16 +732,10 @@ function CollabInvitePage() {
                     onClick={() => selectType('account')}
                   >
                     <div className="flex items-start gap-3">
-                      <img
-                        src="/Icons/Link.png"
-                        width="20"
-                        height="20"
-                        alt=""
-                        style={{
-                          marginTop: '2px',
-                          flexShrink: 0,
-                          opacity: 0.85,
-                        }}
+                      <Icon
+                        name="link"
+                        size={20}
+                        style={{ marginTop: '2px', flexShrink: 0, opacity: 0.85 }}
                       />
                       <div>
                         <h3 className="font-heading font-semibold">
@@ -788,16 +770,10 @@ function CollabInvitePage() {
                   onClick={() => selectType('api')}
                 >
                   <div className="flex items-start gap-3">
-                    <img
-                      src="/Icons/Key.png"
-                      width="20"
-                      height="20"
-                      alt=""
-                      style={{
-                        marginTop: '2px',
-                        flexShrink: 0,
-                        opacity: 0.85,
-                      }}
+                    <Icon
+                      name="key"
+                      size={20}
+                      style={{ marginTop: '2px', flexShrink: 0, opacity: 0.85 }}
                     />
                     <div>
                       <h3 className="font-heading font-semibold">API Linking</h3>
@@ -831,13 +807,7 @@ function CollabInvitePage() {
               {/* Header: title + step counter */}
               <div className="flex justify-between items-center mb-4">
                 <div className="flex items-center gap-2">
-                  <img
-                    src="/Icons/Link.png"
-                    width="16"
-                    height="16"
-                    alt=""
-                    style={{ opacity: 0.7 }}
-                  />
+                  <Icon name="link" size={16} style={{ opacity: 0.7 }} />
                   <span
                     className="text-sm font-semibold"
                     style={{ color: 'rgba(255,255,255,0.5)' }}
@@ -1278,16 +1248,7 @@ function CollabInvitePage() {
                             flexShrink: 0,
                           }}
                         >
-                          <svg aria-hidden="true" width="8" height="6" viewBox="0 0 8 6">
-                            <polyline
-                              points="1,3 3,5 7,1"
-                              stroke="white"
-                              strokeWidth="1.5"
-                              fill="none"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
+                          <Icon name="check" size={8} className="text-white" />
                         </div>
                         <span
                           style={{
@@ -1456,7 +1417,7 @@ function CollabInvitePage() {
                     <div className="flex flex-col items-center gap-2">
                       {testWebhookReceived ? (
                         <>
-                          <img src="/Icons/Checkmark.png" width="32" height="32" alt="" />
+                          <Icon name="success" size={32} />
                           <span
                             style={{
                               fontSize: '13px',
@@ -1469,13 +1430,7 @@ function CollabInvitePage() {
                         </>
                       ) : testWebhookTimedOut ? (
                         <>
-                          <img
-                            src="/Icons/Timer.png"
-                            width="28"
-                            height="28"
-                            alt=""
-                            style={{ opacity: 0.6 }}
-                          />
+                          <Icon name="clock" size={28} style={{ opacity: 0.6 }} />
                           <span
                             style={{
                               fontSize: '12px',
@@ -1621,13 +1576,7 @@ function CollabInvitePage() {
                           gap: '5px',
                         }}
                       >
-                        <img
-                          src="/Icons/Key.png"
-                          width="10"
-                          height="10"
-                          alt=""
-                          style={{ flexShrink: 0, opacity: 0.8 }}
-                        />
+                        <Icon name="key" size={10} style={{ flexShrink: 0, opacity: 0.8 }} />
                         <div
                           style={{
                             height: '7px',
@@ -1829,13 +1778,7 @@ function CollabInvitePage() {
                       gap: '5px',
                     }}
                   >
-                    <img
-                      src="/Icons/Key.png"
-                      width="10"
-                      height="10"
-                      alt=""
-                      style={{ flexShrink: 0, opacity: 0.8 }}
-                    />
+                    <Icon name="key" size={10} style={{ flexShrink: 0, opacity: 0.8 }} />
                     <div
                       style={{
                         height: '7px',
@@ -1934,7 +1877,7 @@ function CollabInvitePage() {
           {activeStage === 'stage-success' && (
             <div className="ci-card fade-in text-center">
               <div className="check-circle">
-                <img src="/Icons/Checkmark.png" width="28" height="28" alt="" />
+                <Icon name="success" size={28} />
               </div>
               <h2 className="text-2xl font-heading font-bold mb-3">You're connected!</h2>
               <p className="mb-6" style={{ color: 'var(--text-secondary)' }}>
@@ -1950,7 +1893,7 @@ function CollabInvitePage() {
           {activeStage === 'stage-error' && (
             <div className="ci-card fade-in text-center">
               <div className="ci-error-circle">
-                <img src="/Icons/X.png" width="28" height="28" alt="" />
+                <Icon name="close" size={28} />
               </div>
               <h2 className="text-xl font-heading font-bold mb-3">{errorTitle}</h2>
               <p style={{ color: 'var(--text-secondary)' }}>{errorMessage}</p>

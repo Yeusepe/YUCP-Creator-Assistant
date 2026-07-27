@@ -1,4 +1,5 @@
 import type { Auth, SessionData } from '../../../api/src/auth';
+import { createMaterializationControlClient } from '../../../api/src/lib/materializationControlClient';
 import { startFakeConvexServer } from '../../../api/test/helpers/fakeConvex';
 import { startTestServer } from '../../../api/test/helpers/testServer';
 
@@ -6,10 +7,12 @@ const TEST_AUTH_USER_ID = 'user-forensics-e2e';
 const TEST_PACKAGE_ID = 'novaspil-kitbash-test';
 const TEST_INTERNAL_SECRET = 'test-internal-rpc-secret-32-chars!!';
 const TEST_COUPLING_SECRET = 'test-coupling-secret';
+const TEST_MATERIALIZATION_SECRET = 'test-materialization-shared-secret';
 const AUTH_PORT = 3210;
 const API_PORT = 3211;
 const COUPLING_PORT = 3212;
 const CONVEX_PORT = 3213;
+const MATERIALIZATION_PORT = 3214;
 
 const refs = {
   ensureCatalogFresh: 'certificateBillingSync:ensureCatalogFresh',
@@ -18,8 +21,8 @@ const refs = {
   getConnectionStatus: 'providerConnections:getConnectionStatus',
   getUserGuilds: 'guildLinks:getUserGuilds',
   listConnectionsForUser: 'providerConnections:listConnectionsForUser',
-  listCouplingTraceCandidatesForAuthUser:
-    'couplingForensics:listCouplingTraceCandidatesForAuthUser',
+  authorizeCouplingForensicsLookupForAuthUser:
+    'couplingForensics:authorizeCouplingForensicsLookupForAuthUser',
   listOwnedPackageSummariesForAuthUser: 'couplingForensics:listOwnedPackageSummariesForAuthUser',
   recordLookupAudit: 'couplingForensics:recordLookupAudit',
 } as const;
@@ -92,7 +95,10 @@ const couplingServer = Bun.serve({
   async fetch(request) {
     const url = new URL(request.url);
 
-    if (url.pathname !== '/v1/coupling/attribute' || request.method !== 'POST') {
+    if (
+      url.pathname !== '/v2/internal/coupling/attribution/evaluate' ||
+      request.method !== 'POST'
+    ) {
       return new Response('Not found', { status: 404 });
     }
 
@@ -102,7 +108,12 @@ const couplingServer = Bun.serve({
 
     const payload = (await request.json()) as {
       assets?: Array<{ assetPath?: string; assetType?: string; contentBase64?: string }>;
-      candidates?: Array<{ assetPath?: string; licenseSubject?: string; tokenHash?: string }>;
+      candidates?: Array<{
+        attributionId?: string;
+        attributionTokenHash?: string;
+        normalizedPath?: string;
+      }>;
+      schemaVersion?: number;
     };
     const assets = Array.isArray(payload.assets) ? payload.assets : [];
     const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
@@ -112,9 +123,9 @@ const couplingServer = Bun.serve({
     );
     const hasInvalidCandidate = candidates.some(
       (candidate) =>
-        !hasText(candidate.assetPath) ||
-        !hasText(candidate.licenseSubject) ||
-        !hasText(candidate.tokenHash)
+        !hasText(candidate.attributionId) ||
+        !hasText(candidate.attributionTokenHash) ||
+        !hasText(candidate.normalizedPath)
     );
 
     if (assets.length === 0 || candidates.length === 0 || hasInvalidAsset || hasInvalidCandidate) {
@@ -122,12 +133,54 @@ const couplingServer = Bun.serve({
     }
 
     return Response.json({
-      requestId: 'forensics-e2e-attribution',
       results: assets.map((asset) => ({
         assetPath: asset.assetPath ?? '',
         assetType: asset.assetType ?? 'fbx',
         matched: false,
       })),
+      schemaVersion: 2,
+    });
+  },
+});
+
+const materializationServer = Bun.serve({
+  port: MATERIALIZATION_PORT,
+  async fetch(request) {
+    const url = new URL(request.url);
+    if (
+      url.pathname !== '/v2/internal/materialization-attribution/candidates' ||
+      request.method !== 'POST'
+    ) {
+      return new Response('Not found', { status: 404 });
+    }
+    if (request.headers.get('authorization') !== `Bearer ${TEST_MATERIALIZATION_SECRET}`) {
+      return Response.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    const body = (await request.json()) as { candidateLimit?: number };
+    return Response.json({
+      candidateLimit: body.candidateLimit ?? 512,
+      candidates: [
+        {
+          algorithmVersion: 'fbx-coupling-v2',
+          attributionId: 'forensics-e2e-attribution',
+          attributionTokenHash: 'b'.repeat(64),
+          buyerSubjectPseudonym: Buffer.alloc(32, 0x77).toString('base64url'),
+          capabilityId: 'forensics-e2e-capability',
+          createdAt: 2_000_000_000_000,
+          creatorId: TEST_AUTH_USER_ID,
+          jobId: 'forensics-e2e-job',
+          keyEpoch: 1,
+          leaseGeneration: 1,
+          materializerType: 'fbx',
+          normalizedPath: 'Assets/Forensics/HarnessFixture.fbx',
+          outputFormat: 'zip',
+          pluginVersion: 'fbx-plugin-2',
+          protectedSourceRoot: '2'.repeat(64),
+          releaseRoot: '3'.repeat(64),
+          sourceSha256: '4'.repeat(64),
+        },
+      ],
+      truncated: false,
     });
   },
 });
@@ -188,18 +241,9 @@ const convex = startFakeConvexServer({
         },
       ],
     }),
-    [refs.listCouplingTraceCandidatesForAuthUser]: () => ({
+    [refs.authorizeCouplingForensicsLookupForAuthUser]: () => ({
       capabilityEnabled: true,
       packageOwned: true,
-      truncated: false,
-      candidateLimit: 512,
-      candidates: [
-        {
-          assetPath: 'Assets/Forensics/HarnessFixture.fbx',
-          licenseSubject: 'a'.repeat(64),
-          tokenHash: 'b'.repeat(64),
-        },
-      ],
     }),
   },
   mutation: {
@@ -220,6 +264,10 @@ const apiServer = await startTestServer({
   convexApiSecret: 'test-api-secret-min-32-characters!!',
   couplingServiceBaseUrl: `http://127.0.0.1:${COUPLING_PORT}`,
   couplingServiceSharedSecret: TEST_COUPLING_SECRET,
+  materializationControl: createMaterializationControlClient({
+    baseUrl: `http://127.0.0.1:${MATERIALIZATION_PORT}`,
+    sharedSecret: TEST_MATERIALIZATION_SECRET,
+  }),
   baseUrl: `http://127.0.0.1:${API_PORT}`,
   frontendUrl: 'http://localhost:3100',
 });
@@ -229,6 +277,7 @@ function shutdown(exitCode = 0) {
   convex.stop();
   authServer.stop(true);
   couplingServer.stop(true);
+  materializationServer.stop(true);
   process.exit(exitCode);
 }
 

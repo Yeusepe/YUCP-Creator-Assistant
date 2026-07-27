@@ -17,7 +17,7 @@ const ViewerValue = v.object({
 });
 
 interface DiscordAccountRecord {
-  accountId?: string;
+  providerAccountId?: string;
 }
 
 interface BetterAuthUserRecord {
@@ -64,9 +64,9 @@ async function resolveDiscordUserId(ctx: QueryCtx, authUserId: string): Promise<
     const discordAccount = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
       model: 'account',
       where: buildBetterAuthUserProviderLookupWhere(authUserId, 'discord'),
-      select: ['accountId'],
+      select: ['providerAccountId'],
     })) as DiscordAccountRecord | null;
-    return discordAccount?.accountId ?? null;
+    return discordAccount?.providerAccountId ?? null;
   } catch (error) {
     console.error('[convex] authViewer discord lookup failed', {
       phase: 'convex-authviewer-discord-lookup',
@@ -199,8 +199,8 @@ export const getDiscordUserIdByAuthUser = query({
     const record = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
       model: 'account',
       where: buildBetterAuthUserProviderLookupWhere(args.authUserId, 'discord'),
-      select: ['accountId'],
+      select: ['providerAccountId'],
     })) as DiscordAccountRecord | null;
-    return record?.accountId ?? null;
+    return record?.providerAccountId ?? null;
   },
 });

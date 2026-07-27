@@ -5,7 +5,7 @@
  * redirect:'manual' and passes 3xx responses straight through to TanStack Start.
  * When the browser's fetch() (default redirect:'follow') receives a 302 from
  * POST /api/auth/oauth2/consent, it follows the entire redirect chain silently
- * (Convex callback → Unity loopback server). The consent page never sees the
+ * (Better Auth to the Unity loopback server). The consent page never sees the
  * redirect target and falls back to window.location.reload(), creating the loop.
  *
  * The fix: POST redirect responses must be converted to JSON { redirectTo } so
@@ -18,8 +18,7 @@ import { convertPostRedirectToJson } from '@/lib/auth-server';
 
 describe('convertPostRedirectToJson', () => {
   it('converts a POST 302 response to JSON { redirectTo }', async () => {
-    const callbackUrl =
-      'https://rare-squid-409.convex.site/api/yucp/oauth/callback?code=abc123&state=WaqyXx3I';
+    const callbackUrl = 'http://127.0.0.1:49152/callback?code=abc123&state=WaqyXx3I';
     const redirect302 = new Response(null, {
       status: 302,
       headers: { location: callbackUrl },

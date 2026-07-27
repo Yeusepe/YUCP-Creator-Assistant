@@ -8,7 +8,7 @@ import {
 
 describe('releaseArtifactEnvelope', () => {
   it('round-trips encrypted artifact bytes', async () => {
-    const plaintext = new TextEncoder().encode('coupling-runtime-binary');
+    const plaintext = new TextEncoder().encode('signed-metadata');
     const key = await deriveEnvelopeKeyBytes('test-secret', 'artifact|stable|win-x64|1.0.0');
     const encrypted = await encryptArtifactEnvelope(plaintext, key);
     const decrypted = await decryptArtifactEnvelope(encrypted.ciphertext, key, encrypted.ivBase64);

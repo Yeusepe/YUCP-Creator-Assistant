@@ -1,7 +1,13 @@
+import type { DpopReplayStore } from 'better-auth/oauth2';
+
 export interface VerifiedOAuthAccessToken {
   grantedScopes: string[];
   scope?: string;
   sub: string;
+}
+
+export interface VerifiedOAuthAccessRequest extends VerifiedOAuthAccessToken {
+  deviceKeyThumbprint: string;
 }
 
 interface LoggerLike {
@@ -9,7 +15,7 @@ interface LoggerLike {
   warn(message: string, metadata?: Record<string, unknown>): void;
 }
 
-interface VerifyOAuthAccessTokenOptions {
+export interface VerifyOAuthAccessTokenOptions {
   audience: string;
   convexSiteUrl: string;
   logger?: LoggerLike;
@@ -17,8 +23,17 @@ interface VerifyOAuthAccessTokenOptions {
   requiredScopes?: string[];
 }
 
+export interface VerifyOAuthAccessRequestOptions extends VerifyOAuthAccessTokenOptions {
+  dpopReplayStore: DpopReplayStore;
+  requiredAuthorizedParty?: string;
+}
+
 export type VerifyOAuthAccessTokenResult =
   | { ok: true; token: VerifiedOAuthAccessToken }
+  | { ok: false; reason: 'invalid' | 'insufficient_scope' };
+
+export type VerifyOAuthAccessRequestResult =
+  | { ok: true; token: VerifiedOAuthAccessRequest }
   | { ok: false; reason: 'invalid' | 'insufficient_scope' };
 
 const EXPECTED_VERIFICATION_ERROR_NAMES = new Set([
@@ -56,9 +71,11 @@ export async function verifyBetterAuthAccessToken(
   options: VerifyOAuthAccessTokenOptions
 ): Promise<VerifyOAuthAccessTokenResult> {
   try {
-    const { verifyAccessToken } = await import('better-auth/oauth2');
+    // Better Auth 1.7 verifier migration:
+    // https://better-auth.com/docs/guides/1-7-upgrade-guide#dpop-renames-the-token-verifier
+    const { verifyBearerToken } = await import('better-auth/oauth2');
     const authBase = `${options.convexSiteUrl.replace(/\/$/, '')}/api/auth`;
-    const verified = await verifyAccessToken(token, {
+    const verified = await verifyBearerToken(token, {
       verifyOptions: {
         issuer: authBase,
         audience: options.audience,
@@ -100,6 +117,87 @@ export async function verifyBetterAuthAccessToken(
       options.logger?.warn(logMessage, metadata);
     }
 
+    return { ok: false, reason: 'invalid' };
+  }
+}
+
+export async function verifyBetterAuthAccessRequest(
+  request: Request,
+  options: VerifyOAuthAccessRequestOptions
+): Promise<VerifyOAuthAccessRequestResult> {
+  try {
+    /**
+     * Better Auth recommends request-aware verification for DPoP-bound resources.
+     * https://better-auth.com/docs/plugins/oauth-provider#resource-server
+     *
+     * RFC 9449 binds the proof to method, URL, token hash, and the token key.
+     * https://www.rfc-editor.org/rfc/rfc9449#section-7.1
+     */
+    const { getDpopJktFromPayload, requestToResourceInput, verifyAccessTokenRequest } =
+      await import('better-auth/oauth2');
+    const authBase = `${options.convexSiteUrl.replace(/\/$/, '')}/api/auth`;
+    const verified = await verifyAccessTokenRequest(requestToResourceInput(request), {
+      verifyOptions: {
+        issuer: authBase,
+        audience: options.audience,
+      },
+      jwksUrl: `${authBase}/jwks`,
+      dpop: {
+        proofMaxAgeSeconds: 300,
+        replayStore: options.dpopReplayStore,
+        signingAlgorithms: ['ES256'],
+      },
+    });
+    const jkt = getDpopJktFromPayload(verified);
+    if (
+      !verified ||
+      typeof verified.sub !== 'string' ||
+      !jkt ||
+      (options.requiredAuthorizedParty &&
+        (verified as { azp?: unknown }).azp !== options.requiredAuthorizedParty)
+    ) {
+      return { ok: false, reason: 'invalid' };
+    }
+    let thumbprint: Buffer;
+    try {
+      thumbprint = Buffer.from(jkt, 'base64url');
+    } catch {
+      return { ok: false, reason: 'invalid' };
+    }
+    if (thumbprint.byteLength !== 32 || thumbprint.toString('base64url') !== jkt) {
+      return { ok: false, reason: 'invalid' };
+    }
+    const grantedScopes =
+      typeof (verified as { scope?: unknown }).scope === 'string'
+        ? (verified as { scope: string }).scope.split(/\s+/).filter(Boolean)
+        : [];
+    const scope =
+      typeof (verified as { scope?: unknown }).scope === 'string'
+        ? (verified as { scope: string }).scope
+        : undefined;
+    if (options.requiredScopes?.some((value) => !grantedScopes.includes(value)) ?? false) {
+      return { ok: false, reason: 'insufficient_scope' };
+    }
+    return {
+      ok: true,
+      token: {
+        deviceKeyThumbprint: thumbprint.toString('hex'),
+        grantedScopes,
+        scope,
+        sub: verified.sub,
+      },
+    };
+  } catch (error) {
+    const logMessage = options.logContext ?? 'OAuth access request verification failed';
+    const metadata = {
+      message: error instanceof Error ? error.message : String(error),
+      ...(error instanceof Error && error.name ? { name: error.name } : {}),
+    };
+    if (isExpectedVerificationFailure(error)) {
+      options.logger?.debug?.(logMessage, metadata);
+    } else {
+      options.logger?.warn(logMessage, metadata);
+    }
     return { ok: false, reason: 'invalid' };
   }
 }

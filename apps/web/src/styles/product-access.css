@@ -16,6 +16,22 @@
   gap: 1.5rem;
   padding: 1.75rem;
   color: #fff;
+  animation: vpa-card-enter 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.dark .vpa-card {
+  color: #fff;
+}
+
+@keyframes vpa-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @media (min-width: 640px) {
@@ -105,93 +121,38 @@
 /* === Progress steps === */
 
 .vpa-steps {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  list-style: none;
-  margin: 0;
-  padding: 0.25rem 0.4rem 0;
-}
-
-.vpa-step {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.65rem;
-  text-align: center;
-}
-
-/* Hairline connector to the previous step, vertically centered on the dots. */
-.vpa-step:not(:first-child)::before {
-  content: "";
-  position: absolute;
-  top: 0.875rem;
-  left: -50%;
+  --foreground: #fff;
+  --muted: rgba(255, 255, 255, 0.48);
+  --separator: rgba(255, 255, 255, 0.14);
+  --stepper-active-color: #70e2ff;
+  --stepper-complete-color: #70e2ff;
+  --stepper-complete-fg: #07151d;
+  --stepper-inactive-border: rgba(255, 255, 255, 0.2);
+  --stepper-inactive-fg: rgba(255, 255, 255, 0.48);
   width: 100%;
-  height: 2px;
-  transform: translateY(-50%);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
-  transition: background 0.3s ease;
+  margin-top: 0.15rem;
 }
 
-.vpa-step--complete::before,
-.vpa-step--active::before {
-  background: linear-gradient(90deg, rgba(37, 99, 235, 0.85), rgba(96, 165, 250, 0.9));
+.dark .vpa-steps {
+  --foreground: #fff;
+  --muted: rgba(255, 255, 255, 0.52);
+  --separator: rgba(255, 255, 255, 0.16);
+  --stepper-active-color: #70e2ff;
+  --stepper-complete-color: #70e2ff;
+  --stepper-complete-fg: #07151d;
+  --stepper-inactive-border: rgba(255, 255, 255, 0.22);
+  --stepper-inactive-fg: rgba(255, 255, 255, 0.52);
 }
 
-.vpa-step-dot {
-  position: relative;
-  z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 0.72rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  transition:
-    background 0.3s ease,
-    border-color 0.3s ease,
-    color 0.3s ease,
-    box-shadow 0.3s ease;
+.vpa-steps .stepper__step-button {
+  gap: 0.65rem;
 }
 
-.vpa-step--complete .vpa-step-dot {
-  border-color: transparent;
-  background: linear-gradient(180deg, rgba(59, 130, 246, 0.95), rgba(37, 99, 235, 0.98));
-  color: #fff;
-}
-
-.vpa-step--active .vpa-step-dot {
-  border-color: rgba(147, 197, 253, 0.55);
-  background: linear-gradient(180deg, rgba(59, 130, 246, 0.98), rgba(37, 99, 235, 1));
-  color: #fff;
-  box-shadow:
-    0 0 0 4px rgba(59, 130, 246, 0.16),
-    0 4px 14px rgba(37, 99, 235, 0.4);
-}
-
-.vpa-step-label {
-  font-size: 0.76rem;
-  font-weight: 500;
+.vpa-steps .stepper__title {
   letter-spacing: 0.01em;
-  line-height: 1.2;
-  color: rgba(255, 255, 255, 0.42);
-  transition: color 0.3s ease;
 }
 
-.vpa-step--complete .vpa-step-label {
-  color: rgba(255, 255, 255, 0.72);
-}
-
-.vpa-step--active .vpa-step-label {
-  color: #fff;
+.vpa-steps .stepper__step[data-status="active"] .stepper__title {
   font-weight: 700;
 }
 
@@ -406,10 +367,17 @@
   padding-top: 1.25rem;
 }
 
+.dark .vpa-manual {
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+
 .vpa-manual-toggle {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.4rem;
+  width: 100%;
+  min-height: 44px;
   border: 0;
   background: transparent;
   padding: 0;
@@ -421,7 +389,16 @@
   transition: color 0.18s ease;
 }
 
+.dark .vpa-manual-toggle {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.62);
+}
+
 .vpa-manual-toggle:hover {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.dark .vpa-manual-toggle:hover {
   color: rgba(255, 255, 255, 0.9);
 }
 
@@ -434,20 +411,24 @@
 }
 
 .vpa-manual-panel {
-  max-height: 0;
-  opacity: 0;
-  overflow: hidden;
-  transform: translateY(-4px);
+  display: grid;
+  grid-template-rows: 0fr;
   transition:
-    max-height 0.28s ease,
-    opacity 0.22s ease,
-    transform 0.22s ease;
+    grid-template-rows 0.28s cubic-bezier(0.25, 1, 0.5, 1),
+    opacity 0.2s ease;
+  opacity: 0;
 }
 
 .vpa-manual-panel.is-open {
-  max-height: 16rem;
+  grid-template-rows: 1fr;
   opacity: 1;
-  transform: translateY(0);
+}
+
+.vpa-manual-panel > div,
+.vpa-manual-panel > p,
+.vpa-manual-panel > button {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .vpa-manual-copy {
@@ -457,12 +438,24 @@
   line-height: 1.45;
 }
 
+.dark .vpa-manual-copy {
+  color: rgba(255, 255, 255, 0.6);
+}
+
 .vpa-repo-box {
-  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.5rem;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
   background: rgba(2, 6, 23, 0.45);
-  padding: 0.6rem 4.6rem 0.6rem 0.7rem;
+  padding: 0.6rem 0.7rem;
+}
+
+.dark .vpa-repo-box {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(2, 6, 23, 0.45);
 }
 
 .vpa-repo-url {
@@ -474,10 +467,11 @@
   word-break: break-all;
 }
 
+.dark .vpa-repo-url {
+  color: rgba(255, 255, 255, 0.82);
+}
+
 .vpa-repo-copy {
-  position: absolute;
-  top: 0.42rem;
-  right: 0.45rem;
   min-width: auto;
   padding: 0.28rem 0.58rem;
   border-radius: 8px;
@@ -521,8 +515,13 @@
     height: 3.25rem;
   }
 
-  .vpa-step-label {
-    font-size: 0.72rem;
+  .vpa-repo-box {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .vpa-repo-copy {
+    justify-self: stretch;
+    min-height: 44px;
   }
 }
 
@@ -530,10 +529,11 @@
   .vpa-manual-panel,
   .vpa-manual-toggle-icon,
   .vpa-manual-toggle,
-  .vpa-foot-link,
-  .vpa-step::before,
-  .vpa-step-dot,
-  .vpa-step-label {
+  .vpa-foot-link {
     transition: none;
+  }
+
+  .vpa-card {
+    animation: none;
   }
 }

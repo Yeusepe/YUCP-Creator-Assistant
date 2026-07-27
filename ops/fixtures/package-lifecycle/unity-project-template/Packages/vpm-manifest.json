@@ -1,0 +1,13 @@
+{
+	"dependencies": {
+		"com.vrchat.base": {
+			"version": "3.7.6"
+		},
+		"com.vrchat.avatars": {
+			"version": "3.7.6"
+		},
+		"com.vrchat.core.vpm-resolver": {
+			"version": "0.1.29"
+		}
+	}
+}

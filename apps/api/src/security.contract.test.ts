@@ -69,7 +69,6 @@ describe('security contracts', () => {
     expectInternalApiSecretGuard(apiKeysSource, 'listApiKeysForAuthUser', 'query');
     expectInternalApiSecretGuard(apiKeysSource, 'getApiKey', 'query');
     expectInternalApiSecretGuard(apiKeysSource, 'createApiKey', 'mutation');
-    expectInternalApiSecretGuard(apiKeysSource, 'backfillApiKeyReferenceIds', 'mutation');
     expectInternalApiSecretGuard(apiKeysSource, 'verifyApiKey', 'mutation');
     expectInternalApiSecretGuard(apiKeysSource, 'updateApiKey', 'mutation');
   });

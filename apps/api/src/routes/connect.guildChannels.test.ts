@@ -21,7 +21,6 @@ let polarCustomerStateImpl: (externalId: string) => Promise<unknown> = async () 
 
 const apiMock = {
   betterAuthApiKeys: {
-    backfillApiKeyReferenceIds: 'betterAuthApiKeys.backfillApiKeyReferenceIds',
     listApiKeysForAuthUser: 'betterAuthApiKeys.listApiKeysForAuthUser',
   },
   certificateBillingSync: {
@@ -1287,7 +1286,7 @@ describe('GET /api/connect/user/certificates', () => {
 });
 
 describe('GET /api/connect/public-api/keys', () => {
-  it('uses the indexed Convex API key path and backfills legacy keys once', async () => {
+  it('uses the indexed Convex API key path once', async () => {
     let listCalls = 0;
     queryImpl = async (reference: unknown, args: unknown) => {
       if (reference === apiMock.creatorProfiles.getCreatorProfile) {
@@ -1306,10 +1305,6 @@ describe('GET /api/connect/public-api/keys', () => {
           apiSecret: 'test-convex-secret',
           authUserId: 'tenant-auth-user-1',
         });
-
-        if (listCalls === 1) {
-          return [];
-        }
 
         return [
           {
@@ -1331,14 +1326,8 @@ describe('GET /api/connect/public-api/keys', () => {
       return null;
     };
 
-    mutationImpl = async (reference: unknown, args: unknown) => {
-      expect(reference).toBe(apiMock.betterAuthApiKeys.backfillApiKeyReferenceIds);
-      expect(args).toMatchObject({
-        apiSecret: 'test-convex-secret',
-        ownerUserId: 'session-owner-1',
-        authUserId: 'tenant-auth-user-1',
-      });
-      return { updatedCount: 1 };
+    mutationImpl = async () => {
+      throw new Error('Listing current API keys must not mutate data');
     };
 
     const fakeAuth = {
@@ -1378,7 +1367,7 @@ describe('GET /api/connect/public-api/keys', () => {
       status: 'active',
       scopes: ['verification:read'],
     });
-    expect(listCalls).toBe(2);
+    expect(listCalls).toBe(1);
   });
 });
 

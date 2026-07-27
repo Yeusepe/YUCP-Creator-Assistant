@@ -11,6 +11,7 @@
 
 import { ConvexError } from 'convex/values';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { ACTIVE_PROTECTION_POLICY_ID } from '../ops/storage-core/protectionPolicyId';
 import { api } from './_generated/api';
 import type { Doc } from './_generated/dataModel';
 import { getByProductInternal } from './role_rules';
@@ -18,6 +19,25 @@ import { makeTestConvex, seedGuildLink } from './testHelpers';
 
 const DUMMY_DISCORD_SOURCE_GUILD_ID = '100000000000000001';
 const DUMMY_DISCORD_REQUIRED_ROLE_ID = '100000000000000002';
+
+function readyPublicationFields() {
+  return {
+    activeContentDigest: '11'.repeat(32),
+    activePolicyVersion: 'active-content-policy-v1',
+    bindingRoot: '22'.repeat(32),
+    commonRoot: '33'.repeat(32),
+    logicalBytes: 1,
+    logicalFiles: 1,
+    manifestSha256: '44'.repeat(32),
+    protectedFiles: [],
+    protectedSourceRoot: '55'.repeat(32),
+    protectionPolicyDigest: '66'.repeat(32),
+    protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
+    releaseRoot: '77'.repeat(32),
+    vpmDependencies: {},
+    vpmRepositories: {},
+  };
+}
 
 async function getRoleRuleCounts(t: ReturnType<typeof makeTestConvex>) {
   return t.run(async (ctx) => ({
@@ -181,6 +201,7 @@ describe('role rules CRUD and isolation', () => {
         updatedAt: now,
       });
       await ctx.db.insert('package_versions_ref', {
+        ...readyPublicationFields(),
         packageId: 'com.yucp.role-delete-history',
         version: '1.0.0',
         versionId: '00000000-0000-4000-8000-000000000098',
@@ -216,6 +237,106 @@ describe('role rules CRUD and isolation', () => {
     }));
     expect(retained.product?._id).toBe(catalogProductId);
     expect(retained.version?.catalogProductId).toBe(catalogProductId);
+  });
+
+  it('retains a catalog product with an active package binding when its last role rule is deleted', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-creator-package-binding';
+    const packageId = 'com.yucp.role-delete-binding';
+    const guildLinkId = await seedGuildLink(t, {
+      authUserId,
+      discordGuildId: 'guild-package-binding',
+    });
+    const catalogProductId = await t.run(async (ctx) => {
+      const now = Date.now();
+      const productId = await ctx.db.insert('product_catalog', {
+        authUserId,
+        productId: 'product-package-binding',
+        provider: 'gumroad',
+        providerProductRef: 'product-package-binding-ref',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_catalog_bindings', {
+        catalogProductId: productId,
+        creatorAuthUserId: authUserId,
+        packageId,
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      return productId;
+    });
+    const { ruleId } = await t.mutation(api.role_rules.createRoleRule, {
+      apiSecret: 'test-secret',
+      authUserId,
+      guildId: 'guild-package-binding',
+      guildLinkId,
+      productId: 'product-package-binding',
+      catalogProductId,
+      verifiedRoleId: 'role-package-binding',
+    });
+
+    await t.mutation(api.role_rules.deleteRoleRule, {
+      apiSecret: 'test-secret',
+      ruleId,
+    });
+
+    expect(await t.run(async (ctx) => await ctx.db.get(catalogProductId))).not.toBeNull();
+  });
+
+  it('retains a catalog product with an edition dependency when its last role rule is deleted', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-creator-package-edition';
+    const packageId = 'com.yucp.role-delete-edition';
+    const guildLinkId = await seedGuildLink(t, {
+      authUserId,
+      discordGuildId: 'guild-package-edition',
+    });
+    const catalogProductId = await t.run(async (ctx) => {
+      const now = Date.now();
+      const productId = await ctx.db.insert('product_catalog', {
+        authUserId,
+        productId: 'product-package-edition',
+        provider: 'gumroad',
+        providerProductRef: 'product-package-edition-ref',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_editions', {
+        catalogProductIds: [productId],
+        catalogTierIds: [],
+        createdAt: now,
+        creatorAuthUserId: authUserId,
+        displayName: 'Edition dependency',
+        editionId: 'edition-dependency',
+        packageId,
+        priority: 0,
+        status: 'active',
+        updatedAt: now,
+      });
+      return productId;
+    });
+    const { ruleId } = await t.mutation(api.role_rules.createRoleRule, {
+      apiSecret: 'test-secret',
+      authUserId,
+      guildId: 'guild-package-edition',
+      guildLinkId,
+      productId: 'product-package-edition',
+      catalogProductId,
+      verifiedRoleId: 'role-package-edition',
+    });
+
+    await t.mutation(api.role_rules.deleteRoleRule, {
+      apiSecret: 'test-secret',
+      ruleId,
+    });
+
+    expect(await t.run(async (ctx) => await ctx.db.get(catalogProductId))).not.toBeNull();
   });
 
   it('given rules referencing gumroad + jinxxy products, getEnabledVerificationProviders returns both (no duplicates)', async () => {

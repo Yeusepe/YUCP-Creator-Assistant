@@ -1,4 +1,5 @@
 import { type ReactNode } from 'react';
+import { Icon } from '@/components/ui/Icon';
 
 export interface StatCardProps {
   label: string;
@@ -17,38 +18,10 @@ export interface StatCardProps {
 
 function TrendArrow({ direction }: { direction: 'up' | 'down' | 'neutral' }) {
   if (direction === 'neutral') {
-    return (
-      <svg
-        width="12"
-        height="12"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <path d="M5 12h14" />
-      </svg>
-    );
+    return <Icon name="minus" size={12} />;
   }
 
-  return (
-    <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {direction === 'up' ? <path d="M12 19V5m-7 7 7-7 7 7" /> : <path d="M12 5v14m7-7-7 7-7-7" />}
-    </svg>
-  );
+  return <Icon name={direction === 'up' ? 'arrowUp' : 'chevronDown'} size={12} />;
 }
 
 export function StatCard({

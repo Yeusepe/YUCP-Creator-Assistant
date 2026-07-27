@@ -95,6 +95,7 @@ const brandingAssetsSource = readFileSync(
   resolve(__dirname, '../../src/lib/brandingAssets.ts'),
   'utf8'
 );
+const iconManifestSource = readFileSync(resolve(__dirname, '../../src/icons/manifest.ts'), 'utf8');
 describe('dashboard UI contracts', () => {
   it('removes the redundant select-server prompt card from the dashboard body', () => {
     expect(dashboardIndexRouteSource).not.toContain('<SelectServerPrompt />');
@@ -171,9 +172,8 @@ describe('dashboard UI contracts', () => {
   });
 
   it('uses the home icon for the personal dashboard selector trigger and no longer renders blob backgrounds', () => {
-    expect(dashboardLazyRouteSource).toContain(
-      '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />'
-    );
+    expect(dashboardLazyRouteSource).toContain('<Icon name="home"');
+    expect(iconManifestSource).toContain("home: 'Interface Essential/Home/Home 3.svg'");
     expect(dashboardLazyRouteSource).not.toContain('<BlobBackground />');
     expect(dashboardLazyRouteSource).not.toContain('function BlobBackground()');
   });
@@ -245,6 +245,15 @@ describe('dashboard UI contracts', () => {
       expectTokenizedThemeSurface(selector);
       expect(dashboardComponentsCss).toContain(`.dark ${selector}`);
     }
+  });
+
+  it('keeps package upload actions clear of the sheet edge and device safe area', () => {
+    expect(readCssDeclaration(dashboardComponentsCss, '.pm-sheet-footer', 'padding-bottom')).toBe(
+      'max(20px, calc(12px + env(safe-area-inset-bottom)))'
+    );
+    expect(
+      readCssDeclaration(dashboardComponentsCss, '.pm-publish-sheet-body', 'padding-bottom')
+    ).toBe('24px');
   });
 
   it('reveals the cloud background from a real first frame instead of fading it in later', () => {

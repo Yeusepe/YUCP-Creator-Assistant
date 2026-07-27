@@ -9,6 +9,9 @@ const freshnessWorkflow = readFileSync(
   resolve(import.meta.dir, '../../.github/workflows/convex-image-freshness.yml'),
   'utf8'
 );
+const packageJson = JSON.parse(
+  readFileSync(resolve(import.meta.dir, '../../package.json'), 'utf8')
+) as { scripts?: Record<string, string> };
 
 const CONVEX_BACKEND_DIGEST =
   'sha256:104b8bc70e29b31fa4a57551596090bfc9eedc3d1f27fd4b8cd8d0e782b9b070';
@@ -36,6 +39,17 @@ describe('self-hosted Convex CI workflow', () => {
     expect(deployGate).not.toContain("'--codegen'");
   });
 
+  it('starts the backend before taking the deploy environment lock', () => {
+    const main = deployGate.slice(deployGate.indexOf('async function main'));
+    const ensureBackend = main.indexOf('await ensureRealBackendUp()');
+    const deployLock = main.indexOf('await withSelfHostedConvexEnvFileMovedAside');
+    const deploymentPreflight = main.indexOf('await assertRequiredConvexDeploymentEnv');
+
+    expect(ensureBackend).toBeGreaterThan(-1);
+    expect(deployLock).toBeGreaterThan(ensureBackend);
+    expect(deploymentPreflight).toBeGreaterThan(deployLock);
+  });
+
   it('blocks the real backend suite on a successful deploy', () => {
     const realBackendJob = workflow.slice(
       workflow.indexOf('  convex-real:'),
@@ -48,6 +62,15 @@ describe('self-hosted Convex CI workflow', () => {
     expect(boot).toBeGreaterThan(-1);
     expect(deploy).toBeGreaterThan(boot);
     expect(suite).toBeGreaterThan(deploy);
+  });
+
+  it('runs the current TUF and authorized delivery suites for the buyer flow', () => {
+    const buyerFlow = packageJson.scripts?.['test:flow:e2e:run'];
+
+    expect(buyerFlow).toBe(
+      'bun run test:tuf-publisher:e2e && bun run test:materialization:e2e && bun run test:delivery:e2e'
+    );
+    expect(workflow).toContain('run: bun run test:flow:e2e:run');
   });
 
   it('enables test helpers after the real deploy gate and before E2E flows', () => {

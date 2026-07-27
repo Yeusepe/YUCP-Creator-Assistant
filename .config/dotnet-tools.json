@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "isRoot": true,
+  "tools": {
+    "vrchat.vpm.cli": {
+      "version": "0.1.28",
+      "commands": ["vpm"],
+      "rollForward": false
+    }
+  }
+}

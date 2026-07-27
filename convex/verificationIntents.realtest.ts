@@ -426,6 +426,14 @@ describe('verification intents buyer provider links', () => {
     const packageId = 'pkg.manual-license';
     const productId = 'product-manual-license';
     const providerProductRef = 'gumroad-product-manual-license';
+    const subjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-manual-license-buyer',
+    });
+    await seedCreatorProfile(t, {
+      authUserId: creatorAuthUserId,
+      name: 'Manual License Creator',
+    });
     const encryptedAccessToken = await symmetricEncrypt({
       key: process.env.BETTER_AUTH_SECRET as string,
       data: 'gumroad-access-token',
@@ -481,7 +489,7 @@ describe('verification intents buyer provider links', () => {
       yucpUserId: creatorAuthUserId,
     });
 
-    await seedCatalogProduct(t, {
+    const catalogProductId = await seedCatalogProduct(t, {
       authUserId: creatorAuthUserId,
       productId,
       provider: 'gumroad',
@@ -543,6 +551,201 @@ describe('verification intents buyer provider links', () => {
 
     expect(intent?.status).toBe('verified');
     expect(intent?.verifiedMethodKey).toBe('gumroad-license');
+
+    const [entitlements, evidence, licenseSubjectLinks] = await t.run(async (ctx) => {
+      return await Promise.all([
+        ctx.db
+          .query('entitlements')
+          .withIndex('by_auth_user_subject', (q) =>
+            q.eq('authUserId', creatorAuthUserId).eq('subjectId', subjectId)
+          )
+          .collect(),
+        ctx.db
+          .query('entitlement_evidence')
+          .filter((q) => q.eq(q.field('subjectId'), subjectId))
+          .collect(),
+        ctx.db
+          .query('license_subject_links')
+          .withIndex('by_auth_user', (q) => q.eq('authUserId', buyerAuthUserId))
+          .collect(),
+      ]);
+    });
+
+    expect(entitlements).toHaveLength(1);
+    expect(entitlements[0]).toMatchObject({
+      authUserId: creatorAuthUserId,
+      subjectId,
+      productId,
+      catalogProductId,
+      sourceProvider: 'gumroad',
+      sourceReference: 'gumroad:sale_123',
+      status: 'active',
+      licenseSubject: await sha256Hex('license_123'),
+    });
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]).toMatchObject({
+      authUserId: creatorAuthUserId,
+      subjectId,
+      productId,
+      catalogProductId,
+      providerKey: 'gumroad',
+      sourceReference: 'gumroad:sale_123',
+      evidenceType: 'license_verification',
+      status: 'active',
+    });
+    expect(licenseSubjectLinks).toHaveLength(1);
+    expect(licenseSubjectLinks[0]).toMatchObject({
+      authUserId: buyerAuthUserId,
+      licenseSubject: await sha256Hex('license_123'),
+      provider: 'gumroad',
+    });
+    expect(licenseSubjectLinks[0]?.licenseKey).toBeUndefined();
+    expect(licenseSubjectLinks[0]?.licenseKeyEncrypted).toBeTruthy();
+  });
+
+  it('rejects a Jinxxy license that belongs to a different catalog product', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'auth-jinxxy-product-boundary-creator';
+    const buyerAuthUserId = 'auth-jinxxy-product-boundary-buyer';
+    const packageId = 'pkg.jinxxy-product-boundary';
+    const requestedProductId = 'product-jinxxy-requested';
+    const requestedProviderProductRef = 'jinxxy-product-requested';
+    const actualProviderProductRef = 'jinxxy-product-other';
+    const subjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-jinxxy-product-boundary-buyer',
+    });
+    await seedCreatorProfile(t, {
+      authUserId: creatorAuthUserId,
+      name: 'Jinxxy Product Boundary Creator',
+    });
+    await t.mutation(internal.packageRegistry.registerPackage, {
+      packageId,
+      packageName: 'Jinxxy Product Boundary Package',
+      publisherId: 'publisher-jinxxy-product-boundary',
+      yucpUserId: creatorAuthUserId,
+    });
+    await seedCatalogProduct(t, {
+      authUserId: creatorAuthUserId,
+      productId: requestedProductId,
+      provider: 'jinxxy',
+      providerProductRef: requestedProviderProductRef,
+      displayName: 'Requested Jinxxy Product',
+    });
+    await seedCatalogProduct(t, {
+      authUserId: creatorAuthUserId,
+      productId: 'product-jinxxy-other',
+      provider: 'jinxxy',
+      providerProductRef: actualProviderProductRef,
+      displayName: 'Different Jinxxy Product',
+    });
+
+    const encryptedApiKey = await symmetricEncrypt({
+      key: process.env.BETTER_AUTH_SECRET as string,
+      data: 'jinxxy-api-key',
+    });
+    const connectionId = await t.mutation(api.providerConnections.createProviderConnection, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      providerKey: 'jinxxy',
+      authMode: 'api_key',
+      label: 'Jinxxy Store',
+    });
+    await t.mutation(api.providerConnections.putProviderCredential, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      providerConnectionId: connectionId,
+      credentialKey: 'api_key',
+      kind: 'api_key',
+      encryptedValue: encryptedApiKey,
+    });
+
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith('/licenses')) {
+        return Response.json({
+          results: [{ id: 'license-other', short_key: 'OTHER-1234567890ab' }],
+          page: 1,
+          page_count: 1,
+          cursor_count: 1,
+        });
+      }
+      if (url.pathname.endsWith('/licenses/license-other')) {
+        return Response.json({
+          id: 'license-other',
+          key: '11111111-2222-3333-4444-555555555555',
+          user: { id: 'customer-other' },
+          inventory_item: {
+            target_id: actualProviderProductRef,
+            target_version_id: 'version-other',
+            order: { id: 'order-other' },
+          },
+          activations: { total_count: 0 },
+        });
+      }
+      if (url.pathname.endsWith('/orders/order-other')) {
+        return Response.json({
+          id: 'order-other',
+          email: 'other-buyer@example.com',
+          customer_id: 'customer-other',
+          payment_status: 'PAID',
+        });
+      }
+      throw new Error(`Unexpected Jinxxy request: ${url.pathname}`);
+    };
+
+    const { intentId } = await t.mutation(api.verificationIntents.createVerificationIntent, {
+      apiSecret: API_SECRET,
+      authUserId: buyerAuthUserId,
+      packageId,
+      machineFingerprint: 'machine-jinxxy-product-boundary',
+      codeChallenge: 'challenge-jinxxy-product-boundary',
+      returnUrl: 'https://example.com/return',
+      requirements: [
+        {
+          methodKey: 'jinxxy-license',
+          providerKey: 'jinxxy',
+          kind: 'manual_license',
+          title: 'Jinxxy license',
+          providerProductRef: requestedProviderProductRef,
+        },
+      ],
+    });
+
+    const result = await t.action(api.verificationIntents.verifyIntentWithManualLicense, {
+      apiSecret: API_SECRET,
+      authUserId: buyerAuthUserId,
+      intentId,
+      methodKey: 'jinxxy-license',
+      licenseKey: '11111111-2222-3333-4444-555555555555',
+    });
+    const [intent, entitlements] = await Promise.all([
+      t.query(api.verificationIntents.getIntentRecord, {
+        apiSecret: API_SECRET,
+        authUserId: buyerAuthUserId,
+        intentId,
+      }),
+      t.run((ctx) =>
+        ctx.db
+          .query('entitlements')
+          .withIndex('by_auth_user_subject', (q) =>
+            q.eq('authUserId', creatorAuthUserId).eq('subjectId', subjectId)
+          )
+          .collect()
+      ),
+    ]);
+
+    expect(result).toEqual({
+      success: false,
+      errorCode: 'invalid_proof',
+      errorMessage: 'License does not belong to the requested product',
+    });
+    expect(intent).toMatchObject({
+      status: 'pending',
+      errorCode: 'invalid_proof',
+      errorMessage: 'License does not belong to the requested product',
+    });
+    expect(entitlements).toEqual([]);
   });
 
   it('allows an existing owner to retry an expired YUCP manual license without consuming another use', async () => {
@@ -972,6 +1175,14 @@ describe('verification intents buyer provider links', () => {
     const packageId = 'pkg.manual-license.product-id';
     const productId = 'product-manual-license-product-id';
     const providerProductRef = 'QAJc7ErxdAC815P5P8R89g==';
+    await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-manual-license-product-id-buyer',
+    });
+    await seedCreatorProfile(t, {
+      authUserId: creatorAuthUserId,
+      name: 'Manual License Product ID Creator',
+    });
     const encryptedAccessToken = await symmetricEncrypt({
       key: process.env.BETTER_AUTH_SECRET as string,
       data: 'gumroad-access-token',

@@ -91,11 +91,23 @@ names consumed by apps/api, ingest-tus, the scheduler, and the delivery Worker.
 | `/storage/ingest/shared/` | `UPLOAD_HMAC_KEY`, `INGEST_TUS_URL` | apps/api and ingest-tus |
 | `/storage/ingest/runtime/` | `INGEST_UPLOAD_DIR`, `INGEST_MAX_BYTES`, `INGEST_ALLOWED_ORIGIN` (optional) | ingest-tus only |
 | `/storage/catalog/` | `CATALOG_DATABASE_URL` | ingest-tus and scheduler |
-| `/storage/cas/common/` | `CAS_S3_ENDPOINT`, `CAS_S3_REGION`, `CAS_S3_BUCKET`, `CAS_CHUNK_PREFIX`, `CAS_INDEX_PREFIX`, `CAS_S3_REQUEST_TIMEOUT_MS`, `STORAGE_FORMAT_VERSION` | ingest-tus, scheduler, and curated delivery Worker sync |
-| `/storage/cas/write/` | `CAS_S3_ACCESS_KEY_ID`, `CAS_S3_SECRET_ACCESS_KEY` | ingest-tus and scheduler only |
-| `/storage/cas/read/` | `CAS_S3_READONLY_ACCESS_KEY_ID`, `CAS_S3_READONLY_SECRET_ACCESS_KEY` | delivery Worker only |
+| `/storage/common/configuration/` | `COMMON_S3_ENDPOINT`, `COMMON_S3_REGION`, `COMMON_S3_BUCKET`, `COMMON_CHUNK_PREFIX`, `COMMON_S3_REQUEST_TIMEOUT_MS`, `STORAGE_FORMAT_VERSION` | ingest-tus, scheduler, and common delivery Worker |
+| `/storage/common/write/` | `COMMON_S3_ACCESS_KEY_ID`, `COMMON_S3_SECRET_ACCESS_KEY` | ingest-tus and scheduler |
+| `/storage/common/read/` | `COMMON_S3_READONLY_ACCESS_KEY_ID`, `COMMON_S3_READONLY_SECRET_ACCESS_KEY` | common delivery Worker |
+| `/storage/metadata/configuration/` | `METADATA_S3_ENDPOINT`, `METADATA_S3_REGION`, `METADATA_S3_BUCKET`, `METADATA_INDEX_PREFIX`, `METADATA_S3_REQUEST_TIMEOUT_MS` | API, scheduler, and metadata delivery runtimes |
+| `/storage/metadata/write/` | `METADATA_S3_ACCESS_KEY_ID`, `METADATA_S3_SECRET_ACCESS_KEY` | API and scheduler |
+| `/storage/metadata/read/` | `METADATA_S3_READONLY_ACCESS_KEY_ID`, `METADATA_S3_READONLY_SECRET_ACCESS_KEY` | metadata delivery runtimes |
+| `/storage/protected/configuration/` | `PROTECTED_S3_ENDPOINT`, `PROTECTED_S3_REGION`, `PROTECTED_S3_BUCKET`, `PROTECTED_CHUNK_PREFIX`, `PROTECTED_S3_REQUEST_TIMEOUT_MS` | ingest-tus, scheduler, and materialization source Worker |
+| `/storage/protected/write/` | `PROTECTED_S3_ACCESS_KEY_ID`, `PROTECTED_S3_SECRET_ACCESS_KEY` | ingest-tus and scheduler |
+| `/storage/protected/read/` | `PROTECTED_S3_READONLY_ACCESS_KEY_ID`, `PROTECTED_S3_READONLY_SECRET_ACCESS_KEY` | materialization source Worker |
+| `/storage/quarantine/configuration/` | `QUARANTINE_S3_ENDPOINT`, `QUARANTINE_S3_REGION`, `QUARANTINE_S3_BUCKET`, `QUARANTINE_S3_REQUEST_TIMEOUT_MS` | ingest-tus |
+| `/storage/quarantine/write/` | `QUARANTINE_S3_ACCESS_KEY_ID`, `QUARANTINE_S3_SECRET_ACCESS_KEY` | ingest-tus |
+| `/storage/renditions/configuration/` | `RENDITION_S3_ENDPOINT`, `RENDITION_S3_REGION`, `RENDITION_S3_BUCKET`, `RENDITION_S3_REQUEST_TIMEOUT_MS` | Linux materializer and rendition Worker |
+| `/storage/renditions/write/` | `RENDITION_S3_ACCESS_KEY_ID`, `RENDITION_S3_SECRET_ACCESS_KEY` | Linux materializer |
+| `/storage/renditions/read/` | `RENDITION_S3_READONLY_ACCESS_KEY_ID`, `RENDITION_S3_READONLY_SECRET_ACCESS_KEY` | rendition Worker |
+| `/storage/materialization/capacity/` | `MATERIALIZATION_CHUNK_CACHE_MAX_BYTES`, `MATERIALIZATION_EMERGENCY_DISK_FLOOR_BYTES` | Linux materializer |
 | `/storage/delivery/shared/` | `DELIVERY_HMAC_KEY` | apps/api, VPM, and curated delivery Worker sync |
-| `/storage/delivery/api/` | `DELIVERY_BASE_URL`, `VPM_BASE_URL`, `VPM_TOKEN_KEY` | apps/api and VPM only |
+| `/storage/delivery/api/` | `DELIVERY_BASE_URL`, `VPM_BASE_URL`, `VPM_PUBLIC_INDEX_URL` | apps/api and VPM only |
 | `/infra/convex/` | `CONVEX_URL`, `CONVEX_API_SECRET` | apps/api, Convex, bot, and scheduler |
 | `/infra/signing/service-auth/` | `INTERNAL_SERVICE_AUTH_SECRET` | apps/api, Convex, bot, and scheduler |
 
@@ -173,19 +185,27 @@ sync machinery, selects only the delivery Worker's required bindings, and bulk-s
 `yucp-delivery-worker`:
 
 ```text
-CAS_S3_ENDPOINT
-CAS_S3_REGION
-CAS_S3_BUCKET
-CAS_S3_READONLY_ACCESS_KEY_ID
-CAS_S3_READONLY_SECRET_ACCESS_KEY
-CAS_INDEX_PREFIX
-CAS_CHUNK_PREFIX
-DELIVERY_HMAC_KEY
+COMMON_S3_ENDPOINT
+COMMON_S3_REGION
+COMMON_S3_BUCKET
+COMMON_S3_READONLY_ACCESS_KEY_ID
+COMMON_S3_READONLY_SECRET_ACCESS_KEY
+COMMON_CHUNK_PREFIX
+METADATA_S3_ENDPOINT
+METADATA_S3_REGION
+METADATA_S3_BUCKET
+METADATA_S3_READONLY_ACCESS_KEY_ID
+METADATA_S3_READONLY_SECRET_ACCESS_KEY
+METADATA_INDEX_PREFIX
+PACKAGE_DELIVERY_AUDIENCE
+PACKAGE_INSTALL_ISSUER
+PACKAGE_INSTALL_SIGNING_KEY_ID
+PACKAGE_INSTALL_SIGNING_PUBLIC_KEY
 STORAGE_FORMAT_VERSION
 ```
 
-Write-capable `CAS_S3_ACCESS_KEY_ID` and `CAS_S3_SECRET_ACCESS_KEY` values are intentionally
-excluded. `DELIVERY_BASE_URL` is consumed by apps/api and VPM, not by the Worker runtime.
+Write-capable common and metadata credentials are excluded.
+The API and VPM consume their own public origins.
 
 ### YUCP signing and protected delivery
 

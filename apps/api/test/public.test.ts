@@ -227,7 +227,7 @@ describe('Public API, security boundaries', () => {
   it('rejects malformed x-api-key values before verification lookup', async () => {
     const harness = createSecurityHarness({
       id: 'key_live',
-      userId: VALID_BODY.authUserId,
+      referenceId: VALID_BODY.authUserId,
       enabled: true,
       metadata: { kind: 'public-api', authUserId: VALID_BODY.authUserId },
       permissions: { publicApi: ['verification:read'] },
@@ -243,7 +243,7 @@ describe('Public API, security boundaries', () => {
   it('rejects expired API keys before any tenant data lookup', async () => {
     const harness = createSecurityHarness({
       id: 'key_expired',
-      userId: VALID_BODY.authUserId,
+      referenceId: VALID_BODY.authUserId,
       enabled: true,
       metadata: { kind: 'public-api', authUserId: VALID_BODY.authUserId },
       permissions: { publicApi: ['verification:read'] },
@@ -262,7 +262,7 @@ describe('Public API, security boundaries', () => {
   it('rejects API keys scoped to a different tenant without querying subject data', async () => {
     const harness = createSecurityHarness({
       id: 'key_other_tenant',
-      userId: 'other-user-id',
+      referenceId: 'other-user-id',
       enabled: true,
       metadata: { kind: 'public-api', authUserId: 'other-user-id' },
       permissions: { publicApi: ['verification:read'] },
@@ -281,7 +281,7 @@ describe('Public API, security boundaries', () => {
   it('rejects mismatched Better Auth owner IDs even when metadata is forged to match', async () => {
     const harness = createSecurityHarness({
       id: 'key_forged_metadata',
-      userId: 'other-owner',
+      referenceId: 'other-owner',
       enabled: true,
       metadata: { kind: 'public-api', authUserId: VALID_BODY.authUserId },
       permissions: { publicApi: ['verification:read'] },

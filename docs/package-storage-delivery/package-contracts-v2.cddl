@@ -1,0 +1,246 @@
+; Package storage and delivery v2 signed contracts.
+; CBOR uses deterministic RFC 8949 encoding.
+; COSE_Sign1 uses RFC 9052 with EdDSA algorithm -8.
+; Protected header 1001 contains one purpose from contract-purpose.
+; Protected header 2 marks header 1001 as critical.
+
+contract-version = 2
+sha256 = bytes .size 32
+id = text .size (1..512)
+origin = text .size (1..2048)
+unix-time = uint
+
+contract-purpose =
+  "release-descriptor-v2" /
+  "file-table-index-v2" /
+  "file-table-shard-v2" /
+  "membership-index-v2" /
+  "membership-shard-v2" /
+  "delivery-binding-v2" /
+  "install-session-v2" /
+  "delivery-grant-v2" /
+  "materialization-capability-v2" /
+  "active-content-inventory-v2" /
+  "materialization-receipt-v2"
+
+cose-protected-v2 = {
+  1: -8,
+  2: [1001],
+  4: bytes .size (1..64),
+  1001: contract-purpose
+}
+
+cose-sign1-v2 = [
+  protected: bytes,
+  unprotected: {},
+  payload: bytes,
+  signature: bytes .size 64
+]
+
+release-descriptor-v2 = {
+  0: contract-version,
+  1: creator-id: id,
+  2: product-id: id,
+  3: release-id: id,
+  4: version: id,
+  5: logical-root: sha256,
+  6: file-table-index-digest: sha256,
+  7: membership-index-digest: sha256,
+  8: active-content-digest: sha256,
+  9: policy-version: id,
+  10: created-at: unix-time
+}
+
+file-table-index-v2 = {
+  0: contract-version,
+  1: release-root: sha256,
+  2: shards: [1* file-table-index-shard-v2]
+}
+
+file-table-index-shard-v2 = {
+  0: first-path: text,
+  1: end-path-exclusive: text,
+  2: shard-digest: sha256,
+  3: encoded-bytes: uint,
+  4: file-count: uint
+}
+
+file-table-shard-v2 = {
+  0: contract-version,
+  1: release-root: sha256,
+  2: files: [1* file-table-entry-v2]
+}
+
+file-table-entry-v2 = {
+  0: normalized-path: text,
+  1: file-bytes: uint,
+  2: file-sha256: sha256,
+  3: storage-role: 0..1,
+  4: recipe: [1* file-chunk-v2]
+}
+
+file-chunk-v2 = {
+  0: chunk-id: sha256,
+  1: chunk-bytes: uint,
+  2: file-offset: uint
+}
+
+membership-index-v2 = {
+  0: contract-version,
+  1: release-root: sha256,
+  2: shards: [1* membership-index-shard-v2]
+}
+
+membership-index-shard-v2 = {
+  0: first-chunk-id: sha256,
+  1: end-chunk-id-inclusive: sha256,
+  2: shard-digest: sha256,
+  3: chunk-count: uint
+}
+
+membership-shard-v2 = {
+  0: contract-version,
+  1: release-root: sha256,
+  2: chunks: [1* membership-entry-v2]
+}
+
+membership-entry-v2 = {
+  0: chunk-id: sha256,
+  1: encoded-bytes: uint,
+  2: storage-role: 0..1
+}
+
+delivery-binding-v2 = {
+  0: contract-version,
+  1: binding-root: sha256,
+  2: release-root: sha256,
+  3: storage-epoch: uint,
+  4: chunk-profile: id,
+  5: common-origin: origin,
+  6: protected-origin: origin,
+  7: metadata-origin: origin,
+  8: created-at: unix-time
+}
+
+install-session-v2 = {
+  0: contract-version,
+  1: "YUCP-InstallSession",
+  2: issuer: origin,
+  3: audience: id,
+  4: key-id: id,
+  5: creator-id: id,
+  6: buyer-id: id,
+  7: product-id: id,
+  8: version: id,
+  9: alias-id: id,
+  10: release-root: sha256,
+  11: binding-root: sha256,
+  12: device-key-thumbprint: sha256,
+  13: allowed-api-origins: [1* origin],
+  14: allowed-artifact-origins: [1* origin],
+  15: bootstrap: [1*16 bootstrap-location-v2],
+  16: issued-at: unix-time,
+  17: not-before: unix-time,
+  18: expires-at: unix-time,
+  19: session-id: id,
+  20: max-lifetime-seconds: 1..900
+}
+
+bootstrap-location-v2 = {
+  0: kind: id,
+  1: url: text,
+  2: sha256
+}
+
+delivery-grant-v2 = {
+  0: contract-version,
+  1: grant-id: id,
+  2: issuer: origin,
+  3: audience: id,
+  4: creator-id: id,
+  5: buyer-id: id,
+  6: product-id: id,
+  7: release-root: sha256,
+  8: binding-root: sha256,
+  9: device-key-thumbprint: sha256,
+  10: issued-at: unix-time,
+  11: not-before: unix-time,
+  12: expires-at: unix-time,
+  13: scopes: [1* id],
+  14: install-session-id: id
+}
+
+materialization-capability-v2 = {
+  0: contract-version,
+  1: capability-id: id,
+  2: creator-id: id,
+  3: buyer-id: id,
+  4: product-id: id,
+  5: release-root: sha256,
+  6: binding-root: sha256,
+  7: device-key-thumbprint: sha256,
+  8: issued-at: unix-time,
+  9: not-before: unix-time,
+  10: expires-at: unix-time,
+  11: operation: id
+}
+
+active-content-inventory-v2 = {
+  0: contract-version,
+  1: release-root: sha256,
+  2: inventory-digest: sha256,
+  3: policy-version: id,
+  4: entries: [* active-content-entry-v2]
+}
+
+active-content-entry-v2 = {
+  0: normalized-path: text,
+  1: file-sha256: sha256,
+  2: content-kind: id
+}
+
+materialization-receipt-v2 = {
+  0: contract-version,
+  1: receipt-id: id,
+  2: capability-id: id,
+  3: creator-id: id,
+  4: buyer-subject-pseudonym: id,
+  5: pseudonym-method: id,
+  6: product-id: id,
+  7: release-root: sha256,
+  8: protected-source-root: sha256,
+  9: output-tree-root: sha256,
+  10: files: [1* materialized-file-v2],
+  11: grant-id: id,
+  12: job-id: id,
+  13: lease-generation: uint,
+  14: rendition: exact-rendition-version-v2,
+  15: materialization-algorithm: id,
+  16: plugin-version: id,
+  17: codec-build: id,
+  18: key-epoch: uint,
+  19: helper-build: id,
+  20: runtime-build: id,
+  21: created-paths: [1* text],
+  22: issued-at: unix-time,
+  23: expires-at: unix-time,
+  24: materializer-id: id,
+  25: trace-id: id
+}
+
+materialized-file-v2 = {
+  0: normalized-path: text,
+  1: output-sha256: sha256,
+  2: output-bytes: uint,
+  3: attribution-id: id
+}
+
+exact-rendition-version-v2 = {
+  0: storage-role: "renditions",
+  1: bucket-name: id,
+  2: object-key: text .size (1..2048),
+  3: provider-version: id,
+  4: file-identifier: id,
+  5: object-sha256: sha256,
+  6: object-bytes: uint
+}

@@ -5,8 +5,14 @@ const BAG_PATH =
   ' 62.4297 54.0188 65.9999 47.9317 65.9999H10.4532ZM28.7781 5.62865C25.0176 5.62865 22.2768' +
   ' 8.13742 21.735 11.8684H35.8532C35.3114 8.13742 32.5706 5.62865 28.7781 5.62865Z';
 
-/** Bag icon plus indeterminate bar (same mark as the full-page overlay). */
-export function BagLoadingMark({ className }: { className?: string }) {
+/** Bag icon plus an optional indeterminate bar. */
+export function BagLoadingMark({
+  className,
+  showBar = true,
+}: {
+  className?: string;
+  showBar?: boolean;
+}) {
   return (
     <div className={className ?? ''}>
       <div className="plo-bag-scene">
@@ -28,9 +34,11 @@ export function BagLoadingMark({ className }: { className?: string }) {
           <div className="plo-blob plo-blob-5" />
         </div>
       </div>
-      <div className="plo-bar-wrap">
-        <div className="plo-bar" />
-      </div>
+      {showBar ? (
+        <div className="plo-bar-wrap">
+          <div className="plo-bar" />
+        </div>
+      ) : null}
     </div>
   );
 }

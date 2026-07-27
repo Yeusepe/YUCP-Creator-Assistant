@@ -5,7 +5,7 @@ import { join, relative, resolve } from 'node:path';
 import { zipSync } from 'fflate';
 import { types as tarTypes } from 'tar';
 import { canonicalizeArtifact, canonicalizerChildEnv } from './canonicalizer';
-import { runCommand } from './process';
+import { resolveGnuArchiveTools, runCommand } from './process';
 
 const scratchPaths: string[] = [];
 
@@ -96,6 +96,14 @@ async function expectNoCanonicalizerScratch(scratchPath: string): Promise<void> 
   ).toEqual([]);
 }
 
+async function createGzipFixture(tarPath: string, outputPath: string): Promise<void> {
+  const archiveTools = await resolveGnuArchiveTools();
+  await runCommand(archiveTools.gzipCommand, ['--stdout', '--', tarPath], {
+    env: archiveTools.env,
+    stdoutPath: outputPath,
+  });
+}
+
 afterAll(async () => {
   for (const scratchPath of scratchPaths) {
     assertScratchPath(scratchPath);
@@ -133,17 +141,22 @@ describe('canonicalizer decompression budget', () => {
     const maxDecompressedBytes = 16 * 1024;
     await mkdir(sourcePath);
     await writeFile(join(sourcePath, 'payload.txt'), Buffer.alloc(128 * 1024, 't'));
-    await runCommand('tar', [
-      '--force-local',
-      '--create',
-      '--file',
-      tarPath,
-      '--format=gnu',
-      '--directory',
-      sourcePath,
-      '.',
-    ]);
-    await runCommand('gzip', ['--stdout', '--', tarPath], { stdoutPath: inputPath });
+    const archiveTools = await resolveGnuArchiveTools();
+    await runCommand(
+      archiveTools.tarCommand,
+      [
+        '--force-local',
+        '--create',
+        '--file',
+        tarPath,
+        '--format=gnu',
+        '--directory',
+        sourcePath,
+        '.',
+      ],
+      { env: archiveTools.env }
+    );
+    await createGzipFixture(tarPath, inputPath);
     await rm(tarPath, { force: true });
 
     expect((await stat(inputPath)).size).toBeLessThan(maxDecompressedBytes);
@@ -156,6 +169,31 @@ describe('canonicalizer decompression budget', () => {
 });
 
 describe('canonicalizer tar compatibility', () => {
+  it('canonicalizes tar.gz inside a long pipeline scratch path', async () => {
+    const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-canonicalizer-long-path-'));
+    scratchPaths.push(scratchPath);
+    const pipelinePath = join(
+      scratchPath,
+      'reserved-package-pipeline-scratch',
+      'ingest-job-with-a-durable-identifier',
+      'normalized-package-artifact'
+    );
+    const tarPath = join(scratchPath, 'source.tar');
+    const inputPath = join(scratchPath, 'source.tar.gz');
+    const outputPath = join(pipelinePath, 'canonical.tar.gz');
+    await mkdir(pipelinePath, { recursive: true });
+    await writeFile(
+      tarPath,
+      createTar([{ name: 'package.json', type: '0', body: Buffer.from('{"name":"example"}') }])
+    );
+    await createGzipFixture(tarPath, inputPath);
+
+    await canonicalizeArtifact({ inputPath, outputPath });
+
+    expect((await stat(outputPath)).isFile()).toBeTrue();
+    await expectNoCanonicalizerScratch(pipelinePath);
+  });
+
   it('canonicalizes legacy OldFile regular entries with their contents intact', async () => {
     const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-canonicalizer-targz-oldfile-'));
     scratchPaths.push(scratchPath);
@@ -165,7 +203,7 @@ describe('canonicalizer tar compatibility', () => {
     const extractedPath = join(scratchPath, 'extracted');
     const legacyContents = Buffer.from('legacy regular file contents');
     await writeFile(tarPath, createTar([{ name: 'legacy.txt', type: '\0', body: legacyContents }]));
-    await runCommand('gzip', ['--stdout', '--', tarPath], { stdoutPath: inputPath });
+    await createGzipFixture(tarPath, inputPath);
 
     const regularFileType = tarTypes.name.get('0');
     tarTypes.name.set('0', 'OldFile');
@@ -177,14 +215,12 @@ describe('canonicalizer tar compatibility', () => {
       }
     }
     await mkdir(extractedPath);
-    await runCommand('tar', [
-      '--force-local',
-      '--extract',
-      '--file',
-      outputPath,
-      '--directory',
-      extractedPath,
-    ]);
+    const archiveTools = await resolveGnuArchiveTools();
+    await runCommand(
+      archiveTools.tarCommand,
+      ['--force-local', '--extract', '--file', outputPath, '--directory', extractedPath],
+      { env: archiveTools.env }
+    );
 
     expect(await readFile(join(extractedPath, 'legacy.txt'))).toEqual(legacyContents);
     await expectNoCanonicalizerScratch(scratchPath);
@@ -207,7 +243,7 @@ describe('canonicalizer tar path safety', () => {
         { name: 'safe.txt', type: '0', body: Buffer.from('safe') },
       ])
     );
-    await runCommand('gzip', ['--stdout', '--', tarPath], { stdoutPath: inputPath });
+    await createGzipFixture(tarPath, inputPath);
 
     await expect(canonicalizeArtifact({ inputPath, outputPath })).rejects.toThrow(
       'unsafe tar entry'
@@ -224,7 +260,7 @@ describe('canonicalizer tar path safety', () => {
     const inputPath = join(scratchPath, 'fifo.tar.gz');
     const outputPath = join(scratchPath, 'canonical.tar.gz');
     await writeFile(tarPath, createTar([{ name: 'named-pipe', type: '6' }]));
-    await runCommand('gzip', ['--stdout', '--', tarPath], { stdoutPath: inputPath });
+    await createGzipFixture(tarPath, inputPath);
 
     await expect(canonicalizeArtifact({ inputPath, outputPath })).rejects.toThrow(
       'unsupported tar entry type: FIFO'
@@ -245,7 +281,7 @@ describe('canonicalizer tar path safety', () => {
     }));
     entries.push({ name: '../unsafe-after-limit', type: '0' });
     await writeFile(tarPath, createTar(entries));
-    await runCommand('gzip', ['--stdout', '--', tarPath], { stdoutPath: inputPath });
+    await createGzipFixture(tarPath, inputPath);
 
     await expect(canonicalizeArtifact({ inputPath, outputPath })).rejects.toThrow(
       `tar.gz entry count exceeds ${ARCHIVE_ENTRY_LIMIT}`

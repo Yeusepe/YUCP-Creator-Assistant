@@ -12,7 +12,12 @@ const NO_ALLOWED_MENTIONS = { parse: [] } as const;
 
 type ForensicsLookupResponse = {
   packageId: string;
-  lookupStatus: 'attributed' | 'tampered_suspected' | 'hostile_unknown' | 'no_candidate_assets';
+  lookupStatus:
+    | 'attributed'
+    | 'tampered_suspected'
+    | 'hostile_unknown'
+    | 'no_signal_found'
+    | 'no_candidate_assets';
   message: string;
   candidateAssetCount: number;
   decodedAssetCount: number;

@@ -1,55 +1,87 @@
 import { describe, expect, it } from 'bun:test';
-import {
-  buildUnityOAuthClientMetadata,
-  getUnityOAuthClientDescriptors,
-} from './seedYucpOAuthClient';
+import { PACKAGE_BROKER_AUDIENCE } from '@yucp/shared';
 import { OAUTH_PROVIDER_SCOPES } from './betterAuth/oauthProviderScopes';
+import {
+  buildPackageBrokerOAuthClientMetadata,
+  buildPackageBrokerOAuthClientRecord,
+  buildPackageBrokerOAuthClientResourceLink,
+  buildPackageBrokerOAuthResourceRecord,
+  getPackageBrokerOAuthClientDescriptors,
+  getSupersededPackageOAuthClientIds,
+} from './seedYucpOAuthClient';
 
-describe('buildUnityOAuthClientMetadata', () => {
-  it('serializes Unity OAuth client metadata as a JSON string for Better Auth storage', () => {
-    const metadata = buildUnityOAuthClientMetadata({
-      clientId: 'yucp-unity-user',
-      name: 'YUCP Unity User',
-      scopes: ['verification:read'],
+describe('buildPackageBrokerOAuthClientMetadata', () => {
+  it('assigns credential ownership to the native package broker', () => {
+    const metadata = buildPackageBrokerOAuthClientMetadata({
+      clientId: 'yucp-package-broker',
+      name: 'YUCP Package Broker',
+      scopes: ['package:operate'],
       authDomain: 'user',
     });
 
     expect(typeof metadata).toBe('string');
     expect(JSON.parse(metadata)).toEqual({
       firstParty: true,
-      platform: 'unity',
+      credentialOwner: 'native-package-broker',
+      platform: 'native',
       authDomain: 'user',
     });
   });
 });
 
-describe('getUnityOAuthClientDescriptors', () => {
-  it('allows the Unity importer to request product delivery scope', () => {
-    const userClient = getUnityOAuthClientDescriptors().find(
-      (client) => client.clientId === 'yucp-unity-user'
-    );
-
-    expect(userClient?.scopes).toContain('verification:read');
-    expect(userClient?.scopes).toContain('products:read');
+describe('getPackageBrokerOAuthClientDescriptors', () => {
+  it('defines one least-privilege package broker and retires Unity credential owners', () => {
+    expect(getPackageBrokerOAuthClientDescriptors()).toHaveLength(1);
+    expect(getPackageBrokerOAuthClientDescriptors()[0]).toMatchObject({
+      clientId: 'yucp-package-broker',
+      scopes: ['package:operate', 'offline_access'],
+    });
+    expect(getSupersededPackageOAuthClientIds()).toEqual(['yucp-unity-user', 'yucp-unity-creator']);
   });
 
-  it('allows the Unity creator tools to read product catalog entries', () => {
-    const creatorClient = getUnityOAuthClientDescriptors().find(
-      (client) => client.clientId === 'yucp-unity-creator'
-    );
-
-    expect(creatorClient?.scopes).toContain('cert:issue');
-    expect(creatorClient?.scopes).toContain('profile:read');
-    expect(creatorClient?.scopes).toContain('products:read');
-  });
-
-  it('keeps every Unity client scope registered with the Better Auth provider', () => {
+  it('keeps every package broker scope registered with the Better Auth provider', () => {
     const providerScopes = new Set<string>(OAUTH_PROVIDER_SCOPES);
 
-    for (const descriptor of getUnityOAuthClientDescriptors()) {
+    for (const descriptor of getPackageBrokerOAuthClientDescriptors()) {
       for (const scope of descriptor.scopes) {
         expect(providerScopes.has(scope)).toBe(true);
       }
+    }
+  });
+
+  it('requires DPoP-bound access tokens for each native public client', () => {
+    for (const descriptor of getPackageBrokerOAuthClientDescriptors()) {
+      expect(
+        buildPackageBrokerOAuthClientRecord(descriptor, 'http://127.0.0.1/callback')
+      ).toMatchObject({
+        dpopBoundAccessTokens: true,
+        public: true,
+        tokenEndpointAuthMethod: 'none',
+      });
+    }
+  });
+});
+
+describe('package broker OAuth protected resource records', () => {
+  it('uses the shared RFC 8707 resource and complete scope policy', () => {
+    expect(buildPackageBrokerOAuthResourceRecord()).toEqual({
+      identifier: PACKAGE_BROKER_AUDIENCE,
+      name: 'YUCP package operations',
+      allowedScopes: ['package:operate', 'offline_access'],
+      accessTokenTtl: 300,
+      refreshTokenTtl: 2_592_000,
+      dpopBoundAccessTokensRequired: true,
+      disabled: false,
+      policyVersion: 1,
+    });
+  });
+
+  it('links every package broker client to the dedicated package resource', () => {
+    for (const descriptor of getPackageBrokerOAuthClientDescriptors()) {
+      expect(buildPackageBrokerOAuthClientResourceLink(descriptor)).toEqual({
+        clientId: descriptor.clientId,
+        resourceId: PACKAGE_BROKER_AUDIENCE,
+      });
     }
   });
 });

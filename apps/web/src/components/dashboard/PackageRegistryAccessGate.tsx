@@ -1,4 +1,5 @@
 import { Link } from '@tanstack/react-router';
+import { Icon } from '@/components/ui/Icon';
 import { YucpButton } from '@/components/ui/YucpButton';
 
 interface PackageRegistryAccessGateProps {
@@ -15,21 +16,17 @@ export function PackageRegistryAccessGate({
   onRetry,
 }: PackageRegistryAccessGateProps) {
   const title =
-    mode === 'error' ? 'Could not verify custom VPM repo access' : 'Custom VPM repo required';
+    mode === 'error' ? 'Could not verify Unity package access' : 'Unity package access required';
   const description =
     mode === 'error'
       ? 'Refresh your billing state and try again.'
-      : 'Manage install IDs and VCC links through Polar. Upgrade billing to unlock the custom VPM repo.';
+      : 'Manage install links through Polar. Upgrade billing to unlock private Unity packages.';
 
   return (
     <section className={className}>
       <div className="intg-header">
         <div className="intg-icon">
-          <img
-            src={mode === 'error' ? '/Icons/Wrench.png' : '/Icons/BagPlus.png'}
-            alt=""
-            aria-hidden="true"
-          />
+          <Icon name={mode === 'error' ? 'alert' : 'package'} />
         </div>
         <div className="intg-copy">
           <h2 className="intg-title">{title}</h2>

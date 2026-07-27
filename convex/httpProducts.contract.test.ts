@@ -18,7 +18,12 @@ describe('/v1/products fast path contract', () => {
   });
 
   it('requires the catalog read scope instead of certificate issuance scope', () => {
-    expect(httpSource).toContain("verifyOAuthToken(token, siteUrl, 'products:read')");
+    expect(httpSource).toContain("verifyOAuthRequest(request, siteUrl, 'products:read')");
+  });
+
+  it('verifies the complete resource request so DPoP bindings cannot be bypassed', () => {
+    expect(httpSource).toContain('verifyAccessTokenRequest(requestToResourceInput(request)');
+    expect(httpSource).not.toContain('verifyAccessToken(token');
   });
 
   it('imports Convex polyfills before using runtime timing APIs in the HTTP router', () => {

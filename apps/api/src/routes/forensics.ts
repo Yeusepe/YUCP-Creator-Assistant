@@ -16,14 +16,17 @@ import {
 } from '../lib/couplingForensicsService';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
+import type {
+  MaterializationAttributionCandidate,
+  MaterializationAttributionCandidatePage,
+  MaterializationControlClient,
+} from '../lib/materializationControlClient';
 import {
   checkPublicApiRateLimit,
   getPublicApiRateLimitStore,
   type PublicApiRateLimitStore,
 } from '../lib/publicApiRateLimit';
 import { RequestBodyError, readRequestBytesWithLimit } from '../lib/requestBody';
-import { getProviderRuntime } from '../providers/index';
-import { decryptForensicsLicenseKey } from '../verification/forensicsLicenseKey';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024;
@@ -31,6 +34,10 @@ const MAX_LOOKUP_MULTIPART_OVERHEAD_BYTES = 1024 * 1024;
 const MAX_UPLOAD_FILENAME_LENGTH = 128;
 const FORENSICS_LOOKUP_RATE_LIMIT_MAX_REQUESTS = 30;
 const FORENSICS_LOOKUP_RATE_LIMIT_WINDOW_MS = 60_000;
+const FORENSICS_ATTRIBUTION_PAGE_SIZE = 256;
+const FORENSICS_ATTRIBUTION_MAXIMUM_CANDIDATE_WORK = 4_096;
+const FORENSICS_ATTRIBUTION_MAXIMUM_EVALUATION_WORK = 512 * 512;
+const TRACEPARENT_PATTERN = /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/;
 
 export type ForensicsConfig = {
   apiBaseUrl: string;
@@ -40,10 +47,13 @@ export type ForensicsConfig = {
   convexApiSecret: string;
   convexUrl: string;
   encryptionSecret: string;
+  maxAttributionCandidateWork?: number;
+  maxAttributionEvaluationWork?: number;
   maxLookupUploadBytes?: number;
   lookupRateLimitMaxRequests?: number;
   lookupRateLimitStore?: PublicApiRateLimitStore;
   lookupRateLimitWindowMs?: number;
+  materializationControl?: Pick<MaterializationControlClient, 'listAttributionCandidates'>;
 };
 
 type ForensicsViewer = {
@@ -55,6 +65,7 @@ type ForensicsLookupStatus =
   | 'attributed'
   | 'tampered_suspected'
   | 'hostile_unknown'
+  | 'no_signal_found'
   | 'no_candidate_assets';
 
 type LayerBClassification =
@@ -72,6 +83,8 @@ function buildLookupMessage(status: ForensicsLookupStatus): string {
       return 'Candidate assets were found, but no valid coupling signals could be decoded';
     case 'hostile_unknown':
       return 'The uploaded archive did not resolve to an authorized trace record';
+    case 'no_signal_found':
+      return 'No valid coupling signal was found';
     case 'no_candidate_assets':
       return 'No coupling candidate assets were found';
   }
@@ -79,7 +92,13 @@ function buildLookupMessage(status: ForensicsLookupStatus): string {
 
 function buildAuditStatus(
   status: ForensicsLookupStatus
-): 'matched' | 'attributed' | 'tampered_suspected' | 'hostile_unknown' | 'no_candidate_assets' {
+):
+  | 'matched'
+  | 'attributed'
+  | 'tampered_suspected'
+  | 'hostile_unknown'
+  | 'no_signal_found'
+  | 'no_candidate_assets' {
   switch (status) {
     case 'attributed':
       return 'attributed';
@@ -87,6 +106,8 @@ function buildAuditStatus(
       return 'tampered_suspected';
     case 'hostile_unknown':
       return 'hostile_unknown';
+    case 'no_signal_found':
+      return 'no_signal_found';
     case 'no_candidate_assets':
       return 'no_candidate_assets';
   }
@@ -244,11 +265,43 @@ function buildLookupRateLimitKey(viewer: ForensicsViewer, request: Request): str
   return `forensics:lookup:user:${authUserHash}:ip:${clientAddressHash}`;
 }
 
-type MatchedTraceCandidate = {
+type MatchedAttributionCandidate = {
   assetPath: string;
-  licenseSubject: string;
-  tokenHash: string;
+  attributionId: string;
+  buyerSubjectPseudonym: string;
+  createdAt: number;
 };
+
+function resolveMaximumAttributionCandidateWork(config: ForensicsConfig): number {
+  const maximum =
+    config.maxAttributionCandidateWork ?? FORENSICS_ATTRIBUTION_MAXIMUM_CANDIDATE_WORK;
+  if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > 16_384) {
+    throw new Error('Coupling attribution candidate work limit is invalid');
+  }
+  return maximum;
+}
+
+function resolveMaximumAttributionEvaluationWork(config: ForensicsConfig): number {
+  const maximum =
+    config.maxAttributionEvaluationWork ?? FORENSICS_ATTRIBUTION_MAXIMUM_EVALUATION_WORK;
+  if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > 4 * 1_024 * 1_024) {
+    throw new Error('Coupling attribution evaluation work limit is invalid');
+  }
+  return maximum;
+}
+
+function mergeScoreResult(
+  previous: ForensicsScoreResult | undefined,
+  next: ForensicsScoreResult
+): ForensicsScoreResult {
+  if (!previous || next.preclassification === 'decoded') {
+    return next;
+  }
+  if (previous.preclassification === 'no-signal' && next.preclassification === 'likely-stripped') {
+    return next;
+  }
+  return previous;
+}
 
 function normalizeDeclaredPackageIds(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).sort(
@@ -256,60 +309,36 @@ function normalizeDeclaredPackageIds(values: string[]): string[] {
   );
 }
 
-function buildTraceCandidateKey(candidate: MatchedTraceCandidate): string {
-  return `${candidate.assetPath}\0${candidate.licenseSubject}\0${candidate.tokenHash}`;
-}
-
-function buildMatchedTraceCandidate(
-  scoreResult: ForensicsScoreResult
-): MatchedTraceCandidate | null {
-  if (!scoreResult.tokenHex) {
+function buildMatchedAttributionCandidate(
+  scoreResult: ForensicsScoreResult,
+  candidatesById: ReadonlyMap<string, MatchedAttributionCandidate>
+): MatchedAttributionCandidate | null {
+  if (
+    scoreResult.preclassification !== 'decoded' ||
+    !scoreResult.matchedAttributionId ||
+    !scoreResult.matchedBuyerSubjectPseudonym
+  ) {
     return null;
   }
-  const licenseSubject = scoreResult.matchedLicenseSubject?.trim().toLowerCase() || '';
-  if (!licenseSubject) {
+  const candidate = candidatesById.get(scoreResult.matchedAttributionId);
+  if (!candidate || candidate.buyerSubjectPseudonym !== scoreResult.matchedBuyerSubjectPseudonym) {
     throw new CouplingServiceRequestError(
-      'Coupling attribution returned a decoded match without a license subject',
+      'Coupling attribution returned a match outside the authorized candidate set',
       502
     );
   }
-  return {
-    assetPath: scoreResult.matchedCandidateAssetPath ?? scoreResult.assetPath,
-    licenseSubject,
-    tokenHash: sha256HexFromBytes(new TextEncoder().encode(scoreResult.tokenHex)),
-  };
-}
-
-function buildMatchedTraceCandidates(
-  decodedResults: ForensicsScoreResult[]
-): MatchedTraceCandidate[] {
-  const candidates: MatchedTraceCandidate[] = [];
-  const seen = new Set<string>();
-  for (const scoreResult of decodedResults) {
-    const candidate = buildMatchedTraceCandidate(scoreResult);
-    if (!candidate) {
-      continue;
-    }
-    const key = buildTraceCandidateKey(candidate);
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    candidates.push(candidate);
-  }
-  return candidates;
+  return candidate;
 }
 
 function classifyLayerB(
   scoreResult: ForensicsScoreResult,
-  matchedTraceKeys: Set<string>
+  matchedAttributionIds: ReadonlySet<string>
 ): LayerBClassification {
   if (scoreResult.preclassification === 'decoded') {
-    const candidate = buildMatchedTraceCandidate(scoreResult);
-    if (!candidate) {
+    if (!scoreResult.matchedAttributionId) {
       return 'no-signal-found';
     }
-    return matchedTraceKeys.has(buildTraceCandidateKey(candidate))
+    return matchedAttributionIds.has(scoreResult.matchedAttributionId)
       ? 'trace-recovered'
       : 'tamper-suspected';
   }
@@ -373,19 +402,19 @@ function buildLookupMatchId(
   config: ForensicsConfig,
   packageId: string,
   match: {
-    licenseSubject: string;
-    tokenHash: string;
+    attributionId: string;
+    buyerSubjectPseudonym: string;
     assetPath: string;
   }
 ): string {
   return createHmac('sha256', config.encryptionSecret)
-    .update('forensics-lookup-match-v1')
+    .update('forensics-lookup-match-v2')
     .update('\0')
     .update(packageId)
     .update('\0')
-    .update(match.licenseSubject)
+    .update(match.attributionId)
     .update('\0')
-    .update(match.tokenHash)
+    .update(match.buyerSubjectPseudonym)
     .update('\0')
     .update(match.assetPath)
     .digest('hex');
@@ -395,123 +424,22 @@ function buildLookupBuyerMatchId(
   config: ForensicsConfig,
   packageId: string,
   match: {
-    licenseSubject: string;
+    buyerSubjectPseudonym: string;
   }
 ): string {
   return createHmac('sha256', config.encryptionSecret)
-    .update('forensics-lookup-buyer-match-v1')
+    .update('forensics-lookup-buyer-match-v2')
     .update('\0')
     .update(packageId)
     .update('\0')
-    .update(match.licenseSubject)
+    .update(match.buyerSubjectPseudonym)
     .digest('hex');
 }
 
 export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
   const convex = getConvexClientFromUrl(config.convexUrl);
-
-  async function enrichTraceMatches(
-    viewer: ForensicsViewer,
-    matches: Array<{
-      tokenHash: string;
-      licenseSubject: string;
-      assetPath: string;
-      correlationId: string;
-      createdAt: number;
-      runtimeArtifactVersion: string;
-      runtimePlaintextSha256: string;
-      machineFingerprintHash: string;
-      projectIdHash: string;
-      grantId?: string;
-      packFamily?: string;
-      packVersion?: string;
-      provider?: string;
-      licenseMasked?: string;
-      licenseKeyEncrypted?: string;
-      providerProductId?: string;
-      buyerProviderUserId?: string;
-      buyerProviderUsername?: string;
-      buyerSubjectDisplayName?: string;
-      buyerSubjectDiscordUserId?: string;
-    }>
-  ) {
-    const identityCache = new Map<
-      string,
-      Promise<{
-        buyerProviderUserId?: string;
-        buyerProviderUsername?: string;
-        buyerSubjectDisplayName?: string;
-        buyerSubjectDiscordUserId?: string;
-      } | null>
-    >();
-
-    return await Promise.all(
-      matches.map(async (match) => {
-        if (
-          match.buyerProviderUsername ||
-          match.buyerSubjectDisplayName ||
-          match.buyerSubjectDiscordUserId ||
-          !match.provider ||
-          !match.licenseKeyEncrypted
-        ) {
-          return match;
-        }
-
-        const cacheKey = `${match.provider}:${match.licenseSubject}`;
-        let pending = identityCache.get(cacheKey);
-        if (!pending) {
-          pending = (async () => {
-            const verification = getProviderRuntime(match.provider ?? '')?.verification;
-            if (!verification) {
-              return null;
-            }
-
-            const licenseKey = await decryptForensicsLicenseKey(
-              match.licenseKeyEncrypted as string,
-              config.encryptionSecret
-            );
-            const verified = await verification.verifyLicense(
-              licenseKey,
-              match.providerProductId,
-              viewer.authUserId,
-              {
-                convex,
-                apiSecret: config.convexApiSecret,
-                authUserId: viewer.authUserId,
-                encryptionSecret: config.encryptionSecret,
-              }
-            );
-
-            if (!verified?.valid) {
-              return {};
-            }
-
-            const resolved = await convex.query(
-              api.couplingForensics.resolveBuyerIdentityForAuthUser,
-              {
-                apiSecret: config.convexApiSecret,
-                authUserId: viewer.authUserId,
-                provider: match.provider as string,
-                providerUserId: verified.providerUserId,
-                externalOrderId: verified.externalOrderId,
-              }
-            );
-
-            return {
-              buyerProviderUserId: resolved?.buyerProviderUserId ?? verified.providerUserId,
-              buyerProviderUsername: resolved?.buyerProviderUsername,
-              buyerSubjectDisplayName: resolved?.buyerSubjectDisplayName,
-              buyerSubjectDiscordUserId: resolved?.buyerSubjectDiscordUserId,
-            };
-          })();
-          identityCache.set(cacheKey, pending);
-        }
-
-        const resolved = await pending;
-        return resolved ? { ...match, ...resolved } : match;
-      })
-    );
-  }
+  const maximumAttributionCandidateWork = resolveMaximumAttributionCandidateWork(config);
+  const maximumAttributionEvaluationWork = resolveMaximumAttributionEvaluationWork(config);
 
   async function listPackages(request: Request): Promise<Response> {
     const viewer = await resolveViewer(request, auth, config);
@@ -630,8 +558,8 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
           packageId,
           source: viewer.source,
           status: 'denied',
-          requestedTokenCount: 0,
-          matchedTokenCount: 0,
+          requestedCandidateCount: 0,
+          matchedAttributionCount: 0,
           uploadSha256,
         });
         return jsonResponse({
@@ -652,8 +580,8 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
           packageId,
           source: viewer.source,
           status: buildAuditStatus(lookupStatus),
-          requestedTokenCount: 0,
-          matchedTokenCount: 0,
+          requestedCandidateCount: 0,
+          matchedAttributionCount: 0,
           uploadSha256,
         });
         return jsonResponse({
@@ -666,8 +594,8 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         });
       }
 
-      const candidateResult = await convex.query(
-        api.couplingForensics.listCouplingTraceCandidatesForAuthUser,
+      const authorization = await convex.query(
+        api.couplingForensics.authorizeCouplingForensicsLookupForAuthUser,
         {
           apiSecret: config.convexApiSecret,
           authUserId: viewer.authUserId,
@@ -675,15 +603,15 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         }
       );
 
-      if (!candidateResult.capabilityEnabled) {
+      if (!authorization.capabilityEnabled) {
         await convex.mutation(api.couplingForensics.recordLookupAudit, {
           apiSecret: config.convexApiSecret,
           authUserId: viewer.authUserId,
           packageId,
           source: viewer.source,
           status: 'denied',
-          requestedTokenCount: 0,
-          matchedTokenCount: 0,
+          requestedCandidateCount: 0,
+          matchedAttributionCount: 0,
           uploadSha256,
         });
         return jsonResponse(
@@ -695,15 +623,15 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         );
       }
 
-      if (!candidateResult.packageOwned) {
+      if (!authorization.packageOwned) {
         await convex.mutation(api.couplingForensics.recordLookupAudit, {
           apiSecret: config.convexApiSecret,
           authUserId: viewer.authUserId,
           packageId,
           source: viewer.source,
           status: 'denied',
-          requestedTokenCount: 0,
-          matchedTokenCount: 0,
+          requestedCandidateCount: 0,
+          matchedAttributionCount: 0,
           uploadSha256,
         });
         return jsonResponse({
@@ -717,37 +645,146 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         });
       }
 
-      if (candidateResult.truncated) {
+      if (!config.materializationControl) {
+        throw new CouplingServiceConfigurationError(
+          'Materialization attribution control is not configured'
+        );
+      }
+      const candidatesById = new Map<string, MatchedAttributionCandidate>();
+      const durableCandidatesById = new Map<string, MaterializationAttributionCandidate>();
+      const scoreResultsByPath = new Map<string, ForensicsScoreResult>();
+      let unresolvedAssets = [...extraction.assets];
+      let requestedCandidateCount = 0;
+      let candidateEvaluationCount = 0;
+      let cursor: string | undefined;
+      const candidateTraceparent = request.headers.get('traceparent');
+      const traceparent =
+        candidateTraceparent && TRACEPARENT_PATTERN.test(candidateTraceparent)
+          ? candidateTraceparent
+          : undefined;
+      const buildCandidateWorkLimitResponse = async (): Promise<Response> => {
+        logger.warn('Coupling attribution work limit reached', {
+          candidateEvaluationCount,
+          packageId,
+          requestedCandidateCount,
+        });
         await convex.mutation(api.couplingForensics.recordLookupAudit, {
           apiSecret: config.convexApiSecret,
           authUserId: viewer.authUserId,
           packageId,
           source: viewer.source,
           status: 'error',
-          requestedTokenCount: candidateResult.candidateLimit,
-          matchedTokenCount: 0,
+          requestedCandidateCount,
+          matchedAttributionCount: 0,
           uploadSha256,
         });
         return jsonResponse(
           {
-            error: 'Trace candidate limit exceeded; narrow the package or retry after archival',
+            error: 'Attribution candidate work limit reached before the scan was complete.',
             code: 'coupling_trace_candidate_limit_exceeded',
-            candidateLimit: candidateResult.candidateLimit,
+            candidateLimit: maximumAttributionCandidateWork,
+            candidateEvaluationCount,
+            candidateEvaluationLimit: maximumAttributionEvaluationWork,
+            requestedCandidateCount,
           },
           409
         );
+      };
+
+      for (;;) {
+        const remainingCandidateWork = maximumAttributionCandidateWork - requestedCandidateCount;
+        const remainingEvaluationWork = maximumAttributionEvaluationWork - candidateEvaluationCount;
+        const requestedPageLimit = Math.min(
+          FORENSICS_ATTRIBUTION_PAGE_SIZE,
+          remainingCandidateWork,
+          Math.floor(remainingEvaluationWork / Math.max(1, unresolvedAssets.length))
+        );
+        if (requestedPageLimit < 1) {
+          return await buildCandidateWorkLimitResponse();
+        }
+        const candidateResult: MaterializationAttributionCandidatePage =
+          await config.materializationControl.listAttributionCandidates({
+            candidateLimit: requestedPageLimit,
+            creatorId: viewer.authUserId,
+            ...(cursor ? { cursor } : {}),
+            productId: packageId,
+            ...(traceparent ? { traceparent } : {}),
+          });
+        if (
+          candidateResult.candidateLimit !== requestedPageLimit ||
+          candidateResult.candidates.length > requestedPageLimit ||
+          (candidateResult.truncated &&
+            (candidateResult.candidates.length !== requestedPageLimit ||
+              !candidateResult.nextCursor))
+        ) {
+          throw new CouplingServiceRequestError(
+            'Materialization control returned an invalid attribution page',
+            502
+          );
+        }
+
+        requestedCandidateCount += candidateResult.candidates.length;
+        candidateEvaluationCount += candidateResult.candidates.length * unresolvedAssets.length;
+        for (const candidate of candidateResult.candidates) {
+          if (durableCandidatesById.has(candidate.attributionId)) {
+            throw new CouplingServiceRequestError(
+              'Materialization control returned duplicate attribution candidates',
+              502
+            );
+          }
+          durableCandidatesById.set(candidate.attributionId, candidate);
+          candidatesById.set(candidate.attributionId, {
+            assetPath: candidate.normalizedPath,
+            attributionId: candidate.attributionId,
+            buyerSubjectPseudonym: candidate.buyerSubjectPseudonym,
+            createdAt: candidate.createdAt,
+          });
+        }
+
+        if (candidateResult.candidates.length > 0 && unresolvedAssets.length > 0) {
+          const pageScoreResults = await runCouplingAttribution(
+            unresolvedAssets,
+            candidateResult.candidates.map(({ createdAt: _createdAt, ...candidate }) => candidate),
+            {
+              baseUrl: config.couplingServiceBaseUrl,
+              sharedSecret: config.couplingServiceSharedSecret,
+            }
+          );
+          for (const scoreResult of pageScoreResults) {
+            scoreResultsByPath.set(
+              scoreResult.assetPath,
+              mergeScoreResult(scoreResultsByPath.get(scoreResult.assetPath), scoreResult)
+            );
+          }
+          unresolvedAssets = unresolvedAssets.filter(
+            (asset) => scoreResultsByPath.get(asset.assetPath)?.preclassification !== 'decoded'
+          );
+        }
+
+        if (unresolvedAssets.length === 0 || !candidateResult.truncated) {
+          break;
+        }
+        const canEvaluateAnotherCandidate =
+          maximumAttributionEvaluationWork - candidateEvaluationCount >= unresolvedAssets.length;
+        if (
+          requestedCandidateCount >= maximumAttributionCandidateWork ||
+          !canEvaluateAnotherCandidate
+        ) {
+          return await buildCandidateWorkLimitResponse();
+        }
+        cursor = candidateResult.nextCursor;
       }
 
-      if (candidateResult.candidates.length === 0) {
-        const lookupStatus: ForensicsLookupStatus = 'hostile_unknown';
+      if (durableCandidatesById.size === 0) {
+        const lookupStatus: ForensicsLookupStatus = 'no_signal_found';
         await convex.mutation(api.couplingForensics.recordLookupAudit, {
           apiSecret: config.convexApiSecret,
           authUserId: viewer.authUserId,
           packageId,
           source: viewer.source,
           status: buildAuditStatus(lookupStatus),
-          requestedTokenCount: 0,
-          matchedTokenCount: 0,
+          requestedCandidateCount: 0,
+          matchedAttributionCount: 0,
           uploadSha256,
         });
         return jsonResponse({
@@ -761,45 +798,53 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         });
       }
 
-      // Seed-iteration attribution: the closed coupling service re-derives each recorded buyer's
-      // per-job placement seed and decodes the leaked assets against them. We only hand it candidate
-      // (assetPath, licenseSubject, tokenHash) tuples; the master key and native code stay server-side.
-      const scoreResults = await runCouplingAttribution(
-        extraction.assets,
-        candidateResult.candidates,
-        {
-          baseUrl: config.couplingServiceBaseUrl,
-          sharedSecret: config.couplingServiceSharedSecret,
-        }
+      const scoreResults: ForensicsScoreResult[] = extraction.assets.map(
+        (asset) =>
+          scoreResultsByPath.get(asset.assetPath) ?? {
+            assetPath: asset.assetPath,
+            assetType: asset.assetType,
+            decoderKind: asset.assetType,
+            preclassification: 'no-signal',
+          }
       );
 
       const decodedResults = scoreResults.filter(
-        (r) => r.preclassification === 'decoded' && r.tokenHex
+        (result) =>
+          result.preclassification === 'decoded' &&
+          Boolean(result.matchedAttributionId) &&
+          Boolean(result.matchedBuyerSubjectPseudonym)
       );
 
       if (decodedResults.length === 0) {
+        const results = scoreResults.map((scoreResult) => ({
+          assetPath: scoreResult.assetPath,
+          assetType: scoreResult.assetType,
+          decoderKind: scoreResult.decoderKind,
+          layerBClassification: classifyLayerB(scoreResult, new Set()) as LayerBClassification,
+          matched: false,
+          matches: [],
+        }));
+        const hasPositiveTamperEvidence = results.some(
+          (result) =>
+            result.layerBClassification === 'tamper-suspected' ||
+            result.layerBClassification === 'trace-likely-stripped'
+        );
         const lookupStatus: ForensicsLookupStatus =
-          scoreResults.length > 0 ? 'tampered_suspected' : 'no_candidate_assets';
+          scoreResults.length === 0
+            ? 'no_candidate_assets'
+            : hasPositiveTamperEvidence
+              ? 'tampered_suspected'
+              : 'no_signal_found';
         await convex.mutation(api.couplingForensics.recordLookupAudit, {
           apiSecret: config.convexApiSecret,
           authUserId: viewer.authUserId,
           packageId,
           source: viewer.source,
           status: buildAuditStatus(lookupStatus),
-          requestedTokenCount: 0,
-          matchedTokenCount: 0,
+          requestedCandidateCount,
+          matchedAttributionCount: 0,
           uploadSha256,
         });
-
-        const results = scoreResults.map((scoreResult) => ({
-          assetPath: scoreResult.assetPath,
-          assetType: scoreResult.assetType,
-          decoderKind: scoreResult.decoderKind,
-          tokenLength: scoreResult.tokenLength,
-          layerBClassification: classifyLayerB(scoreResult, new Set()) as LayerBClassification,
-          matched: false,
-          matches: [],
-        }));
 
         return jsonResponse({
           packageId,
@@ -812,137 +857,49 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         });
       }
 
-      const matchedCandidates = buildMatchedTraceCandidates(decodedResults);
-      const tokenHashes = matchedCandidates.map((candidate) => candidate.tokenHash);
-
-      const lookupResult = await convex.query(api.couplingForensics.lookupTraceMatchesForAuthUser, {
-        apiSecret: config.convexApiSecret,
-        authUserId: viewer.authUserId,
-        packageId,
-        matchedCandidates,
-      });
-
-      if (!lookupResult.capabilityEnabled) {
-        await convex.mutation(api.couplingForensics.recordLookupAudit, {
-          apiSecret: config.convexApiSecret,
-          authUserId: viewer.authUserId,
-          packageId,
-          source: viewer.source,
-          status: 'denied',
-          requestedTokenCount: tokenHashes.length,
-          matchedTokenCount: 0,
-          uploadSha256,
-        });
-        return jsonResponse(
-          {
-            error: 'Creator Studio+ is required for coupling traceability',
-            code: 'coupling_traceability_required',
-          },
-          402
-        );
-      }
-
-      if (!lookupResult.packageOwned) {
-        await convex.mutation(api.couplingForensics.recordLookupAudit, {
-          apiSecret: config.convexApiSecret,
-          authUserId: viewer.authUserId,
-          packageId,
-          source: viewer.source,
-          status: 'denied',
-          requestedTokenCount: tokenHashes.length,
-          matchedTokenCount: 0,
-          uploadSha256,
-        });
-        return jsonResponse({
-          packageId,
-          lookupStatus: 'hostile_unknown' satisfies ForensicsLookupStatus,
-          message: buildLookupMessage('hostile_unknown'),
-          candidateAssetCount: extraction.assets.length,
-          decodedAssetCount: decodedResults.length,
-          results: [],
-          investigationReport: buildInvestigationReport([], extraction.assets.length),
-        });
-      }
-
-      if (lookupResult.truncated) {
-        await convex.mutation(api.couplingForensics.recordLookupAudit, {
-          apiSecret: config.convexApiSecret,
-          authUserId: viewer.authUserId,
-          packageId,
-          source: viewer.source,
-          status: 'error',
-          requestedTokenCount: matchedCandidates.length,
-          matchedTokenCount: 0,
-          uploadSha256,
-        });
-        return jsonResponse(
-          {
-            error: 'Trace match limit exceeded; retry with fewer recovered assets',
-            code: 'coupling_trace_match_limit_exceeded',
-          },
-          409
-        );
-      }
-
-      const matchedTraceKeySet = new Set<string>(
-        lookupResult.matches.map((match: MatchedTraceCandidate) => buildTraceCandidateKey(match))
+      const matchedAttributionIds = new Set(
+        decodedResults.flatMap((result) =>
+          result.matchedAttributionId ? [result.matchedAttributionId] : []
+        )
       );
-      const enrichedMatches = await enrichTraceMatches(viewer, lookupResult.matches);
-      const enrichedMatchesByTraceKey = new Map<string, typeof enrichedMatches>();
-      for (const match of enrichedMatches) {
-        const matchKey = buildTraceCandidateKey(match);
-        const bucket = enrichedMatchesByTraceKey.get(matchKey) ?? [];
-        bucket.push(match);
-        enrichedMatchesByTraceKey.set(matchKey, bucket);
-      }
 
       const results = scoreResults.map((scoreResult) => {
-        const candidate =
-          scoreResult.preclassification === 'decoded'
-            ? buildMatchedTraceCandidate(scoreResult)
-            : null;
-        const matches = candidate
-          ? (enrichedMatchesByTraceKey.get(buildTraceCandidateKey(candidate)) ?? [])
-          : [];
-        const layerBClassification = classifyLayerB(scoreResult, matchedTraceKeySet);
+        const candidate = buildMatchedAttributionCandidate(scoreResult, candidatesById);
+        const layerBClassification = classifyLayerB(scoreResult, matchedAttributionIds);
         return {
           assetPath: scoreResult.assetPath,
           assetType: scoreResult.assetType,
           decoderKind: scoreResult.decoderKind,
-          tokenLength: scoreResult.tokenLength,
           layerBClassification,
-          matched: matches.length > 0,
-          matches: matches.map((match: (typeof matches)[number]) => ({
-            matchId: buildLookupMatchId(config, packageId, match),
-            buyerMatchId: buildLookupBuyerMatchId(config, packageId, match),
-            assetPath: match.assetPath,
-            createdAt: match.createdAt,
-            runtimeArtifactVersion: match.runtimeArtifactVersion,
-            ...(match.packFamily !== undefined ? { packFamily: match.packFamily } : {}),
-            ...(match.packVersion !== undefined ? { packVersion: match.packVersion } : {}),
-            ...(match.provider !== undefined ? { provider: match.provider } : {}),
-            ...(match.licenseMasked !== undefined ? { licenseMasked: match.licenseMasked } : {}),
-            ...(match.buyerProviderUsername !== undefined
-              ? { buyerProviderUsername: match.buyerProviderUsername }
-              : {}),
-            ...(match.buyerSubjectDisplayName !== undefined
-              ? { buyerSubjectDisplayName: match.buyerSubjectDisplayName }
-              : {}),
-          })),
+          matched: Boolean(candidate),
+          matches: candidate
+            ? [
+                {
+                  matchId: buildLookupMatchId(config, packageId, candidate),
+                  buyerMatchId: buildLookupBuyerMatchId(config, packageId, candidate),
+                  assetPath: candidate.assetPath,
+                  attributionId: candidate.attributionId,
+                  buyerSubjectPseudonym: candidate.buyerSubjectPseudonym,
+                  createdAt: candidate.createdAt,
+                  runtimeArtifactVersion: durableCandidatesById.get(candidate.attributionId)
+                    ?.pluginVersion,
+                },
+              ]
+            : [],
         };
       });
 
-      const matchedTokenCount = results.filter((entry) => entry.matched).length;
+      const matchedAttributionCount = results.filter((entry) => entry.matched).length;
       const lookupStatus: ForensicsLookupStatus =
-        matchedTokenCount > 0 ? 'attributed' : 'hostile_unknown';
+        matchedAttributionCount > 0 ? 'attributed' : 'hostile_unknown';
       await convex.mutation(api.couplingForensics.recordLookupAudit, {
         apiSecret: config.convexApiSecret,
         authUserId: viewer.authUserId,
         packageId,
         source: viewer.source,
         status: buildAuditStatus(lookupStatus),
-        requestedTokenCount: tokenHashes.length,
-        matchedTokenCount,
+        requestedCandidateCount,
+        matchedAttributionCount,
         uploadSha256,
       });
 
@@ -964,8 +921,8 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
             packageId: auditContext.packageId,
             source: auditContext.source,
             status: 'error',
-            requestedTokenCount: 0,
-            matchedTokenCount: 0,
+            requestedCandidateCount: 0,
+            matchedAttributionCount: 0,
             uploadSha256: auditContext.uploadSha256,
           });
         } catch (auditError) {

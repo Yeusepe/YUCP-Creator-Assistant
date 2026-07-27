@@ -1,17 +1,10 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { Stepper } from '@heroui-pro/react/stepper';
+import { useMutation } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import {
-  CheckCircle2,
-  ChevronDown,
-  Copy,
-  Download,
-  ExternalLink,
-  Package,
-  Store,
-} from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { CloudBackground } from '@/components/three/CloudBackground';
+import { Icon } from '@/components/ui/Icon';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { usePublicAuth } from '@/hooks/usePublicAuth';
@@ -19,7 +12,6 @@ import {
   buildProductAccessReturnPath,
   clearProductAccessGrantFromUrl,
   createBuyerProductAccessVerificationIntent,
-  mintBuyerVpmRepository,
 } from '@/lib/productAccess';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 import { fetchBuyerProductAccess } from '@/lib/server/productAccess';
@@ -54,42 +46,13 @@ function AccessPageShell({ children }: Readonly<{ children: ReactNode }>) {
   );
 }
 
-function ProgressStep({
-  index,
-  currentStep,
-  label,
-}: Readonly<{
-  index: number;
-  currentStep: number;
-  label: string;
-}>) {
-  const status = index < currentStep ? 'complete' : index === currentStep ? 'active' : 'upcoming';
-
-  return (
-    <li className={`vpa-step vpa-step--${status}`}>
-      <span className="vpa-step-dot" aria-hidden="true">
-        {status === 'complete' ? <CheckCircle2 className="size-4" /> : index + 1}
-      </span>
-      <span className="vpa-step-label">{label}</span>
-    </li>
-  );
-}
-
 function BuyerProductAccessPage() {
-  const { accessState, product } = Route.useLoaderData();
+  const { accessState, product, repository } = Route.useLoaderData();
   const search = Route.useSearch();
   const toast = useToast();
-  const { authUserId, isAuthenticated, isPending: isAuthPending, signIn } = usePublicAuth();
+  const { isAuthenticated, isPending: isAuthPending, signIn } = usePublicAuth();
   const [isManualSetupOpen, setIsManualSetupOpen] = useState(false);
   const [copyingValue, setCopyingValue] = useState<'add-repo' | 'index' | null>(null);
-  const downloadPath = `/api/access/${encodeURIComponent(product.catalogProductId)}/download`;
-
-  const repositoryQuery = useQuery({
-    queryKey: ['buyer-vpm-repository', authUserId, product.catalogProductId],
-    queryFn: mintBuyerVpmRepository,
-    enabled: Boolean(authUserId) && isAuthenticated && accessState.hasActiveEntitlement,
-    retry: false,
-  });
 
   useEffect(() => {
     if (search.grant || search.intent_id) clearProductAccessGrantFromUrl();
@@ -131,6 +94,9 @@ function BuyerProductAccessPage() {
   const hasAccess = accessState.hasActiveEntitlement;
   const currentStep = hasAccess ? 2 : isAuthenticated ? 1 : 0;
   const returnedFromVerification = Boolean(search.intent_id && search.grant && hasAccess);
+  const providerSummary = Array.from(
+    new Set(product.storefronts.map((storefront) => storefront.providerLabel))
+  ).join(' + ');
 
   return (
     <AccessPageShell>
@@ -140,30 +106,54 @@ function BuyerProductAccessPage() {
             {product.thumbnailUrl ? (
               <img className="vpa-thumb-img" src={product.thumbnailUrl} alt="" />
             ) : (
-              <Package className="size-7" aria-hidden="true" />
+              <Icon name="package" className="size-7" aria-hidden="true" />
             )}
           </div>
           <div className="vpa-head-text">
             <span className="vpa-provider">
-              <Store className="size-3.5" aria-hidden="true" />
-              {product.providerLabel}
+              <Icon name="store" className="size-3.5" aria-hidden="true" />
+              {providerSummary}
             </span>
             <h1 className="vpa-title">{product.displayName}</h1>
-            <p className="vpa-meta">Private VCC access and protected downloads</p>
+            <p className="vpa-meta">Purchase-verified VCC setup and package delivery</p>
           </div>
         </header>
 
-        <ol className="vpa-steps" aria-label="Access steps">
-          <ProgressStep index={0} currentStep={currentStep} label="Sign in" />
-          <ProgressStep index={1} currentStep={currentStep} label="Verify" />
-          <ProgressStep index={2} currentStep={currentStep} label="Add to VCC" />
-        </ol>
+        <Stepper
+          aria-label="Access steps"
+          className="vpa-steps"
+          currentStep={currentStep}
+          orientation="horizontal"
+          size="md"
+        >
+          <Stepper.Step>
+            <Stepper.Indicator />
+            <Stepper.Content>
+              <Stepper.Title>Sign in</Stepper.Title>
+            </Stepper.Content>
+            <Stepper.Separator />
+          </Stepper.Step>
+          <Stepper.Step>
+            <Stepper.Indicator />
+            <Stepper.Content>
+              <Stepper.Title>Verify</Stepper.Title>
+            </Stepper.Content>
+            <Stepper.Separator />
+          </Stepper.Step>
+          <Stepper.Step>
+            <Stepper.Indicator />
+            <Stepper.Content>
+              <Stepper.Title>Add to VCC</Stepper.Title>
+            </Stepper.Content>
+            <Stepper.Separator />
+          </Stepper.Step>
+        </Stepper>
 
         <section className="vpa-action">
           {returnedFromVerification ? (
             <div className="vpa-callout vpa-callout--success">
-              <CheckCircle2 className="size-4" aria-hidden="true" />
-              Purchase confirmed. Your private package access is ready.
+              <Icon name="success" className="size-4" aria-hidden="true" />
+              Purchase confirmed. Your package access is ready.
             </div>
           ) : null}
 
@@ -177,33 +167,28 @@ function BuyerProductAccessPage() {
             </h2>
             <p className="vpa-action-desc">
               {hasAccess
-                ? 'Download the package directly or add your private source to VCC.'
+                ? 'Add the product to VCC. YUCP then installs the verified files.'
                 : isAuthenticated
-                  ? `Confirm your ${product.providerLabel} purchase to unlock this product.`
+                  ? `Confirm a purchase from ${providerSummary} to unlock this product.`
                   : 'Use the Creator Identity connected to your purchases and VCC.'}
             </p>
           </div>
 
           {hasAccess ? (
             <div className="flex flex-wrap gap-2">
-              <a className="vp-primary-btn vpa-cta" href={downloadPath}>
-                <Download className="size-4" aria-hidden="true" />
-                Download
-              </a>
               <YucpButton
                 yucp="secondary"
                 pill
                 className="vpa-cta"
-                isLoading={repositoryQuery.isPending}
-                isDisabled={!repositoryQuery.data?.addRepoUrl}
+                isDisabled={!repository?.addRepoUrl}
                 onPress={() => {
-                  if (repositoryQuery.data?.addRepoUrl) {
-                    window.location.assign(repositoryQuery.data.addRepoUrl);
+                  if (repository?.addRepoUrl) {
+                    window.location.assign(repository.addRepoUrl);
                   }
                 }}
               >
-                <ExternalLink className="size-4" aria-hidden="true" />
-                {repositoryQuery.isPending ? 'Preparing VCC access...' : 'Add to VCC'}
+                <Icon name="externalLink" className="size-4" aria-hidden="true" />
+                Add to VCC
               </YucpButton>
             </div>
           ) : (
@@ -223,9 +208,9 @@ function BuyerProductAccessPage() {
             </YucpButton>
           )}
 
-          {repositoryQuery.isError ? (
+          {hasAccess && !repository ? (
             <p className="vpa-note vpa-note--error">
-              Your purchase is active, but the VPM repository could not be prepared. Retry below.
+              This creator has not enabled Unity access for this product.
             </p>
           ) : null}
         </section>
@@ -239,7 +224,8 @@ function BuyerProductAccessPage() {
               onClick={() => setIsManualSetupOpen((current) => !current)}
             >
               Manual setup and troubleshooting
-              <ChevronDown
+              <Icon
+                name="arrowDownLarge"
                 className={`vpa-manual-toggle-icon size-4${isManualSetupOpen ? ' is-open' : ''}`}
                 aria-hidden="true"
               />
@@ -249,53 +235,43 @@ function BuyerProductAccessPage() {
               aria-hidden={!isManualSetupOpen}
               inert={!isManualSetupOpen}
             >
-              {repositoryQuery.isError ? (
-                <YucpButton
-                  yucp="secondary"
-                  isLoading={repositoryQuery.isFetching}
-                  onPress={() => void repositoryQuery.refetch()}
-                >
-                  Retry VPM access
-                </YucpButton>
-              ) : repositoryQuery.data ? (
+              {repository ? (
                 <div className="space-y-4">
                   <p className="vpa-manual-copy">
                     Use Add to VCC for the normal flow. These values are available for manual setup
                     or guided support.
                   </p>
-                  <p className="vpa-manual-copy">VCC add-repo URL</p>
+                  <p className="vpa-manual-copy">VCC setup link</p>
                   <div className="vpa-repo-box">
-                    <p className="vpa-repo-url">{repositoryQuery.data.addRepoUrl}</p>
+                    <p className="vpa-repo-url">{repository.addRepoUrl}</p>
                     <YucpButton
                       yucp="ghost"
                       className="vpa-repo-copy"
                       isLoading={copyingValue === 'add-repo'}
-                      onPress={() =>
-                        void copyRepositoryValue('add-repo', repositoryQuery.data.addRepoUrl)
-                      }
+                      onPress={() => void copyRepositoryValue('add-repo', repository.addRepoUrl)}
                     >
-                      <Copy className="size-3.5" aria-hidden="true" />
+                      <Icon name="copy" className="size-3.5" aria-hidden="true" />
                       Copy
                     </YucpButton>
                   </div>
-                  <p className="vpa-manual-copy">Repository index URL</p>
+                  <p className="vpa-manual-copy">Package source URL</p>
                   <div className="vpa-repo-box">
-                    <p className="vpa-repo-url">{repositoryQuery.data.indexUrl}</p>
+                    <p className="vpa-repo-url">{repository.indexUrl}</p>
                     <YucpButton
                       yucp="ghost"
                       className="vpa-repo-copy"
                       isLoading={copyingValue === 'index'}
-                      onPress={() =>
-                        void copyRepositoryValue('index', repositoryQuery.data.indexUrl)
-                      }
+                      onPress={() => void copyRepositoryValue('index', repository.indexUrl)}
                     >
-                      <Copy className="size-3.5" aria-hidden="true" />
+                      <Icon name="copy" className="size-3.5" aria-hidden="true" />
                       Copy
                     </YucpButton>
                   </div>
                 </div>
               ) : (
-                <p className="vpa-manual-copy">Preparing your private repository details.</p>
+                <p className="vpa-manual-copy">
+                  This creator has not enabled Unity access for this product.
+                </p>
               )}
             </div>
           </section>
@@ -307,17 +283,21 @@ function BuyerProductAccessPage() {
               My purchases
             </Link>
           ) : null}
-          {product.storefrontUrl ? (
-            <a
-              href={product.storefrontUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="vpa-foot-link"
-            >
-              <ExternalLink className="size-4" aria-hidden="true" />
-              Store listing
-            </a>
-          ) : null}
+          {product.storefronts.map((storefront) =>
+            storefront.storefrontUrl ? (
+              <a
+                key={storefront.catalogProductId}
+                href={storefront.storefrontUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="vpa-foot-link"
+                aria-label={`${storefront.providerLabel} store`}
+              >
+                <Icon name="externalLink" className="size-4" aria-hidden="true" />
+                {storefront.providerLabel}
+              </a>
+            ) : null
+          )}
         </footer>
       </div>
     </AccessPageShell>

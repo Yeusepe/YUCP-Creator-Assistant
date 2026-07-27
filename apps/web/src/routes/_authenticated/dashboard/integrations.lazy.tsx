@@ -8,6 +8,7 @@ import {
   DashboardActionRowSkeleton,
   DashboardListSkeleton,
 } from '@/components/dashboard/DashboardSkeletons';
+import { Icon } from '@/components/ui/Icon';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
 import type {
@@ -231,20 +232,7 @@ function OAuthAppsSection({
         <div className="intg-title-row">
           {!isLoading ? (
             <div className="intg-icon">
-              <svg
-                aria-hidden="true"
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <rect x="3" y="11" width="18" height="11" rx="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-              </svg>
+              <Icon name="lock" size={18} />
             </div>
           ) : null}
           <div className="intg-copy developer-intg-copy">
@@ -261,18 +249,7 @@ function OAuthAppsSection({
           type="button"
           onClick={() => setCreatePanelOpen(true)}
         >
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
+          <Icon name="add" />
           Add app
         </button>
       </div>
@@ -451,20 +428,7 @@ function OAuthAppsSection({
         {apps.length === 0 ? (
           <div id="oauth-apps-empty" className="empty-state developer-intg-empty">
             <div className="intg-icon" style={{ margin: '0 auto 14px' }}>
-              <svg
-                aria-hidden="true"
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.75"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <rect x="3" y="11" width="18" height="11" rx="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-              </svg>
+              <Icon name="lock" size={18} />
             </div>
             <p className="empty-state-title">No OAuth apps yet</p>
             <p className="empty-state-copy">
@@ -472,18 +436,7 @@ function OAuthAppsSection({
               users.
             </p>
             <button className="intg-add-btn" type="button" onClick={() => setCreatePanelOpen(true)}>
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
+              <Icon name="add" />
               Add your first app
             </button>
           </div>
@@ -573,19 +526,7 @@ function ApiKeysSection({
         <div className="intg-title-row">
           {!isLoading ? (
             <div className="intg-icon">
-              <svg
-                aria-hidden="true"
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
-              </svg>
+              <Icon name="key" size={18} />
             </div>
           ) : null}
           <div className="intg-copy developer-intg-copy">
@@ -602,18 +543,7 @@ function ApiKeysSection({
           type="button"
           onClick={() => setCreatePanelOpen(true)}
         >
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
+          <Icon name="add" />
           Add key
         </button>
       </div>
@@ -733,19 +663,7 @@ function ApiKeysSection({
         {keys.length === 0 ? (
           <div id="api-keys-empty" className="empty-state developer-intg-empty">
             <div className="intg-icon" style={{ margin: '0 auto 14px' }}>
-              <svg
-                aria-hidden="true"
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.75"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
-              </svg>
+              <Icon name="key" size={18} />
             </div>
             <p className="empty-state-title">No API keys yet</p>
             <p className="empty-state-copy">
@@ -753,18 +671,7 @@ function ApiKeysSection({
               the key in the <code>x-api-key</code> header.
             </p>
             <button className="intg-add-btn" type="button" onClick={() => setCreatePanelOpen(true)}>
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
+              <Icon name="add" />
               Add your first key
             </button>
           </div>
@@ -919,9 +826,7 @@ function InlineOAuthAppFields({
               />
               <div className="scope-toggle-card">
                 <div className="scope-toggle-check">
-                  <svg aria-hidden="true" viewBox="0 0 12 12">
-                    <polyline points="2 6 5 9 10 3" />
-                  </svg>
+                  <Icon name="check" />
                 </div>
                 <div className="scope-toggle-text">
                   <div className="scope-toggle-name">{scope.name}</div>
@@ -1015,9 +920,7 @@ function InlineApiKeyForm({
                     />
                     <div className="scope-toggle-card">
                       <div className="scope-toggle-check">
-                        <svg aria-hidden="true" viewBox="0 0 12 12">
-                          <polyline points="2 6 5 9 10 3" />
-                        </svg>
+                        <Icon name="check" />
                       </div>
                       <div className="scope-toggle-text">
                         <div className="scope-toggle-name">{scope.name}</div>

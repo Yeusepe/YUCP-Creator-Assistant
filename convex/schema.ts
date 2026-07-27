@@ -64,13 +64,6 @@ const ProductCatalogStatus = v.union(
   v.literal('hidden')
 );
 
-/** Signed release artifact publication status */
-const SignedReleaseArtifactStatus = v.union(
-  v.literal('active'),
-  v.literal('inactive'),
-  v.literal('revoked')
-);
-
 /** Catalog product link kinds */
 const LinkKind = v.union(
   v.literal('storefront'),
@@ -509,14 +502,7 @@ const AuditEventType = v.union(
   v.literal('collaborator.connection.added'),
   v.literal('collaborator.connection.removed'),
   v.literal('release.artifact.published'),
-  v.literal('coupling.unlock.issued'),
-  v.literal('coupling.trace.recorded'),
-  v.literal('protected.materialization.grant.issued'),
-  v.literal('protected.materialization.grant.redeemed'),
-  v.literal('protected.materialization.grant.receipted'),
-  v.literal('protected.materialization.grant.revoked'),
   v.literal('coupling.lookup.performed'),
-  v.literal('coupling.license_key.revealed'),
   v.literal('setup.job.created'),
   v.literal('setup.job.resumed'),
   v.literal('setup.job.status.updated'),
@@ -534,11 +520,6 @@ const AuditEventType = v.union(
   v.literal('account.security.recovery.completed'),
   v.literal('account.security.authenticator.compromised'),
   v.literal('account.security.sessions.revoked')
-);
-
-const ProtectedMaterializationGrantTraceStatus = v.union(
-  v.literal('issued'),
-  v.literal('receipted')
 );
 
 // ============================================================================
@@ -1378,6 +1359,7 @@ const product_catalog = defineTable({
   .index('by_auth_user', ['authUserId'])
   .index('by_auth_user_provider_product_ref', ['authUserId', 'providerProductRef'])
   .index('by_auth_user_slug', ['authUserId', 'canonicalSlug'])
+  .index('by_product_id', ['productId'])
   .index('by_provider_ref', ['provider', 'providerProductRef'])
   .index('by_provider_product_ref', ['providerProductRef'])
   .index('by_slug', ['canonicalSlug'])
@@ -2368,73 +2350,6 @@ const creator_billing_reconciliation_targets = defineTable({
   .index('by_auth_user', ['authUserId'])
   .index('by_next_run_at', ['nextRunAt']);
 
-const signed_release_artifacts = defineTable({
-  artifactKey: v.string(),
-  channel: v.string(),
-  platform: v.string(),
-  version: v.string(),
-  metadataVersion: v.number(),
-  storageId: v.id('_storage'),
-  contentType: v.string(),
-  deliveryName: v.string(),
-  envelopeCipher: v.string(),
-  envelopeIvBase64: v.string(),
-  ciphertextSha256: v.string(),
-  ciphertextSize: v.number(),
-  plaintextSha256: v.string(),
-  plaintextSize: v.number(),
-  codeSigningSubject: v.optional(v.string()),
-  codeSigningThumbprint: v.optional(v.string()),
-  status: SignedReleaseArtifactStatus,
-  activatedAt: v.optional(v.number()),
-  createdAt: v.number(),
-  updatedAt: v.number(),
-})
-  .index('by_artifact_key', ['artifactKey'])
-  .index('by_artifact_key_status', ['artifactKey', 'status'])
-  .index('by_status', ['status']);
-
-const coupling_trace_records = defineTable({
-  authUserId: v.string(),
-  packageId: v.string(),
-  licenseSubject: v.string(),
-  assetPath: v.string(),
-  tokenHash: v.string(),
-  tokenLength: v.number(),
-  machineFingerprintHash: v.string(),
-  projectIdHash: v.string(),
-  runtimeArtifactVersion: v.string(),
-  runtimePlaintextSha256: v.string(),
-  grantId: v.optional(v.string()),
-  grantIssuanceStatus: v.optional(ProtectedMaterializationGrantTraceStatus),
-  grantReceiptedAt: v.optional(v.number()),
-  correlationId: v.string(),
-  createdAt: v.number(),
-  /** 16 hex chars (8 bytes CSPRNG). Prevents carrier position discovery via comparison. */
-  materializationNonce: v.optional(v.string()),
-  /** Coupling pack family identifier. Populated when pack delivery is active. */
-  packFamily: v.optional(v.string()),
-  /** Coupling pack version within the family. */
-  packVersion: v.optional(v.string()),
-  /** ID of the Tardos probability vector used for this materialization. */
-  pVectorId: v.optional(v.string()),
-  /** License provider (e.g. 'gumroad', 'jinxxy'). Populated at coupling trace time. */
-  provider: v.optional(v.string()),
-})
-  .index('by_auth_user_created', ['authUserId', 'createdAt'])
-  .index('by_package_token', ['packageId', 'tokenHash'])
-  .index('by_auth_package_token_created', ['authUserId', 'packageId', 'tokenHash', 'createdAt'])
-  .index('by_auth_package_token_subject_asset_created', [
-    'authUserId',
-    'packageId',
-    'tokenHash',
-    'licenseSubject',
-    'assetPath',
-    'createdAt',
-  ])
-  .index('by_correlation', ['correlationId'])
-  .index('by_grant_id', ['grantId']);
-
 /**
  * Hardware-attested anti-ripper identity (TPM + HWID constellation + VRChat id).
  * Stores only salted hashes, never raw identifiers, per the Stripe-aligned security rules.
@@ -2498,7 +2413,7 @@ const machine_attestations = defineTable({
   paymentFingerprintHash: v.optional(v.string()),
   /** Salted hash of the corroborated VRChat usr id, when available. */
   usrIdHash: v.optional(v.string()),
-  /** SHA-256 of the raw license key (shared join key with coupling_trace_records.licenseSubject). */
+  /** SHA-256 of the raw license key used by the identity and entitlement systems. */
   licenseSubject: v.optional(v.string()),
   /** SHA-256 of the unlock/request machine fingerprint, used to bind attestation to current unlock. */
   machineFingerprintHash: v.optional(v.string()),
@@ -2619,7 +2534,7 @@ const coupling_proofs = defineTable({
  * the buyer account, order, and raw license key without requiring email.
  */
 const license_subject_links = defineTable({
-  /** SHA-256 of the raw license key, join key shared with coupling_trace_records.licenseSubject */
+  /** SHA-256 of the raw license key used by the identity and entitlement systems. */
   licenseSubject: v.string(),
   /** Creator who owns this package */
   authUserId: v.string(),
@@ -2644,24 +2559,6 @@ const license_subject_links = defineTable({
   .index('by_subject', ['licenseSubject'])
   .index('by_auth_user_subject', ['authUserId', 'licenseSubject'])
   .index('by_auth_user', ['authUserId', 'createdAt']);
-
-/**
- * Revoked protected materialization grants.
- * Revocation is forward-looking only, it blocks future redeem calls but
- * cannot claw back plaintext that was already materialized.
- */
-const revoked_grants = defineTable({
-  grantId: v.string(),
-  /** Unix ms when the grant was revoked */
-  revokedAt: v.number(),
-  /** Human-readable reason for revocation */
-  reason: v.string(),
-  /** authUserId of the creator who initiated revocation */
-  revokedByUserId: v.string(),
-  createdAt: v.number(),
-})
-  .index('by_grant_id', ['grantId'])
-  .index('by_revoked_at', ['revokedAt']);
 
 /**
  * C2PA-inspired Layer A authenticity manifests (one per package+asset version).
@@ -2693,12 +2590,6 @@ const yucp_manifests = defineTable({
   .index('by_grant_id', ['grantId']);
 
 /**
- * Per-materialization coupling trace record.
- * Stores opaque token hashes only. Forensic reconstruction is performed
- * server-side via the private coupling service.
- */
-
-/**
  * Package Name Registry, Layer 1 defense.
  * First publisher to sign a packageId owns the namespace.
  * Subsequent signers with a different yucpUserId are rejected.
@@ -2727,22 +2618,238 @@ const package_registry = defineTable({
   .index('by_publisher_id', ['publisherId']);
 
 /**
+ * Explicit creator-confirmed links between one package and its storefront catalog entries.
+ */
+const package_catalog_bindings = defineTable({
+  creatorAuthUserId: v.string(),
+  packageId: v.string(),
+  catalogProductId: v.id('product_catalog'),
+  status: v.union(v.literal('active'), v.literal('removed')),
+  createdAt: v.number(),
+  removedAt: v.optional(v.number()),
+  updatedAt: v.number(),
+})
+  .index('by_catalog_product_status', ['catalogProductId', 'status'])
+  .index('by_creator_catalog_status', ['creatorAuthUserId', 'catalogProductId', 'status'])
+  .index('by_creator_package_status', ['creatorAuthUserId', 'packageId', 'status']);
+
+/**
+ * Creator-managed public VPM repository links.
+ *
+ * The link ID is a public, unguessable identifier. It is not an authorization credential.
+ * The linked repository contains only the public importer and product bootstrap package.
+ */
+const creator_vpm_links = defineTable({
+  creatorAuthUserId: v.string(),
+  packageId: v.string(),
+  linkId: v.string(),
+  status: v.union(v.literal('active'), v.literal('revoked')),
+  createdAt: v.number(),
+  revokedAt: v.optional(v.number()),
+  updatedAt: v.number(),
+})
+  .index('by_link_id', ['linkId'])
+  .index('by_creator_package_status', ['creatorAuthUserId', 'packageId', 'status']);
+
+/**
+ * Mutable public presentation for one package-scoped VPM alias.
+ *
+ * Paid release versions and storefront bindings are intentionally absent.
+ */
+const package_vpm_presentations = defineTable({
+  creatorAuthUserId: v.string(),
+  packageId: v.string(),
+  channel: v.string(),
+  artifactBaseUrl: v.string(),
+  artifactBucketName: v.optional(v.string()),
+  artifactFormat: v.literal('vpm-alias-zip-v1'),
+  contractVersion: v.literal(1),
+  packageName: v.string(),
+  authorName: v.string(),
+  description: v.string(),
+  tagline: v.optional(v.string()),
+  unityVersion: v.string(),
+  importerPackage: v.literal('com.yucp.importer'),
+  minImporterVersion: v.string(),
+  media: v.array(
+    v.object({
+      bucketName: v.string(),
+      byteSize: v.number(),
+      contentType: v.literal('image/png'),
+      kind: v.union(v.literal('icon'), v.literal('banner')),
+      localPath: v.string(),
+      objectKey: v.string(),
+      providerVersion: v.string(),
+      sha256: v.string(),
+    })
+  ),
+  presentationFingerprintSha256: v.string(),
+  fingerprintInputJson: v.string(),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_creator_package_channel', ['creatorAuthUserId', 'packageId', 'channel'])
+  .index('by_package_channel', ['packageId', 'channel']);
+
+/**
+ * Immutable history for published package-scoped VPM alias artifacts.
+ *
+ * PREPARING and FAILED records support retry and reconciliation.
+ * PUBLISHED records are append-only.
+ */
+const vpm_alias_publications = defineTable({
+  creatorAuthUserId: v.string(),
+  packageId: v.string(),
+  channel: v.string(),
+  publicationId: v.string(),
+  revision: v.number(),
+  bootstrapVersion: v.string(),
+  status: v.union(v.literal('PREPARING'), v.literal('PUBLISHED'), v.literal('FAILED')),
+  contractVersion: v.literal(1),
+  artifactFormat: v.literal('vpm-alias-zip-v1'),
+  fingerprintSchemaVersion: v.union(v.literal(1), v.literal(2)),
+  presentationFingerprintSha256: v.string(),
+  fingerprintInputJson: v.string(),
+  aliasPackageId: v.optional(v.string()),
+  repositoryManifestJson: v.optional(v.string()),
+  repositoryManifestSha256: v.optional(v.string()),
+  artifact: v.optional(
+    v.object({
+      bucketName: v.string(),
+      byteSize: v.number(),
+      contentType: v.literal('application/zip'),
+      objectKey: v.string(),
+      providerVersion: v.string(),
+      sha256: v.string(),
+    })
+  ),
+  publicationReason: v.union(
+    v.literal('link-activation'),
+    v.literal('presentation-update'),
+    v.literal('migration')
+  ),
+  traceparent: v.optional(v.string()),
+  failureCode: v.optional(v.string()),
+  createdAt: v.number(),
+  publishedAt: v.optional(v.number()),
+  updatedAt: v.number(),
+})
+  .index('by_publication_id', ['publicationId'])
+  .index('by_package_channel_fingerprint', [
+    'packageId',
+    'channel',
+    'presentationFingerprintSha256',
+  ])
+  .index('by_package_channel_revision', ['packageId', 'channel', 'revision'])
+  .index('by_package_channel_status_revision', ['packageId', 'channel', 'status', 'revision'])
+  .index('by_creator_package_channel_revision', [
+    'creatorAuthUserId',
+    'packageId',
+    'channel',
+    'revision',
+  ])
+  .index('by_status_updated_at', ['status', 'updatedAt']);
+
+/**
+ * Creator-managed delivery editions. Tier identifiers stay provider-neutral after catalog sync.
+ */
+const package_editions = defineTable({
+  creatorAuthUserId: v.string(),
+  packageId: v.string(),
+  editionId: v.string(),
+  displayName: v.string(),
+  catalogProductIds: v.array(v.id('product_catalog')),
+  catalogTierIds: v.array(v.id('catalog_tiers')),
+  priority: v.number(),
+  status: v.union(v.literal('active'), v.literal('archived')),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_creator_package', ['creatorAuthUserId', 'packageId'])
+  .index('by_creator_package_edition', ['creatorAuthUserId', 'packageId', 'editionId']);
+
+/**
  * Thin Convex pointer from a package release to the READY Postgres catalog version.
  * Delivery manifests remain derived from versionId and are not duplicated here.
  */
 const package_versions_ref = defineTable({
   packageId: v.string(),
+  packageMetadata: v.optional(
+    v.object({
+      author: v.string(),
+      description: v.optional(v.string()),
+      packageName: v.string(),
+      tagline: v.optional(v.string()),
+      version: v.string(),
+    })
+  ),
+  editionId: v.optional(v.string()),
   version: v.string(),
   versionId: v.string(),
-  channel: v.optional(v.string()),
-  state: v.union(v.literal('READY'), v.literal('SUPERSEDED')),
-  catalogProductId: v.optional(v.id('product_catalog')),
-  totalSize: v.optional(v.number()),
+  activeContentDigest: v.optional(v.string()),
+  activePolicyVersion: v.optional(v.string()),
+  bindingRoot: v.optional(v.string()),
+  bootstrapMedia: v.optional(
+    v.array(
+      v.object({
+        bucketName: v.string(),
+        byteSize: v.number(),
+        contentType: v.literal('image/png'),
+        kind: v.union(v.literal('icon'), v.literal('banner')),
+        localPath: v.string(),
+        objectKey: v.string(),
+        providerVersion: v.string(),
+        sha256: v.string(),
+      })
+    )
+  ),
+  commonRoot: v.optional(v.string()),
+  logicalBytes: v.optional(v.number()),
+  logicalFiles: v.optional(v.number()),
+  manifestSha256: v.optional(v.string()),
+  protectedFiles: v.optional(
+    v.array(
+      v.object({
+        materializerType: v.string(),
+        normalizedPath: v.string(),
+        required: v.boolean(),
+        sourceSha256: v.string(),
+      })
+    )
+  ),
+  protectedSourceRoot: v.optional(v.string()),
+  protectionPolicyDigest: v.optional(v.string()),
+  protectionPolicyId: v.optional(v.string()),
+  releaseRoot: v.optional(v.string()),
+  vpmDependencies: v.optional(v.record(v.string(), v.string())),
+  vpmRepositories: v.optional(v.record(v.string(), v.string())),
   contentType: v.optional(v.string()),
+  totalSize: v.optional(v.number()),
+  channel: v.optional(v.string()),
+  state: v.union(v.literal('READY'), v.literal('SUPERSEDED'), v.literal('DELETED')),
+  deletedAt: v.optional(v.number()),
+  catalogProductId: v.optional(v.id('product_catalog')),
   createdAt: v.number(),
 })
   .index('by_package_channel', ['packageId', 'channel', 'state'])
+  .index('by_package_edition_channel', ['packageId', 'editionId', 'channel', 'state'])
+  .index('by_package_edition_channel_created', [
+    'packageId',
+    'editionId',
+    'channel',
+    'state',
+    'createdAt',
+  ])
+  .index('by_package_edition_version', ['packageId', 'editionId', 'version'])
   .index('by_version_id', ['versionId'])
+  .index('by_release_root', ['releaseRoot'])
+  .index('by_release_package_edition_channel_state', [
+    'releaseRoot',
+    'packageId',
+    'editionId',
+    'channel',
+    'state',
+  ])
   .index('by_catalog_product', ['catalogProductId', 'state']);
 
 /**
@@ -2803,22 +2910,6 @@ const http_rate_limits = defineTable({
   .index('by_window_start', ['windowStart']);
 
 /**
- * Short-lived session store for the RFC 8252 loopback OAuth proxy.
- * Maps an OAuth `state` parameter to the original loopback redirect_uri
- * so the callback can forward the code back to the Unity editor process.
- */
-const oauth_loopback_sessions = defineTable({
-  /** The `state` parameter sent by the Unity client, used as the lookup key */
-  oauthState: v.string(),
-  /** The original loopback redirect_uri (e.g. http://127.0.0.1:PORT/callback) */
-  originalRedirectUri: v.string(),
-  /** Unix ms, records when the session was created so TTL can be enforced */
-  createdAt: v.number(),
-})
-  .index('by_oauth_state', ['oauthState'])
-  .index('by_created_at', ['createdAt']);
-
-/**
  * Used YUCP JWT nonces, tracks consumed nonces for replay prevention.
  */
 const used_nonces = defineTable({
@@ -2830,43 +2921,19 @@ const used_nonces = defineTable({
   usedAt: v.number(),
 }).index('by_nonce', ['nonce']);
 
-const protected_assets = defineTable({
-  packageId: v.string(),
-  protectedAssetId: v.string(),
-  unlockMode: v.optional(v.union(v.literal('wrapped_content_key'), v.literal('content_key_b64'))),
-  wrappedContentKey: v.optional(v.string()),
-  encryptedContentKey: v.optional(v.string()),
-  displayName: v.optional(v.string()),
-  contentHash: v.string(),
-  manifestBindingSha256: v.optional(v.string()),
-  packageVersion: v.optional(v.string()),
-  publisherId: v.string(),
-  yucpUserId: v.string(),
-  certNonce: v.string(),
-  registeredAt: v.number(),
+/**
+ * Better Auth verification reservations provide atomic replay protection.
+ */
+const better_auth_reservations = defineTable({
+  reservationId: v.string(),
+  identifier: v.string(),
+  value: v.string(),
+  expiresAt: v.number(),
+  createdAt: v.number(),
   updatedAt: v.number(),
 })
-  .index('by_package_and_asset', ['packageId', 'protectedAssetId'])
-  .index('by_package_id', ['packageId'])
-  .index('by_yucp_user_id', ['yucpUserId']);
-
-const protected_asset_unlocks = defineTable({
-  packageId: v.string(),
-  protectedAssetId: v.string(),
-  licenseSubject: v.string(),
-  machineFingerprint: v.string(),
-  projectId: v.string(),
-  firstUnlockedAt: v.number(),
-  lastIssuedAt: v.number(),
-  issueCount: v.number(),
-})
-  .index('by_package_asset_machine_project', [
-    'packageId',
-    'protectedAssetId',
-    'machineFingerprint',
-    'projectId',
-  ])
-  .index('by_package_asset_subject', ['packageId', 'protectedAssetId', 'licenseSubject']);
+  .index('by_reservation_id', ['reservationId'])
+  .index('by_expires_at', ['expiresAt']);
 
 // ============================================================================
 // PUBLIC API V2 TABLES
@@ -2989,6 +3056,7 @@ export default defineSchema({
   account_recovery_sessions,
   collaborator_invites,
   collaborator_connections,
+  better_auth_reservations,
 
   // Public API v2 tables
   creator_events,
@@ -3014,8 +3082,6 @@ export default defineSchema({
   creator_billing_catalog_benefits,
   creator_billing_meters,
   creator_billing_reconciliation_targets,
-  signed_release_artifacts,
-  coupling_trace_records,
   machine_attestations,
   identity_nodes,
   identity_node_anchors,
@@ -3023,17 +3089,18 @@ export default defineSchema({
   attestation_challenges,
   coupling_proofs,
   license_subject_links,
-  revoked_grants,
   yucp_manifests,
   yucp_certificates,
   package_registry,
+  package_catalog_bindings,
+  creator_vpm_links,
+  package_vpm_presentations,
+  vpm_alias_publications,
+  package_editions,
   package_versions_ref,
   signing_log,
   cert_issuance_log,
-  oauth_loopback_sessions,
   used_nonces,
-  protected_assets,
-  protected_asset_unlocks,
 
   // HTTP rate limiting for unauthenticated public endpoints
   http_rate_limits,

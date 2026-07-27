@@ -1,12 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { createHash, randomBytes } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve, sep } from 'node:path';
 import {
   Catalog,
   type CatalogDatabase,
   type CatalogOutboxEvent,
+  ExactStorageCatalog,
   openCatalogDatabase,
   type RedriveRequest,
   runCatalogMigrations,
@@ -19,11 +21,16 @@ import {
   readCasIndexObject,
   type S3CasStore,
   s3CasStore,
+  storeArtifactToStore,
   verifyDesyncCli,
 } from '../storage-core/desyncCas';
+import { DurableExactStorage } from '../storage-core/durableExactStorage';
+import { S3ExactStoragePort } from '../storage-core/exactStorage';
+import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId';
 import { createS3Bucket } from '../storage-core/s3Control';
 import { waitForMinioReady } from '../testing/minioReadiness';
 import { waitForPostgres } from '../testing/postgresReadiness';
+import { createUnityPackageRecordFixture } from '../testing/unityPackageFixture';
 import { createIngestScheduler, type IngestScheduler } from './scheduler';
 import { buildSchedulerRuntime, type SchedulerRuntime } from './server';
 
@@ -39,7 +46,9 @@ const intervalMs = 10;
 
 let sql: CatalogDatabase | undefined;
 let catalog: Catalog | undefined;
-let store: S3CasStore | undefined;
+let commonStore: S3CasStore | undefined;
+let metadataStore: S3CasStore | undefined;
+let protectedStore: S3CasStore | undefined;
 let scratchPath: string | undefined;
 let catalogDatabaseUrl: string | undefined;
 const schedulers = new Set<IngestScheduler>();
@@ -113,11 +122,21 @@ function requireCatalog(): Catalog {
   return catalog;
 }
 
-function requireStore(): S3CasStore {
-  if (!store) {
-    throw new Error('Scheduler end-to-end CAS store was not initialized');
+function requireStores(): {
+  commonStore: S3CasStore;
+  metadataStore: S3CasStore;
+  protectedStore: S3CasStore;
+  scratchRoot: string;
+} {
+  if (!commonStore || !metadataStore || !protectedStore) {
+    throw new Error('Scheduler end-to-end role stores were not initialized');
   }
-  return store;
+  return {
+    commonStore,
+    metadataStore,
+    protectedStore,
+    scratchRoot: requireScratchPath(),
+  };
 }
 
 function requireScratchPath(): string {
@@ -135,11 +154,12 @@ function requireCatalogDatabaseUrl(): string {
 }
 
 async function buildProductionSchedulerRuntime(): Promise<SchedulerRuntime> {
-  const activeStore = requireStore();
+  const activeStores = requireStores();
   const sourceEnv = {
     INFISICAL_PROJECT_ID: 'scheduler-e2e-project',
     INFISICAL_CLIENT_ID: 'scheduler-e2e-client',
     INFISICAL_CLIENT_SECRET: 'scheduler-e2e-secret',
+    INGEST_SCRATCH_DIR: requireScratchPath(),
     SCHEDULER_BATCH_LIMIT: '1',
     SCHEDULER_INTERVAL_MS: String(intervalMs),
     SCHEDULER_STUCK_THRESHOLD_MS: '60000',
@@ -149,11 +169,21 @@ async function buildProductionSchedulerRuntime(): Promise<SchedulerRuntime> {
     CONVEX_URL: 'https://scheduler-e2e.invalid',
     INTERNAL_SERVICE_AUTH_SECRET: 'scheduler-e2e-internal-auth-secret',
     CATALOG_DATABASE_URL: requireCatalogDatabaseUrl(),
-    CAS_S3_ENDPOINT: activeStore.config.endpoint,
-    CAS_S3_REGION: activeStore.config.region,
-    CAS_S3_BUCKET: activeStore.config.bucket,
-    CAS_S3_ACCESS_KEY_ID: activeStore.config.accessKeyId,
-    CAS_S3_SECRET_ACCESS_KEY: activeStore.config.secretAccessKey,
+    COMMON_S3_ENDPOINT: activeStores.commonStore.config.endpoint,
+    COMMON_S3_REGION: activeStores.commonStore.config.region,
+    COMMON_S3_BUCKET: activeStores.commonStore.config.bucket,
+    COMMON_S3_ACCESS_KEY_ID: activeStores.commonStore.config.accessKeyId,
+    COMMON_S3_SECRET_ACCESS_KEY: activeStores.commonStore.config.secretAccessKey,
+    METADATA_S3_ENDPOINT: activeStores.metadataStore.config.endpoint,
+    METADATA_S3_REGION: activeStores.metadataStore.config.region,
+    METADATA_S3_BUCKET: activeStores.metadataStore.config.bucket,
+    METADATA_S3_ACCESS_KEY_ID: activeStores.metadataStore.config.accessKeyId,
+    METADATA_S3_SECRET_ACCESS_KEY: activeStores.metadataStore.config.secretAccessKey,
+    PROTECTED_S3_ENDPOINT: activeStores.protectedStore.config.endpoint,
+    PROTECTED_S3_REGION: activeStores.protectedStore.config.region,
+    PROTECTED_S3_BUCKET: activeStores.protectedStore.config.bucket,
+    PROTECTED_S3_ACCESS_KEY_ID: activeStores.protectedStore.config.accessKeyId,
+    PROTECTED_S3_SECRET_ACCESS_KEY: activeStores.protectedStore.config.secretAccessKey,
   }));
   schedulerRuntimes.add(runtime);
   return runtime;
@@ -166,8 +196,12 @@ function assertScratchPath(path: string): void {
   }
 }
 
-function deterministicBytes(seed: string, byteLength: number): Buffer {
-  return createHash('shake256', { outputLength: byteLength }).update(seed).digest();
+async function sha256File(path: string): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(path)) {
+    hash.update(chunk);
+  }
+  return hash.digest('hex');
 }
 
 async function waitFor(
@@ -236,7 +270,9 @@ async function cleanup(): Promise<void> {
   const activeSql = sql;
   sql = undefined;
   catalog = undefined;
-  store = undefined;
+  commonStore = undefined;
+  metadataStore = undefined;
+  protectedStore = undefined;
   try {
     await activeSql?.end({ timeout: 1 });
   } finally {
@@ -316,15 +352,41 @@ beforeAll(async () => {
     `;
     catalog = new Catalog(sql);
 
-    const activeCasConfig: CasConfig = loadCasConfig({
-      CAS_S3_ENDPOINT: minioEndpoint,
-      CAS_S3_REGION: 'us-east-1',
-      CAS_S3_BUCKET: `scheduler-${randomBytes(8).toString('hex')}`,
-      CAS_S3_ACCESS_KEY_ID: accessKeyId,
-      CAS_S3_SECRET_ACCESS_KEY: secretAccessKey,
+    const bucketBase = `scheduler-${randomBytes(8).toString('hex')}`;
+    const roleConfig = (role: string): CasConfig =>
+      loadCasConfig({
+        CAS_S3_ENDPOINT: minioEndpoint,
+        CAS_S3_REGION: 'us-east-1',
+        CAS_S3_BUCKET: `${bucketBase}-${role}`,
+        CAS_S3_ACCESS_KEY_ID: accessKeyId,
+        CAS_S3_SECRET_ACCESS_KEY: secretAccessKey,
+      });
+    const commonConfig = roleConfig('common');
+    const metadataConfig = roleConfig('metadata');
+    const protectedConfig = roleConfig('protected');
+    for (const config of [commonConfig, metadataConfig, protectedConfig]) {
+      await createS3Bucket(config);
+    }
+    const durableStorage = new DurableExactStorage(
+      new ExactStorageCatalog(requireSql()),
+      new S3ExactStoragePort({
+        common: commonConfig,
+        metadata: metadataConfig,
+        protected: protectedConfig,
+      })
+    );
+    commonStore = s3CasStore(commonConfig, {
+      durableStorage,
+      storageRole: 'common',
     });
-    await createS3Bucket(activeCasConfig);
-    store = s3CasStore(activeCasConfig);
+    metadataStore = s3CasStore(metadataConfig, {
+      durableStorage,
+      storageRole: 'metadata',
+    });
+    protectedStore = s3CasStore(protectedConfig, {
+      durableStorage,
+      storageRole: 'protected',
+    });
     scratchPath = await mkdtemp(join(tmpdir(), 'yucp-scheduler-e2e-'));
   } catch (error) {
     await cleanup();
@@ -340,12 +402,13 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
       createIngestScheduler({
         batchLimit: 1,
         catalog: requireCatalog(),
+        ...requireStores(),
         database: requireSql(),
         intervalMs: 2_147_483_648,
         onError: () => undefined,
         publish: dispatchPublishedEvent,
         redrive: dispatchRedrive,
-        store: requireStore(),
+        resolveCreatorId: async () => 'scheduler-creator',
         stuckThresholdMs: 60_000,
       })
     ).toThrow('intervalMs must not exceed 2147483647');
@@ -354,21 +417,46 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
   it('drives later work, stops gracefully, avoids overlap, and continues after a tick error', async () => {
     const activeCatalog = requireCatalog();
     const activeSql = requireSql();
-    const activeStore = requireStore();
+    const activeStores = requireStores();
     const scratch = requireScratchPath();
-    const firstPath = join(scratch, 'first.bin');
-    const secondPath = join(scratch, 'second.bin');
-    const stopPath = join(scratch, 'stop-in-flight.bin');
-    const afterStopPath = join(scratch, 'after-stop.bin');
-    const badPath = join(scratch, 'bad-store.bin');
-    const recoveryPath = join(scratch, 'recovery.bin');
-    await Promise.all([
-      writeFile(firstPath, deterministicBytes('scheduler-first', 512 * 1024)),
-      writeFile(secondPath, deterministicBytes('scheduler-second', 512 * 1024)),
-      writeFile(stopPath, deterministicBytes('scheduler-stop', 512 * 1024)),
-      writeFile(afterStopPath, deterministicBytes('scheduler-after-stop', 512 * 1024)),
-      writeFile(badPath, deterministicBytes('scheduler-bad-store', 512 * 1024)),
-      writeFile(recoveryPath, deterministicBytes('scheduler-recovery', 512 * 1024)),
+    const firstPath = join(scratch, 'first.unitypackage');
+    const secondPath = join(scratch, 'second.unitypackage');
+    const stopPath = join(scratch, 'stop-in-flight.unitypackage');
+    const afterStopPath = join(scratch, 'after-stop.unitypackage');
+    const badPath = join(scratch, 'bad-store.unitypackage');
+    const recoveryPath = join(scratch, 'recovery.unitypackage');
+    const fixtureTimestamp = new Date('2026-07-24T00:00:00.000Z');
+    const [firstFiles] = await Promise.all([
+      createUnityPackageRecordFixture({
+        outputPath: firstPath,
+        timestamp: fixtureTimestamp,
+        versionSeed: 'scheduler-first',
+      }),
+      createUnityPackageRecordFixture({
+        outputPath: secondPath,
+        timestamp: fixtureTimestamp,
+        versionSeed: 'scheduler-second',
+      }),
+      createUnityPackageRecordFixture({
+        outputPath: stopPath,
+        timestamp: fixtureTimestamp,
+        versionSeed: 'scheduler-stop',
+      }),
+      createUnityPackageRecordFixture({
+        outputPath: afterStopPath,
+        timestamp: fixtureTimestamp,
+        versionSeed: 'scheduler-after-stop',
+      }),
+      createUnityPackageRecordFixture({
+        outputPath: badPath,
+        timestamp: fixtureTimestamp,
+        versionSeed: 'scheduler-bad-store',
+      }),
+      createUnityPackageRecordFixture({
+        outputPath: recoveryPath,
+        timestamp: fixtureTimestamp,
+        versionSeed: 'scheduler-recovery',
+      }),
     ]);
 
     let activePublishes = 0;
@@ -377,6 +465,7 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
     const scheduler = createIngestScheduler({
       batchLimit: 10,
       catalog: activeCatalog,
+      ...activeStores,
       database: activeSql,
       intervalMs,
       onError: (error) => {
@@ -393,16 +482,18 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
         }
       },
       redrive: dispatchRedrive,
-      store: activeStore,
+      resolveCreatorId: async () => 'scheduler-creator',
       stuckThresholdMs: 60_000,
     });
     schedulers.add(scheduler);
 
     const first = await ingestVersion({
       catalog: activeCatalog,
+      ...activeStores,
+      creatorId: 'scheduler-creator',
       inputPath: firstPath,
       packageId: 'scheduler-package',
-      store: activeStore,
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       version: '1.0.0',
     });
     expect(first.state).toBe('ASSEMBLED');
@@ -411,17 +502,21 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
 
     const retrievedPath = await retrieveVersion({
       catalog: activeCatalog,
-      outputPath: join(scratch, 'retrieved-first.bin'),
-      store: activeStore,
+      ...activeStores,
+      outputPath: join(scratch, 'retrieved-first'),
       versionId: first.id,
     });
-    expect(await readFile(retrievedPath)).toEqual(await readFile(firstPath));
+    for (const [relativePath, expectedSha256] of firstFiles) {
+      expect(await sha256File(join(retrievedPath, relativePath))).toBe(expectedSha256);
+    }
 
     const second = await ingestVersion({
       catalog: activeCatalog,
+      ...activeStores,
+      creatorId: 'scheduler-creator',
       inputPath: secondPath,
       packageId: 'scheduler-package',
-      store: activeStore,
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       version: '2.0.0',
     });
     expect(second.state).toBe('ASSEMBLED');
@@ -431,9 +526,11 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
 
     const stopInFlight = await ingestVersion({
       catalog: activeCatalog,
+      ...activeStores,
+      creatorId: 'scheduler-creator',
       inputPath: stopPath,
       packageId: 'scheduler-package',
-      store: activeStore,
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       version: '3.0.0',
     });
     const dispatchesBeforeRestart = await dispatchCount();
@@ -447,9 +544,11 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
 
     const afterStop = await ingestVersion({
       catalog: activeCatalog,
+      ...activeStores,
+      creatorId: 'scheduler-creator',
       inputPath: afterStopPath,
       packageId: 'scheduler-package',
-      store: activeStore,
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       version: '4.0.0',
     });
     await Bun.sleep(intervalMs * 8);
@@ -459,22 +558,29 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
 
     const badStoreVersion = await ingestVersion({
       catalog: activeCatalog,
-      indexDir: join(scratch, 'bad-store-indexes'),
+      commonStore: localCasStore(join(scratch, 'bad-common-store')),
+      creatorId: 'scheduler-creator',
       inputPath: badPath,
+      metadataStore: localCasStore(join(scratch, 'bad-metadata-store')),
       packageId: 'scheduler-errors',
-      store: localCasStore(join(scratch, 'bad-store')),
+      protectedStore: localCasStore(join(scratch, 'bad-protected-store')),
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
+      scratchRoot: scratch,
       version: '1.0.0',
     });
     const recoveryVersion = await ingestVersion({
       catalog: activeCatalog,
+      ...activeStores,
+      creatorId: 'scheduler-creator',
       inputPath: recoveryPath,
       packageId: 'scheduler-errors',
-      store: activeStore,
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       version: '2.0.0',
     });
     const errorScheduler = createIngestScheduler({
       batchLimit: 1,
       catalog: activeCatalog,
+      ...activeStores,
       database: activeSql,
       intervalMs,
       onError: (error) => {
@@ -482,7 +588,7 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
       },
       publish: dispatchPublishedEvent,
       redrive: dispatchRedrive,
-      store: activeStore,
+      resolveCreatorId: async () => 'scheduler-creator',
       stuckThresholdMs: 60_000,
     });
     schedulers.add(errorScheduler);
@@ -494,7 +600,7 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
     expect(errors).toHaveLength(1);
     expect(errors[0]).toHaveProperty(
       'message',
-      expect.stringContaining('CAS index store kind local does not match s3 store')
+      expect.stringContaining('CAS object store kind local does not match s3 store')
     );
 
     console.log(
@@ -511,37 +617,46 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
 
   it('automatically recovers a promotion failure from retained CAS assembly data', async () => {
     const activeCatalog = requireCatalog();
-    const activeStore = requireStore();
+    const activeStores = requireStores();
     const scratch = requireScratchPath();
-    const inputPath = join(scratch, 'automatic-redrive.bin');
-    await writeFile(inputPath, deterministicBytes('scheduler-automatic-redrive', 512 * 1024));
+    const inputPath = join(scratch, 'automatic-redrive.unitypackage');
+    const inputFiles = await createUnityPackageRecordFixture({
+      outputPath: inputPath,
+      timestamp: new Date('2026-07-24T00:00:00.000Z'),
+      versionSeed: 'scheduler-automatic-redrive',
+    });
 
     const assembled = await ingestVersion({
       catalog: activeCatalog,
+      ...activeStores,
+      creatorId: 'scheduler-creator',
       inputPath,
       packageId: 'scheduler-automatic-redrive',
-      store: activeStore,
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       version: '1.0.0',
     });
     expect(assembled).toMatchObject({
       state: 'ASSEMBLED',
-      casIndexId: expect.any(String),
-      canonicalSha256: expect.any(String),
+      assemblyObjectId: expect.any(String),
+      releaseRoot: expect.any(String),
     });
 
     await expect(
       promoteVersion({
         catalog: activeCatalog,
-        store: localCasStore(join(scratch, 'transient-wrong-store')),
+        commonStore: localCasStore(join(scratch, 'transient-wrong-common-store')),
+        metadataStore: localCasStore(join(scratch, 'transient-wrong-metadata-store')),
+        protectedStore: localCasStore(join(scratch, 'transient-wrong-protected-store')),
+        scratchRoot: scratch,
         versionId: assembled.id,
       })
-    ).rejects.toThrow('CAS index store kind s3 does not match local store');
+    ).rejects.toThrow('CAS object store kind s3 does not match local store');
     const failed = await activeCatalog.getVersion(assembled.id);
     expect(failed).toMatchObject({
       state: 'FAILED',
-      formatTag: assembled.formatTag,
-      casIndexId: assembled.casIndexId,
-      canonicalSha256: assembled.canonicalSha256,
+      sourceFormat: assembled.sourceFormat,
+      assemblyObjectId: assembled.assemblyObjectId,
+      releaseRoot: assembled.releaseRoot,
     });
     await requireSql()`
       UPDATE package_versions
@@ -558,19 +673,23 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
       JSON.parse(
         await readCasIndexObject({
           indexId: deliveryManifestObjectId(assembled.id),
-          store: activeStore,
+          store: activeStores.metadataStore,
         })
       )
     );
     expect(manifest.versionId).toBe(assembled.id);
-    expect(manifest.chunks.length).toBeGreaterThan(0);
+    expect(manifest.files.reduce((total, file) => total + file.chunks.length, 0)).toBeGreaterThan(
+      0
+    );
     const retrievedPath = await retrieveVersion({
       catalog: activeCatalog,
-      outputPath: join(scratch, 'automatic-redrive-retrieved.bin'),
-      store: activeStore,
+      ...activeStores,
+      outputPath: join(scratch, 'automatic-redrive-retrieved'),
       versionId: assembled.id,
     });
-    expect(await readFile(retrievedPath)).toEqual(await readFile(inputPath));
+    for (const [relativePath, expectedSha256] of inputFiles) {
+      expect(await sha256File(join(retrievedPath, relativePath))).toBe(expectedSha256);
+    }
 
     console.log(
       [
@@ -583,6 +702,96 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
     );
   });
 
+  it('automatically converts a legacy ready artifact into a retrievable v4 release', async () => {
+    const activeCatalog = requireCatalog();
+    const activeStores = requireStores();
+    const activeSql = requireSql();
+    const scratch = requireScratchPath();
+    const versionId = randomUUID();
+    const packageId = 'scheduler-legacy-ready';
+    const inputPath = join(scratch, `${versionId}.unitypackage`);
+    const inputFiles = await createUnityPackageRecordFixture({
+      outputPath: inputPath,
+      timestamp: new Date('2026-07-24T00:00:00.000Z'),
+      versionSeed: 'scheduler-legacy-ready',
+    });
+    const legacyIndexId = `legacy/${versionId}.caibx`;
+    await storeArtifactToStore({
+      artifactPath: inputPath,
+      indexId: legacyIndexId,
+      store: activeStores.commonStore,
+    });
+    await activeSql`
+      INSERT INTO package_versions (
+        id,
+        package_id,
+        version,
+        source_format,
+        release_root,
+        assembly_object_id,
+        release_schema_version,
+        state
+      )
+      VALUES (
+        ${versionId},
+        ${packageId},
+        '1.0.0',
+        'CANONICAL_TARGZ_V1',
+        ${await sha256File(inputPath)},
+        ${legacyIndexId},
+        3,
+        'READY'
+      )
+    `;
+
+    const errors: unknown[] = [];
+    const scheduler = createIngestScheduler({
+      batchLimit: 1,
+      catalog: activeCatalog,
+      ...activeStores,
+      database: activeSql,
+      intervalMs,
+      onError: (error) => {
+        errors.push(error);
+      },
+      publish: dispatchPublishedEvent,
+      redrive: dispatchRedrive,
+      resolveCreatorId: async (candidate) => {
+        expect(candidate.packageId).toBe(packageId);
+        return 'scheduler-legacy-creator';
+      },
+      stuckThresholdMs: 60_000,
+    });
+    schedulers.add(scheduler);
+    scheduler.start();
+    await waitFor(
+      async () => (await activeCatalog.getVersion(versionId))?.releaseSchemaVersion === 4,
+      'the legacy READY release to become a v4 publication'
+    );
+    await waitFor(
+      async () => (await unpublishedCount()) === 0,
+      'the migrated READY publication to reach the projection publisher'
+    );
+    await scheduler.stop();
+
+    const migrated = await activeCatalog.getVersion(versionId);
+    expect(migrated).toMatchObject({
+      releaseSchemaVersion: 4,
+      state: 'READY',
+      manifestSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+    const retrievedPath = await retrieveVersion({
+      catalog: activeCatalog,
+      ...activeStores,
+      outputPath: join(scratch, 'legacy-ready-retrieved'),
+      versionId,
+    });
+    for (const [relativePath, expectedSha256] of inputFiles) {
+      expect(await sha256File(join(retrievedPath, relativePath))).toBe(expectedSha256);
+    }
+    expect(errors).toEqual([]);
+  });
+
   it('does not automatically recover a failure without CAS assembly data', async () => {
     const activeCatalog = requireCatalog();
     const activeSql = requireSql();
@@ -593,8 +802,8 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
     const failed = await activeCatalog.markFailed(created.id, 'upload failed before assembly');
     expect(failed).toMatchObject({
       state: 'FAILED',
-      casIndexId: null,
-      canonicalSha256: null,
+      assemblyObjectId: null,
+      releaseRoot: null,
     });
     await activeSql`
       UPDATE package_versions
@@ -610,8 +819,8 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
     expect(await activeCatalog.getVersion(created.id)).toMatchObject({
       state: 'FAILED',
       attempts: 1,
-      casIndexId: null,
-      canonicalSha256: null,
+      assemblyObjectId: null,
+      releaseRoot: null,
     });
 
     console.log(

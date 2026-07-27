@@ -1,9 +1,9 @@
 export type GeneratedIconPath = Readonly<{
   clipRule?: 'evenodd' | 'inherit' | 'nonzero';
   d: string;
-  fillOpacity?: string;
   fillRule?: 'evenodd' | 'inherit' | 'nonzero';
   strokeWidth?: string;
+  tone: 'primary' | 'secondary';
 }>;
 
 export type GeneratedIcon = Readonly<{

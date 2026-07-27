@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { Icon } from '@/components/ui/Icon';
 import { Select } from '@/components/ui/Select';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
@@ -272,7 +273,7 @@ function DiscordRoleSetupPage() {
 
             {error && (
               <div className="error-box mb-5">
-                <img src="/Icons/X.png" className="error-box-icon" alt="" />
+                <Icon name="close" className="error-box-icon" />
                 <span>{error}</span>
               </div>
             )}
@@ -296,7 +297,7 @@ function DiscordRoleSetupPage() {
           <div className="card">
             <div className="card-header">
               <div className="card-header-icon">
-                <img src="/Icons/PersonKey.png" className="w-5 h-5 object-contain" alt="" />
+                <Icon name="userKey" className="h-5 w-5" />
               </div>
               <div>
                 <h2 className="card-title">Pick a server and role</h2>
@@ -402,7 +403,7 @@ function DiscordRoleSetupPage() {
             {/* Error */}
             {error && (
               <div className="error-box" style={{ marginTop: '1rem' }}>
-                <img src="/Icons/X.png" className="error-box-icon" alt="" />
+                <Icon name="close" className="error-box-icon" />
                 <span>{error}</span>
               </div>
             )}
@@ -422,11 +423,7 @@ function DiscordRoleSetupPage() {
                 </>
               ) : (
                 <>
-                  <img
-                    src="/Icons/Checkmark.png"
-                    style={{ width: '1rem', height: '1rem', objectFit: 'contain' }}
-                    alt=""
-                  />
+                  <Icon name="check" size={16} />
                   Save Selection
                 </>
               )}
@@ -438,11 +435,7 @@ function DiscordRoleSetupPage() {
         {view === 'success' && successData && (
           <div className="card" style={{ textAlign: 'center' }}>
             <div className="success-glow">
-              <img
-                src="/Icons/Checkmark.png"
-                style={{ width: '2.5rem', height: '2.5rem', objectFit: 'contain' }}
-                alt="Success"
-              />
+              <Icon name="success" size={40} />
             </div>
             <h2
               style={{
@@ -515,11 +508,7 @@ function DiscordRoleSetupPage() {
                 margin: '0 auto 1.25rem',
               }}
             >
-              <img
-                src="/Icons/X.png"
-                style={{ width: '2rem', height: '2rem', objectFit: 'contain' }}
-                alt="Error"
-              />
+              <Icon name="close" size={32} />
             </div>
             <h2
               style={{

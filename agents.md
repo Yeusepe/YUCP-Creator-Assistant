@@ -207,6 +207,22 @@ Signs you are writing a workaround:
 
 The correct response to a workaround situation is always: **design the proper flow, implement it properly, test it properly.**
 
+## NEVER PROPOSE THE CHEAP SOLUTION:
+
+Do not offer a cheap fix, and never stage work as "cheap fix now, proper solution later." Once analysis identifies a root cause, the proper fix at that root is the only fix to propose or execute.
+
+Thinking cheap causes more problems down the line. The band-aid ships the wrong architecture with a patch on top: the real defect survives, new code accumulates on top of it, the interim becomes permanent, and a migration that was merely expensive becomes expensive *and* entangled. Time saved up front is repaid with interest.
+
+Signs you are about to do this:
+- You are describing a change as "cheap", "bounded", "a one-liner", or "a weekend vs a migration"
+- You are arguing that a smaller fix "unblocks deployment" so the real one can wait
+- You are presenting a menu where one option is correct and the other is fast, and asking which to take
+- You are optimizing a layer that your own analysis just concluded should not exist
+
+Cost, effort, and migration size belong in the plan as **facts to scope**, never as an argument for doing less. If the proper solution is a rewrite, scope the rewrite. If two defects share a root cause, fix the root once rather than patching each symptom.
+
+This rule outranks any active minimal-diff or "lazy engineering" guidance. Minimal scope is correct for *implementation*; it is never correct for *the design*.
+
 ## Security Principles (Stripe-aligned)
 
 These apply to every provider that stores third-party credentials:

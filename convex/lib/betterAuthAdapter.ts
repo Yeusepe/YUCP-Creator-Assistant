@@ -1,3 +1,5 @@
+import { createOAuthAccountIssuer } from '@better-auth/core/db';
+
 export interface BetterAuthPageResult<T> {
   page: T[];
 }
@@ -39,6 +41,25 @@ export function buildBetterAuthUserProviderLookupWhere(authUserId: string, provi
   return buildBetterAuthEqualityWhere([
     { field: 'userId', value: authUserId },
     { field: 'providerId', value: providerId },
+  ]);
+}
+
+export function buildBetterAuthOAuthAccountIdentity(providerId: string, providerAccountId: string) {
+  return {
+    issuer: createOAuthAccountIssuer(providerId),
+    providerAccountId,
+    providerId,
+  };
+}
+
+export function buildBetterAuthOAuthAccountLookupWhere(
+  providerId: string,
+  providerAccountId: string
+) {
+  const identity = buildBetterAuthOAuthAccountIdentity(providerId, providerAccountId);
+  return buildBetterAuthEqualityWhere([
+    { field: 'issuer', value: identity.issuer },
+    { field: 'providerAccountId', value: identity.providerAccountId },
   ]);
 }
 

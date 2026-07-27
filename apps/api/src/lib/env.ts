@@ -35,12 +35,58 @@ export interface LocalEnv {
   UPLOAD_HMAC_KEY?: string;
   /** Optional tus ingest origin. The upload route returns 503 when unavailable. */
   INGEST_TUS_URL?: string;
-  /** Optional delivery signing key. The download route returns 503 when unavailable. */
-  DELIVERY_HMAC_KEY?: string;
-  /** Optional delivery Worker origin. The download route returns 503 when unavailable. */
-  DELIVERY_BASE_URL?: string;
+  /** Internal catalog control origin owned by the ingest service. */
+  PACKAGE_CATALOG_CONTROL_INTERNAL_BASE_URL?: string;
+  /** Purpose-separated credential for package catalog control commands. */
+  PACKAGE_CATALOG_CONTROL_SHARED_SECRET?: string;
+  /** Internal package catalog control timeout in milliseconds. */
+  PACKAGE_CATALOG_CONTROL_TIMEOUT_MS?: string;
+  /** Delivery Worker origin bound into v2 package grants. */
+  PACKAGE_DELIVERY_AUDIENCE?: string;
+  /** Canonical public API origin bound into v2 package grants. */
+  PACKAGE_INSTALL_ISSUER?: string;
+  /** Purpose-separated Ed25519 key identifier for package install contracts. */
+  PACKAGE_INSTALL_SIGNING_KEY_ID?: string;
+  /** Base64url Ed25519 seed for package install contract signing. */
+  PACKAGE_INSTALL_SIGNING_PRIVATE_KEY?: string;
+  /** PostgreSQL workflow store for one-time package operation authorizations and DPoP replay state. */
+  PACKAGE_OPERATION_AUTHORIZATION_DATABASE_URL?: string;
+  /** PostgreSQL workflow store for immutable public VPM alias artifacts. */
+  VPM_ALIAS_PUBLICATION_CATALOG_DATABASE_URL?: string;
+  /** Internal materialization control-plane origin. */
+  MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL?: string;
+  /** API-only credential for durable materialization job control. */
+  MATERIALIZATION_API_SHARED_SECRET?: string;
+  /** Internal materialization request timeout in milliseconds. */
+  MATERIALIZATION_CONTROL_PLANE_TIMEOUT_MS?: string;
+  /** Absolute root containing signed TUF metadata and targets directories. */
+  PACKAGE_INSTALLER_TUF_REPOSITORY_ROOT?: string;
+  /** Read-only PostgreSQL catalog connection for published TUF exact versions. */
+  PACKAGE_INSTALLER_TUF_CATALOG_DATABASE_URL?: string;
+  /** Stable TUF repository identifier. */
+  PACKAGE_INSTALLER_TUF_REPOSITORY_ID?: string;
+  /** Read-only metadata storage credential for the TUF repository. */
+  PACKAGE_INSTALLER_TUF_S3_ACCESS_KEY_ID?: string;
+  PACKAGE_INSTALLER_TUF_S3_BUCKET?: string;
+  PACKAGE_INSTALLER_TUF_S3_ENDPOINT?: string;
+  PACKAGE_INSTALLER_TUF_S3_REGION?: string;
+  PACKAGE_INSTALLER_TUF_S3_REQUEST_TIMEOUT_MS?: string;
+  PACKAGE_INSTALLER_TUF_S3_SECRET_ACCESS_KEY?: string;
+  /** Read-only metadata storage used to serve exact bootstrap media versions. */
+  METADATA_S3_ACCESS_KEY_ID?: string;
+  METADATA_S3_BUCKET?: string;
+  METADATA_S3_ENDPOINT?: string;
+  METADATA_S3_REGION?: string;
+  METADATA_S3_REQUEST_TIMEOUT_MS?: string;
+  METADATA_S3_SECRET_ACCESS_KEY?: string;
+  METADATA_INDEX_PREFIX?: string;
   /** Optional public API origin used for buyer VPM index URLs. VPM routes return 503 when unavailable. */
   VPM_BASE_URL?: string;
+  /** Exact release ledger for a generated local importer package. Production uses the committed ledger. */
+  VPM_IMPORTER_RELEASE_LEDGER_JSON?: string;
+  /** Public first-party VPM index that supplies the generic importer package. */
+  VPM_PUBLIC_INDEX_URL?: string;
+  /** JSON array of public VPM repository URLs that package releases can reference. */
   VRCHAT_PENDING_STATE_SECRET?: string;
   VRCHAT_PROVIDER_SESSION_SECRET?: string;
   // Discord
@@ -74,7 +120,6 @@ export interface LocalEnv {
   POLAR_SERVER?: string;
   YUCP_COUPLING_SERVICE_BASE_URL?: string;
   YUCP_COUPLING_SERVICE_SHARED_SECRET?: string;
-  COUPLING_SERVICE_SECRET?: string;
   HYPERDX_API_KEY?: string;
   HYPERDX_APP_URL?: string;
   HYPERDX_OTLP_HTTP_URL?: string;
@@ -135,19 +180,6 @@ function isEnvValueMissing(value: string | undefined): boolean {
   return value === undefined || value.trim().length === 0;
 }
 
-function resolveCouplingServiceSharedSecret(
-  env: Record<string, string | undefined> = process.env
-): string | undefined {
-  const preferred = env.YUCP_COUPLING_SERVICE_SHARED_SECRET?.trim();
-  const legacy = env.COUPLING_SERVICE_SECRET?.trim();
-  if (preferred && legacy && preferred !== legacy) {
-    logger.warn(
-      'YUCP_COUPLING_SERVICE_SHARED_SECRET and COUPLING_SERVICE_SECRET differ; using YUCP_COUPLING_SERVICE_SHARED_SECRET'
-    );
-  }
-  return preferred || legacy;
-}
-
 export function resolveConvexSiteUrl(
   env: Record<string, string | undefined> = process.env
 ): string | undefined {
@@ -186,9 +218,44 @@ function loadFromEnv(): LocalEnv {
     INTERNAL_SERVICE_TOKEN: process.env.INTERNAL_SERVICE_TOKEN,
     UPLOAD_HMAC_KEY: process.env.UPLOAD_HMAC_KEY,
     INGEST_TUS_URL: process.env.INGEST_TUS_URL,
-    DELIVERY_HMAC_KEY: process.env.DELIVERY_HMAC_KEY,
-    DELIVERY_BASE_URL: process.env.DELIVERY_BASE_URL,
+    PACKAGE_CATALOG_CONTROL_INTERNAL_BASE_URL:
+      process.env.PACKAGE_CATALOG_CONTROL_INTERNAL_BASE_URL,
+    PACKAGE_CATALOG_CONTROL_SHARED_SECRET: process.env.PACKAGE_CATALOG_CONTROL_SHARED_SECRET,
+    PACKAGE_CATALOG_CONTROL_TIMEOUT_MS: process.env.PACKAGE_CATALOG_CONTROL_TIMEOUT_MS,
+    PACKAGE_DELIVERY_AUDIENCE: process.env.PACKAGE_DELIVERY_AUDIENCE,
+    PACKAGE_INSTALL_ISSUER: process.env.PACKAGE_INSTALL_ISSUER,
+    PACKAGE_INSTALL_SIGNING_KEY_ID: process.env.PACKAGE_INSTALL_SIGNING_KEY_ID,
+    PACKAGE_INSTALL_SIGNING_PRIVATE_KEY: process.env.PACKAGE_INSTALL_SIGNING_PRIVATE_KEY,
+    PACKAGE_OPERATION_AUTHORIZATION_DATABASE_URL:
+      process.env.PACKAGE_OPERATION_AUTHORIZATION_DATABASE_URL,
+    VPM_ALIAS_PUBLICATION_CATALOG_DATABASE_URL:
+      process.env.VPM_ALIAS_PUBLICATION_CATALOG_DATABASE_URL,
+    MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL:
+      process.env.MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL,
+    MATERIALIZATION_API_SHARED_SECRET: process.env.MATERIALIZATION_API_SHARED_SECRET,
+    MATERIALIZATION_CONTROL_PLANE_TIMEOUT_MS: process.env.MATERIALIZATION_CONTROL_PLANE_TIMEOUT_MS,
+    PACKAGE_INSTALLER_TUF_REPOSITORY_ROOT: process.env.PACKAGE_INSTALLER_TUF_REPOSITORY_ROOT,
+    PACKAGE_INSTALLER_TUF_CATALOG_DATABASE_URL:
+      process.env.PACKAGE_INSTALLER_TUF_CATALOG_DATABASE_URL,
+    PACKAGE_INSTALLER_TUF_REPOSITORY_ID: process.env.PACKAGE_INSTALLER_TUF_REPOSITORY_ID,
+    PACKAGE_INSTALLER_TUF_S3_ACCESS_KEY_ID: process.env.PACKAGE_INSTALLER_TUF_S3_ACCESS_KEY_ID,
+    PACKAGE_INSTALLER_TUF_S3_BUCKET: process.env.PACKAGE_INSTALLER_TUF_S3_BUCKET,
+    PACKAGE_INSTALLER_TUF_S3_ENDPOINT: process.env.PACKAGE_INSTALLER_TUF_S3_ENDPOINT,
+    PACKAGE_INSTALLER_TUF_S3_REGION: process.env.PACKAGE_INSTALLER_TUF_S3_REGION,
+    PACKAGE_INSTALLER_TUF_S3_REQUEST_TIMEOUT_MS:
+      process.env.PACKAGE_INSTALLER_TUF_S3_REQUEST_TIMEOUT_MS,
+    PACKAGE_INSTALLER_TUF_S3_SECRET_ACCESS_KEY:
+      process.env.PACKAGE_INSTALLER_TUF_S3_SECRET_ACCESS_KEY,
+    METADATA_S3_ACCESS_KEY_ID: process.env.METADATA_S3_ACCESS_KEY_ID,
+    METADATA_S3_BUCKET: process.env.METADATA_S3_BUCKET,
+    METADATA_S3_ENDPOINT: process.env.METADATA_S3_ENDPOINT,
+    METADATA_S3_REGION: process.env.METADATA_S3_REGION,
+    METADATA_S3_REQUEST_TIMEOUT_MS: process.env.METADATA_S3_REQUEST_TIMEOUT_MS,
+    METADATA_S3_SECRET_ACCESS_KEY: process.env.METADATA_S3_SECRET_ACCESS_KEY,
+    METADATA_INDEX_PREFIX: process.env.METADATA_INDEX_PREFIX,
     VPM_BASE_URL: process.env.VPM_BASE_URL,
+    VPM_IMPORTER_RELEASE_LEDGER_JSON: process.env.VPM_IMPORTER_RELEASE_LEDGER_JSON,
+    VPM_PUBLIC_INDEX_URL: process.env.VPM_PUBLIC_INDEX_URL,
     VRCHAT_PENDING_STATE_SECRET: process.env.VRCHAT_PENDING_STATE_SECRET,
     VRCHAT_PROVIDER_SESSION_SECRET: process.env.VRCHAT_PROVIDER_SESSION_SECRET,
     DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID,
@@ -214,8 +281,7 @@ function loadFromEnv(): LocalEnv {
     POLAR_WEBHOOK_SECRET: process.env.POLAR_WEBHOOK_SECRET,
     POLAR_SERVER: process.env.POLAR_SERVER,
     YUCP_COUPLING_SERVICE_BASE_URL: process.env.YUCP_COUPLING_SERVICE_BASE_URL,
-    YUCP_COUPLING_SERVICE_SHARED_SECRET: resolveCouplingServiceSharedSecret(process.env),
-    COUPLING_SERVICE_SECRET: process.env.COUPLING_SERVICE_SECRET,
+    YUCP_COUPLING_SERVICE_SHARED_SECRET: process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET,
     HYPERDX_API_KEY: process.env.HYPERDX_API_KEY,
     HYPERDX_APP_URL: process.env.HYPERDX_APP_URL,
     HYPERDX_OTLP_HTTP_URL: process.env.HYPERDX_OTLP_HTTP_URL,

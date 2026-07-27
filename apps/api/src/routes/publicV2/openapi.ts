@@ -396,6 +396,26 @@ const OPENAPI_SPEC = {
         },
         required: ['packageId', 'machineFingerprint', 'codeChallenge', 'returnUrl', 'requirements'],
       },
+      PackageAccessVerificationIntentCreateRequest: {
+        type: 'object',
+        description:
+          'Create a package verification intent from the server-owned package and storefront bindings.',
+        properties: {
+          packageAliasId: { type: 'string' },
+          machineFingerprint: { type: 'string' },
+          codeChallenge: {
+            type: 'string',
+            description: 'PKCE-style SHA-256 code challenge derived from a client-held verifier.',
+          },
+          returnUrl: {
+            type: 'string',
+            format: 'uri',
+            description: 'Absolute HTTPS or loopback HTTP callback URL for the public client.',
+          },
+          idempotencyKey: { type: 'string', nullable: true },
+        },
+        required: ['packageAliasId', 'machineFingerprint', 'codeChallenge', 'returnUrl'],
+      },
       VerificationIntentRedeemRequest: {
         type: 'object',
         properties: {
@@ -1789,6 +1809,40 @@ const OPENAPI_SPEC = {
           '400': { $ref: '#/components/responses/BadRequest' },
           '401': { $ref: '#/components/responses/Unauthorized' },
           '403': { $ref: '#/components/responses/Forbidden' },
+        },
+      },
+    },
+
+    '/verification-intents/package-access': {
+      post: {
+        operationId: 'createPackageAccessVerificationIntent',
+        summary: 'Create a package access verification intent',
+        description:
+          'Resolve the stable package identity and provider methods from server-owned bindings. The client cannot supply storefront requirements.',
+        tags: ['Verification Intents'],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/PackageAccessVerificationIntentCreateRequest',
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Created or resumed package verification intent.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/VerificationIntent' },
+              },
+            },
+          },
+          '400': { $ref: '#/components/responses/BadRequest' },
+          '401': { $ref: '#/components/responses/Unauthorized' },
+          '403': { $ref: '#/components/responses/Forbidden' },
+          '404': { $ref: '#/components/responses/NotFound' },
         },
       },
     },

@@ -130,14 +130,13 @@ export interface ConnectConfig {
   discordBotToken?: string;
   convexApiSecret: string;
   convexUrl: string;
-  deliveryBaseUrl?: string;
-  deliveryHmacKey?: string;
   gumroadClientId?: string;
   gumroadClientSecret?: string;
   itchioClientId?: string;
   patreonClientId?: string;
   patreonClientSecret?: string;
   encryptionSecret: string;
+  vpmBaseUrl?: string;
 }
 
 type SetupSession = { authUserId: string; guildId: string; discordUserId: string };

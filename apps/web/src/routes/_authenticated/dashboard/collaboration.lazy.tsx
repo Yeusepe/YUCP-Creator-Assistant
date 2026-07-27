@@ -1,7 +1,6 @@
 import { Button } from '@heroui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createLazyFileRoute } from '@tanstack/react-router';
-import { Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
 import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
@@ -10,6 +9,7 @@ import {
   DashboardActionRowSkeleton,
   DashboardListSkeleton,
 } from '@/components/dashboard/DashboardSkeletons';
+import { Icon } from '@/components/ui/Icon';
 import { Select } from '@/components/ui/Select';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
@@ -172,7 +172,7 @@ function HoldToRemoveButton({
         {isPending ? (
           <span className="btn-loading-spinner" aria-hidden="true" />
         ) : (
-          <Trash2 size={14} aria-hidden="true" />
+          <Icon name="trash" size={14} aria-hidden="true" />
         )}
         <span>{isPending ? 'Leaving...' : holding ? 'Keep holding...' : 'Hold to leave'}</span>
       </span>
@@ -357,39 +357,13 @@ function MyCollaboratorsSection({
         <div className="intg-title-row">
           {!isLoading ? (
             <div className="intg-icon">
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                aria-hidden="true"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
+              <Icon name="users" size={18} />
             </div>
           ) : null}
           <h2 className="intg-title">My Collaborators</h2>
         </div>
         <button id="invite-btn" className="intg-add-btn" type="button" onClick={openInvitePanel}>
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            aria-hidden="true"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-          </svg>
+          <Icon name="link" />
           Invite a Creator
         </button>
       </div>
@@ -439,20 +413,7 @@ function MyCollaboratorsSection({
 
                 <div className="invite-modal-header">
                   <div className="intg-icon">
-                    <svg
-                      width="24"
-                      height="24"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      aria-hidden="true"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                    </svg>
+                    <Icon name="link" size={24} />
                   </div>
                   <h3 className="inline-panel-title">Invite a Creator</h3>
                   <p className="inline-panel-desc">
@@ -486,20 +447,7 @@ function MyCollaboratorsSection({
                         title="Copy link"
                         onClick={() => void copyToClipboard(generatedInvite.url)}
                       >
-                        <svg
-                          viewBox="0 0 24 24"
-                          width="16"
-                          height="16"
-                          fill="none"
-                          aria-hidden="true"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <rect x="9" y="9" width="13" height="13" rx="2" />
-                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                        </svg>
+                        <Icon name="copy" size={16} />
                       </button>
                     </div>
                     <div className="invite-expiry-pill" id="invite-expiry">
@@ -641,22 +589,7 @@ function MyCollaboratorsSection({
         {invites.length === 0 && connections.length === 0 ? (
           <div id="collab-empty" className="empty-state">
             <div className="intg-icon" style={{ margin: '0 auto 14px' }}>
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                aria-hidden="true"
-                stroke="currentColor"
-                strokeWidth="1.75"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                <circle cx="9" cy="7" r="4" />
-                <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-              </svg>
+              <Icon name="users" size={18} />
             </div>
             <p className="empty-state-title">No collaborators yet.</p>
             <p className="empty-state-copy">Invite a creator to share license verification.</p>
@@ -666,18 +599,7 @@ function MyCollaboratorsSection({
               onClick={openInvitePanel}
               style={{ marginTop: '16px' }}
             >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                aria-hidden="true"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-              </svg>
+              <Icon name="link" />
               Invite a Creator
             </button>
           </div>
@@ -752,20 +674,7 @@ function StoresICollaborateWithSection({
         <div className="intg-title-row">
           {!isLoading ? (
             <div className="intg-icon">
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                aria-hidden="true"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                <polyline points="9 22 9 12 15 12 15 22" />
-              </svg>
+              <Icon name="home" size={18} />
             </div>
           ) : null}
           <h2 className="intg-title">Stores I Collaborate With</h2>
@@ -819,20 +728,7 @@ function StoresICollaborateWithSection({
         {stores.length === 0 ? (
           <div id="collab-as-collaborator-empty" className="empty-state">
             <div className="intg-icon" style={{ margin: '0 auto 14px' }}>
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                aria-hidden="true"
-                stroke="currentColor"
-                strokeWidth="1.75"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                <polyline points="9 22 9 12 15 12 15 22" />
-              </svg>
+              <Icon name="home" size={18} />
             </div>
             <p className="empty-state-title">Not collaborating yet.</p>
             <p className="empty-state-copy">

@@ -1,77 +1,86 @@
 import { AwsClient } from 'aws4fetch';
 import {
   type DeliveryManifest,
-  type DeliveryManifestChunk,
   deliveryManifestObjectId,
   parseDeliveryManifest,
 } from '../../../ops/storage-core/deliveryManifest';
-import { verifyDeliveryUrl } from '../../../ops/storage-core/deliverySigning';
+import { verifyDpopProof } from '../../../ops/storage-core/dpop';
+import { BoundedDpopReplayCache } from '../../../ops/storage-core/dpopReplayCache';
+import {
+  type DeliveryGrantV2,
+  packageContractKeyId,
+  verifyDeliveryGrantV2,
+} from '../../../ops/storage-core/packageContractsV2';
+import { createLogicalReleasePublicationV4 } from '../../../ops/storage-core/releasePublication';
 import { buildS3ObjectUrl } from '../../../ops/storage-core/s3ObjectUrl';
 
-const REQUIRED_BINDING_NAMES = [
-  'CAS_S3_ENDPOINT',
-  'CAS_S3_REGION',
-  'CAS_S3_BUCKET',
-  'CAS_S3_READONLY_ACCESS_KEY_ID',
-  'CAS_S3_READONLY_SECRET_ACCESS_KEY',
-  'CAS_INDEX_PREFIX',
-  'CAS_CHUNK_PREFIX',
-  'DELIVERY_HMAC_KEY',
+// Cloudflare Workers support response streaming, but origin subrequests stay bounded.
+// Reference: https://developers.cloudflare.com/workers/platform/limits/
+
+const REQUIRED_BINDINGS = [
+  'COMMON_S3_ENDPOINT',
+  'COMMON_S3_REGION',
+  'COMMON_S3_BUCKET',
+  'COMMON_S3_READONLY_ACCESS_KEY_ID',
+  'COMMON_S3_READONLY_SECRET_ACCESS_KEY',
+  'COMMON_CHUNK_PREFIX',
+  'METADATA_S3_ENDPOINT',
+  'METADATA_S3_REGION',
+  'METADATA_S3_BUCKET',
+  'METADATA_S3_READONLY_ACCESS_KEY_ID',
+  'METADATA_S3_READONLY_SECRET_ACCESS_KEY',
+  'METADATA_INDEX_PREFIX',
   'STORAGE_FORMAT_VERSION',
+  'PACKAGE_INSTALL_SIGNING_KEY_ID',
+  'PACKAGE_INSTALL_ISSUER',
+  'PACKAGE_INSTALL_SIGNING_PUBLIC_KEY',
+  'PACKAGE_DELIVERY_AUDIENCE',
 ] as const;
+const BASE64URL = /^[A-Za-z0-9_-]+$/;
+const CHUNK_ID = /^[0-9a-f]{64}$/;
+const DELIVERY_PATH = /^\/v2\/delivery\/([^/]+)\/(manifest|chunks\/([^/]+))$/;
+const MAX_GRANT_BYTES = 64 * 1024;
+const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
+const MAX_DELIVERY_CHUNKS = 100_000;
+const MAX_CHUNK_BYTES = 1024 * 1024;
+const ORIGIN_TIMEOUT_MS = 30_000;
+const MAX_DPOP_REPLAY_ENTRIES = 8_192;
+const DPOP_REPLAY_SWEEP_LIMIT = 128;
+// This bounded module cache is same-isolate abuse detection, not cross-region security truth.
+const dpopReplayCache = new BoundedDpopReplayCache({
+  maxEntries: MAX_DPOP_REPLAY_ENTRIES,
+  sweepLimit: DPOP_REPLAY_SWEEP_LIMIT,
+});
 
-type RequiredBindingName = (typeof REQUIRED_BINDING_NAMES)[number];
-type DeliveryWorkerEnv = Readonly<Record<RequiredBindingName, string>>;
-
-type DeliveryRange = {
-  end: number;
-  start: number;
+type BindingName = (typeof REQUIRED_BINDINGS)[number];
+type S3ReadRole = {
+  accessKeyId: string;
+  bucket: string;
+  endpoint: string;
+  region: string;
+  secretAccessKey: string;
 };
-
-type DeliveryStats = {
-  bytesDelivered: number;
-  cacheHits: number;
-  cacheMisses: number;
-  chunkOriginFetches: number;
-  storageFetches: number;
+type DeliveryConfig = {
+  common: S3ReadRole & { chunkPrefix: string };
+  metadata: S3ReadRole & { indexPrefix: string };
+  packageDeliveryAudience: string;
+  packageInstallIssuer: string;
+  packageInstallSigningKeyId: string;
+  packageInstallSigningPublicKey: string;
+  storageFormatVersion: string;
 };
-
-type StorageClient = {
-  aws: AwsClient;
-  config: DeliveryWorkerEnv;
-  stats: DeliveryStats;
-};
-
-const MAX_DELIVERY_CHUNKS = 8_000;
-const MAX_MANIFEST_BYTES = 1024 * 1024;
-const ORIGIN_REQUEST_TIMEOUT_MS = 30_000;
-const DIRECT_DELIVERY_LIMIT_MESSAGE =
-  'This package is too large for direct delivery; use the importer path';
-const VERSION_PATH_PATTERN = /^\/d\/([^/]+)$/;
 
 class HttpError extends Error {
   constructor(
     readonly status: number,
     message: string,
-    readonly headers?: HeadersInit
+    readonly storageFetches = 0
   ) {
     super(message);
   }
 }
 
-function requestId(): string {
-  return crypto.randomUUID();
-}
-
-function logEvent(event: string, fields: Record<string, unknown>): void {
-  console.log(JSON.stringify({ event, ...fields }));
-}
-
-function logError(event: string, fields: Record<string, unknown>): void {
-  console.error(JSON.stringify({ event, ...fields }));
-}
-
-function requireBinding(env: Env, name: RequiredBindingName): string {
+function requireBinding(env: Env, name: BindingName): string {
   const value = Reflect.get(env, name);
   if (typeof value !== 'string' || !value.trim()) {
     throw new HttpError(500, `Missing required Worker binding: ${name}`);
@@ -79,11 +88,11 @@ function requireBinding(env: Env, name: RequiredBindingName): string {
   return value.trim();
 }
 
-function normalizePrefix(value: string, name: 'CAS_CHUNK_PREFIX' | 'CAS_INDEX_PREFIX'): string {
-  const withoutLeadingSlash = value.replace(/^\/+/, '');
-  const segments = withoutLeadingSlash.split('/').filter(Boolean);
+function normalizePrefix(value: string, name: string): string {
+  const normalized = value.replace(/^\/+/, '');
+  const segments = normalized.split('/').filter(Boolean);
   if (
-    !withoutLeadingSlash ||
+    !normalized ||
     value.includes('\\') ||
     value.includes('?') ||
     value.includes('#') ||
@@ -94,471 +103,440 @@ function normalizePrefix(value: string, name: 'CAS_CHUNK_PREFIX' | 'CAS_INDEX_PR
   return `${segments.join('/')}/`;
 }
 
-function loadStorageEnv(env: Env): DeliveryWorkerEnv {
-  const bindings = Object.fromEntries(
-    REQUIRED_BINDING_NAMES.map((name) => [name, requireBinding(env, name)])
-  ) as Record<RequiredBindingName, string>;
-  let endpoint: URL;
-  try {
-    endpoint = new URL(bindings.CAS_S3_ENDPOINT);
-  } catch {
-    throw new HttpError(500, 'Invalid Worker binding: CAS_S3_ENDPOINT');
-  }
+function loadRole(input: {
+  accessKeyId: string;
+  bucket: string;
+  endpoint: string;
+  name: string;
+  region: string;
+  secretAccessKey: string;
+}): S3ReadRole {
+  const endpoint = new URL(input.endpoint);
   if (
     !['http:', 'https:'].includes(endpoint.protocol) ||
     endpoint.username ||
     endpoint.password ||
     endpoint.pathname !== '/' ||
     endpoint.search ||
-    endpoint.hash
+    endpoint.hash ||
+    input.bucket.includes('/') ||
+    input.bucket.includes('\\')
   ) {
-    throw new HttpError(500, 'Invalid Worker binding: CAS_S3_ENDPOINT');
-  }
-  if (bindings.CAS_S3_BUCKET.includes('/') || bindings.CAS_S3_BUCKET.includes('\\')) {
-    throw new HttpError(500, 'Invalid Worker binding: CAS_S3_BUCKET');
+    throw new HttpError(500, `${input.name} storage configuration is invalid`);
   }
   return {
-    ...bindings,
-    CAS_S3_ENDPOINT: endpoint.origin,
-    CAS_CHUNK_PREFIX: normalizePrefix(bindings.CAS_CHUNK_PREFIX, 'CAS_CHUNK_PREFIX'),
-    CAS_INDEX_PREFIX: normalizePrefix(bindings.CAS_INDEX_PREFIX, 'CAS_INDEX_PREFIX'),
+    accessKeyId: input.accessKeyId,
+    bucket: input.bucket,
+    endpoint: endpoint.origin,
+    region: input.region,
+    secretAccessKey: input.secretAccessKey,
   };
 }
 
-function createStorageClient(config: DeliveryWorkerEnv, stats: DeliveryStats): StorageClient {
+function loadEnv(env: Env): DeliveryConfig {
+  const values = Object.fromEntries(
+    REQUIRED_BINDINGS.map((name) => [name, requireBinding(env, name)])
+  ) as Record<BindingName, string>;
   return {
-    aws: new AwsClient({
-      accessKeyId: config.CAS_S3_READONLY_ACCESS_KEY_ID,
-      secretAccessKey: config.CAS_S3_READONLY_SECRET_ACCESS_KEY,
-      region: config.CAS_S3_REGION,
-      service: 's3',
-      retries: 0,
-    }),
-    config,
-    stats,
+    common: {
+      ...loadRole({
+        accessKeyId: values.COMMON_S3_READONLY_ACCESS_KEY_ID,
+        bucket: values.COMMON_S3_BUCKET,
+        endpoint: values.COMMON_S3_ENDPOINT,
+        name: 'Common',
+        region: values.COMMON_S3_REGION,
+        secretAccessKey: values.COMMON_S3_READONLY_SECRET_ACCESS_KEY,
+      }),
+      chunkPrefix: normalizePrefix(values.COMMON_CHUNK_PREFIX, 'COMMON_CHUNK_PREFIX'),
+    },
+    metadata: {
+      ...loadRole({
+        accessKeyId: values.METADATA_S3_READONLY_ACCESS_KEY_ID,
+        bucket: values.METADATA_S3_BUCKET,
+        endpoint: values.METADATA_S3_ENDPOINT,
+        name: 'Metadata',
+        region: values.METADATA_S3_REGION,
+        secretAccessKey: values.METADATA_S3_READONLY_SECRET_ACCESS_KEY,
+      }),
+      indexPrefix: normalizePrefix(values.METADATA_INDEX_PREFIX, 'METADATA_INDEX_PREFIX'),
+    },
+    packageDeliveryAudience: values.PACKAGE_DELIVERY_AUDIENCE,
+    packageInstallIssuer: values.PACKAGE_INSTALL_ISSUER,
+    packageInstallSigningKeyId: values.PACKAGE_INSTALL_SIGNING_KEY_ID,
+    packageInstallSigningPublicKey: values.PACKAGE_INSTALL_SIGNING_PUBLIC_KEY,
+    storageFormatVersion: values.STORAGE_FORMAT_VERSION,
   };
 }
 
-/**
- * GetObject response contract:
- * https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html
- */
-async function getStorageObject(
-  client: StorageClient,
-  key: string,
-  signal?: AbortSignal
-): Promise<Response> {
-  client.stats.storageFetches += 1;
-  const url = buildS3ObjectUrl(
-    { bucket: client.config.CAS_S3_BUCKET, endpoint: client.config.CAS_S3_ENDPOINT },
-    key
-  );
-  return client.aws.fetch(url, { method: 'GET', signal });
+function decodeBase64Url(value: string, name: string): Uint8Array {
+  if (!value || !BASE64URL.test(value)) {
+    throw new HttpError(500, `${name} must use unpadded base64url`);
+  }
+  try {
+    const base64 = value.replaceAll('-', '+').replaceAll('_', '/');
+    const decoded = atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '='));
+    return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+  } catch {
+    throw new HttpError(500, `${name} is invalid`);
+  }
+}
+
+function createStorageClient(role: S3ReadRole): AwsClient {
+  return new AwsClient({
+    accessKeyId: role.accessKeyId,
+    secretAccessKey: role.secretAccessKey,
+    region: role.region,
+    service: 's3',
+    retries: 0,
+  });
+}
+
+async function getStorageObject(aws: AwsClient, role: S3ReadRole, key: string): Promise<Response> {
+  const url = buildS3ObjectUrl({ bucket: role.bucket, endpoint: role.endpoint }, key);
+  return aws.fetch(url, {
+    method: 'GET',
+    signal: AbortSignal.timeout(ORIGIN_TIMEOUT_MS),
+  });
 }
 
 async function readLimitedText(response: Response, limit: number): Promise<string> {
   const declaredLength = response.headers.get('content-length');
   if (declaredLength !== null && Number(declaredLength) > limit) {
-    throw new HttpError(422, DIRECT_DELIVERY_LIMIT_MESSAGE);
+    throw new HttpError(502, 'Delivery manifest exceeded its size limit', 1);
   }
   if (!response.body) {
-    throw new HttpError(502, 'Delivery manifest response has no body');
+    throw new HttpError(502, 'Delivery manifest has no body', 1);
   }
-
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let received = 0;
-  let output = '';
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      output += decoder.decode();
-      return output;
+  let text = '';
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        text += decoder.decode();
+        return text;
+      }
+      if (!value) {
+        continue;
+      }
+      received += value.byteLength;
+      if (received > limit) {
+        throw new HttpError(502, 'Delivery manifest exceeded its size limit', 1);
+      }
+      text += decoder.decode(value, { stream: true });
     }
-    received += value.byteLength;
-    if (received > limit) {
-      await reader.cancel();
-      throw new HttpError(422, DIRECT_DELIVERY_LIMIT_MESSAGE);
-    }
-    output += decoder.decode(value, { stream: true });
+  } finally {
+    reader.releaseLock();
   }
 }
 
-async function loadManifest(client: StorageClient, versionId: string): Promise<DeliveryManifest> {
-  const key = `${client.config.CAS_INDEX_PREFIX}${deliveryManifestObjectId(versionId)}`;
-  const response = await getStorageObject(
-    client,
-    key,
-    AbortSignal.timeout(ORIGIN_REQUEST_TIMEOUT_MS)
-  );
+async function loadManifest(
+  aws: AwsClient,
+  config: DeliveryConfig,
+  grant: DeliveryGrantV2,
+  versionId: string
+): Promise<{ body: string; manifest: DeliveryManifest; storageFetches: number }> {
+  const key = `${config.metadata.indexPrefix}${deliveryManifestObjectId(versionId)}`;
+  const response = await getStorageObject(aws, config.metadata, key);
   if (response.status === 404) {
-    throw new HttpError(404, 'Delivery version not found');
+    throw new HttpError(404, 'Package version was not found', 1);
   }
   if (!response.ok) {
-    throw new HttpError(502, `Delivery manifest storage request failed with ${response.status}`);
+    throw new HttpError(502, 'Delivery manifest storage request failed', 1);
   }
-
-  let parsed: unknown;
+  let body: string;
+  let manifest: DeliveryManifest;
   try {
-    parsed = JSON.parse(await readLimitedText(response, MAX_MANIFEST_BYTES));
+    body = await readLimitedText(response, MAX_MANIFEST_BYTES);
+    manifest = parseDeliveryManifest(JSON.parse(body));
   } catch (error) {
     if (error instanceof HttpError) {
       throw error;
     }
-    throw new HttpError(502, 'Delivery manifest is not valid JSON');
+    throw new HttpError(502, 'Delivery manifest failed validation', 1);
   }
-
-  let manifest: DeliveryManifest;
-  try {
-    manifest = parseDeliveryManifest(parsed);
-  } catch {
-    throw new HttpError(502, 'Delivery manifest failed validation');
+  if (
+    manifest.versionId !== versionId ||
+    manifest.storageFormatVersion !== config.storageFormatVersion ||
+    manifest.packageId !== grant.productId ||
+    manifest.files.reduce((total, file) => total + file.chunks.length, 0) > MAX_DELIVERY_CHUNKS ||
+    manifest.files.some((file) => file.chunks.some((chunk) => chunk.size > MAX_CHUNK_BYTES))
+  ) {
+    throw new HttpError(502, 'Delivery manifest is not accepted', 1);
   }
-  if (manifest.versionId !== versionId) {
-    throw new HttpError(502, 'Delivery manifest version does not match the request');
+  const publication = createLogicalReleasePublicationV4({
+    files: manifest.files,
+    manifest: new TextEncoder().encode(body),
+    packageId: manifest.packageId,
+    version: manifest.version,
+    versionId: manifest.versionId,
+  });
+  if (
+    publication.releaseRoot !== bytesToHex(grant.releaseRoot) ||
+    publication.bindingRoot !== bytesToHex(grant.bindingRoot)
+  ) {
+    throw new HttpError(403, 'Delivery manifest binding is invalid', 1);
   }
-  if (manifest.storageFormatVersion !== client.config.STORAGE_FORMAT_VERSION) {
-    throw new HttpError(502, 'Delivery manifest storage format is not supported');
-  }
-  return manifest;
+  return { body, manifest, storageFetches: 1 };
 }
 
-function parseRange(value: string | null, totalSize: number): DeliveryRange | undefined {
-  if (value === null) {
-    return undefined;
-  }
-  if (value.includes(',')) {
-    throw new HttpError(416, 'Multiple byte ranges are not supported', {
-      'content-range': `bytes */${totalSize}`,
-    });
-  }
-  const match = /^bytes=(\d*)-(\d*)$/.exec(value.trim());
-  if (!match || (!match[1] && !match[2]) || totalSize === 0) {
-    throw new HttpError(416, 'Invalid byte range', {
-      'content-range': `bytes */${totalSize}`,
-    });
-  }
-
-  const startText = match[1] ?? '';
-  const endText = match[2] ?? '';
-  let start: number;
-  let end: number;
-  if (!startText) {
-    const suffixLength = Number(endText);
-    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) {
-      throw new HttpError(416, 'Invalid byte range', {
-        'content-range': `bytes */${totalSize}`,
-      });
-    }
-    start = Math.max(0, totalSize - suffixLength);
-    end = totalSize - 1;
-  } else {
-    start = Number(startText);
-    end = endText ? Number(endText) : totalSize - 1;
-    if (
-      !Number.isSafeInteger(start) ||
-      !Number.isSafeInteger(end) ||
-      start < 0 ||
-      start >= totalSize ||
-      end < start
-    ) {
-      throw new HttpError(416, 'Invalid byte range', {
-        'content-range': `bytes */${totalSize}`,
-      });
-    }
-    end = Math.min(end, totalSize - 1);
-  }
-  return { end, start };
-}
-
-function chunkCacheRequest(
-  request: Request,
-  storageFormatVersion: string,
+function findManifestChunk(
+  manifest: DeliveryManifest,
   chunkId: string
-): Request {
-  // The Cache API keys by Request URL and is independent of front-of-Worker caching. Keep the
-  // deployment-stable route origin and immutable CAS identity, but remove delivery authorization.
-  // https://developers.cloudflare.com/workers/reference/how-the-cache-works/#cache-api
+): { id: string; sha256: string; size: number } | undefined {
+  let matched: { id: string; sha256: string; size: number } | undefined;
+  for (const file of manifest.files) {
+    if (file.classification !== 'common') {
+      continue;
+    }
+    for (const chunk of file.chunks) {
+      if (chunk.id !== chunkId) {
+        continue;
+      }
+      if (matched && (matched.size !== chunk.size || matched.sha256 !== chunk.sha256)) {
+        throw new HttpError(502, 'Delivery manifest has conflicting chunk recipes');
+      }
+      matched = chunk;
+    }
+  }
+  return matched;
+}
+
+function parseAuthorization(request: Request): { grant: string; proof: string } {
+  const authorization = request.headers.get('authorization') ?? '';
+  const match = /^DPoP ([A-Za-z0-9_-]+)$/.exec(authorization);
+  const proof = request.headers.get('dpop') ?? '';
+  if (!match?.[1] || match[1].length > MAX_GRANT_BYTES || !proof || proof.length > 8_192) {
+    throw new HttpError(403, 'Forbidden');
+  }
+  return { grant: match[1], proof };
+}
+
+async function authorize(input: {
+  config: DeliveryConfig;
+  request: Request;
+  versionId: string;
+}): Promise<DeliveryGrantV2> {
+  const { grant, proof } = parseAuthorization(input.request);
+  const verifiedProof = await verifyDpopProof({
+    accessToken: grant,
+    method: input.request.method,
+    proof,
+    url: input.request.url,
+  });
+  const verifiedGrant = await verifyDeliveryGrantV2({
+    context: {
+      audience: input.config.packageDeliveryAudience,
+      deviceKeyThumbprint: verifiedProof.thumbprint,
+      issuer: input.config.packageInstallIssuer,
+      now: Math.floor(Date.now() / 1_000),
+      requiredScope: `package:${input.versionId}:read`,
+    },
+    coseSign1: decodeBase64Url(grant, 'Delivery grant'),
+    expectedKeyId: packageContractKeyId(input.config.packageInstallSigningKeyId),
+    publicKey: decodeBase64Url(
+      input.config.packageInstallSigningPublicKey,
+      'PACKAGE_INSTALL_SIGNING_PUBLIC_KEY'
+    ),
+  });
+  reserveLocalDpopProof({
+    expiresAt: verifiedGrant.expiresAt,
+    jti: verifiedProof.jti,
+    thumbprint: bytesToBase64Url(verifiedProof.thumbprint),
+  });
+  return verifiedGrant;
+}
+
+function reserveLocalDpopProof(input: {
+  expiresAt: number;
+  jti: string;
+  thumbprint: string;
+}): void {
+  const reserved = dpopReplayCache.reserve({
+    expiresAtMs: input.expiresAt * 1_000,
+    key: `${input.thumbprint.length}:${input.thumbprint}${input.jti}`,
+  });
+  if (!reserved) {
+    throw new HttpError(403, 'Forbidden');
+  }
+}
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let value = '';
+  for (const byte of bytes) {
+    value += String.fromCharCode(byte);
+  }
+  return btoa(value).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', copy.buffer)), (byte) =>
+    byte.toString(16).padStart(2, '0')
+  ).join('');
+}
+
+function chunkObjectKey(config: DeliveryConfig, chunkId: string): string {
+  return `${config.common.chunkPrefix}${chunkId.slice(0, 4)}/${chunkId}`;
+}
+
+function noStoreResponse(
+  body: BodyInit | null,
+  status: number,
+  storageFetches: number,
+  headers?: HeadersInit
+): Response {
+  const responseHeaders = new Headers(headers);
+  responseHeaders.set('cache-control', 'private, no-store');
+  responseHeaders.set('x-delivery-storage-fetches', storageFetches.toString());
+  return new Response(body, {
+    headers: responseHeaders,
+    status,
+  });
+}
+
+function chunkCacheRequest(request: Request, chunkId: string): Request {
   const url = new URL(request.url);
-  url.pathname = `/cas/${encodeURIComponent(storageFormatVersion)}/${chunkId}`;
+  url.pathname = `/__yucp_common_chunk_cache/v1/${chunkId}`;
   url.search = '';
+  url.hash = '';
   return new Request(url, { method: 'GET' });
 }
 
-/** Web Crypto digest contract: https://developers.cloudflare.com/workers/runtime-apis/web-crypto/ */
-async function readExactChunk(
+async function readVerifiedChunk(
   response: Response,
-  expectedSize: number,
-  expectedSha256: string
-): Promise<Uint8Array> {
+  chunk: { id: string; sha256: string; size: number }
+) {
   const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.byteLength !== expectedSize) {
-    throw new Error(
-      `CAS chunk size mismatch: expected ${expectedSize} bytes, received ${bytes.byteLength}`
-    );
-  }
-  const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (byte) =>
-    byte.toString(16).padStart(2, '0')
-  ).join('');
-  if (sha256 !== expectedSha256) {
-    throw new Error(`CAS chunk SHA-256 mismatch: expected ${expectedSha256}, received ${sha256}`);
+  if (bytes.byteLength !== chunk.size || (await sha256Hex(bytes)) !== chunk.sha256) {
+    throw new HttpError(502, 'Common chunk failed verification');
   }
   return bytes;
 }
 
-/**
- * desync raw chunks use `<first-four-hex>/<full-id>` object keys:
- * https://github.com/folbricht/desync#compressed-vs-uncompressed
- */
-function chunkObjectKey(config: DeliveryWorkerEnv, chunkId: string): string {
-  return `${config.CAS_CHUNK_PREFIX}${chunkId.slice(0, 4)}/${chunkId}`;
-}
-
-async function loadChunk(
-  request: Request,
-  client: StorageClient,
-  manifest: DeliveryManifest,
-  chunk: DeliveryManifestChunk,
-  ctx: ExecutionContext,
-  requestId: string,
-  versionId: string
-): Promise<Uint8Array> {
-  const cacheRequest = chunkCacheRequest(request, manifest.storageFormatVersion, chunk.id);
-  const cached = await caches.default.match(cacheRequest);
-  if (cached) {
-    try {
-      const bytes = await readExactChunk(cached, chunk.size, chunk.id);
-      client.stats.cacheHits += 1;
-      return bytes;
-    } catch {
-      await caches.default.delete(cacheRequest);
+async function loadChunk(input: {
+  aws: AwsClient;
+  chunk: { id: string; sha256: string; size: number };
+  config: DeliveryConfig;
+  request: Request;
+}): Promise<{ bytes: Uint8Array; storageFetches: number }> {
+  const cache = typeof caches === 'undefined' ? undefined : caches.default;
+  const cacheRequest = chunkCacheRequest(input.request, input.chunk.id);
+  if (cache) {
+    const cached = await cache.match(cacheRequest);
+    if (cached) {
+      try {
+        return { bytes: await readVerifiedChunk(cached, input.chunk), storageFetches: 0 };
+      } catch {
+        await cache.delete(cacheRequest);
+      }
     }
   }
-
-  client.stats.cacheMisses += 1;
-  client.stats.chunkOriginFetches += 1;
-  // Bound only the origin request. The cache key remains the immutable CAS request above.
   const response = await getStorageObject(
-    client,
-    chunkObjectKey(client.config, chunk.id),
-    AbortSignal.timeout(ORIGIN_REQUEST_TIMEOUT_MS)
+    input.aws,
+    input.config.common,
+    chunkObjectKey(input.config, input.chunk.id)
   );
-  if (response.status === 404) {
-    throw new Error('CAS chunk is missing from storage');
+  if (!response.ok) {
+    throw new HttpError(502, 'Common chunk storage request failed', 1);
   }
-  if (!response.ok || !response.body) {
-    throw new Error(`CAS chunk storage request failed with ${response.status}`);
-  }
-
-  const bytes = await readExactChunk(response, chunk.size, chunk.id);
-  const cacheWrite = caches.default
-    .put(
+  const bytes = await readVerifiedChunk(response, input.chunk);
+  if (cache) {
+    await cache.put(
       cacheRequest,
       new Response(bytes, {
         headers: {
           'cache-control': 'public, max-age=31536000, immutable',
-          'content-length': chunk.size.toString(),
-          'content-type': 'application/octet-stream',
-          etag: `"${chunk.id}"`,
+          'content-length': String(bytes.byteLength),
+          etag: `"${input.chunk.id}"`,
         },
       })
-    )
-    .catch((error: unknown) => {
-      logError('delivery.cache_write_failed', {
-        requestId,
-        versionId,
-        message: error instanceof Error ? error.message : 'Unknown cache write error',
-      });
-    });
-  ctx.waitUntil(cacheWrite);
-  return bytes;
-}
-
-function createDeliveryStream(input: {
-  client: StorageClient;
-  ctx: ExecutionContext;
-  manifest: DeliveryManifest;
-  range?: DeliveryRange;
-  request: Request;
-  requestId: string;
-  versionId: string;
-}): ReadableStream<Uint8Array> {
-  const deliveryStart = input.range?.start ?? 0;
-  const deliveryEnd = input.range?.end ?? input.manifest.totalSize - 1;
-  let chunkIndex = 0;
-  let chunkStart = 0;
-  let settled = false;
-
-  return new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        while (chunkIndex < input.manifest.chunks.length) {
-          const chunk = input.manifest.chunks[chunkIndex];
-          if (!chunk) {
-            throw new Error('Delivery manifest chunk order changed during streaming');
-          }
-          chunkIndex += 1;
-          const currentChunkStart = chunkStart;
-          const chunkEnd = currentChunkStart + chunk.size - 1;
-          chunkStart += chunk.size;
-          if (chunkEnd < deliveryStart || currentChunkStart > deliveryEnd) {
-            continue;
-          }
-
-          const bytes = await loadChunk(
-            input.request,
-            input.client,
-            input.manifest,
-            chunk,
-            input.ctx,
-            input.requestId,
-            input.versionId
-          );
-          const sliceStart = Math.max(0, deliveryStart - currentChunkStart);
-          const sliceEnd = Math.min(chunk.size, deliveryEnd - currentChunkStart + 1);
-          const output = bytes.subarray(sliceStart, sliceEnd);
-          input.client.stats.bytesDelivered += output.byteLength;
-          controller.enqueue(output);
-          return;
-        }
-
-        settled = true;
-        controller.close();
-        logEvent('delivery.completed', {
-          requestId: input.requestId,
-          versionId: input.versionId,
-          ...input.client.stats,
-          ranged: input.range !== undefined,
-        });
-      } catch (error) {
-        settled = true;
-        controller.error(error);
-        logError('delivery.stream_failed', {
-          requestId: input.requestId,
-          versionId: input.versionId,
-          ...input.client.stats,
-          message: error instanceof Error ? error.message : 'Unknown streaming error',
-        });
-      }
-    },
-    cancel() {
-      if (!settled) {
-        logEvent('delivery.cancelled', {
-          requestId: input.requestId,
-          versionId: input.versionId,
-          ...input.client.stats,
-          ranged: input.range !== undefined,
-        });
-      }
-    },
-  });
-}
-
-function errorResponse(error: unknown, id: string): Response {
-  const httpError = error instanceof HttpError ? error : new HttpError(500, 'Delivery failed');
-  if (!(error instanceof HttpError)) {
-    logError('delivery.request_failed', {
-      requestId: id,
-      message: error instanceof Error ? error.message : 'Unknown request error',
-    });
+    );
   }
-  return new Response(httpError.message, {
-    status: httpError.status,
-    headers: {
-      'cache-control': 'no-store',
-      'content-type': 'text/plain; charset=utf-8',
-      ...Object.fromEntries(new Headers(httpError.headers)),
-    },
-  });
+  return { bytes, storageFetches: 1 };
 }
 
-async function handleRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-  const id = requestId();
+async function handleRequest(request: Request, env: Env): Promise<Response> {
   try {
     if (request.method !== 'GET') {
-      throw new HttpError(405, 'Method not allowed', { allow: 'GET' });
+      throw new HttpError(405, 'Method not allowed');
     }
     const url = new URL(request.url);
-    const pathMatch = VERSION_PATH_PATTERN.exec(url.pathname);
-    if (!pathMatch?.[1]) {
+    const match = DELIVERY_PATH.exec(url.pathname);
+    if (!match?.[1] || !match[2]) {
       throw new HttpError(404, 'Not found');
     }
     let versionId: string;
     try {
-      versionId = decodeURIComponent(pathMatch[1]);
+      versionId = decodeURIComponent(match[1]);
+      deliveryManifestObjectId(versionId);
     } catch {
-      throw new HttpError(403, 'Forbidden', { 'x-delivery-storage-fetches': '0' });
+      throw new HttpError(403, 'Forbidden');
     }
-    const exps = url.searchParams.getAll('exp');
-    const signatures = url.searchParams.getAll('sig');
-    const hmacKey = requireBinding(env, 'DELIVERY_HMAC_KEY');
-    const authorized =
-      exps.length === 1 &&
-      signatures.length === 1 &&
-      (await verifyDeliveryUrl({
-        exp: exps[0] ?? '',
-        key: hmacKey,
-        sig: signatures[0] ?? '',
-        versionId,
-      }));
-    if (!authorized) {
-      throw new HttpError(403, 'Forbidden', { 'x-delivery-storage-fetches': '0' });
-    }
+    const config = loadEnv(env);
+    const grant = await authorize({ config, request, versionId });
+    const metadata = createStorageClient(config.metadata);
+    const loaded = await loadManifest(metadata, config, grant, versionId);
 
-    const stats: DeliveryStats = {
-      bytesDelivered: 0,
-      cacheHits: 0,
-      cacheMisses: 0,
-      chunkOriginFetches: 0,
-      storageFetches: 0,
-    };
-    const config = loadStorageEnv(env);
-    const client = createStorageClient(config, stats);
-    const manifest = await loadManifest(client, versionId);
-    if (manifest.chunks.length > MAX_DELIVERY_CHUNKS) {
-      logError('delivery.chunk_ceiling_exceeded', {
-        requestId: id,
-        versionId,
-        chunkCount: manifest.chunks.length,
-        chunkCeiling: MAX_DELIVERY_CHUNKS,
+    if (match[2] === 'manifest') {
+      return noStoreResponse(loaded.body, 200, loaded.storageFetches, {
+        'content-type': 'application/json',
       });
-      throw new HttpError(422, DIRECT_DELIVERY_LIMIT_MESSAGE);
     }
 
-    const range = parseRange(request.headers.get('range'), manifest.totalSize);
-    const start = range?.start ?? 0;
-    const end = range?.end ?? Math.max(0, manifest.totalSize - 1);
-    const contentLength = manifest.totalSize === 0 ? 0 : end - start + 1;
-    const source = createDeliveryStream({
-      client,
-      ctx,
-      manifest,
-      range,
+    const chunkId = match[3] ?? '';
+    if (!CHUNK_ID.test(chunkId)) {
+      throw new HttpError(403, 'Forbidden', loaded.storageFetches);
+    }
+    const chunk = findManifestChunk(loaded.manifest, chunkId);
+    if (!chunk) {
+      throw new HttpError(403, 'Forbidden', loaded.storageFetches);
+    }
+    const loadedChunk = await loadChunk({
+      aws: createStorageClient(config.common),
+      chunk,
+      config,
       request,
-      requestId: id,
-      versionId,
     });
-    const fixedLength = new FixedLengthStream(contentLength);
-    const pipeline = source.pipeTo(fixedLength.writable).catch((error: unknown) => {
-      logError('delivery.pipeline_failed', {
-        requestId: id,
-        versionId,
-        message: error instanceof Error ? error.message : 'Unknown pipeline error',
-      });
-    });
-    ctx.waitUntil(pipeline);
-
-    const headers = new Headers({
-      'accept-ranges': 'bytes',
-      'cache-control': 'private, no-store',
-      'content-type': manifest.contentType,
-    });
-    if (range) {
-      headers.set('content-range', `bytes ${range.start}-${range.end}/${manifest.totalSize}`);
-    }
-    return new Response(fixedLength.readable, { headers, status: range ? 206 : 200 });
+    return noStoreResponse(
+      loadedChunk.bytes.buffer.slice(
+        loadedChunk.bytes.byteOffset,
+        loadedChunk.bytes.byteOffset + loadedChunk.bytes.byteLength
+      ) as ArrayBuffer,
+      200,
+      loaded.storageFetches + loadedChunk.storageFetches,
+      {
+        'content-length': String(loadedChunk.bytes.byteLength),
+        'content-type': 'application/octet-stream',
+        etag: `"${chunk.id}"`,
+      }
+    );
   } catch (error) {
-    return errorResponse(error, id);
+    const httpError = error instanceof HttpError ? error : new HttpError(403, 'Forbidden');
+    const reason =
+      error instanceof Error && error.message.length <= 256
+        ? error.message
+        : 'Unknown delivery error';
+    console.warn(
+      JSON.stringify({
+        event: 'delivery.request.denied',
+        method: request.method,
+        pathname: new URL(request.url).pathname,
+        reason,
+        status: httpError.status,
+        storageFetches: httpError.storageFetches,
+      })
+    );
+    return noStoreResponse(httpError.message, httpError.status, httpError.storageFetches, {
+      'content-type': 'text/plain; charset=utf-8',
+    });
   }
 }
 

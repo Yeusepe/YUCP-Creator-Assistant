@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { AccountModal } from '@/components/account/AccountPage';
+import { Icon } from '@/components/ui/Icon';
 import { type BadgeStatus, StatusChip } from '@/components/ui/StatusChip';
 import { YucpButton } from '@/components/ui/YucpButton';
 import {
@@ -78,12 +79,7 @@ export function CertificateDeviceRow({
         className="account-list-row-icon"
         style={{ background: isActive ? 'rgba(34,197,94,0.1)' : 'rgba(148,163,184,0.1)' }}
       >
-        <img
-          src="/Icons/Laptop.png"
-          alt=""
-          aria-hidden="true"
-          style={{ opacity: isActive ? 1 : 0.4 }}
-        />
+        <Icon name="desktop" style={{ opacity: isActive ? 1 : 0.4 }} />
       </div>
 
       <div className="account-list-row-info">
