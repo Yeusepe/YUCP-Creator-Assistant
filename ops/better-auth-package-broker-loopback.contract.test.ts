@@ -36,7 +36,7 @@ describe('Better Auth package broker loopback contract', () => {
     expect(convexSchema).not.toContain('oauth_loopback_sessions');
     expect(apiProxy).not.toContain('redirect_uri_rewritten');
     expect(apiProxy).not.toContain('/api/yucp/oauth/callback');
-    expect(apiProxy).toContain('bindPublicApiOAuthResource(requestParams)');
+    expect(apiProxy).toContain('bindDefaultOAuthResource(requestParams)');
     expect(clientSeed).toContain("const callbackUrl = 'http://127.0.0.1/callback';");
     expect(devSupervisor).toContain(
       'bunx convex dev --run seedYucpOAuthClient:seedPackageBrokerOAuthClient'

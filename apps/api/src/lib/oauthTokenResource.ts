@@ -1,7 +1,13 @@
 import { PUBLIC_API_AUDIENCE } from '@yucp/shared';
 
-export function bindPublicApiOAuthResource(body: URLSearchParams): URLSearchParams {
+/**
+ * Better Auth issues a JWT when the client requests a registered resource.
+ * https://better-auth.com/docs/plugins/oauth-provider#token-endpoint
+ */
+export function bindDefaultOAuthResource(body: URLSearchParams): URLSearchParams {
   const boundBody = new URLSearchParams(body);
-  boundBody.set('resource', PUBLIC_API_AUDIENCE);
+  if (!boundBody.has('resource')) {
+    boundBody.set('resource', PUBLIC_API_AUDIENCE);
+  }
   return boundBody;
 }

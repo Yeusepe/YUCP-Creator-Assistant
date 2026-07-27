@@ -26,7 +26,7 @@ import {
 } from './lib/legacyFrontend';
 import { logger } from './lib/logger';
 import { loadMaterializationControlClient } from './lib/materializationControlClient';
-import { bindPublicApiOAuthResource } from './lib/oauthTokenResource';
+import { bindDefaultOAuthResource } from './lib/oauthTokenResource';
 import {
   annotateApiSpan,
   getActiveTraceIds,
@@ -821,8 +821,8 @@ async function routeRequest(request: Request): Promise<Response> {
       proxyHeaders.delete('host');
       proxyHeaders.set('host', new URL(convexSiteUrl).host);
 
-      // Better Auth owns RFC 8252 redirect matching. The API proxy only binds
-      // token requests to the public API resource.
+      // Better Auth owns RFC 8252 redirect and resource validation. The proxy
+      // supplies the public API resource only when a client omits one.
       let proxyBody: BodyInit | undefined =
         request.method !== 'GET' && request.method !== 'HEAD'
           ? ((request.body as BodyInit | null | undefined) ?? undefined)
@@ -840,7 +840,7 @@ async function routeRequest(request: Request): Promise<Response> {
         // JWT access token (audience-bound) rather than an opaque token.
         // Without `resource`, isJwtAccessToken is false and verifyAccessToken
         // later fails with "no token payload".
-        const params = bindPublicApiOAuthResource(requestParams);
+        const params = bindDefaultOAuthResource(requestParams);
         const rewritten = params.toString();
         logger.info('Token exchange resource binding', {
           grant_type: params.get('grant_type'),

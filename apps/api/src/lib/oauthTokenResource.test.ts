@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'bun:test';
-import { PUBLIC_API_AUDIENCE } from '@yucp/shared';
-import { bindPublicApiOAuthResource } from './oauthTokenResource';
+import { PACKAGE_BROKER_AUDIENCE, PUBLIC_API_AUDIENCE } from '@yucp/shared';
+import { bindDefaultOAuthResource } from './oauthTokenResource';
 
-describe('bindPublicApiOAuthResource', () => {
+describe('bindDefaultOAuthResource', () => {
   it('binds authorization code exchanges to the public API URI', () => {
-    const body = bindPublicApiOAuthResource(
+    const body = bindDefaultOAuthResource(
       new URLSearchParams({
         grant_type: 'authorization_code',
         code: 'authorization-code',
@@ -20,15 +20,15 @@ describe('bindPublicApiOAuthResource', () => {
     expect(new URL(resource).protocol).toBe('https:');
   });
 
-  it('replaces a caller resource with the API resource', () => {
-    const body = bindPublicApiOAuthResource(
+  it('preserves the package broker resource requested by its registered client', () => {
+    const body = bindDefaultOAuthResource(
       new URLSearchParams({
         grant_type: 'refresh_token',
         refresh_token: 'refresh-token',
-        resource: 'https://unrelated.example',
+        resource: PACKAGE_BROKER_AUDIENCE,
       })
     );
 
-    expect(body.get('resource')).toBe(PUBLIC_API_AUDIENCE);
+    expect(body.get('resource')).toBe(PACKAGE_BROKER_AUDIENCE);
   });
 });
