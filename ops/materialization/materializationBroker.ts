@@ -1153,7 +1153,7 @@ export class MaterializationBroker {
           updated_at = ${now}
         WHERE
           lane = ${lane}
-          AND state = 'MATERIALIZING'
+          AND state IN ('MATERIALIZING', 'VERIFYING')
           AND lease_expires_at <= ${now}
       `;
       await transaction`

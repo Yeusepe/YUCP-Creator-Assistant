@@ -887,4 +887,115 @@ describe.serial('PostgreSQL materialization capability broker', () => {
       status: 'claimed',
     });
   });
+
+  it('reclaims an expired verifying lease after upload ticket creation fails', async () => {
+    const failingRenditionStorage: RenditionStoragePort = {
+      ...renditionStorage,
+      async createUploadTicket() {
+        throw new Error('rendition ticket unavailable');
+      },
+    };
+    const broker = new MaterializationBroker({
+      keyBroker,
+      receiptSigning: {
+        keyId: receiptKeyId,
+        lifetimeSeconds: 7 * 24 * 60 * 60,
+        privateKey: receiptPrivateKey,
+      },
+      renditionStorage: failingRenditionStorage,
+      sourceGrant: {
+        audience: 'yucp-materialization-source',
+        baseUrl: 'https://delivery.example.test',
+        issuer: 'https://api.example.test',
+        keyId: sourceGrantKeyId,
+        lifetimeSeconds: 300,
+        privateKey: sourceGrantPrivateKey,
+      },
+      sql: requireSql(),
+    });
+    const base = {
+      bindingRoot: new Uint8Array(32).fill(0x23),
+      buyerId: 'buyer-1',
+      creatorId: 'creator-1',
+      grantJti: 'grant-expired-verifying',
+      keyEpoch: 7,
+      materializationAlgorithm: 'png-dct-qim-v2',
+      outputFormat: 'zip' as const,
+      pluginVersion: 'png-plugin-2',
+      productId: 'com.yucp.materialization-test',
+      protectedSourceRoot: new Uint8Array(32).fill(0x22),
+      releaseRoot: new Uint8Array(32).fill(0x11),
+      sourceLogicalBytes: 4_096,
+      sourceLogicalFiles: 2,
+      sourceManifestSha256: new Uint8Array(32).fill(0x88),
+      sourceVersionId,
+      traceId: 'trace-expired-verifying',
+    };
+    await broker.createInstallJob({ ...base, id: 'job-expired-verifying' });
+    await broker.createInstallJob({ ...base, id: 'job-next' });
+    const firstClaim = await broker.claimNextJob({
+      leaseDurationMs: 600_000,
+      leaseOwner: 'data-node-1',
+      now: new Date(nowSeconds * 1_000),
+    });
+    if (firstClaim.status !== 'claimed') {
+      throw new Error('Expected the verifying materialization job to be claimed');
+    }
+    const signed = await broker.issueCapability({
+      jobId: firstClaim.jobId,
+      keyId: capabilityKeyId,
+      leaseGeneration: firstClaim.leaseGeneration,
+      leaseOwner: 'data-node-1',
+      lifetimeSeconds: 300,
+      now: new Date(nowSeconds * 1_000),
+      privateKey: capabilityPrivateKey,
+      proofKeyThumbprint: new Uint8Array(32).fill(0x33),
+    });
+    const capabilityPublicKey = await ed25519.getPublicKeyAsync(capabilityPrivateKey);
+    await broker.consumeCapability({
+      coseSign1: signed.coseSign1,
+      expectedKeyId: capabilityKeyId,
+      materializerId: 'data-node-1',
+      now: new Date((nowSeconds + 1) * 1_000),
+      publicKey: capabilityPublicKey,
+      proofJti: 'proof-expired-verifying-consume',
+      traceId: 'trace-expired-verifying',
+      verifiedProofKeyThumbprint: new Uint8Array(32).fill(0x33),
+    });
+    const archive = zipSync({
+      'Assets/Product/a.png': new Uint8Array([1, 2, 3, 4]),
+    });
+    let uploadTicketError: unknown;
+    try {
+      await broker.prepareRenditionUpload({
+        bytes: archive.byteLength,
+        capabilityId: signed.capability.capabilityId,
+        coseSign1: signed.coseSign1,
+        jobId: firstClaim.jobId,
+        leaseGeneration: firstClaim.leaseGeneration,
+        materializerId: 'data-node-1',
+        now: new Date((nowSeconds + 2) * 1_000),
+        proofJti: 'proof-expired-verifying-upload',
+        sha256: createHash('sha256').update(archive).digest('hex'),
+        traceId: 'trace-expired-verifying',
+        verifiedProofKeyThumbprint: new Uint8Array(32).fill(0x33),
+      });
+    } catch (error) {
+      uploadTicketError = error;
+    }
+    expect(uploadTicketError).toBeInstanceOf(Error);
+    expect((uploadTicketError as Error).message).toContain('rendition ticket unavailable');
+
+    expect(
+      await broker.claimNextJob({
+        leaseDurationMs: 600_000,
+        leaseOwner: 'data-node-2',
+        now: new Date((nowSeconds + 601) * 1_000),
+      })
+    ).toMatchObject({
+      jobId: 'job-expired-verifying',
+      leaseGeneration: 2,
+      status: 'claimed',
+    });
+  }, 20_000);
 });
