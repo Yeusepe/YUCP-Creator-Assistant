@@ -41,6 +41,7 @@ import {
   type PackageInstallerTufRepositoryRuntime,
 } from './lib/packageInstallerTufRepository';
 import { loadPackageInstallSessionConfig } from './lib/packageInstallSessionConfig';
+import { createConfiguredPrivateVpmDomainProvisioner } from './lib/privateVpmDomain';
 import { applyPublicOriginForwardingHeaders } from './lib/proxyForwardedOrigin';
 import {
   buildPublicApiRateLimitKey,
@@ -338,6 +339,13 @@ function initializeAuth(webhookBaseUrl?: string) {
   verificationHandlers = createVerificationRoutes(verificationConfig);
   verificationRoutes = mountVerificationRouteHandlers(verificationHandlers);
 
+  const privateVpmDomainProvisioner = createConfiguredPrivateVpmDomainProvisioner(env);
+  if (Boolean(env.PRIVATE_VPM_ROOT_DOMAIN?.trim()) !== Boolean(privateVpmDomainProvisioner)) {
+    throw new Error(
+      'PRIVATE_VPM_ROOT_DOMAIN and the complete private VPM Cloudflare configuration must be configured together'
+    );
+  }
+
   const connectConfig = {
     apiBaseUrl: publicBaseUrl,
     frontendBaseUrl: frontendUrl,
@@ -353,9 +361,13 @@ function initializeAuth(webhookBaseUrl?: string) {
     patreonClientId: env.PATREON_CLIENT_ID,
     patreonClientSecret: env.PATREON_CLIENT_SECRET,
     encryptionSecret,
-    vpmBaseUrl: env.VPM_BASE_URL,
+    privateVpmRootDomain: env.PRIVATE_VPM_ROOT_DOMAIN,
   } satisfies Parameters<typeof createConnectRoutes>[1];
-  connectRoutes = createConnectRoutes(auth, connectConfig);
+  connectRoutes = createConnectRoutes(
+    auth,
+    connectConfig,
+    privateVpmDomainProvisioner ? { privateDomainProvisioner: privateVpmDomainProvisioner } : {}
+  );
 
   const catalogControl = loadCatalogControlClient(env);
   creatorPackageRoutes = createCreatorPackageRoutes({
@@ -391,16 +403,21 @@ function initializeAuth(webhookBaseUrl?: string) {
   vpmRoutes = createVpmRoutes({
     auth,
     ...(vpmAliasArtifactStore ? { aliasArtifactStore: vpmAliasArtifactStore } : {}),
+    ...(privateVpmDomainProvisioner
+      ? { privateDomainProvisioner: privateVpmDomainProvisioner }
+      : {}),
     bootstrapMediaReader: loadVpmBootstrapMediaReader(env as NodeJS.ProcessEnv),
     config: {
       apiBaseUrl: publicBaseUrl,
       frontendBaseUrl: frontendUrl,
+      internalRpcSharedSecret,
       convexApiSecret: env.CONVEX_API_SECRET ?? '',
       convexUrl,
       publicImporterReleaseLedger: parsePublicImporterReleaseLedgerJson(
         env.VPM_IMPORTER_RELEASE_LEDGER_JSON
       ),
       publicVpmIndexUrl: env.VPM_PUBLIC_INDEX_URL,
+      privateVpmRootDomain: env.PRIVATE_VPM_ROOT_DOMAIN,
       vpmBaseUrl: env.VPM_BASE_URL,
     },
   });
@@ -976,6 +993,16 @@ async function routeRequest(request: Request): Promise<Response> {
   if (pathname === '/api/creator/packages' && creatorPackageRoutes) {
     return creatorPackageRoutes.listPackages(request);
   }
+  const creatorPackagePublicLinkMatch = pathname.match(
+    /^\/api\/creator\/packages\/by-package\/([^/]+)\/public-link$/
+  );
+  if (creatorPackagePublicLinkMatch && creatorPackageRoutes) {
+    const packageId = safeDecodeURIComponent(creatorPackagePublicLinkMatch[1] ?? '');
+    if (packageId === null) {
+      return badPathEncodingResponse();
+    }
+    return creatorPackageRoutes.managePublicLink(request, packageId);
+  }
   const creatorPackageVersionPageMatch = pathname.match(
     /^\/api\/creator\/packages\/by-package\/([^/]+)\/editions\/([^/]+)\/versions$/
   );
@@ -1370,6 +1397,9 @@ async function routeRequest(request: Request): Promise<Response> {
       return connectRoutes.updateSettingHandler(request);
     }
     return connectRoutes.getSettingsHandler(request);
+  }
+  if (pathname === '/api/connect/creator-identity' && connectRoutes) {
+    return connectRoutes.manageCreatorIdentity(request);
   }
   if (pathname === '/api/connect/guild/channels' && connectRoutes) {
     return connectRoutes.getGuildChannels(request);

@@ -539,6 +539,8 @@ const creator_profiles = defineTable({
   ownerDiscordUserId: v.string(),
   // Optional slug for URL-friendly identification
   slug: v.optional(v.string()),
+  // Immutable DNS label for creator-owned private delivery hosts
+  deliverySlug: v.optional(v.string()),
   // Creator status
   status: SubjectStatus,
   // Policy configuration snapshot
@@ -584,7 +586,26 @@ const creator_profiles = defineTable({
   .index('by_auth_user', ['authUserId'])
   .index('by_discord_user', ['ownerDiscordUserId'])
   .index('by_slug', ['slug'])
+  .index('by_delivery_slug', ['deliverySlug'])
   .index('by_status', ['status']);
+
+/**
+ * Creator-owned public and delivery namespaces.
+ *
+ * Renamed namespaces remain as aliases so published links and private VPM hosts
+ * continue to resolve while the profile stores the current canonical values.
+ */
+const creator_namespaces = defineTable({
+  creatorAuthUserId: v.string(),
+  kind: v.union(v.literal('public'), v.literal('delivery')),
+  slug: v.string(),
+  status: v.union(v.literal('active'), v.literal('alias')),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_kind_slug', ['kind', 'slug'])
+  .index('by_creator_kind', ['creatorAuthUserId', 'kind'])
+  .index('by_creator_kind_status', ['creatorAuthUserId', 'kind', 'status']);
 
 /**
  * Bindings - Relationship between a subject and an external account
@@ -2618,6 +2639,22 @@ const package_registry = defineTable({
   .index('by_publisher_id', ['publisherId']);
 
 /**
+ * Creator-owned public product paths for package aggregates.
+ *
+ * A package can be renamed without invalidating links already shared with buyers.
+ */
+const package_public_namespaces = defineTable({
+  creatorAuthUserId: v.string(),
+  packageId: v.string(),
+  slug: v.string(),
+  status: v.union(v.literal('active'), v.literal('alias')),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_creator_slug', ['creatorAuthUserId', 'slug'])
+  .index('by_creator_package_status', ['creatorAuthUserId', 'packageId', 'status']);
+
+/**
  * Explicit creator-confirmed links between one package and its storefront catalog entries.
  */
 const package_catalog_bindings = defineTable({
@@ -2641,6 +2678,7 @@ const package_catalog_bindings = defineTable({
  */
 const creator_vpm_links = defineTable({
   creatorAuthUserId: v.string(),
+  creatorSlug: v.optional(v.string()),
   packageId: v.string(),
   linkId: v.string(),
   status: v.union(v.literal('active'), v.literal('revoked')),
@@ -2649,6 +2687,7 @@ const creator_vpm_links = defineTable({
   updatedAt: v.number(),
 })
   .index('by_link_id', ['linkId'])
+  .index('by_creator_status', ['creatorAuthUserId', 'status'])
   .index('by_creator_package_status', ['creatorAuthUserId', 'packageId', 'status']);
 
 /**
@@ -3017,6 +3056,7 @@ const webhook_deliveries = defineTable({
 export default defineSchema({
   // Creator-scoped tables
   creator_profiles,
+  creator_namespaces,
   bindings,
   verification_sessions,
   verification_intents,
@@ -3092,6 +3132,7 @@ export default defineSchema({
   yucp_manifests,
   yucp_certificates,
   package_registry,
+  package_public_namespaces,
   package_catalog_bindings,
   creator_vpm_links,
   package_vpm_presentations,

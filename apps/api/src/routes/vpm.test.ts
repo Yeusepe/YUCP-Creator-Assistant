@@ -1,9 +1,20 @@
 import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { createTestLogger } from '../testSupport/loggerMock';
+import type { VpmRouteConfig } from './vpm';
 
 const convexQueryMock = mock(async (_reference?: unknown, _args?: unknown) => null as unknown);
 const convexMutationMock = mock(async (_reference?: unknown, _args?: unknown) => null as unknown);
+const creatorProfileQueryMock = mock(async (_args?: unknown) => ({
+  authUserId: 'creator-auth',
+  name: 'Mapache',
+  slug: 'mapache',
+  status: 'active',
+}));
+const deliverySlugMutationMock = mock(async (_args?: unknown) => ({
+  created: false,
+  slug: 'mapache',
+}));
 const loggerErrorMock = mock(() => undefined);
 const importerIndexFetchMock = mock(async () =>
   Response.json({
@@ -31,7 +42,9 @@ const importerIndexFetchMock = mock(async () =>
 
 const apiMock = {
   creatorProfiles: {
+    ensureDeliverySlug: 'creatorProfiles.ensureDeliverySlug',
     getCreatorProfile: 'creatorProfiles.getCreatorProfile',
+    resolveDeliveryNamespace: 'creatorProfiles.resolveDeliveryNamespace',
   },
   creatorVpmLinks: {
     ensureActive: 'creatorVpmLinks.ensureActive',
@@ -71,20 +84,24 @@ mock.module('../lib/apiActor', () => ({
 
 mock.module('../lib/convex', () => ({
   getConvexClientFromUrl: (_url: string, actor?: unknown) => ({
-    query: (reference: unknown, args?: unknown) =>
-      convexQueryMock(
-        reference,
+    query: (reference: unknown, args?: unknown) => {
+      const boundArgs =
         args && typeof args === 'object' && 'apiSecret' in args
           ? { ...(args as Record<string, unknown>), actor }
-          : args
-      ),
-    mutation: (reference: unknown, args?: unknown) =>
-      convexMutationMock(
-        reference,
+          : args;
+      return reference === apiMock.creatorProfiles.getCreatorProfile
+        ? creatorProfileQueryMock(boundArgs)
+        : convexQueryMock(reference, boundArgs);
+    },
+    mutation: (reference: unknown, args?: unknown) => {
+      const boundArgs =
         args && typeof args === 'object' && 'apiSecret' in args
           ? { ...(args as Record<string, unknown>), actor }
-          : args
-      ),
+          : args;
+      return reference === apiMock.creatorProfiles.ensureDeliverySlug
+        ? deliverySlugMutationMock(boundArgs)
+        : convexMutationMock(reference, boundArgs);
+    },
   }),
 }));
 
@@ -103,6 +120,7 @@ const config = {
   frontendBaseUrl: 'https://app.test',
   convexApiSecret: 'test-convex-secret',
   convexUrl: 'https://convex.test',
+  privateVpmRootDomain: 'private.yucp.club',
   publicVpmIndexUrl: 'https://vpm.yucp.club/index.json',
   vpmBaseUrl: 'https://vpm.test/',
 };
@@ -131,7 +149,10 @@ function createRoutes(
   options: {
     aliasArtifactStore?: ArtifactStore;
     bootstrapMediaReader?: { readExact(reference: unknown): Promise<Uint8Array> };
-    config?: Partial<typeof config>;
+    config?: Partial<VpmRouteConfig>;
+    privateDomainProvisioner?: {
+      ensureDomain(hostname: string): Promise<{ hostname: string; status: 'active' }>;
+    };
   } = {}
 ) {
   const aliasArtifactStore: ArtifactStore = options.aliasArtifactStore ?? {
@@ -151,6 +172,9 @@ function createRoutes(
     ...(options.bootstrapMediaReader
       ? { bootstrapMediaReader: options.bootstrapMediaReader as never }
       : {}),
+    privateDomainProvisioner: options.privateDomainProvisioner ?? {
+      ensureDomain: async (hostname) => ({ hostname, status: 'active' as const }),
+    },
     config: { ...config, ...options.config },
     fetchImpl: importerIndexFetchMock as unknown as typeof fetch,
   });
@@ -210,7 +234,7 @@ function publishedAlias(input: {
       importerPackage: 'com.yucp.importer',
       minImporterVersion: '0.1.36',
     },
-    url: `https://vpm.test/api/vpm/alias-publications/${input.publicationId}/${input.bootstrapVersion}.zip`,
+    url: `https://mapache.private.yucp.club/api/vpm/alias-publications/${input.publicationId}/${input.bootstrapVersion}.zip`,
     zipSHA256: sha256,
   };
   const repositoryManifestJson = JSON.stringify(manifest);
@@ -239,6 +263,7 @@ function publishedAlias(input: {
 function link(linkId = 'L'.repeat(43)) {
   return {
     createdAt: 100,
+    creatorSlug: 'mapache',
     linkId,
     packageId: 'com.yucp.jammr',
     status: 'active' as const,
@@ -278,6 +303,8 @@ describe('package-scoped VPM routes', () => {
   beforeEach(() => {
     convexQueryMock.mockReset();
     convexMutationMock.mockReset();
+    creatorProfileQueryMock.mockClear();
+    deliverySlugMutationMock.mockClear();
     importerIndexFetchMock.mockClear();
     loggerErrorMock.mockReset();
   });
@@ -301,13 +328,34 @@ describe('package-scoped VPM routes', () => {
     expect(first.status).toBe(200);
     expect(await afterRestart.json()).toMatchObject({
       status: 'active',
-      indexUrl: `https://vpm.test/api/vpm/access/${'L'.repeat(43)}/index.json`,
+      indexUrl: `https://mapache.private.yucp.club/api/vpm/access/${'L'.repeat(43)}/index.json`,
     });
+  });
+
+  it('never returns the shared VPM origin when private creator delivery is unconfigured', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.getByPackageIdForAuthUser) return product();
+      if (reference === apiMock.creatorVpmLinks.getActiveForCreator) return link();
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const response = await createRoutes('creator-auth', {
+      config: {
+        privateVpmRootDomain: undefined,
+      },
+    }).manageCreatorLink(
+      new Request('https://api.test/api/creator/packages/by-package/com.yucp.jammr/vcc-link'),
+      'com.yucp.jammr'
+    );
+    const body = await response.text();
+
+    expect(response.status).toBe(503);
+    expect(body).not.toContain('vpm.test');
   });
 
   it('creates the first immutable alias publication when the creator activates a link', async () => {
     const presentation = {
-      artifactBaseUrl: 'https://vpm.test',
+      artifactBaseUrl: 'https://mapache.private.yucp.club',
       artifactBucketName: 'metadata',
       authorName: 'Mapache',
       channel: 'stable',
@@ -405,6 +453,80 @@ describe('package-scoped VPM routes', () => {
     expect(JSON.stringify(committed)).not.toContain('paid');
   });
 
+  it('provisions and returns the creator-owned private VPM hostname', async () => {
+    const presentation = {
+      artifactBaseUrl: 'https://mapache.private.yucp.club',
+      artifactBucketName: 'metadata',
+      authorName: 'Mapache',
+      channel: 'stable',
+      description: 'Adds JAMMR after purchase verification.',
+      media: [],
+      minImporterVersion: '0.1.36',
+      packageId: 'com.yucp.jammr',
+      packageName: 'JAMMR',
+      presentationFingerprintSha256: 'f'.repeat(64),
+      unityVersion: '2022.3',
+    };
+    const ensureDomain = mock(async (hostname: string) => ({
+      hostname,
+      status: 'active' as const,
+    }));
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.getByPackageIdForAuthUser) return product();
+      if (reference === apiMock.creatorProfiles.getCreatorProfile) {
+        return { authUserId: 'creator-auth', name: 'Mapache', slug: 'mapache', status: 'active' };
+      }
+      if (reference === apiMock.vpmAliasPublications.getPresentationForService) {
+        return presentation;
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+    convexMutationMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.vpmAliasPublications.reservePublicationForService) {
+        return {
+          bootstrapVersion: '1.0.0',
+          channel: 'stable',
+          created: false,
+          packageId: 'com.yucp.jammr',
+          presentationFingerprintSha256: 'f'.repeat(64),
+          publicationId: '00000000-0000-4000-8000-000000000221',
+          revision: 1,
+          status: 'PUBLISHED',
+        };
+      }
+      if (reference === apiMock.creatorVpmLinks.ensureActive) return link();
+      throw new Error(`Unexpected mutation ${String(reference)}`);
+    });
+
+    const response = await createVpmRoutes({
+      auth: {
+        getSession: async () => ({ user: { id: 'creator-auth' } }),
+      } as never,
+      aliasArtifactStore: {
+        bucketName: 'metadata',
+        publish: mock(async () => {
+          throw new Error('Published reservation must not rebuild');
+        }),
+        readExact: mock(async () => new Uint8Array()),
+      } as never,
+      config: {
+        ...config,
+        privateVpmRootDomain: 'private.yucp.club',
+      },
+      privateDomainProvisioner: {
+        ensureDomain,
+      },
+      fetchImpl: importerIndexFetchMock as unknown as typeof fetch,
+    } as never).manageCreatorLink(creatorMutationRequest('POST'), 'com.yucp.jammr');
+
+    expect(response.status).toBe(200);
+    expect(ensureDomain).toHaveBeenCalledWith('mapache.private.yucp.club');
+    expect(await response.json()).toMatchObject({
+      status: 'active',
+      indexUrl: `https://mapache.private.yucp.club/api/vpm/access/${'L'.repeat(43)}/index.json`,
+    });
+  });
+
   it('uses the creator-owned package name when release presentation metadata is absent', async () => {
     const registryProduct = {
       ...product(),
@@ -412,7 +534,7 @@ describe('package-scoped VPM routes', () => {
       packageName: 'JAMMR',
     };
     const presentation = {
-      artifactBaseUrl: 'https://vpm.test',
+      artifactBaseUrl: 'https://mapache.private.yucp.club',
       artifactBucketName: 'metadata',
       authorName: 'Mapache',
       channel: 'stable',
@@ -487,7 +609,7 @@ describe('package-scoped VPM routes', () => {
 
   it('updates the creator-owned package name and publishes a new bootstrap revision', async () => {
     const previousPresentation = {
-      artifactBaseUrl: 'https://vpm.test',
+      artifactBaseUrl: 'https://mapache.private.yucp.club',
       artifactBucketName: 'metadata',
       authorName: 'Mapache',
       channel: 'stable',
@@ -501,6 +623,7 @@ describe('package-scoped VPM routes', () => {
     };
     const updatedPresentation = {
       ...previousPresentation,
+      artifactBaseUrl: 'https://mapache.private.yucp.club',
       packageName: 'JAMMR',
       presentationFingerprintSha256: 'f'.repeat(64),
     };
@@ -558,12 +681,22 @@ describe('package-scoped VPM routes', () => {
       }),
       byteSize: input.body.byteLength,
     }));
+    const ensureDomain = mock(async (hostname: string) => ({
+      hostname,
+      status: 'active' as const,
+    }));
 
     const routes = createRoutes('creator-auth', {
       aliasArtifactStore: {
         bucketName: 'metadata',
         publish,
         readExact: mock(async () => new Uint8Array()),
+      },
+      config: {
+        privateVpmRootDomain: 'private.yucp.club',
+      },
+      privateDomainProvisioner: {
+        ensureDomain,
       },
     });
     const response = await routes.manageCreatorPresentation(
@@ -577,6 +710,7 @@ describe('package-scoped VPM routes', () => {
       published: true,
     });
     expect(presentationUpdateInput).toMatchObject({
+      artifactBaseUrl: 'https://mapache.private.yucp.club',
       packageId: 'com.yucp.jammr',
       packageName: 'JAMMR',
     });
@@ -585,11 +719,12 @@ describe('package-scoped VPM routes', () => {
       traceparent: '00-11111111111111111111111111111111-2222222222222222-01',
     });
     expect(publish).toHaveBeenCalledTimes(1);
+    expect(ensureDomain).toHaveBeenCalledWith('mapache.private.yucp.club');
   });
 
   it('publishes a new immutable bootstrap when the metadata bucket changes', async () => {
     const previousPresentation = {
-      artifactBaseUrl: 'https://vpm.test',
+      artifactBaseUrl: 'https://mapache.private.yucp.club',
       artifactBucketName: 'metadata-old-epoch',
       authorName: 'Mapache',
       channel: 'stable',
@@ -688,7 +823,7 @@ describe('package-scoped VPM routes', () => {
     };
     const currentPresentation = {
       ...previousPresentation,
-      artifactBaseUrl: 'https://vpm.test',
+      artifactBaseUrl: 'https://mapache.private.yucp.club',
       presentationFingerprintSha256: 'f'.repeat(64),
     };
     let presentationUpdated = false;
@@ -736,14 +871,14 @@ describe('package-scoped VPM routes', () => {
 
     expect(response.status).toBe(200);
     expect(presentationUpdateInput).toMatchObject({
-      artifactBaseUrl: 'https://vpm.test',
+      artifactBaseUrl: 'https://mapache.private.yucp.club',
       packageId: 'com.yucp.jammr',
     });
   });
 
   it('records publication failure and returns 503 without a dynamic fallback', async () => {
     const presentation = {
-      artifactBaseUrl: 'https://vpm.test',
+      artifactBaseUrl: 'https://mapache.private.yucp.club',
       artifactBucketName: 'metadata',
       authorName: 'Mapache',
       channel: 'stable',
@@ -761,8 +896,9 @@ describe('package-scoped VPM routes', () => {
       throw new Error(`Unexpected query ${String(reference)}`);
     });
     const failed = mock(async () => ({ failed: true }));
+    const activateLink = mock(async () => link());
     convexMutationMock.mockImplementation(async (reference: unknown) => {
-      if (reference === apiMock.creatorVpmLinks.ensureActive) return link();
+      if (reference === apiMock.creatorVpmLinks.ensureActive) return await activateLink();
       if (reference === apiMock.vpmAliasPublications.reservePublicationForService) {
         return {
           bootstrapVersion: '1.0.0',
@@ -793,6 +929,7 @@ describe('package-scoped VPM routes', () => {
 
     expect(response.status).toBe(503);
     expect(failed).toHaveBeenCalledTimes(1);
+    expect(activateLink).not.toHaveBeenCalled();
   });
 
   it('revokes the creator link without deleting immutable publications', async () => {
@@ -833,7 +970,7 @@ describe('package-scoped VPM routes', () => {
     });
 
     const response = await createRoutes(null).serveCreatorLinkIndex(
-      new Request(`https://vpm.test/api/vpm/access/${'N'.repeat(43)}/index.json`),
+      new Request(`https://mapache.private.yucp.club/api/vpm/access/${'N'.repeat(43)}/index.json`),
       'N'.repeat(43)
     );
 
@@ -862,7 +999,7 @@ describe('package-scoped VPM routes', () => {
     });
 
     const response = await createRoutes(null).serveCreatorLinkIndex(
-      new Request(`https://vpm.test/api/vpm/access/${'L'.repeat(43)}/index.json`),
+      new Request(`https://mapache.private.yucp.club/api/vpm/access/${'L'.repeat(43)}/index.json`),
       'L'.repeat(43)
     );
     const body = (await response.json()) as {
@@ -877,6 +1014,146 @@ describe('package-scoped VPM routes', () => {
       'packageVersions.resolvePublicBootstrapPresentation'
     );
     expect(JSON.stringify(body)).not.toContain('catalog_jammr');
+  });
+
+  it('binds a private repository index to the creator-owned request hostname', async () => {
+    const publication = publishedAlias({
+      bootstrapVersion: '1.0.0',
+      publicationId: '00000000-0000-4000-8000-000000000109',
+      publishedAt: 100,
+    });
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.creatorVpmLinks.getActiveByLinkId) return link();
+      if (reference === apiMock.vpmAliasPublications.listPublishedForPackage) {
+        return [publication];
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const response = await createRoutes(null, {
+      config: {
+        privateVpmRootDomain: 'private.yucp.club',
+      },
+    }).serveCreatorLinkIndex(
+      new Request(`https://mapache.private.yucp.club/api/vpm/access/${'L'.repeat(43)}/index.json`),
+      'L'.repeat(43)
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      url: `https://mapache.private.yucp.club/api/vpm/access/${'L'.repeat(43)}/index.json`,
+    });
+  });
+
+  it('keeps a renamed private repository hostname as an alias of the canonical host', async () => {
+    const publication = publishedAlias({
+      bootstrapVersion: '1.0.0',
+      publicationId: '00000000-0000-4000-8000-000000000111',
+      publishedAt: 100,
+    });
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.creatorVpmLinks.getActiveByLinkId) return link();
+      if (reference === apiMock.creatorProfiles.resolveDeliveryNamespace) {
+        return {
+          authUserId: 'creator-auth',
+          canonicalSlug: 'mapache',
+          status: 'alias',
+        };
+      }
+      if (reference === apiMock.vpmAliasPublications.listPublishedForPackage) {
+        return [publication];
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const response = await createRoutes(null).serveCreatorLinkIndex(
+      new Request(
+        `https://creator-10705330.private.yucp.club/api/vpm/access/${'L'.repeat(43)}/index.json`
+      ),
+      'L'.repeat(43)
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      url: `https://mapache.private.yucp.club/api/vpm/access/${'L'.repeat(43)}/index.json`,
+    });
+  });
+
+  it('never serves a creator repository through the shared VPM origin', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.creatorVpmLinks.getActiveByLinkId) return link();
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const response = await createRoutes(null, {
+      config: {
+        privateVpmRootDomain: undefined,
+      },
+    }).serveCreatorLinkIndex(
+      new Request(`https://vpm.test/api/vpm/access/${'L'.repeat(43)}/index.json`),
+      'L'.repeat(43)
+    );
+    const body = await response.text();
+
+    expect(response.status).toBe(503);
+    expect(body).not.toContain(`https://vpm.test/api/vpm/access/${'L'.repeat(43)}/index.json`);
+  });
+
+  it('accepts the Worker-authenticated original creator hostname at the API origin', async () => {
+    const publication = publishedAlias({
+      bootstrapVersion: '1.0.0',
+      publicationId: '00000000-0000-4000-8000-000000000110',
+      publishedAt: 100,
+    });
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.creatorVpmLinks.getActiveByLinkId) return link();
+      if (reference === apiMock.vpmAliasPublications.listPublishedForPackage) {
+        return [publication];
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const response = await createRoutes(null, {
+      config: {
+        internalRpcSharedSecret: 'trusted-web-secret',
+        privateVpmRootDomain: 'private.yucp.club',
+      },
+    }).serveCreatorLinkIndex(
+      new Request(`https://api.test/api/vpm/access/${'L'.repeat(43)}/index.json`, {
+        headers: {
+          'X-Internal-Service': 'web',
+          'X-Internal-Service-Secret': 'trusted-web-secret',
+          'X-YUCP-Public-Host': 'mapache.private.yucp.club',
+        },
+      }),
+      'L'.repeat(43)
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  it('rejects a private repository link requested through another creator hostname', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.creatorVpmLinks.getActiveByLinkId) return link();
+      if (reference === apiMock.creatorProfiles.resolveDeliveryNamespace) return null;
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const response = await createRoutes(null, {
+      config: {
+        privateVpmRootDomain: 'private.yucp.club',
+      },
+    }).serveCreatorLinkIndex(
+      new Request(
+        `https://another-creator.private.yucp.club/api/vpm/access/${'L'.repeat(43)}/index.json`
+      ),
+      'L'.repeat(43)
+    );
+
+    expect(response.status).toBe(410);
+    expect(convexQueryMock.mock.calls.flat().join(' ')).not.toContain(
+      'vpmAliasPublications.listPublishedForPackage'
+    );
   });
 
   it('merges only the importer from the public repository', async () => {
@@ -926,7 +1203,7 @@ describe('package-scoped VPM routes', () => {
     });
 
     const response = await createRoutes(null).serveCreatorLinkIndex(
-      new Request(`https://vpm.test/api/vpm/access/${'L'.repeat(43)}/index.json`),
+      new Request(`https://mapache.private.yucp.club/api/vpm/access/${'L'.repeat(43)}/index.json`),
       'L'.repeat(43)
     );
     const body = (await response.json()) as {
@@ -988,7 +1265,7 @@ describe('package-scoped VPM routes', () => {
         },
       } as never,
     }).serveCreatorLinkIndex(
-      new Request(`https://vpm.test/api/vpm/access/${'L'.repeat(43)}/index.json`),
+      new Request(`https://mapache.private.yucp.club/api/vpm/access/${'L'.repeat(43)}/index.json`),
       'L'.repeat(43)
     );
 
@@ -1011,11 +1288,11 @@ describe('package-scoped VPM routes', () => {
     const routes = createRoutes(null);
 
     const first = await routes.serveCreatorLinkIndex(
-      new Request(`https://vpm.test/api/vpm/access/${'L'.repeat(43)}/index.json`),
+      new Request(`https://mapache.private.yucp.club/api/vpm/access/${'L'.repeat(43)}/index.json`),
       'L'.repeat(43)
     );
     const second = await routes.serveCreatorLinkIndex(
-      new Request(`https://vpm.test/api/vpm/access/${'L'.repeat(43)}/index.json`),
+      new Request(`https://mapache.private.yucp.club/api/vpm/access/${'L'.repeat(43)}/index.json`),
       'L'.repeat(43)
     );
 

@@ -50,6 +50,7 @@ const apiMock = {
     getByIdForAuthUser: 'packageRegistry.getByIdForAuthUser',
     listByAuthUser: 'packageRegistry.listByAuthUser',
     unbindCatalogProductForCreator: 'packageRegistry.unbindCatalogProductForCreator',
+    updatePublicNamespace: 'packageRegistry.updatePublicNamespace',
   },
 } as const;
 
@@ -117,6 +118,41 @@ describe('creator packages session routes', () => {
     getVersionStatusMock.mockClear();
     listVersionsMock.mockClear();
     createAuthUserActorBindingMock.mockClear();
+  });
+
+  it('updates an owned package public link through the delegated creator actor', async () => {
+    convexMutationMock.mockResolvedValue({
+      packageId: 'com.creator.avatar',
+      publicSlug: 'avatar-essentials',
+    });
+
+    const response = await createRoutes('creator-123').managePublicLink(
+      new Request(
+        'http://localhost:3001/api/creator/packages/by-package/com.creator.avatar/public-link',
+        {
+          body: JSON.stringify({ publicSlug: 'avatar-essentials' }),
+          headers: {
+            'Content-Type': 'application/json',
+            Origin: 'http://localhost:3000',
+          },
+          method: 'PUT',
+        }
+      ),
+      'com.creator.avatar'
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      packageId: 'com.creator.avatar',
+      publicSlug: 'avatar-essentials',
+    });
+    expect(convexMutationMock).toHaveBeenCalledWith(apiMock.packageRegistry.updatePublicNamespace, {
+      apiSecret: config.convexApiSecret,
+      actor: 'creator-actor-binding',
+      authUserId: 'creator-123',
+      packageId: 'com.creator.avatar',
+      publicSlug: 'avatar-essentials',
+    });
   });
 
   it('lists one authoritative creator package edition version page', async () => {

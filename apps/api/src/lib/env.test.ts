@@ -64,6 +64,12 @@ describe('loadEnv', () => {
     delete process.env.PACKAGE_OPERATION_AUTHORIZATION_DATABASE_URL;
     delete process.env.VPM_ALIAS_PUBLICATION_CATALOG_DATABASE_URL;
     delete process.env.VPM_BASE_URL;
+    delete process.env.PRIVATE_VPM_CLOUDFLARE_ACCOUNT_ID;
+    delete process.env.PRIVATE_VPM_CLOUDFLARE_API_TOKEN;
+    delete process.env.PRIVATE_VPM_CLOUDFLARE_SERVICE;
+    delete process.env.PRIVATE_VPM_CLOUDFLARE_ZONE_ID;
+    delete process.env.PRIVATE_VPM_CLOUDFLARE_ZONE_NAME;
+    delete process.env.PRIVATE_VPM_ROOT_DOMAIN;
     delete process.env.VPM_IMPORTER_RELEASE_LEDGER_JSON;
     delete process.env.VPM_PUBLIC_INDEX_URL;
 
@@ -76,9 +82,33 @@ describe('loadEnv', () => {
     expect(env).toHaveProperty('PACKAGE_OPERATION_AUTHORIZATION_DATABASE_URL', undefined);
     expect(env).toHaveProperty('VPM_ALIAS_PUBLICATION_CATALOG_DATABASE_URL', undefined);
     expect(env).toHaveProperty('VPM_BASE_URL', undefined);
+    expect(env).toHaveProperty('PRIVATE_VPM_CLOUDFLARE_ACCOUNT_ID', undefined);
+    expect(env).toHaveProperty('PRIVATE_VPM_CLOUDFLARE_API_TOKEN', undefined);
+    expect(env).toHaveProperty('PRIVATE_VPM_CLOUDFLARE_SERVICE', undefined);
+    expect(env).toHaveProperty('PRIVATE_VPM_CLOUDFLARE_ZONE_ID', undefined);
+    expect(env).toHaveProperty('PRIVATE_VPM_CLOUDFLARE_ZONE_NAME', undefined);
+    expect(env).toHaveProperty('PRIVATE_VPM_ROOT_DOMAIN', undefined);
     expect(env).toHaveProperty('VPM_IMPORTER_RELEASE_LEDGER_JSON', undefined);
     expect(env).toHaveProperty('VPM_PUBLIC_INDEX_URL', undefined);
     expect(env).not.toHaveProperty('VPM_TOKEN_KEY');
+  });
+
+  it('loads the purpose-scoped private VPM domain provisioning configuration', () => {
+    process.env.PRIVATE_VPM_CLOUDFLARE_ACCOUNT_ID = 'account-id';
+    process.env.PRIVATE_VPM_CLOUDFLARE_API_TOKEN = 'private-vpm-token';
+    process.env.PRIVATE_VPM_CLOUDFLARE_SERVICE = 'creator-assistant-dashboard';
+    process.env.PRIVATE_VPM_CLOUDFLARE_ZONE_ID = 'club-zone';
+    process.env.PRIVATE_VPM_CLOUDFLARE_ZONE_NAME = 'yucp.club';
+    process.env.PRIVATE_VPM_ROOT_DOMAIN = 'private.yucp.club';
+
+    expect(loadEnv()).toMatchObject({
+      PRIVATE_VPM_CLOUDFLARE_ACCOUNT_ID: 'account-id',
+      PRIVATE_VPM_CLOUDFLARE_API_TOKEN: 'private-vpm-token',
+      PRIVATE_VPM_CLOUDFLARE_SERVICE: 'creator-assistant-dashboard',
+      PRIVATE_VPM_CLOUDFLARE_ZONE_ID: 'club-zone',
+      PRIVATE_VPM_CLOUDFLARE_ZONE_NAME: 'yucp.club',
+      PRIVATE_VPM_ROOT_DOMAIN: 'private.yucp.club',
+    });
   });
 
   it('includes the injected importer release ledger when present', () => {

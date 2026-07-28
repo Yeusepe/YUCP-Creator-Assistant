@@ -10,8 +10,146 @@
 
 import { ConvexError, v } from 'convex/values';
 import { components } from './_generated/api';
+import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internalQuery, mutation, query } from './_generated/server';
+import { ApiActorBindingV, requireDelegatedAuthUserActor } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
+
+const DELIVERY_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const PUBLIC_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+type CreatorNamespaceKind = 'public' | 'delivery';
+
+function validateCreatorSlug(slug: string, kind: CreatorNamespaceKind): string {
+  const normalized = slug.trim().toLowerCase();
+  const pattern = kind === 'delivery' ? DELIVERY_SLUG_PATTERN : PUBLIC_SLUG_PATTERN;
+  const maxLength = kind === 'delivery' ? 63 : 64;
+  if (slug !== normalized || normalized.length > maxLength || !pattern.test(normalized)) {
+    throw new ConvexError(
+      kind === 'delivery'
+        ? 'Private VPM subdomain must use lowercase letters, numbers, and hyphens'
+        : 'Public handle must use lowercase letters, numbers, and hyphens'
+    );
+  }
+  return normalized;
+}
+
+async function findCreatorNamespaceOwner(
+  ctx: QueryCtx | MutationCtx,
+  slug: string
+): Promise<string | null> {
+  const [publicNamespace, deliveryNamespace, publicProfile, deliveryProfile] = await Promise.all([
+    ctx.db
+      .query('creator_namespaces')
+      .withIndex('by_kind_slug', (q) => q.eq('kind', 'public').eq('slug', slug))
+      .first(),
+    ctx.db
+      .query('creator_namespaces')
+      .withIndex('by_kind_slug', (q) => q.eq('kind', 'delivery').eq('slug', slug))
+      .first(),
+    ctx.db
+      .query('creator_profiles')
+      .withIndex('by_slug', (q) => q.eq('slug', slug))
+      .first(),
+    ctx.db
+      .query('creator_profiles')
+      .withIndex('by_delivery_slug', (q) => q.eq('deliverySlug', slug))
+      .first(),
+  ]);
+  const owners = new Set(
+    [publicNamespace, deliveryNamespace, publicProfile, deliveryProfile]
+      .map((candidate) =>
+        candidate
+          ? 'creatorAuthUserId' in candidate
+            ? candidate.creatorAuthUserId
+            : candidate.authUserId
+          : null
+      )
+      .filter((owner): owner is string => owner !== null)
+  );
+  if (owners.size > 1) {
+    throw new ConvexError('Creator namespace ownership is inconsistent');
+  }
+  return owners.values().next().value ?? null;
+}
+
+async function assertCreatorNamespaceAvailable(
+  ctx: QueryCtx | MutationCtx,
+  slug: string,
+  authUserId: string
+): Promise<void> {
+  const owner = await findCreatorNamespaceOwner(ctx, slug);
+  if (owner && owner !== authUserId) {
+    throw new ConvexError('Creator namespace is already in use');
+  }
+}
+
+async function setActiveCreatorNamespace(
+  ctx: MutationCtx,
+  input: {
+    authUserId: string;
+    kind: CreatorNamespaceKind;
+    previousSlug?: string;
+    slug: string;
+    now: number;
+  }
+): Promise<void> {
+  const activeNamespaces = await ctx.db
+    .query('creator_namespaces')
+    .withIndex('by_creator_kind_status', (q) =>
+      q.eq('creatorAuthUserId', input.authUserId).eq('kind', input.kind).eq('status', 'active')
+    )
+    .collect();
+  for (const namespace of activeNamespaces) {
+    if (namespace.slug !== input.slug) {
+      await ctx.db.patch(namespace._id, { status: 'alias', updatedAt: input.now });
+    }
+  }
+
+  if (input.previousSlug && input.previousSlug !== input.slug) {
+    const previous = await ctx.db
+      .query('creator_namespaces')
+      .withIndex('by_kind_slug', (q) =>
+        q.eq('kind', input.kind).eq('slug', input.previousSlug as string)
+      )
+      .first();
+    if (previous) {
+      if (previous.creatorAuthUserId !== input.authUserId) {
+        throw new ConvexError('Creator namespace is already in use');
+      }
+      await ctx.db.patch(previous._id, { status: 'alias', updatedAt: input.now });
+    } else {
+      await ctx.db.insert('creator_namespaces', {
+        creatorAuthUserId: input.authUserId,
+        kind: input.kind,
+        slug: input.previousSlug,
+        status: 'alias',
+        createdAt: input.now,
+        updatedAt: input.now,
+      });
+    }
+  }
+
+  const target = await ctx.db
+    .query('creator_namespaces')
+    .withIndex('by_kind_slug', (q) => q.eq('kind', input.kind).eq('slug', input.slug))
+    .first();
+  if (target) {
+    if (target.creatorAuthUserId !== input.authUserId) {
+      throw new ConvexError('Creator namespace is already in use');
+    }
+    await ctx.db.patch(target._id, { status: 'active', updatedAt: input.now });
+    return;
+  }
+  await ctx.db.insert('creator_namespaces', {
+    creatorAuthUserId: input.authUserId,
+    kind: input.kind,
+    slug: input.slug,
+    status: 'active',
+    createdAt: input.now,
+    updatedAt: input.now,
+  });
+}
 
 const PolicyInput = v.optional(
   v.object({
@@ -85,6 +223,22 @@ export const createCreatorProfile = mutation({
       return existing._id;
     }
 
+    if (args.slug) {
+      const [slugOwner, deliverySlugOwner] = await Promise.all([
+        ctx.db
+          .query('creator_profiles')
+          .withIndex('by_slug', (q) => q.eq('slug', args.slug))
+          .first(),
+        ctx.db
+          .query('creator_profiles')
+          .withIndex('by_delivery_slug', (q) => q.eq('deliverySlug', args.slug))
+          .first(),
+      ]);
+      if (slugOwner || deliverySlugOwner) {
+        throw new ConvexError('Slug is already in use');
+      }
+    }
+
     return await ctx.db.insert('creator_profiles', {
       authUserId: args.authUserId,
       name: name,
@@ -95,6 +249,190 @@ export const createCreatorProfile = mutation({
       createdAt: now,
       updatedAt: now,
     });
+  },
+});
+
+/**
+ * Update the creator-facing identity and both owned URL namespaces.
+ *
+ * Namespace changes are append-only from a routing perspective. Previous values become aliases
+ * so old buyer links and private VPM repository URLs remain valid.
+ */
+export const updateIdentity = mutation({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    authUserId: v.string(),
+    name: v.string(),
+    publicSlug: v.string(),
+    deliverySlug: v.string(),
+  },
+  returns: v.object({
+    name: v.string(),
+    publicSlug: v.string(),
+    deliverySlug: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+
+    const name = args.name.trim();
+    if (!name) {
+      throw new ConvexError('Creator name is required');
+    }
+    if (name.length > 100) {
+      throw new ConvexError('Creator name must be 100 characters or fewer');
+    }
+    const publicSlug = validateCreatorSlug(args.publicSlug, 'public');
+    const deliverySlug = validateCreatorSlug(args.deliverySlug, 'delivery');
+    await assertCreatorNamespaceAvailable(ctx, publicSlug, args.authUserId);
+    if (deliverySlug !== publicSlug) {
+      await assertCreatorNamespaceAvailable(ctx, deliverySlug, args.authUserId);
+    }
+
+    const profile = await ctx.db
+      .query('creator_profiles')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .first();
+    if (!profile || profile.status !== 'active') {
+      throw new ConvexError('Creator profile is not available');
+    }
+
+    const now = Date.now();
+    await setActiveCreatorNamespace(ctx, {
+      authUserId: args.authUserId,
+      kind: 'public',
+      previousSlug: profile.slug,
+      slug: publicSlug,
+      now,
+    });
+    await setActiveCreatorNamespace(ctx, {
+      authUserId: args.authUserId,
+      kind: 'delivery',
+      previousSlug: profile.deliverySlug,
+      slug: deliverySlug,
+      now,
+    });
+    await ctx.db.patch(profile._id, {
+      name,
+      slug: publicSlug,
+      deliverySlug,
+      updatedAt: now,
+    });
+
+    const activeVpmLinks = await ctx.db
+      .query('creator_vpm_links')
+      .withIndex('by_creator_status', (q) =>
+        q.eq('creatorAuthUserId', args.authUserId).eq('status', 'active')
+      )
+      .collect();
+    for (const link of activeVpmLinks) {
+      if (link.creatorSlug !== deliverySlug) {
+        await ctx.db.patch(link._id, { creatorSlug: deliverySlug, updatedAt: now });
+      }
+    }
+
+    return { name, publicSlug, deliverySlug };
+  },
+});
+
+/**
+ * Assign the initial DNS label used by creator-owned private delivery hosts.
+ *
+ * Convex mutations are serializable, so checking both namespace indexes and patching the
+ * profile in one mutation prevents two creators from claiming the same label.
+ */
+export const ensureDeliverySlug = mutation({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    authUserId: v.string(),
+    proposedSlugs: v.array(v.string()),
+  },
+  returns: v.object({
+    created: v.boolean(),
+    slug: v.string(),
+  }),
+  handler: async (ctx, args): Promise<{ created: boolean; slug: string }> => {
+    requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    if (args.proposedSlugs.length === 0 || args.proposedSlugs.length > 8) {
+      throw new ConvexError('Creator delivery slug candidates are invalid');
+    }
+    const proposedSlugs = [...new Set(args.proposedSlugs)];
+    if (
+      proposedSlugs.some(
+        (slug) => slug !== slug.trim().toLowerCase() || !DELIVERY_SLUG_PATTERN.test(slug)
+      )
+    ) {
+      throw new ConvexError('Creator delivery slug candidate is invalid');
+    }
+
+    const profile = await ctx.db
+      .query('creator_profiles')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .first();
+    if (!profile || profile.status !== 'active') {
+      throw new ConvexError('Creator profile is not available');
+    }
+
+    if (profile.deliverySlug && DELIVERY_SLUG_PATTERN.test(profile.deliverySlug)) {
+      const owners = await ctx.db
+        .query('creator_profiles')
+        .withIndex('by_delivery_slug', (q) => q.eq('deliverySlug', profile.deliverySlug))
+        .collect();
+      if (owners.length === 1 && owners[0]?._id === profile._id) {
+        await assertCreatorNamespaceAvailable(ctx, profile.deliverySlug, args.authUserId);
+        await setActiveCreatorNamespace(ctx, {
+          authUserId: args.authUserId,
+          kind: 'delivery',
+          previousSlug: profile.deliverySlug,
+          slug: profile.deliverySlug,
+          now: Date.now(),
+        });
+        return { created: false, slug: profile.deliverySlug };
+      }
+    }
+
+    for (const slug of proposedSlugs) {
+      const namespaceOwner = await findCreatorNamespaceOwner(ctx, slug);
+      if (namespaceOwner && namespaceOwner !== args.authUserId) {
+        continue;
+      }
+      const [deliveryOwners, publicOwners] = await Promise.all([
+        ctx.db
+          .query('creator_profiles')
+          .withIndex('by_delivery_slug', (q) => q.eq('deliverySlug', slug))
+          .collect(),
+        ctx.db
+          .query('creator_profiles')
+          .withIndex('by_slug', (q) => q.eq('slug', slug))
+          .collect(),
+      ]);
+      const deliveryAvailable =
+        deliveryOwners.length === 0 ||
+        (deliveryOwners.length === 1 && deliveryOwners[0]?._id === profile._id);
+      const publicNamespaceAvailable =
+        publicOwners.length === 0 ||
+        (publicOwners.length === 1 && publicOwners[0]?._id === profile._id);
+      if (deliveryAvailable && publicNamespaceAvailable) {
+        const now = Date.now();
+        await setActiveCreatorNamespace(ctx, {
+          authUserId: args.authUserId,
+          kind: 'delivery',
+          previousSlug: profile.deliverySlug,
+          slug,
+          now,
+        });
+        await ctx.db.patch(profile._id, {
+          deliverySlug: slug,
+          updatedAt: now,
+        });
+        return { created: profile.deliverySlug !== slug, slug };
+      }
+    }
+
+    throw new ConvexError('Creator delivery slug candidates are already in use');
   },
 });
 
@@ -119,10 +457,19 @@ export const getCreatorBySlug = query({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const profile = await ctx.db
-      .query('creator_profiles')
-      .withIndex('by_slug', (q) => q.eq('slug', args.slug))
+    const namespace = await ctx.db
+      .query('creator_namespaces')
+      .withIndex('by_kind_slug', (q) => q.eq('kind', 'public').eq('slug', args.slug))
       .first();
+    const profile = namespace
+      ? await ctx.db
+          .query('creator_profiles')
+          .withIndex('by_auth_user', (q) => q.eq('authUserId', namespace.creatorAuthUserId))
+          .first()
+      : await ctx.db
+          .query('creator_profiles')
+          .withIndex('by_slug', (q) => q.eq('slug', args.slug))
+          .first();
     if (!profile) return null;
     return {
       _id: profile._id,
@@ -131,6 +478,48 @@ export const getCreatorBySlug = query({
       status: profile.status,
       createdAt: profile.createdAt,
       authUserId: profile.authUserId,
+    };
+  },
+});
+
+/**
+ * Resolve a current or historical private delivery hostname to its creator and canonical label.
+ */
+export const resolveDeliveryNamespace = query({
+  args: {
+    apiSecret: v.string(),
+    creatorSlug: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      authUserId: v.string(),
+      canonicalSlug: v.string(),
+      status: v.union(v.literal('active'), v.literal('alias')),
+    })
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const namespace = await ctx.db
+      .query('creator_namespaces')
+      .withIndex('by_kind_slug', (q) => q.eq('kind', 'delivery').eq('slug', args.creatorSlug))
+      .first();
+    const profile = namespace
+      ? await ctx.db
+          .query('creator_profiles')
+          .withIndex('by_auth_user', (q) => q.eq('authUserId', namespace.creatorAuthUserId))
+          .first()
+      : await ctx.db
+          .query('creator_profiles')
+          .withIndex('by_delivery_slug', (q) => q.eq('deliverySlug', args.creatorSlug))
+          .first();
+    if (!profile || profile.status !== 'active' || !profile.deliverySlug) {
+      return null;
+    }
+    return {
+      authUserId: profile.authUserId,
+      canonicalSlug: profile.deliverySlug,
+      status: namespace?.status ?? 'active',
     };
   },
 });
@@ -152,6 +541,7 @@ export const getCreatorProfile = query({
       name: v.string(),
       ownerDiscordUserId: v.string(),
       slug: v.optional(v.string()),
+      deliverySlug: v.optional(v.string()),
       status: v.string(),
       policy: v.optional(v.any()),
       createdAt: v.number(),

@@ -82,6 +82,17 @@ export interface LocalEnv {
   METADATA_INDEX_PREFIX?: string;
   /** Optional public API origin used for buyer VPM index URLs. VPM routes return 503 when unavailable. */
   VPM_BASE_URL?: string;
+  /** Account that owns the Worker receiving creator private VPM Custom Domains. */
+  PRIVATE_VPM_CLOUDFLARE_ACCOUNT_ID?: string;
+  /** Purpose-scoped token with Workers Scripts read/write for Custom Domain reconciliation. */
+  PRIVATE_VPM_CLOUDFLARE_API_TOKEN?: string;
+  /** Worker service that receives exact creator private VPM hostnames. */
+  PRIVATE_VPM_CLOUDFLARE_SERVICE?: string;
+  /** yucp.club zone identifier used for exact creator Custom Domains. */
+  PRIVATE_VPM_CLOUDFLARE_ZONE_ID?: string;
+  PRIVATE_VPM_CLOUDFLARE_ZONE_NAME?: string;
+  /** Parent DNS name used to derive creatorname.private.yucp.club. */
+  PRIVATE_VPM_ROOT_DOMAIN?: string;
   /** Exact release ledger for a generated local importer package. Production uses the committed ledger. */
   VPM_IMPORTER_RELEASE_LEDGER_JSON?: string;
   /** Public first-party VPM index that supplies the generic importer package. */
@@ -254,6 +265,12 @@ function loadFromEnv(): LocalEnv {
     METADATA_S3_SECRET_ACCESS_KEY: process.env.METADATA_S3_SECRET_ACCESS_KEY,
     METADATA_INDEX_PREFIX: process.env.METADATA_INDEX_PREFIX,
     VPM_BASE_URL: process.env.VPM_BASE_URL,
+    PRIVATE_VPM_CLOUDFLARE_ACCOUNT_ID: process.env.PRIVATE_VPM_CLOUDFLARE_ACCOUNT_ID,
+    PRIVATE_VPM_CLOUDFLARE_API_TOKEN: process.env.PRIVATE_VPM_CLOUDFLARE_API_TOKEN,
+    PRIVATE_VPM_CLOUDFLARE_SERVICE: process.env.PRIVATE_VPM_CLOUDFLARE_SERVICE,
+    PRIVATE_VPM_CLOUDFLARE_ZONE_ID: process.env.PRIVATE_VPM_CLOUDFLARE_ZONE_ID,
+    PRIVATE_VPM_CLOUDFLARE_ZONE_NAME: process.env.PRIVATE_VPM_CLOUDFLARE_ZONE_NAME,
+    PRIVATE_VPM_ROOT_DOMAIN: process.env.PRIVATE_VPM_ROOT_DOMAIN,
     VPM_IMPORTER_RELEASE_LEDGER_JSON: process.env.VPM_IMPORTER_RELEASE_LEDGER_JSON,
     VPM_PUBLIC_INDEX_URL: process.env.VPM_PUBLIC_INDEX_URL,
     VRCHAT_PENDING_STATE_SECRET: process.env.VRCHAT_PENDING_STATE_SECRET,

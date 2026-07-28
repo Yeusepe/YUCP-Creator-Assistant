@@ -16,6 +16,7 @@ const TRACEPARENT_PATTERN = /^00-(?!0{32})[0-9a-f]{32}-(?!0{16})[0-9a-f]{16}-[0-
 const EDITION_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const EDITION_BODY_MAX_BYTES = 16 * 1024;
 const EDITION_TARGET_LIMIT = 128;
+const PUBLIC_LINK_BODY_MAX_BYTES = 2 * 1024;
 
 export interface CreatorPackageConfig {
   apiBaseUrl: string;
@@ -139,6 +140,8 @@ type CreatorPackageProductSource = {
   displayName?: string;
   packageId?: string;
   packageName?: string;
+  publicCreatorSlug?: string;
+  publicSlug?: string;
   packageAssociationUpdatedAt?: number;
   packageEditions?: CreatorPackageEditionSource[];
   productId: string;
@@ -200,6 +203,8 @@ function serializeCreatorPackageProduct(product: CreatorPackageProductSource) {
     thumbnailUrl: product.thumbnailUrl,
     packageId: product.packageId,
     packageName: product.packageName,
+    publicCreatorSlug: product.publicCreatorSlug,
+    publicSlug: product.publicSlug,
     packageAssociationUpdatedAt: product.packageAssociationUpdatedAt,
     packageEditions: product.packageEditions,
     productId: product.productId,
@@ -692,6 +697,59 @@ export function createCreatorPackageRoutes({
     }
   }
 
+  async function managePublicLink(request: Request, packageId: string): Promise<Response> {
+    if (request.method !== 'PUT') {
+      return jsonNoStore({ error: 'Method not allowed' }, { status: 405 });
+    }
+    const authorized = await requireSessionActor(request);
+    if (authorized instanceof Response) {
+      return authorized;
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = await readJsonObjectBodyWithLimit(request, PUBLIC_LINK_BODY_MAX_BYTES);
+    } catch (error) {
+      if (error instanceof RequestBodyError) {
+        return jsonNoStore({ error: error.message }, { status: error.status });
+      }
+      throw error;
+    }
+    if (typeof body.publicSlug !== 'string' || !body.publicSlug.trim()) {
+      return jsonNoStore({ error: 'publicSlug is required' }, { status: 400 });
+    }
+
+    try {
+      const result = await authorized.convex.mutation(api.packageRegistry.updatePublicNamespace, {
+        apiSecret: config.convexApiSecret,
+        actor: authorized.actor,
+        authUserId: authorized.authUserId,
+        packageId,
+        publicSlug: body.publicSlug,
+      });
+      return jsonNoStore(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/not available|ownership|Unauthorized/i.test(message)) {
+        return jsonNoStore({ error: 'You cannot manage this package' }, { status: 403 });
+      }
+      if (/already in use/i.test(message)) {
+        return jsonNoStore(
+          { error: 'That public product path is already in use' },
+          { status: 409 }
+        );
+      }
+      if (/must use lowercase/i.test(message)) {
+        return jsonNoStore({ error: message }, { status: 400 });
+      }
+      logger.error('Creator package public link mutation failed', {
+        error: error instanceof Error ? error.name : 'unknown_error',
+        packageId,
+      });
+      return jsonNoStore({ error: 'Failed to save the public product link' }, { status: 500 });
+    }
+  }
+
   return {
     deleteVersion,
     getPackage,
@@ -699,6 +757,7 @@ export function createCreatorPackageRoutes({
     listPackages,
     listVersions,
     manageEdition,
+    managePublicLink,
     manageStorefrontBinding,
   };
 }

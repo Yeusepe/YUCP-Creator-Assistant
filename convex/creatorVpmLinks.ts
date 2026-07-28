@@ -11,21 +11,33 @@ import { requireApiSecret } from './lib/apiAuth';
 
 const LINK_ID_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const PACKAGE_ID_PATTERN = /^[a-z0-9\-_./:]{1,128}$/;
+const CREATOR_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 type ActiveCreatorVpmLink = {
   createdAt: number;
+  creatorSlug: string;
   linkId: string;
   packageId: string;
   status: 'active';
 };
 
 function serializeActiveLink(link: Doc<'creator_vpm_links'>): ActiveCreatorVpmLink {
+  if (!link.creatorSlug) {
+    throw new ConvexError('VPM link has no creator delivery namespace');
+  }
   return {
     createdAt: link.createdAt,
+    creatorSlug: link.creatorSlug,
     linkId: link.linkId,
     packageId: link.packageId,
     status: 'active',
   };
+}
+
+function validateCreatorSlug(creatorSlug: string): void {
+  if (!CREATOR_SLUG_PATTERN.test(creatorSlug)) {
+    throw new ConvexError('Creator delivery slug is invalid');
+  }
 }
 
 function validateLinkId(linkId: string): void {
@@ -58,6 +70,23 @@ async function requireOwnedPackage(
     registration.status === 'archived'
   ) {
     throw new ConvexError('Package is not available');
+  }
+}
+
+async function requireCreatorSlug(
+  ctx: QueryCtx | MutationCtx,
+  input: {
+    authUserId: string;
+    creatorSlug: string;
+  }
+): Promise<void> {
+  validateCreatorSlug(input.creatorSlug);
+  const profile = await ctx.db
+    .query('creator_profiles')
+    .withIndex('by_auth_user', (q) => q.eq('authUserId', input.authUserId))
+    .first();
+  if (!profile || profile.status !== 'active' || profile.deliverySlug !== input.creatorSlug) {
+    throw new ConvexError('Creator delivery namespace is not available');
   }
 }
 
@@ -108,6 +137,7 @@ export const getActiveForCreator = query({
     v.null(),
     v.object({
       createdAt: v.number(),
+      creatorSlug: v.string(),
       linkId: v.string(),
       packageId: v.string(),
       status: v.literal('active'),
@@ -126,7 +156,7 @@ export const getActiveForCreator = query({
           .eq('status', 'active')
       )
       .first();
-    return link ? serializeActiveLink(link) : null;
+    return link?.creatorSlug ? serializeActiveLink(link) : null;
   },
 });
 
@@ -141,6 +171,7 @@ export const getActiveForPackageAccess = query({
     v.null(),
     v.object({
       createdAt: v.number(),
+      creatorSlug: v.string(),
       linkId: v.string(),
       packageId: v.string(),
       status: v.literal('active'),
@@ -159,7 +190,7 @@ export const getActiveForPackageAccess = query({
           .eq('status', 'active')
       )
       .first();
-    if (!link || !(await isLinkPackageAvailable(ctx, link))) {
+    if (!link?.creatorSlug || !(await isLinkPackageAvailable(ctx, link))) {
       return null;
     }
     return serializeActiveLink(link);
@@ -171,12 +202,14 @@ export const ensureActive = mutation({
     apiSecret: v.string(),
     actor: ApiActorBindingV,
     authUserId: v.string(),
+    creatorSlug: v.string(),
     packageId: v.string(),
     proposedLinkId: v.string(),
   },
   returns: v.object({
     created: v.boolean(),
     createdAt: v.number(),
+    creatorSlug: v.string(),
     linkId: v.string(),
     packageId: v.string(),
     status: v.literal('active'),
@@ -186,6 +219,7 @@ export const ensureActive = mutation({
     await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     validateLinkId(args.proposedLinkId);
     await requireOwnedPackage(ctx, args);
+    await requireCreatorSlug(ctx, args);
 
     const existing = await ctx.db
       .query('creator_vpm_links')
@@ -197,6 +231,19 @@ export const ensureActive = mutation({
       )
       .first();
     if (existing) {
+      if (existing.creatorSlug && existing.creatorSlug !== args.creatorSlug) {
+        throw new ConvexError('Active VPM link belongs to another creator delivery namespace');
+      }
+      if (!existing.creatorSlug) {
+        await ctx.db.patch(existing._id, {
+          creatorSlug: args.creatorSlug,
+          updatedAt: Date.now(),
+        });
+        return {
+          ...serializeActiveLink({ ...existing, creatorSlug: args.creatorSlug }),
+          created: false,
+        };
+      }
       return { ...serializeActiveLink(existing), created: false };
     }
 
@@ -211,6 +258,7 @@ export const ensureActive = mutation({
     const now = Date.now();
     await ctx.db.insert('creator_vpm_links', {
       creatorAuthUserId: args.authUserId,
+      creatorSlug: args.creatorSlug,
       packageId: args.packageId,
       linkId: args.proposedLinkId,
       status: 'active',
@@ -220,6 +268,7 @@ export const ensureActive = mutation({
     return {
       created: true,
       createdAt: now,
+      creatorSlug: args.creatorSlug,
       linkId: args.proposedLinkId,
       packageId: args.packageId,
       status: 'active',
@@ -273,6 +322,7 @@ export const getActiveByLinkId = query({
     v.null(),
     v.object({
       createdAt: v.number(),
+      creatorSlug: v.string(),
       linkId: v.string(),
       packageId: v.string(),
       status: v.literal('active'),
@@ -288,7 +338,7 @@ export const getActiveByLinkId = query({
       .query('creator_vpm_links')
       .withIndex('by_link_id', (q) => q.eq('linkId', args.linkId))
       .first();
-    if (!link || link.status !== 'active') {
+    if (!link?.creatorSlug || link.status !== 'active') {
       return null;
     }
     if (!(await isLinkPackageAvailable(ctx, link))) {

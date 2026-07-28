@@ -136,7 +136,7 @@ export interface ConnectConfig {
   patreonClientId?: string;
   patreonClientSecret?: string;
   encryptionSecret: string;
-  vpmBaseUrl?: string;
+  privateVpmRootDomain?: string;
 }
 
 type SetupSession = { authUserId: string; guildId: string; discordUserId: string };

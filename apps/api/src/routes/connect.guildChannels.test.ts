@@ -36,6 +36,7 @@ const apiMock = {
     createCreatorProfile: 'creatorProfiles.createCreatorProfile',
     getCreatorByAuthUser: 'creatorProfiles.getCreatorByAuthUser',
     getCreatorProfile: 'creatorProfiles.getCreatorProfile',
+    updateIdentity: 'creatorProfiles.updateIdentity',
   },
   guildLinks: {
     getGuildLinkForUninstall: 'guildLinks.getGuildLinkForUninstall',
@@ -121,6 +122,7 @@ const testConfig: ConnectConfig = {
   convexApiSecret: 'test-convex-secret',
   convexUrl: 'http://localhost:3210',
   encryptionSecret: ENCRYPTION_SECRET,
+  privateVpmRootDomain: 'private.yucp.club',
 };
 
 const auth = {
@@ -354,6 +356,64 @@ describe('GET /api/connect/dashboard/shell', () => {
 });
 
 describe('GET /api/connect/ensure-tenant', () => {
+  it('defaults a new creator profile to the authenticated Discord username', async () => {
+    const mutationCalls: Array<{ fn: unknown; args: unknown }> = [];
+
+    testStore.set('connect:test-connect-token', {
+      value: JSON.stringify({
+        discordUserId: '107053301234567890',
+        guildId: 'guild-dashboard-001',
+      }),
+    });
+
+    queryImpl = async (fn) => {
+      if (
+        fn === apiMock.guildLinks.getGuildLinkForUninstall ||
+        fn === apiMock.creatorProfiles.getCreatorByAuthUser
+      ) {
+        return null;
+      }
+      throw new Error(`Unexpected query fn: ${String(fn)}`);
+    };
+    mutationImpl = async (fn, args) => {
+      mutationCalls.push({ fn, args });
+      return null;
+    };
+
+    const fakeAuth = {
+      ...auth,
+      getSession: async () => ({
+        user: {
+          id: 'user-dashboard-001',
+          name: 'Mapache',
+        },
+      }),
+      getDiscordUserId: async () => '107053301234567890',
+    } as unknown as Auth;
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+
+    const res = await isolatedRoutes.ensureTenant(
+      new Request('http://localhost:3001/api/connect/ensure-tenant?guildId=guild-dashboard-001', {
+        headers: {
+          Origin: 'http://localhost:3000',
+          Cookie: 'yucp_connect_token=test-connect-token',
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(mutationCalls).toContainEqual({
+      fn: apiMock.creatorProfiles.createCreatorProfile,
+      args: {
+        apiSecret: 'test-convex-secret',
+        name: 'Mapache',
+        ownerDiscordUserId: '107053301234567890',
+        authUserId: 'user-dashboard-001',
+        policy: {},
+      },
+    });
+  });
+
   it('reactivates an inactive guild link for the same owner instead of returning early', async () => {
     const mutationCalls: Array<{ fn: unknown; args: unknown }> = [];
 
@@ -542,6 +602,87 @@ describe('GET /api/connect/settings (setup-session path)', () => {
     expect(res.status).toBe(503);
     const body = (await res.json()) as { error: string };
     expect(body.error).toMatch(/session/i);
+  });
+});
+
+describe('/api/connect/creator-identity', () => {
+  it('provisions the renamed private hostname before saving creator identity', async () => {
+    const calls: string[] = [];
+    queryImpl = async (fn) => {
+      if (fn === apiMock.creatorProfiles.getCreatorProfile) {
+        return {
+          authUserId: 'creator-mapache',
+          deliverySlug: 'creator-10705330',
+          name: 'Creator 10705330',
+          slug: 'creator-10705330',
+          status: 'active',
+        };
+      }
+      throw new Error(`Unexpected query fn: ${String(fn)}`);
+    };
+    mutationImpl = async (fn, args) => {
+      if (fn !== apiMock.creatorProfiles.updateIdentity) {
+        throw new Error(`Unexpected mutation fn: ${String(fn)}`);
+      }
+      calls.push('save');
+      expect(args).toEqual({
+        apiSecret: 'test-convex-secret',
+        actor: {
+          payload: expect.any(String),
+          signature: expect.any(String),
+        },
+        authUserId: 'creator-mapache',
+        deliverySlug: 'mapache',
+        name: 'Mapache',
+        publicSlug: 'mapache',
+      });
+      return {
+        deliverySlug: 'mapache',
+        name: 'Mapache',
+        publicSlug: 'mapache',
+      };
+    };
+    const fakeAuth = {
+      ...auth,
+      getSession: async () => ({
+        user: {
+          id: 'creator-mapache',
+          name: 'Mapache',
+        },
+      }),
+    } as unknown as Auth;
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig, {
+      privateDomainProvisioner: {
+        ensureDomain: async (hostname: string) => {
+          calls.push(`provision:${hostname}`);
+          return { hostname, status: 'active' as const };
+        },
+      },
+    });
+
+    const response = await isolatedRoutes.manageCreatorIdentity(
+      new Request('http://localhost:3001/api/connect/creator-identity', {
+        body: JSON.stringify({
+          deliverySlug: 'mapache',
+          name: 'Mapache',
+          publicSlug: 'mapache',
+        }),
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'http://localhost:3000',
+        },
+        method: 'PUT',
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      deliverySlug: 'mapache',
+      name: 'Mapache',
+      privateVpmHostname: 'mapache.private.yucp.club',
+      publicSlug: 'mapache',
+    });
+    expect(calls).toEqual(['provision:mapache.private.yucp.club', 'save']);
   });
 });
 

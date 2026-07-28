@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { parseTraceparent } from '@yucp/shared';
+import { parseTraceparent, timingSafeStringEqual } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import publicImporterReleaseLedger from '../../../../ops/importer/public-importer-releases.json';
@@ -8,6 +8,12 @@ import { createApiServiceActorBinding, createAuthUserActorBinding } from '../lib
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
+import {
+  buildPrivateVpmBaseUrl,
+  createPrivateVpmSlugCandidates,
+  normalizePrivateVpmRootDomain,
+  type PrivateVpmDomainProvisioner,
+} from '../lib/privateVpmDomain';
 import { RequestBodyError, readJsonObjectBodyWithLimit } from '../lib/requestBody';
 import type {
   VpmAliasArtifactReference,
@@ -59,6 +65,13 @@ class PublicAliasPublicationUnavailableError extends Error {
   }
 }
 
+class PrivateVpmDomainUnavailableError extends Error {
+  constructor(message = 'Creator private VPM domain is unavailable', options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'PrivateVpmDomainUnavailableError';
+  }
+}
+
 function isHttpsOrLoopbackHttp(url: URL): boolean {
   return (
     url.protocol === 'https:' || (url.protocol === 'http:' && LOOPBACK_HOSTNAMES.has(url.hostname))
@@ -68,10 +81,12 @@ function isHttpsOrLoopbackHttp(url: URL): boolean {
 export interface VpmRouteConfig {
   apiBaseUrl: string;
   frontendBaseUrl: string;
+  internalRpcSharedSecret?: string;
   convexApiSecret: string;
   convexUrl: string;
   publicVpmIndexUrl?: string;
   publicImporterReleaseLedger?: PublicImporterReleaseLedger;
+  privateVpmRootDomain?: string;
   vpmBaseUrl?: string;
 }
 
@@ -81,6 +96,7 @@ interface CreateVpmRoutesOptions {
   bootstrapMediaReader?: VpmBootstrapMediaReader;
   config: VpmRouteConfig;
   fetchImpl?: typeof fetch;
+  privateDomainProvisioner?: PrivateVpmDomainProvisioner;
 }
 
 type PublicBootstrapPresentation = {
@@ -153,6 +169,7 @@ type PublishedVpmAlias = {
 
 type ActiveCreatorVpmLink = {
   createdAt: number;
+  creatorSlug: string;
   linkId: string;
   packageId: string;
   status: 'active';
@@ -196,6 +213,37 @@ function getConfiguredVpmBaseUrl(config: VpmRouteConfig): string | null {
   return vpmBaseUrl.replace(/\/+$/, '');
 }
 
+function getConfiguredPrivateVpmRootDomain(config: VpmRouteConfig): string | null {
+  return normalizePrivateVpmRootDomain(config.privateVpmRootDomain);
+}
+
+function getPublicRequestHostname(request: Request, config: VpmRouteConfig): string {
+  const expectedSecret = config.internalRpcSharedSecret?.trim();
+  const providedSecret = request.headers.get('x-internal-service-secret')?.trim() ?? '';
+  const claimedHost = request.headers.get('x-yucp-public-host')?.trim().toLowerCase();
+  if (
+    expectedSecret &&
+    claimedHost &&
+    request.headers.get('x-internal-service') === 'web' &&
+    timingSafeStringEqual(providedSecret, expectedSecret)
+  ) {
+    try {
+      const claimedUrl = new URL(`https://${claimedHost}`);
+      if (
+        claimedUrl.host === claimedHost &&
+        claimedUrl.pathname === '/' &&
+        !claimedUrl.username &&
+        !claimedUrl.password
+      ) {
+        return claimedUrl.hostname;
+      }
+    } catch {
+      return new URL(request.url).hostname;
+    }
+  }
+  return new URL(request.url).hostname;
+}
+
 function getConfiguredVpmRepository(config: VpmRouteConfig): {
   publicVpmIndexUrl: string;
   vpmBaseUrl: string;
@@ -236,6 +284,7 @@ export function createVpmRoutes({
   bootstrapMediaReader,
   config,
   fetchImpl = fetch,
+  privateDomainProvisioner,
 }: CreateVpmRoutesOptions) {
   const repositoryCache = new Map<
     string,
@@ -613,6 +662,70 @@ export function createVpmRoutes({
     };
   }
 
+  async function resolveCreatorVpmRepository(input: {
+    actor: Awaited<ReturnType<typeof createAuthUserActorBinding>>;
+    authUserId: string;
+    convex: ReturnType<typeof getConvexClientFromUrl>;
+    provisionDomain: boolean;
+    vpmRepository: NonNullable<ReturnType<typeof getConfiguredVpmRepository>>;
+  }): Promise<{
+    creatorSlug: string;
+    vpmRepository: NonNullable<ReturnType<typeof getConfiguredVpmRepository>>;
+  }> {
+    const profile = (await input.convex.query(api.creatorProfiles.getCreatorProfile, {
+      apiSecret: config.convexApiSecret,
+      authUserId: input.authUserId,
+    })) as { name?: string; slug?: string; status?: string } | null;
+    if (!profile || profile.status !== 'active') {
+      throw new PrivateVpmDomainUnavailableError('Creator profile is unavailable');
+    }
+    const proposedSlugs = createPrivateVpmSlugCandidates(
+      profile.name?.trim() || 'Creator',
+      input.authUserId
+    );
+    if (profile.slug && /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(profile.slug)) {
+      proposedSlugs.unshift(profile.slug);
+    }
+    const namespace = (await input.convex.mutation(api.creatorProfiles.ensureDeliverySlug, {
+      apiSecret: config.convexApiSecret,
+      actor: input.actor,
+      authUserId: input.authUserId,
+      proposedSlugs: [...new Set(proposedSlugs)],
+    })) as { created: boolean; slug: string };
+
+    const privateRootDomain = getConfiguredPrivateVpmRootDomain(config);
+    if (!privateRootDomain) {
+      throw new PrivateVpmDomainUnavailableError('Private VPM delivery is not configured');
+    }
+    const privateVpmBaseUrl = buildPrivateVpmBaseUrl(privateRootDomain, namespace.slug);
+    if (!privateVpmBaseUrl) {
+      throw new PrivateVpmDomainUnavailableError('Creator private VPM hostname is invalid');
+    }
+    const hostname = new URL(privateVpmBaseUrl).hostname;
+    if (input.provisionDomain) {
+      if (!privateDomainProvisioner) {
+        throw new PrivateVpmDomainUnavailableError(
+          'Private VPM domain provisioning is not configured'
+        );
+      }
+      try {
+        const provisioned = await privateDomainProvisioner.ensureDomain(hostname);
+        if (provisioned.hostname !== hostname || provisioned.status !== 'active') {
+          throw new Error('Private VPM domain provisioner returned a mismatched domain');
+        }
+      } catch (error) {
+        throw new PrivateVpmDomainUnavailableError(undefined, { cause: error });
+      }
+    }
+    return {
+      creatorSlug: namespace.slug,
+      vpmRepository: {
+        ...input.vpmRepository,
+        vpmBaseUrl: privateVpmBaseUrl,
+      },
+    };
+  }
+
   async function manageCreatorPresentation(request: Request, packageId: string): Promise<Response> {
     if (request.method !== 'GET' && request.method !== 'PUT') {
       return jsonNoStore({ error: 'Method not allowed' }, { status: 405 });
@@ -682,6 +795,14 @@ export function createVpmRoutes({
         candidateTraceparent && parseTraceparent(candidateTraceparent)
           ? candidateTraceparent
           : undefined;
+      phase = 'namespace';
+      const creatorRepository = await resolveCreatorVpmRepository({
+        actor: authorized.actor,
+        authUserId: authorized.authUserId,
+        convex: authorized.convex,
+        provisionDomain: true,
+        vpmRepository,
+      });
       phase = 'publication';
       await ensurePackagePublication({
         authUserId: authorized.authUserId,
@@ -694,7 +815,7 @@ export function createVpmRoutes({
         },
         publicationReason: 'presentation-update',
         ...(traceparent ? { traceparent } : {}),
-        vpmRepository,
+        vpmRepository: creatorRepository.vpmRepository,
       });
       return jsonNoStore({
         packageName,
@@ -726,8 +847,8 @@ export function createVpmRoutes({
       if (!vpmRepository) {
         return jsonNoStore({ error: 'VPM delivery is not configured' }, { status: 503 });
       }
-      phase = 'link';
       if (request.method === 'DELETE') {
+        phase = 'link';
         const result = await authorized.convex.mutation(api.creatorVpmLinks.revokeActive, {
           apiSecret: config.convexApiSecret,
           actor: authorized.actor,
@@ -737,30 +858,15 @@ export function createVpmRoutes({
         return jsonNoStore(result);
       }
 
-      const link =
-        request.method === 'POST'
-          ? ((await authorized.convex.mutation(api.creatorVpmLinks.ensureActive, {
-              apiSecret: config.convexApiSecret,
-              actor: authorized.actor,
-              authUserId: authorized.authUserId,
-              packageId: authorized.product.packageId as string,
-              proposedLinkId: createCreatorLinkId(),
-            })) as ActiveCreatorVpmLink)
-          : ((await authorized.convex.query(api.creatorVpmLinks.getActiveForCreator, {
-              apiSecret: config.convexApiSecret,
-              actor: authorized.actor,
-              authUserId: authorized.authUserId,
-              packageId: authorized.product.packageId as string,
-            })) as ActiveCreatorVpmLink | null);
-      if (!link) {
-        return jsonNoStore({
-          status: 'inactive',
-          bootstrapDownloadUrl: `/api/creator/packages/by-package/${encodeURIComponent(
-            packageId
-          )}/bootstrap`,
-        });
-      }
       if (request.method === 'POST') {
+        phase = 'namespace';
+        const creatorRepository = await resolveCreatorVpmRepository({
+          actor: authorized.actor,
+          authUserId: authorized.authUserId,
+          convex: authorized.convex,
+          provisionDomain: true,
+          vpmRepository,
+        });
         phase = 'publication';
         const candidateTraceparent = request.headers.get('traceparent');
         const traceparent =
@@ -773,12 +879,48 @@ export function createVpmRoutes({
           creatorConvex: authorized.convex,
           product: authorized.product,
           ...(traceparent ? { traceparent } : {}),
-          vpmRepository,
+          vpmRepository: creatorRepository.vpmRepository,
+        });
+        phase = 'link';
+        const link = (await authorized.convex.mutation(api.creatorVpmLinks.ensureActive, {
+          apiSecret: config.convexApiSecret,
+          actor: authorized.actor,
+          authUserId: authorized.authUserId,
+          creatorSlug: creatorRepository.creatorSlug,
+          packageId: authorized.product.packageId as string,
+          proposedLinkId: createCreatorLinkId(),
+        })) as ActiveCreatorVpmLink;
+        return jsonNoStore(
+          serializeCreatorLink(link, packageId, creatorRepository.vpmRepository.vpmBaseUrl)
+        );
+      }
+
+      phase = 'link';
+      const link = (await authorized.convex.query(api.creatorVpmLinks.getActiveForCreator, {
+        apiSecret: config.convexApiSecret,
+        actor: authorized.actor,
+        authUserId: authorized.authUserId,
+        packageId: authorized.product.packageId as string,
+      })) as ActiveCreatorVpmLink | null;
+      if (!link) {
+        return jsonNoStore({
+          status: 'inactive',
+          bootstrapDownloadUrl: `/api/creator/packages/by-package/${encodeURIComponent(
+            packageId
+          )}/bootstrap`,
         });
       }
-      return jsonNoStore(serializeCreatorLink(link, packageId, vpmRepository.vpmBaseUrl));
+      const privateRootDomain = getConfiguredPrivateVpmRootDomain(config);
+      const linkBaseUrl = buildPrivateVpmBaseUrl(privateRootDomain ?? undefined, link.creatorSlug);
+      if (!linkBaseUrl) {
+        throw new PrivateVpmDomainUnavailableError('Private VPM delivery is not configured');
+      }
+      return jsonNoStore(serializeCreatorLink(link, packageId, linkBaseUrl));
     } catch (error) {
-      if (error instanceof PublicAliasPublicationUnavailableError) {
+      if (
+        error instanceof PublicAliasPublicationUnavailableError ||
+        error instanceof PrivateVpmDomainUnavailableError
+      ) {
         return jsonNoStore({ error: 'VPM delivery is temporarily unavailable' }, { status: 503 });
       }
       logger.error('Creator VCC link operation failed', {
@@ -816,6 +958,36 @@ export function createVpmRoutes({
       if (!link) {
         return jsonNoCache({ error: 'VCC link is revoked or unavailable' }, { status: 410 });
       }
+      const privateRootDomain = getConfiguredPrivateVpmRootDomain(config);
+      const repositoryBaseUrl = buildPrivateVpmBaseUrl(
+        privateRootDomain ?? undefined,
+        link.creatorSlug
+      );
+      if (!repositoryBaseUrl) {
+        throw new PrivateVpmDomainUnavailableError('Private VPM delivery is not configured');
+      }
+      const requestHostname = getPublicRequestHostname(request, config);
+      const canonicalHostname = new URL(repositoryBaseUrl).hostname;
+      if (requestHostname !== canonicalHostname) {
+        const rootSuffix = privateRootDomain ? `.${privateRootDomain}` : '';
+        const requestedCreatorSlug =
+          rootSuffix &&
+          requestHostname.endsWith(rootSuffix) &&
+          !requestHostname.slice(0, -rootSuffix.length).includes('.')
+            ? requestHostname.slice(0, -rootSuffix.length)
+            : null;
+        if (!requestedCreatorSlug) {
+          return jsonNoCache({ error: 'VCC link is revoked or unavailable' }, { status: 410 });
+        }
+        phase = 'namespace';
+        const namespace = (await convex.query(api.creatorProfiles.resolveDeliveryNamespace, {
+          apiSecret: config.convexApiSecret,
+          creatorSlug: requestedCreatorSlug,
+        })) as { canonicalSlug: string; status: 'active' | 'alias' } | null;
+        if (!namespace || namespace.canonicalSlug !== link.creatorSlug) {
+          return jsonNoCache({ error: 'VCC link is revoked or unavailable' }, { status: 410 });
+        }
+      }
       phase = 'publications';
       const publications = (await convex.query(api.vpmAliasPublications.listPublishedForPackage, {
         apiSecret: config.convexApiSecret,
@@ -839,7 +1011,7 @@ export function createVpmRoutes({
       const latestManifest = latest
         ? (JSON.parse(latest.repositoryManifestJson) as { displayName?: string })
         : undefined;
-      const { indexUrl } = buildPublicVpmRepositoryAccess(vpmRepository.vpmBaseUrl, link.linkId);
+      const { indexUrl } = buildPublicVpmRepositoryAccess(repositoryBaseUrl, link.linkId);
       const response = jsonNoCache({
         name: latestManifest?.displayName
           ? `${latestManifest.displayName} by YUCP`
@@ -853,6 +1025,9 @@ export function createVpmRoutes({
     } catch (error) {
       if (error instanceof PublicImporterUnavailableError) {
         return jsonNoCache({ error: 'The public YUCP importer is not available' }, { status: 503 });
+      }
+      if (error instanceof PrivateVpmDomainUnavailableError) {
+        return jsonNoCache({ error: 'VPM delivery is temporarily unavailable' }, { status: 503 });
       }
       logger.error('Failed to build creator VCC repository index', {
         phase,

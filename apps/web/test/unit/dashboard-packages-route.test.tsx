@@ -147,6 +147,8 @@ const product = {
   displayName: 'Avatar Bundle',
   packageId: 'com.creator.avatar-bundle',
   packageName: 'Avatar Bundle',
+  publicCreatorSlug: 'mapache',
+  publicSlug: 'avatar-bundle',
   packageEditions: [
     {
       catalogProductIds: ['catalog_product_1'],
@@ -426,6 +428,34 @@ describe('dashboard packages route', () => {
     expect(productRowButton).not.toHaveTextContent('Summer launch / Wave A');
     expect(productRowButton).not.toHaveTextContent(product.providerProductRef);
     expect(productRowButton).not.toHaveTextContent(product.productId);
+  });
+
+  it('lets the creator override the public product path in product details', async () => {
+    apiPutMock.mockResolvedValue({
+      packageId: 'com.creator.avatar-bundle',
+      publicSlug: 'avatar-essentials',
+    });
+    const Component = DashboardPackagesRoute.options.component;
+    if (!Component) throw new Error('Dashboard packages component is missing');
+
+    render(<Component />, { wrapper: createWrapper() });
+    fireEvent.click(await screen.findByRole('button', { name: 'Open details for Avatar Bundle' }));
+
+    const publicPathInput = await screen.findByRole('textbox', {
+      name: 'Public product link',
+    });
+    fireEvent.change(publicPathInput, { target: { value: 'avatar-essentials' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save public product link' }));
+
+    await waitFor(() =>
+      expect(apiPutMock).toHaveBeenCalledWith(
+        '/api/creator/packages/by-package/com.creator.avatar-bundle/public-link',
+        { publicSlug: 'avatar-essentials' }
+      )
+    );
+    expect(
+      await screen.findByText(/\/get-in-unity\/mapache\/avatar-essentials/)
+    ).toBeInTheDocument();
   });
 
   it('shows friendly provider and store-tier labels in product details', async () => {

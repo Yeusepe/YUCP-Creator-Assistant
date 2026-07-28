@@ -52,7 +52,24 @@ describe('proxyApiRequest', () => {
     expect(headers.get('Authorization')).toBeNull();
     expect(headers.get('X-Auth-Token')).toBeNull();
     expect(headers.get('X-Internal-Service-Secret')).toBe('test-secret-value');
+    expect(headers.get('X-YUCP-Public-Host')).toBe('localhost:3000');
     expect(mockGetToken).not.toHaveBeenCalled();
+  });
+
+  it('overwrites the trusted public host from the incoming Worker request URL', async () => {
+    mockFetch.mockResolvedValueOnce(Response.json({ ok: true }));
+    const { proxyApiRequest } = await import('@/lib/server/api-proxy');
+
+    await proxyApiRequest(
+      new Request(`https://mapache.private.yucp.club/api/vpm/access/${'L'.repeat(43)}/index.json`, {
+        headers: {
+          'x-yucp-public-host': 'attacker.example',
+        },
+      })
+    );
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(new Headers(init.headers).get('X-YUCP-Public-Host')).toBe('mapache.private.yucp.club');
   });
 
   it('forwards the VRChat connect pending cookie on 2FA submissions', async () => {

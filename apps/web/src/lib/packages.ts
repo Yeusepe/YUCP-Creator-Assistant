@@ -88,6 +88,8 @@ export interface CreatorPackageProductSummary {
   thumbnailUrl?: string;
   packageId?: string;
   packageName?: string;
+  publicCreatorSlug?: string;
+  publicSlug?: string;
   packageAssociationUpdatedAt?: number;
   packageEditions?: CreatorPackageEditionSummary[];
   productId: string;
@@ -273,6 +275,16 @@ export async function getCreatorPackageProduct(
 ): Promise<CreatorPackageProductSummary> {
   return await apiClient.get<CreatorPackageProductSummary>(
     `${CREATOR_PACKAGES_PATH}/${encodeURIComponent(catalogProductId)}`
+  );
+}
+
+export async function updateCreatorPackagePublicLink(
+  packageId: string,
+  publicSlug: string
+): Promise<{ packageId: string; publicSlug: string }> {
+  return await apiClient.put(
+    `${CREATOR_PACKAGES_PATH}/by-package/${encodeURIComponent(packageId)}/public-link`,
+    { publicSlug }
   );
 }
 

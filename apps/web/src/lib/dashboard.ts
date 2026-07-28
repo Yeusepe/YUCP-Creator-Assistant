@@ -51,6 +51,13 @@ export interface DashboardPolicy {
   announcementsChannelId?: string;
 }
 
+export interface CreatorIdentity {
+  deliverySlug: string;
+  name: string;
+  privateVpmHostname: string | null;
+  publicSlug: string;
+}
+
 export function normalizeDashboardIdentifier(value: string | null | undefined) {
   if (!value) {
     return undefined;
@@ -276,6 +283,18 @@ export async function getDashboardSettings(authUserId: string) {
     params: { authUserId },
   });
   return data.policy ?? {};
+}
+
+export async function getCreatorIdentity(): Promise<CreatorIdentity> {
+  return await apiClient.get<CreatorIdentity>('/api/connect/creator-identity');
+}
+
+export async function updateCreatorIdentity(input: {
+  deliverySlug: string;
+  name: string;
+  publicSlug: string;
+}): Promise<CreatorIdentity> {
+  return await apiClient.put<CreatorIdentity>('/api/connect/creator-identity', input);
 }
 
 export async function updateDashboardSetting(

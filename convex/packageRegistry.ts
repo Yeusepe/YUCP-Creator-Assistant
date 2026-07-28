@@ -28,6 +28,7 @@ import {
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const PACKAGE_NAME_MAX_LENGTH = 120;
+const PUBLIC_PACKAGE_SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const PACKAGE_ARCHIVED_SIGNING_BLOCKED_REASON =
   'Archived packages cannot be updated. Restore the package before signing or changing it.';
 
@@ -61,6 +62,18 @@ function normalizePackageName(packageName: string | undefined): string | undefin
   return normalized;
 }
 
+function normalizePublicPackageSlug(publicSlug: string): string {
+  const normalized = publicSlug.trim().toLowerCase();
+  if (
+    publicSlug !== normalized ||
+    normalized.length > 64 ||
+    !PUBLIC_PACKAGE_SLUG_RE.test(normalized)
+  ) {
+    throw new ConvexError('Public product path must use lowercase letters, numbers, and hyphens');
+  }
+  return normalized;
+}
+
 type LogicalCatalogProductGroup = {
   aliasId: string;
   associationUpdatedAt: number;
@@ -87,6 +100,21 @@ async function buildCreatorPackageProductSummary(
         .withIndex('by_package_id', (q) => q.eq('packageId', logicalGroup.packageId as string))
         .unique()
     : null;
+  const publicNamespace = logicalGroup.packageId
+    ? await ctx.db
+        .query('package_public_namespaces')
+        .withIndex('by_creator_package_status', (q) =>
+          q
+            .eq('creatorAuthUserId', product.authUserId)
+            .eq('packageId', logicalGroup.packageId as string)
+            .eq('status', 'active')
+        )
+        .first()
+    : null;
+  const creatorProfile = await ctx.db
+    .query('creator_profiles')
+    .withIndex('by_auth_user', (q) => q.eq('authUserId', product.authUserId))
+    .first();
   const packageEditions = logicalGroup.packageId
     ? (
         await ctx.db
@@ -152,6 +180,8 @@ async function buildCreatorPackageProductSummary(
     packageId: logicalGroup.packageId,
     packageName:
       registration?.yucpUserId === product.authUserId ? registration.packageName : undefined,
+    publicCreatorSlug: creatorProfile?.slug,
+    publicSlug: publicNamespace?.slug,
     packageEditions,
     productId: product.productId,
     provider: product.provider,
@@ -823,6 +853,131 @@ export const getByPackageIdForAuthUser = query({
   },
 });
 
+/**
+ * Set the public path for a creator-owned package aggregate.
+ *
+ * Previous paths remain as aliases so links already shared with buyers keep resolving.
+ */
+export const updatePublicNamespace = mutation({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    authUserId: v.string(),
+    packageId: v.string(),
+    publicSlug: v.string(),
+  },
+  returns: v.object({
+    packageId: v.string(),
+    publicSlug: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    const publicSlug = normalizePublicPackageSlug(args.publicSlug);
+    const registration = await ctx.db
+      .query('package_registry')
+      .withIndex('by_package_id', (q) => q.eq('packageId', args.packageId))
+      .unique();
+    if (
+      !registration ||
+      registration.yucpUserId !== args.authUserId ||
+      isArchivedRegistration(registration)
+    ) {
+      throw new ConvexError('Package is not available');
+    }
+
+    const claimedNamespaces = await ctx.db
+      .query('package_public_namespaces')
+      .withIndex('by_creator_slug', (q) =>
+        q.eq('creatorAuthUserId', args.authUserId).eq('slug', publicSlug)
+      )
+      .collect();
+    if (claimedNamespaces.some((namespace) => namespace.packageId !== args.packageId)) {
+      throw new ConvexError('Public product path is already in use');
+    }
+
+    const now = Date.now();
+    const activeNamespaces = await ctx.db
+      .query('package_public_namespaces')
+      .withIndex('by_creator_package_status', (q) =>
+        q
+          .eq('creatorAuthUserId', args.authUserId)
+          .eq('packageId', args.packageId)
+          .eq('status', 'active')
+      )
+      .collect();
+    for (const namespace of activeNamespaces) {
+      if (namespace.slug !== publicSlug) {
+        await ctx.db.patch(namespace._id, { status: 'alias', updatedAt: now });
+      }
+    }
+
+    const target = claimedNamespaces.find((namespace) => namespace.packageId === args.packageId);
+    if (target) {
+      await ctx.db.patch(target._id, { status: 'active', updatedAt: now });
+    } else {
+      await ctx.db.insert('package_public_namespaces', {
+        creatorAuthUserId: args.authUserId,
+        packageId: args.packageId,
+        slug: publicSlug,
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    return { packageId: args.packageId, publicSlug };
+  },
+});
+
+async function resolveCreatorAuthUserId(ctx: QueryCtx, creatorRef: string) {
+  const namespace = await ctx.db
+    .query('creator_namespaces')
+    .withIndex('by_kind_slug', (q) => q.eq('kind', 'public').eq('slug', creatorRef))
+    .first();
+  if (namespace) {
+    const profile = await ctx.db
+      .query('creator_profiles')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', namespace.creatorAuthUserId))
+      .first();
+    return profile?.status === 'active' ? profile.authUserId : null;
+  }
+  const profiles = await ctx.db
+    .query('creator_profiles')
+    .withIndex('by_slug', (q) => q.eq('slug', creatorRef))
+    .filter((q) => q.eq(q.field('status'), 'active'))
+    .take(2);
+  return profiles.length === 1 ? (profiles[0]?.authUserId ?? null) : null;
+}
+
+async function resolvePackagePublicNamespace(
+  ctx: QueryCtx,
+  creatorAuthUserId: string,
+  productRef: string
+) {
+  const namespace = await ctx.db
+    .query('package_public_namespaces')
+    .withIndex('by_creator_slug', (q) =>
+      q.eq('creatorAuthUserId', creatorAuthUserId).eq('slug', productRef)
+    )
+    .first();
+  if (!namespace) {
+    return null;
+  }
+  const activeNamespace = await ctx.db
+    .query('package_public_namespaces')
+    .withIndex('by_creator_package_status', (q) =>
+      q
+        .eq('creatorAuthUserId', creatorAuthUserId)
+        .eq('packageId', namespace.packageId)
+        .eq('status', 'active')
+    )
+    .first();
+  return activeNamespace
+    ? { packageId: namespace.packageId, publicSlug: activeNamespace.slug }
+    : null;
+}
+
 async function resolveCatalogProduct(ctx: QueryCtx, ref: string) {
   const trimmed = ref.trim();
   if (!trimmed) {
@@ -856,17 +1011,40 @@ async function resolveCreatorCatalogProduct(ctx: QueryCtx, creatorRef: string, p
     return null;
   }
 
-  const creatorProfiles = await ctx.db
-    .query('creator_profiles')
-    .withIndex('by_slug', (q) => q.eq('slug', normalizedCreatorRef))
-    .filter((q) => q.eq(q.field('status'), 'active'))
-    .take(2);
-  if (creatorProfiles.length !== 1) {
-    return null;
-  }
-  const creatorAuthUserId = creatorProfiles[0]?.authUserId;
+  const creatorAuthUserId = await resolveCreatorAuthUserId(ctx, normalizedCreatorRef);
   if (!creatorAuthUserId) {
     return null;
+  }
+
+  const packageNamespace = await resolvePackagePublicNamespace(
+    ctx,
+    creatorAuthUserId,
+    normalizedProductRef
+  );
+  if (packageNamespace) {
+    const bindings = await ctx.db
+      .query('package_catalog_bindings')
+      .withIndex('by_creator_package_status', (q) =>
+        q
+          .eq('creatorAuthUserId', creatorAuthUserId)
+          .eq('packageId', packageNamespace.packageId)
+          .eq('status', 'active')
+      )
+      .collect();
+    const products = await Promise.all(
+      bindings.map(async (binding) => await ctx.db.get(binding.catalogProductId))
+    );
+    const product = products
+      .filter(
+        (candidate): candidate is Doc<'product_catalog'> =>
+          candidate !== null &&
+          candidate.authUserId === creatorAuthUserId &&
+          getCatalogProductWorkspaceStatus(candidate) === 'active'
+      )
+      .sort(compareCatalogProducts)[0];
+    if (product) {
+      return product;
+    }
   }
 
   const catalogId = ctx.db.normalizeId('product_catalog', normalizedProductRef);
@@ -991,5 +1169,47 @@ export const getBuyerAccessContextByCreatorAndProductRef = query({
 
     const product = await resolveCreatorCatalogProduct(ctx, args.creatorRef, args.productRef);
     return product ? await buildBuyerAccessContext(ctx, product) : null;
+  },
+});
+
+/**
+ * Resolve a buyer-facing creator/product path, including historical package aliases.
+ */
+export const resolveBuyerAccessByCreatorProduct = query({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    creatorRef: v.string(),
+    productRef: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    await requireApiActor(args.actor);
+    const creatorAuthUserId = await resolveCreatorAuthUserId(ctx, args.creatorRef.trim());
+    if (!creatorAuthUserId) {
+      return null;
+    }
+    const packageNamespace = await resolvePackagePublicNamespace(
+      ctx,
+      creatorAuthUserId,
+      args.productRef.trim()
+    );
+    const product = await resolveCreatorCatalogProduct(ctx, args.creatorRef, args.productRef);
+    if (!product) {
+      return null;
+    }
+    const context = await buildBuyerAccessContext(ctx, product);
+    if (!context) {
+      return null;
+    }
+    return {
+      ...context,
+      ...(packageNamespace
+        ? {
+            packageId: packageNamespace.packageId,
+            publicSlug: packageNamespace.publicSlug,
+          }
+        : {}),
+    };
   },
 });

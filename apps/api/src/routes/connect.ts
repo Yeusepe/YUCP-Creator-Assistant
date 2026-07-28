@@ -19,6 +19,7 @@ import { timingSafeStringEqual } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { type Auth } from '../auth';
+import { createAuthUserActorBinding } from '../lib/apiActor';
 import {
   buildCookie,
   CONNECT_TOKEN_COOKIE,
@@ -30,6 +31,7 @@ import { getConvexApiSecret, getConvexClient, getConvexClientFromUrl } from '../
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { encrypt } from '../lib/encrypt';
 import { createLegacyFrontendMovedResponse } from '../lib/legacyFrontend';
+import { buildPrivateVpmBaseUrl, type PrivateVpmDomainProvisioner } from '../lib/privateVpmDomain';
 import { loadRequestScoped, requestScopeKey } from '../lib/requestScope';
 import { buildTimedResponse, RouteTimingCollector } from '../lib/requestTiming';
 import { createSetupSession, resolveSetupSession } from '../lib/setupSession';
@@ -53,6 +55,8 @@ type CreatorProfileRecord = { authUserId: string; policy?: Record<string, unknow
 
 const TOKEN_MAX_LEN = 256;
 const TOKEN_PATTERN = /^[a-zA-Z0-9._-]+$/;
+const CREATOR_PUBLIC_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const CREATOR_DELIVERY_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 function validateToken(token: string | undefined, name: string): string | null {
   if (!token) return null;
@@ -137,7 +141,15 @@ function toCookieAge(ms: number): number {
   return Math.max(1, Math.ceil(ms / 1000));
 }
 
-export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
+type ConnectRouteOptions = {
+  privateDomainProvisioner?: PrivateVpmDomainProvisioner;
+};
+
+export function createConnectRoutes(
+  auth: Auth,
+  config: ConnectConfig,
+  options: ConnectRouteOptions = {}
+) {
   const ALLOWED_SETTING_KEYS = new Set([
     'allowMismatchedEmails',
     'autoVerifyOnJoin',
@@ -348,6 +360,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
   async function ensureActiveCreatorGuildLink(args: {
     authUserId: string;
+    discordUsername?: string | null;
     guildId: string;
     discordUserId: string;
     failureLogMessage: string;
@@ -379,9 +392,10 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     try {
       if (!existingProfile) {
+        const discordUsername = args.discordUsername?.trim();
         await convex.mutation(api.creatorProfiles.createCreatorProfile, {
           apiSecret,
-          name: `Creator ${args.discordUserId.slice(0, 8)}`,
+          name: discordUsername || `Creator ${args.discordUserId.slice(0, 8)}`,
           ownerDiscordUserId: args.discordUserId,
           authUserId: args.authUserId,
           policy: {},
@@ -775,6 +789,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     const ensuredLink = await ensureActiveCreatorGuildLink({
       authUserId: session.user.id,
+      discordUsername: session.user.name,
       guildId,
       discordUserId: connectSession.discordUserId,
       failureLogMessage: 'Connect complete failed',
@@ -868,6 +883,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
     const ensuredLink = await ensureActiveCreatorGuildLink({
       authUserId: session.user.id,
+      discordUsername: session.user.name,
       guildId,
       discordUserId: connectSession.discordUserId,
       failureLogMessage: 'Ensure tenant failed',
@@ -1065,6 +1081,152 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         error: err instanceof Error ? err.message : String(err),
       });
       return Response.json({ error: 'Failed to get settings' }, { status: 500 });
+    }
+  }
+
+  /**
+   * GET/PUT /api/connect/creator-identity
+   * Reads or updates the creator display name and owned public/private namespaces.
+   */
+  async function manageCreatorIdentity(request: Request): Promise<Response> {
+    if (request.method !== 'GET' && request.method !== 'PUT') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+    const session = await auth.getSession(request);
+    if (!session) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    if (request.method === 'PUT') {
+      const csrfBlock = rejectCrossSiteRequest(
+        request,
+        new Set([new URL(config.apiBaseUrl).origin, new URL(config.frontendBaseUrl).origin])
+      );
+      if (csrfBlock) {
+        return csrfBlock;
+      }
+    }
+
+    const convex = getConvexClientFromUrl(config.convexUrl);
+    const profile = (await convex.query(api.creatorProfiles.getCreatorProfile, {
+      apiSecret: config.convexApiSecret,
+      authUserId: session.user.id,
+    })) as {
+      authUserId: string;
+      deliverySlug?: string;
+      name: string;
+      slug?: string;
+      status: string;
+    } | null;
+    if (!profile || profile.status !== 'active') {
+      return Response.json({ error: 'Creator profile not found' }, { status: 404 });
+    }
+
+    if (request.method === 'GET') {
+      const privateVpmBaseUrl = buildPrivateVpmBaseUrl(
+        config.privateVpmRootDomain,
+        profile.deliverySlug
+      );
+      return Response.json({
+        deliverySlug: profile.deliverySlug ?? '',
+        name: profile.name,
+        privateVpmHostname: privateVpmBaseUrl ? new URL(privateVpmBaseUrl).hostname : null,
+        publicSlug: profile.slug ?? '',
+      });
+    }
+
+    let body: { deliverySlug?: unknown; name?: unknown; publicSlug?: unknown };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    const publicSlug = typeof body.publicSlug === 'string' ? body.publicSlug.trim() : '';
+    const deliverySlug = typeof body.deliverySlug === 'string' ? body.deliverySlug.trim() : '';
+    if (!name || name.length > 100) {
+      return Response.json(
+        { error: 'Creator name is required and must be 100 characters or fewer' },
+        { status: 400 }
+      );
+    }
+    if (
+      publicSlug !== body.publicSlug ||
+      publicSlug.length > 64 ||
+      !CREATOR_PUBLIC_SLUG_PATTERN.test(publicSlug)
+    ) {
+      return Response.json(
+        { error: 'Public handle must use lowercase letters, numbers, and hyphens' },
+        { status: 400 }
+      );
+    }
+    if (deliverySlug !== body.deliverySlug || !CREATOR_DELIVERY_SLUG_PATTERN.test(deliverySlug)) {
+      return Response.json(
+        { error: 'Private VPM subdomain must use lowercase letters, numbers, and hyphens' },
+        { status: 400 }
+      );
+    }
+
+    const privateVpmBaseUrl = buildPrivateVpmBaseUrl(config.privateVpmRootDomain, deliverySlug);
+    if (!privateVpmBaseUrl || !options.privateDomainProvisioner) {
+      return Response.json(
+        { error: 'Private VPM domain provisioning is unavailable' },
+        { status: 503 }
+      );
+    }
+    const privateVpmHostname = new URL(privateVpmBaseUrl).hostname;
+    try {
+      const provisioned = await options.privateDomainProvisioner.ensureDomain(privateVpmHostname);
+      if (provisioned.hostname !== privateVpmHostname || provisioned.status !== 'active') {
+        throw new Error('Private VPM domain provisioner returned a mismatched domain');
+      }
+    } catch (error) {
+      logger.error('Creator identity hostname provisioning failed', {
+        authUserId: session.user.id,
+        error: error instanceof Error ? error.name : 'unknown_error',
+        hostname: privateVpmHostname,
+      });
+      return Response.json(
+        { error: 'The private VPM hostname could not be provisioned' },
+        { status: 503 }
+      );
+    }
+
+    try {
+      const actor = await createAuthUserActorBinding({
+        authUserId: session.user.id,
+        source: 'session',
+      });
+      const authorizedConvex = getConvexClientFromUrl(config.convexUrl, actor);
+      const updated = await authorizedConvex.mutation(api.creatorProfiles.updateIdentity, {
+        apiSecret: config.convexApiSecret,
+        actor,
+        authUserId: session.user.id,
+        deliverySlug,
+        name,
+        publicSlug,
+      });
+      logger.info('Creator identity updated', {
+        authUserId: session.user.id,
+        deliverySlugChanged: profile.deliverySlug !== deliverySlug,
+        publicSlugChanged: profile.slug !== publicSlug,
+      });
+      return Response.json({
+        ...updated,
+        privateVpmHostname,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/already in use/i.test(message)) {
+        return Response.json({ error: 'That creator handle is already in use' }, { status: 409 });
+      }
+      if (/must use|is required|characters or fewer/i.test(message)) {
+        return Response.json({ error: message }, { status: 400 });
+      }
+      logger.error('Creator identity update failed', {
+        authUserId: session.user.id,
+        error: error instanceof Error ? error.name : 'unknown_error',
+      });
+      return Response.json({ error: 'Failed to update creator identity' }, { status: 500 });
     }
   }
 
@@ -1721,6 +1883,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     genericProductCredential,
     listConnectionsHandler,
     disconnectConnectionHandler,
+    manageCreatorIdentity,
     getSettingsHandler,
     updateSettingHandler,
     getGuildChannels,

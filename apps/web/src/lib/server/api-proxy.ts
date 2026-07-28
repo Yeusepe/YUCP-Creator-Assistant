@@ -134,6 +134,7 @@ export async function proxyApiRequest(request: Request): Promise<Response> {
   headers.set('Accept', request.headers.get('accept') ?? 'application/json');
   headers.set('X-Internal-Service', 'web');
   headers.set('X-Internal-Service-Secret', getInternalSecret());
+  headers.set('X-YUCP-Public-Host', url.host);
 
   copyHeaderIfPresent(request.headers, headers, 'content-type');
   copyHeaderIfPresent(request.headers, headers, 'idempotency-key');

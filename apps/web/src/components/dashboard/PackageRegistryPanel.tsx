@@ -54,6 +54,7 @@ import {
   saveCreatorPackageEdition,
   unbindCreatorPackageStorefront,
   updateCreatorPackagePresentation,
+  updateCreatorPackagePublicLink,
 } from '@/lib/packages';
 import { buildBuyerProductAccessPath } from '@/lib/productAccess';
 import { uploadPackageFile } from '@/lib/upload';
@@ -276,8 +277,14 @@ function getPickerProviderLabel(entry: CreatorPackagePickerProduct): string {
     .join(' + ');
 }
 
-function getBuyerAccessUrl(catalogProductId: string): string {
-  const path = buildBuyerProductAccessPath(catalogProductId);
+function getBuyerAccessUrl(product: CreatorPackageProductSummary): string {
+  const publicProductSlug = product.publicSlug ?? product.canonicalSlug;
+  const path =
+    product.publicCreatorSlug && publicProductSlug
+      ? `/get-in-unity/${encodeURIComponent(product.publicCreatorSlug)}/${encodeURIComponent(
+          publicProductSlug
+        )}`
+      : buildBuyerProductAccessPath(product._id);
   return typeof window === 'undefined' ? path : `${window.location.origin}${path}`;
 }
 
@@ -771,6 +778,7 @@ function ProductDetailsSheet({
   const [isCopyingPrivacyNotice, setIsCopyingPrivacyNotice] = useState(false);
   const [storefrontSearch, setStorefrontSearch] = useState('');
   const [bootstrapPackageName, setBootstrapPackageName] = useState('');
+  const [publicSlugDraft, setPublicSlugDraft] = useState('');
   const detailQuery = useQuery({
     queryKey: ['creator-package-product', catalogProductId],
     queryFn: () => getCreatorPackageProduct(catalogProductId ?? ''),
@@ -938,6 +946,41 @@ function ProductDetailsSheet({
         return;
       }
       toast.error('Could not publish the Unity package name', {
+        description: error instanceof Error ? error.message : 'Try again.',
+      });
+    },
+  });
+  const savePublicLinkMutation = useMutation({
+    mutationFn: () => {
+      if (!packageId) {
+        throw new Error('Upload a package before changing its public product link.');
+      }
+      const publicSlug = publicSlugDraft.trim();
+      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(publicSlug) || publicSlug.length > 64) {
+        throw new Error('Use lowercase letters, numbers, and hyphens for the public product link.');
+      }
+      return updateCreatorPackagePublicLink(packageId, publicSlug);
+    },
+    onSuccess: async (result) => {
+      setPublicSlugDraft(result.publicSlug);
+      queryClient.setQueryData<CreatorPackageProductSummary>(
+        ['creator-package-product', catalogProductId],
+        (current) => (current ? { ...current, publicSlug: result.publicSlug } : current)
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: creatorProductsQueryKey }),
+        queryClient.invalidateQueries({ queryKey: creatorProductPickerQueryKey }),
+      ]);
+      toast.success('Public product link saved', {
+        description: 'Previously shared product paths continue to work.',
+      });
+    },
+    onError: (error) => {
+      if (isDashboardAuthError(error)) {
+        markSessionExpired();
+        return;
+      }
+      toast.error('Could not save the public product link', {
         description: error instanceof Error ? error.message : 'Try again.',
       });
     },
@@ -1149,6 +1192,11 @@ function ProductDetailsSheet({
     setBootstrapPackageName(
       detailQuery.data.packageName?.trim() || getProductTitle(detailQuery.data)
     );
+    setPublicSlugDraft(
+      detailQuery.data.publicSlug?.trim() ||
+        detailQuery.data.canonicalSlug?.trim() ||
+        detailQuery.data.productId
+    );
   }, [detailQuery.data]);
 
   async function copyUnityLink(kind: 'add' | 'source', value: string): Promise<void> {
@@ -1191,6 +1239,7 @@ function ProductDetailsSheet({
       setIsCopyingPrivacyNotice(false);
       setStorefrontSearch('');
       setBootstrapPackageName('');
+      setPublicSlugDraft('');
     }
     onOpenChange(nextIsOpen);
   }
@@ -1313,10 +1362,48 @@ function ProductDetailsSheet({
                           </Chip>
                         )}
                       </div>
-                      <div className="pm-inline-note rounded-[18px] p-3">
-                        <p className="text-foreground text-sm font-semibold">Store-page link</p>
-                        <p className="pm-subtle-copy mt-1 break-all text-sm leading-6">
-                          {getBuyerAccessUrl(detailQuery.data._id)}
+                      <div className="pm-inline-note space-y-3 rounded-[18px] p-3">
+                        <div>
+                          <p className="text-foreground text-sm font-semibold">
+                            Public product link
+                          </p>
+                          <p className="pm-subtle-copy mt-1 text-xs leading-5">
+                            Use a readable product path in store delivery notes. Renames keep the
+                            previous path working.
+                          </p>
+                        </div>
+                        {detailQuery.data.packageId ? (
+                          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                            <YucpInput
+                              aria-label="Public product link"
+                              value={publicSlugDraft}
+                              isDisabled={savePublicLinkMutation.isPending}
+                              onValueChange={setPublicSlugDraft}
+                            />
+                            <YucpButton
+                              yucp="secondary"
+                              size="sm"
+                              aria-label="Save public product link"
+                              isLoading={savePublicLinkMutation.isPending}
+                              isDisabled={
+                                savePublicLinkMutation.isPending ||
+                                !publicSlugDraft.trim() ||
+                                publicSlugDraft.trim() === detailQuery.data.publicSlug
+                              }
+                              onPress={() => savePublicLinkMutation.mutate()}
+                            >
+                              {savePublicLinkMutation.isPending ? 'Saving...' : 'Save link'}
+                            </YucpButton>
+                          </div>
+                        ) : null}
+                        <p className="pm-subtle-copy break-all text-sm leading-6">
+                          {getBuyerAccessUrl({
+                            ...detailQuery.data,
+                            publicSlug:
+                              detailQuery.data.packageId && publicSlugDraft
+                                ? publicSlugDraft
+                                : detailQuery.data.publicSlug,
+                          })}
                         </p>
                       </div>
                       <div className="pm-inline-note flex flex-col gap-3 rounded-[18px] p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -2691,7 +2778,7 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
 
   async function copyBuyerAccessLink(product: CreatorPackageProductSummary) {
     setCopyingProductId(product._id);
-    const copied = await copyToClipboard(getBuyerAccessUrl(product._id));
+    const copied = await copyToClipboard(getBuyerAccessUrl(product));
     setCopyingProductId(null);
     if (copied) {
       toast.success('Store-page link copied');

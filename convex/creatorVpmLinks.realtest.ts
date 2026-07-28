@@ -29,6 +29,10 @@ async function repositoryActor() {
   );
 }
 
+function creatorSlug(authUserId: string): string {
+  return authUserId.replace(/^creator-/, '').replace(/[^a-z0-9-]+/g, '-');
+}
+
 async function seedOwnedPackage(
   t: ReturnType<typeof makeTestConvex>,
   authUserId: string,
@@ -36,6 +40,17 @@ async function seedOwnedPackage(
 ) {
   return await t.run(async (ctx) => {
     const now = Date.now();
+    await ctx.db.insert('creator_profiles', {
+      authUserId,
+      deliverySlug: creatorSlug(authUserId),
+      name: `Creator ${authUserId}`,
+      ownerDiscordUserId: `discord-${authUserId}`,
+      slug: creatorSlug(authUserId),
+      status: 'active',
+      policy: {},
+      createdAt: now,
+      updatedAt: now,
+    });
     const catalogProductId = await ctx.db.insert('product_catalog', {
       authUserId,
       productId: 'durable-vcc-product',
@@ -104,6 +119,7 @@ describe('creator VPM links', () => {
       actor,
       authUserId,
       packageId,
+      creatorSlug: creatorSlug(authUserId),
       proposedLinkId: 'A'.repeat(43),
     });
     const afterRestart = await t.mutation(api.creatorVpmLinks.ensureActive, {
@@ -111,10 +127,16 @@ describe('creator VPM links', () => {
       actor,
       authUserId,
       packageId,
+      creatorSlug: creatorSlug(authUserId),
       proposedLinkId: 'B'.repeat(43),
     });
 
-    expect(created).toMatchObject({ created: true, linkId: 'A'.repeat(43), status: 'active' });
+    expect(created).toMatchObject({
+      created: true,
+      creatorSlug: creatorSlug(authUserId),
+      linkId: 'A'.repeat(43),
+      status: 'active',
+    });
     expect(afterRestart).toMatchObject({
       created: false,
       linkId: 'A'.repeat(43),
@@ -133,6 +155,7 @@ describe('creator VPM links', () => {
       actor: await creatorActor(authUserId),
       authUserId,
       packageId,
+      creatorSlug: creatorSlug(authUserId),
       proposedLinkId: 'B'.repeat(43),
     });
 
@@ -168,6 +191,7 @@ describe('creator VPM links', () => {
       actor: await creatorActor(authUserId),
       authUserId,
       packageId,
+      creatorSlug: creatorSlug(authUserId),
       proposedLinkId: 'H'.repeat(43),
     });
 
@@ -192,6 +216,7 @@ describe('creator VPM links', () => {
       actor,
       authUserId,
       packageId,
+      creatorSlug: creatorSlug(authUserId),
       proposedLinkId: 'C'.repeat(43),
     });
     const revoked = await t.mutation(api.creatorVpmLinks.revokeActive, {
@@ -216,6 +241,7 @@ describe('creator VPM links', () => {
       actor,
       authUserId,
       packageId,
+      creatorSlug: creatorSlug(authUserId),
       proposedLinkId: 'D'.repeat(43),
     });
 
@@ -242,6 +268,7 @@ describe('creator VPM links', () => {
       actor,
       authUserId,
       packageId,
+      creatorSlug: creatorSlug(authUserId),
       proposedLinkId: 'F'.repeat(43),
     });
     await t.run(async (ctx) => {
@@ -336,6 +363,7 @@ describe('creator VPM links', () => {
       actor,
       authUserId,
       packageId,
+      creatorSlug: creatorSlug(authUserId),
       proposedLinkId: 'G'.repeat(43),
     });
 
@@ -424,6 +452,7 @@ describe('creator VPM links', () => {
       actor: await creatorActor(authUserId),
       authUserId,
       packageId,
+      creatorSlug: creatorSlug(authUserId),
       proposedLinkId: 'E'.repeat(43),
     });
 
