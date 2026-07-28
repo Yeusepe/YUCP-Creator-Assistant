@@ -462,6 +462,7 @@ async function uploadToCompletion(input: {
   filePath: string;
   packageId: string;
   version: string;
+  versionId?: string;
 }): Promise<void> {
   const headers = await uploadCapabilityHeaders(input);
   const source = createReadStream(input.filePath);
@@ -1328,13 +1329,18 @@ describe.serial('tus ingest end to end', () => {
     // with "Storage write intent idempotency conflict" — poisoning the version number for good.
     const activeCatalog = requireCatalog();
     const endpoint = `${requireS3ServerOrigin()}${INGEST_TUS_PATH}`;
+    // Production derives the versionId deterministically from the upload identity, so a replacing
+    // upload reuses the same row. The test pins one id for both attempts to match that contract.
+    const versionId = randomUUID();
     await uploadToCompletion({
       endpoint,
       filePath: requireFixturePath(fixturePath, 'valid unitypackage'),
       packageId: 'com.yucp.tus-replace',
       version: '1.0.0',
+      versionId,
     });
     const firstRow = await versionRow('com.yucp.tus-replace', '1.0.0');
+    expect(firstRow.id).toBe(versionId);
     expect(firstRow.state).toBe('ASSEMBLED');
     await activeCatalog.markFailed(firstRow.id, 'promotion failed after assembly');
 
@@ -1343,6 +1349,7 @@ describe.serial('tus ingest end to end', () => {
       filePath: requireFixturePath(altFixturePath, 'replacement unitypackage'),
       packageId: 'com.yucp.tus-replace',
       version: '1.0.0',
+      versionId,
     });
 
     const replacedRow = await versionRow('com.yucp.tus-replace', '1.0.0');
