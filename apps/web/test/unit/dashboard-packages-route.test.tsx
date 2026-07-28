@@ -199,6 +199,19 @@ const firstUploadProduct = {
   providerProductRef: 'first-upload-ref',
 };
 
+const collaboratorProduct = {
+  ...firstUploadProduct,
+  _id: 'catalog_product_collaborator',
+  accessRole: 'collaborator' as const,
+  canonicalSlug: 'collaborator-product',
+  creatorAuthUserId: 'shared-store-owner',
+  creatorDisplayName: 'Shared Creator Store',
+  displayName: 'Collaborator Product',
+  productId: 'collaborator-product',
+  provider: 'jinxxy',
+  providerProductRef: 'collaborator-product-ref',
+};
+
 const duplicateGumroadProduct = {
   ...product,
   _id: 'catalog_product_cross_store_gumroad',
@@ -578,6 +591,31 @@ describe('dashboard packages route', () => {
       warnSpy.mockRestore();
       errorSpy.mockRestore();
     }
+  });
+
+  it('identifies products from creator workspaces the publisher collaborates with', async () => {
+    apiGetMock.mockImplementation(
+      (path: string, options?: { params?: { configured?: string } }) => {
+        if (path === '/api/creator/packages') {
+          return Promise.resolve({
+            data: options?.params?.configured === 'false' ? [collaboratorProduct] : [product],
+            hasMore: false,
+            nextCursor: null,
+          });
+        }
+        return Promise.reject(new Error(`Unexpected GET ${path}`));
+      }
+    );
+    const Component = DashboardPackagesRoute.options.component;
+    if (!Component) throw new Error('Dashboard packages component is missing');
+
+    render(<Component />, { wrapper: createWrapper() });
+    fireEvent.click(await screen.findByRole('button', { name: 'Upload a package' }));
+    fireEvent.click(await screen.findByLabelText('Product'));
+
+    const option = await screen.findByRole('option', { name: /Collaborator Product/i });
+    expect(option).toHaveTextContent('Shared Creator Store');
+    expect(option).toHaveTextContent('Jinxxy');
   });
 
   it('keeps the main list configured-only while the picker exposes first uploads once', async () => {

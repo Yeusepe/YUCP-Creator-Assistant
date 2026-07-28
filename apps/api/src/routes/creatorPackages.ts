@@ -127,6 +127,7 @@ type CreatorCatalogTierSource = {
 
 type CreatorPackageProductSource = {
   _id: string;
+  accessRole: 'owner' | 'collaborator';
   aliasId?: string;
   aliases?: string[];
   canArchive: boolean;
@@ -135,6 +136,8 @@ type CreatorPackageProductSource = {
   canonicalSlug?: string;
   catalogProductIds?: string[];
   catalogTiers: CreatorCatalogTierSource[];
+  creatorAuthUserId: string;
+  creatorDisplayName?: string;
   createdAt: number;
   deleteBlockedReason?: string;
   displayName?: string;
@@ -194,11 +197,14 @@ function serializeCreatorCatalogTier(tier: CreatorCatalogTierSource) {
 function serializeCreatorPackageProduct(product: CreatorPackageProductSource) {
   return {
     _id: product._id,
+    accessRole: product.accessRole,
     aliasId: product.aliasId,
     aliases: product.aliases,
     canonicalSlug: product.canonicalSlug,
     catalogProductIds: product.catalogProductIds,
     catalogTiers: product.catalogTiers.map(serializeCreatorCatalogTier),
+    creatorAuthUserId: product.creatorAuthUserId,
+    creatorDisplayName: product.creatorDisplayName,
     displayName: product.displayName,
     thumbnailUrl: product.thumbnailUrl,
     packageId: product.packageId,
@@ -565,7 +571,7 @@ export function createCreatorPackageRoutes({
         await authorized.convex.mutation(api.packageEditions.archiveForCreator, {
           apiSecret: config.convexApiSecret,
           actor: authorized.actor,
-          authUserId: authorized.authUserId,
+          authUserId: product.creatorAuthUserId ?? authorized.authUserId,
           editionId,
           packageId: product.packageId,
         });
@@ -611,7 +617,7 @@ export function createCreatorPackageRoutes({
       await authorized.convex.mutation(api.packageEditions.upsertForCreator, {
         apiSecret: config.convexApiSecret,
         actor: authorized.actor,
-        authUserId: authorized.authUserId,
+        authUserId: product.creatorAuthUserId ?? authorized.authUserId,
         catalogProductIds: catalogProductIds as Array<Id<'product_catalog'>>,
         catalogTierIds: catalogTierIds as Array<Id<'catalog_tiers'>>,
         displayName,
@@ -666,7 +672,7 @@ export function createCreatorPackageRoutes({
       const args = {
         apiSecret: config.convexApiSecret,
         actor: authorized.actor,
-        authUserId: authorized.authUserId,
+        authUserId: product.creatorAuthUserId ?? authorized.authUserId,
         catalogProductId: targetCatalogProductId as Id<'product_catalog'>,
         packageId: product.packageId,
       };

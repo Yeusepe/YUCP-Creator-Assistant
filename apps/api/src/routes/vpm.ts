@@ -446,7 +446,7 @@ export function createVpmRoutes({
     }
     return {
       actor,
-      authUserId: session.user.id,
+      authUserId: product.creatorAuthUserId ?? session.user.id,
       convex,
       product,
     };

@@ -87,11 +87,14 @@ export interface CreatorPackageEditionOption {
 
 export interface CreatorPackageProductSummary {
   _id: string;
+  accessRole?: 'owner' | 'collaborator';
   aliasId?: string;
   aliases?: string[];
   canonicalSlug?: string;
   catalogProductIds?: string[];
   catalogTiers: CreatorCatalogTierSummary[];
+  creatorAuthUserId?: string;
+  creatorDisplayName?: string;
   displayName?: string;
   thumbnailUrl?: string;
   packageId?: string;

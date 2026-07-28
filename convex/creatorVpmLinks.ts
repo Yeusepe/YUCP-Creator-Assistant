@@ -2,12 +2,9 @@ import { ConvexError, v } from 'convex/values';
 import type { Doc } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { mutation, query } from './_generated/server';
-import {
-  ApiActorBindingV,
-  requireDelegatedAuthUserActor,
-  requireServiceActor,
-} from './lib/apiActor';
+import { ApiActorBindingV, requireServiceActor } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
+import { requireCreatorWorkspaceActor } from './lib/creatorWorkspaceAccess';
 
 const LINK_ID_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const PACKAGE_ID_PATTERN = /^[a-z0-9\-_./:]{1,128}$/;
@@ -145,7 +142,7 @@ export const getActiveForCreator = query({
   ),
   handler: async (ctx, args): Promise<ActiveCreatorVpmLink | null> => {
     requireApiSecret(args.apiSecret);
-    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
     await requireOwnedPackage(ctx, args);
     const link = await ctx.db
       .query('creator_vpm_links')
@@ -216,7 +213,7 @@ export const ensureActive = mutation({
   }),
   handler: async (ctx, args): Promise<ActiveCreatorVpmLink & { created: boolean }> => {
     requireApiSecret(args.apiSecret);
-    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
     validateLinkId(args.proposedLinkId);
     await requireOwnedPackage(ctx, args);
     await requireCreatorSlug(ctx, args);
@@ -286,7 +283,7 @@ export const revokeActive = mutation({
   returns: v.object({ revoked: v.boolean() }),
   handler: async (ctx, args): Promise<{ revoked: boolean }> => {
     requireApiSecret(args.apiSecret);
-    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
     await requireOwnedPackage(ctx, args);
     const links = await ctx.db
       .query('creator_vpm_links')

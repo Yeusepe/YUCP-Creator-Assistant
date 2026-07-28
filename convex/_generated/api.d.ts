@@ -50,6 +50,7 @@ import type * as lib_certificateBillingConfig from "../lib/certificateBillingCon
 import type * as lib_certificateBillingProjection from "../lib/certificateBillingProjection.js";
 import type * as lib_certificateCapabilityProjection from "../lib/certificateCapabilityProjection.js";
 import type * as lib_certificateSigning from "../lib/certificateSigning.js";
+import type * as lib_creatorWorkspaceAccess from "../lib/creatorWorkspaceAccess.js";
 import type * as lib_credentialKeys from "../lib/credentialKeys.js";
 import type * as lib_externalAccountIdentity from "../lib/externalAccountIdentity.js";
 import type * as lib_hkdfAesGcm from "../lib/hkdfAesGcm.js";
@@ -178,6 +179,7 @@ declare const fullApi: ApiFromModules<{
   "lib/certificateBillingProjection": typeof lib_certificateBillingProjection;
   "lib/certificateCapabilityProjection": typeof lib_certificateCapabilityProjection;
   "lib/certificateSigning": typeof lib_certificateSigning;
+  "lib/creatorWorkspaceAccess": typeof lib_creatorWorkspaceAccess;
   "lib/credentialKeys": typeof lib_credentialKeys;
   "lib/externalAccountIdentity": typeof lib_externalAccountIdentity;
   "lib/hkdfAesGcm": typeof lib_hkdfAesGcm;

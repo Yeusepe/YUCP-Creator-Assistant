@@ -2,12 +2,9 @@ import { ConvexError, v } from 'convex/values';
 import type { Doc } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { mutation, query } from './_generated/server';
-import {
-  ApiActorBindingV,
-  requireDelegatedAuthUserActor,
-  requireServiceActor,
-} from './lib/apiActor';
+import { ApiActorBindingV, requireServiceActor } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
+import { requireCreatorWorkspaceActor } from './lib/creatorWorkspaceAccess';
 
 const PACKAGE_ID_PATTERN = /^[a-z0-9][a-z0-9._/:~-]{0,127}$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
@@ -588,7 +585,7 @@ export const seedPresentationIfMissingForCreator = mutation({
   returns: PresentationResultV,
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
     return await writePresentation(ctx, args, 'seed');
   },
 });
@@ -602,7 +599,7 @@ export const updatePresentationForCreator = mutation({
   returns: PresentationResultV,
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
     return await writePresentation(ctx, args, 'update');
   },
 });

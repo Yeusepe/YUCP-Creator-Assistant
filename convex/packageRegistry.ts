@@ -25,6 +25,11 @@ import {
   getCatalogProductDeleteBlockedReason,
   inspectCatalogProductDeletionDependencies,
 } from './lib/catalogProductDeletion';
+import {
+  hasCreatorWorkspaceAccess,
+  listCreatorWorkspaceAccess,
+  requireCreatorWorkspaceActor,
+} from './lib/creatorWorkspaceAccess';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const PACKAGE_NAME_MAX_LENGTH = 120;
@@ -84,7 +89,8 @@ type LogicalCatalogProductGroup = {
 async function buildCreatorPackageProductSummary(
   ctx: QueryCtx,
   product: Doc<'product_catalog'>,
-  resolvedLogicalGroup?: LogicalCatalogProductGroup
+  resolvedLogicalGroup?: LogicalCatalogProductGroup,
+  viewerAuthUserId = product.authUserId
 ) {
   const dependencies = await inspectCatalogProductDeletionDependencies(ctx.db, product._id);
   const deleteBlockedReason = getCatalogProductDeleteBlockedReason(dependencies);
@@ -154,6 +160,8 @@ async function buildCreatorPackageProductSummary(
 
   return {
     _id: product._id,
+    accessRole:
+      viewerAuthUserId === product.authUserId ? ('owner' as const) : ('collaborator' as const),
     aliases: product.aliases,
     canonicalSlug: product.canonicalSlug,
     catalogTiers: logicalCatalogTiers
@@ -176,6 +184,8 @@ async function buildCreatorPackageProductSummary(
     aliasId: logicalGroup.aliasId,
     packageAssociationUpdatedAt: logicalGroup.associationUpdatedAt,
     catalogProductIds: logicalGroup.products.map((candidate) => candidate._id),
+    creatorAuthUserId: product.authUserId,
+    creatorDisplayName: creatorProfile?.name,
     storefronts: logicalGroup.products.map((candidate) => buildCatalogStorefront(candidate)),
     packageId: logicalGroup.packageId,
     packageName:
@@ -538,7 +548,7 @@ export const bindCatalogProductForCreator = mutation({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
     return await bindOwnedCatalogProduct(ctx, args);
   },
 });
@@ -553,7 +563,7 @@ export const unbindCatalogProductForCreator = mutation({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
     await requireOwnedActivePackageAndProduct(ctx, args);
     const bindings = await ctx.db
       .query('package_catalog_bindings')
@@ -652,7 +662,7 @@ export const claimPackageForCreatorUpload = mutation({
   },
   handler: async (ctx, args): Promise<CreatorUploadRegistrationResult> => {
     requireApiSecret(args.apiSecret);
-    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
 
     const catalogProductIds = [
       ...new Map(args.catalogProductIds.map((id) => [String(id), id])).values(),
@@ -745,10 +755,17 @@ export const listByAuthUser = query({
       args.limit && Number.isSafeInteger(args.limit) && args.limit > 0 ? args.limit : 50,
       100
     );
-    let products = await ctx.db
-      .query('product_catalog')
-      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
-      .collect();
+    const workspaceAccess = await listCreatorWorkspaceAccess(ctx, args.authUserId);
+    let products = (
+      await Promise.all(
+        workspaceAccess.map(async (access) => {
+          return await ctx.db
+            .query('product_catalog')
+            .withIndex('by_auth_user', (q) => q.eq('authUserId', access.creatorAuthUserId))
+            .collect();
+        })
+      )
+    ).flat();
     if (args.provider) {
       products = products.filter((product) => product.provider === args.provider);
     }
@@ -759,7 +776,16 @@ export const listByAuthUser = query({
           product.status === args.status
       );
     }
-    const logicalGroupsByProductId = await resolveLogicalCatalogProductGroups(ctx, products);
+    const logicalGroupsByProductId = new Map<string, LogicalCatalogProductGroup>();
+    for (const access of workspaceAccess) {
+      const creatorGroups = await resolveLogicalCatalogProductGroups(
+        ctx,
+        products.filter((product) => product.authUserId === access.creatorAuthUserId)
+      );
+      for (const [productId, group] of creatorGroups) {
+        logicalGroupsByProductId.set(productId, group);
+      }
+    }
     const seenLogicalGroups = new Set<string>();
     products = products.filter((product) => {
       const group = logicalGroupsByProductId.get(String(product._id));
@@ -793,7 +819,8 @@ export const listByAuthUser = query({
         buildCreatorPackageProductSummary(
           ctx,
           product,
-          logicalGroupsByProductId.get(String(product._id))
+          logicalGroupsByProductId.get(String(product._id)),
+          args.authUserId
         )
       )
     );
@@ -819,11 +846,14 @@ export const getByIdForAuthUser = query({
     requireApiSecret(args.apiSecret);
     await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const doc = await ctx.db.get(args.catalogProductId);
-    if (!doc || doc.authUserId !== args.authUserId) return null;
+    if (!doc || !(await hasCreatorWorkspaceAccess(ctx, args.authUserId, doc.authUserId))) {
+      return null;
+    }
     return await buildCreatorPackageProductSummary(
       ctx,
       doc,
-      await resolveLogicalCatalogProductGroup(ctx, doc)
+      await resolveLogicalCatalogProductGroup(ctx, doc),
+      args.authUserId
     );
   },
 });
@@ -845,7 +875,7 @@ export const getByPackageIdForAuthUser = query({
       .unique();
     if (
       !registration ||
-      registration.yucpUserId !== args.authUserId ||
+      !(await hasCreatorWorkspaceAccess(ctx, args.authUserId, registration.yucpUserId)) ||
       isArchivedRegistration(registration)
     ) {
       return null;
@@ -854,7 +884,7 @@ export const getByPackageIdForAuthUser = query({
       .query('package_catalog_bindings')
       .withIndex('by_creator_package_status', (q) =>
         q
-          .eq('creatorAuthUserId', args.authUserId)
+          .eq('creatorAuthUserId', registration.yucpUserId)
           .eq('packageId', args.packageId)
           .eq('status', 'active')
       )
@@ -865,7 +895,7 @@ export const getByPackageIdForAuthUser = query({
       .filter(
         (product): product is Doc<'product_catalog'> =>
           product !== null &&
-          product.authUserId === args.authUserId &&
+          product.authUserId === registration.yucpUserId &&
           getCatalogProductWorkspaceStatus(product) === 'active'
       )
       .sort(compareCatalogProducts);
@@ -876,7 +906,8 @@ export const getByPackageIdForAuthUser = query({
     return await buildCreatorPackageProductSummary(
       ctx,
       product,
-      await resolveLogicalCatalogProductGroup(ctx, product)
+      await resolveLogicalCatalogProductGroup(ctx, product),
+      args.authUserId
     );
   },
 });
@@ -908,16 +939,17 @@ export const updatePublicNamespace = mutation({
       .unique();
     if (
       !registration ||
-      registration.yucpUserId !== args.authUserId ||
+      !(await hasCreatorWorkspaceAccess(ctx, args.authUserId, registration.yucpUserId)) ||
       isArchivedRegistration(registration)
     ) {
       throw new ConvexError('Package is not available');
     }
+    const creatorAuthUserId = registration.yucpUserId;
 
     const claimedNamespaces = await ctx.db
       .query('package_public_namespaces')
       .withIndex('by_creator_slug', (q) =>
-        q.eq('creatorAuthUserId', args.authUserId).eq('slug', publicSlug)
+        q.eq('creatorAuthUserId', creatorAuthUserId).eq('slug', publicSlug)
       )
       .collect();
     if (claimedNamespaces.some((namespace) => namespace.packageId !== args.packageId)) {
@@ -929,7 +961,7 @@ export const updatePublicNamespace = mutation({
       .query('package_public_namespaces')
       .withIndex('by_creator_package_status', (q) =>
         q
-          .eq('creatorAuthUserId', args.authUserId)
+          .eq('creatorAuthUserId', creatorAuthUserId)
           .eq('packageId', args.packageId)
           .eq('status', 'active')
       )
@@ -945,7 +977,7 @@ export const updatePublicNamespace = mutation({
       await ctx.db.patch(target._id, { status: 'active', updatedAt: now });
     } else {
       await ctx.db.insert('package_public_namespaces', {
-        creatorAuthUserId: args.authUserId,
+        creatorAuthUserId,
         packageId: args.packageId,
         slug: publicSlug,
         status: 'active',

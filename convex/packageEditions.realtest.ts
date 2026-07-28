@@ -115,6 +115,79 @@ describe('package editions', () => {
     ).resolves.toBeNull();
   });
 
+  it('authorizes package edition management for an active collaborating creator', async () => {
+    const t = makeTestConvex();
+    const ownerAuthUserId = 'creator-edition-collaboration-owner';
+    const collaboratorAuthUserId = 'creator-edition-collaborator';
+    const packageId = 'com.yucp.edition-collaboration';
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert('creator_profiles', {
+        authUserId: ownerAuthUserId,
+        name: 'Edition Owner',
+        ownerDiscordUserId: 'discord-edition-owner',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('creator_profiles', {
+        authUserId: collaboratorAuthUserId,
+        name: 'Edition Collaborator',
+        ownerDiscordUserId: 'discord-edition-collaborator',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('collaborator_connections', {
+        ownerAuthUserId,
+        provider: 'jinxxy',
+        webhookConfigured: false,
+        linkType: 'api',
+        status: 'active',
+        collaboratorDiscordUserId: 'discord-edition-collaborator',
+        collaboratorDisplayName: 'Edition Collaborator',
+        source: 'manual',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_registry', {
+        packageId,
+        publisherId: `creator:${ownerAuthUserId}`,
+        registeredAt: now,
+        status: 'active',
+        updatedAt: now,
+        yucpUserId: ownerAuthUserId,
+      });
+      await ctx.db.insert('package_editions', {
+        catalogProductIds: [],
+        catalogTierIds: [],
+        createdAt: now,
+        creatorAuthUserId: ownerAuthUserId,
+        displayName: 'Collaborative edition',
+        editionId: 'collaborative',
+        packageId,
+        priority: 100,
+        status: 'active',
+        updatedAt: now,
+      });
+    });
+
+    await expect(
+      t.query(api.packageEditions.getManagementScopeForCreator, {
+        apiSecret: 'test-secret',
+        actor: await creatorActor(collaboratorAuthUserId),
+        authUserId: collaboratorAuthUserId,
+        editionId: 'collaborative',
+        packageId,
+      })
+    ).resolves.toMatchObject({
+      displayName: 'Collaborative edition',
+      editionId: 'collaborative',
+      packageId,
+      status: 'active',
+    });
+  });
+
   it('authorizes the implicit Standard edition for an owned package before its first upload', async () => {
     const t = makeTestConvex();
     const authUserId = 'creator-implicit-standard-management';

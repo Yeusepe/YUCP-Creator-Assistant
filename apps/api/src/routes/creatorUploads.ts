@@ -170,16 +170,68 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
       actor,
       packageId,
     })) as { status: 'active' | 'archived'; yucpUserId: string } | null;
-    if (
-      registration &&
-      (registration.yucpUserId !== session.user.id || registration.status !== 'active')
-    ) {
+    if (registration?.status !== undefined && registration.status !== 'active') {
       return Response.json({ error: 'Active package ownership required' }, { status: 403 });
+    }
+    let creatorAuthUserId = registration?.yucpUserId;
+    if (registration && registration.yucpUserId !== session.user.id) {
+      const accessiblePackage = (await convex.query(api.packageRegistry.getByPackageIdForAuthUser, {
+        apiSecret: config.convexApiSecret,
+        actor,
+        authUserId: session.user.id,
+        packageId,
+      })) as { creatorAuthUserId: string; packageId?: string } | null;
+      if (
+        !accessiblePackage ||
+        accessiblePackage.packageId !== packageId ||
+        accessiblePackage.creatorAuthUserId !== registration.yucpUserId
+      ) {
+        return Response.json({ error: 'Active package ownership required' }, { status: 403 });
+      }
+    }
+    if (!registration && !catalogProductIds) {
+      return Response.json({ error: 'Catalog product ownership required' }, { status: 403 });
+    }
+
+    if (catalogProductIds) {
+      const resolvedCatalogProductIds: string[] = [];
+      for (const requestedCatalogProductId of catalogProductIds) {
+        const product = (await convex.query(api.packageRegistry.getByIdForAuthUser, {
+          apiSecret: config.convexApiSecret,
+          actor,
+          authUserId: session.user.id,
+          catalogProductId: requestedCatalogProductId,
+        })) as {
+          _id?: string;
+          catalogProductId?: string;
+          creatorAuthUserId: string;
+          packageId?: string;
+        } | null;
+        const resolvedCatalogProductId = product?._id ?? product?.catalogProductId;
+        if (
+          !product ||
+          !resolvedCatalogProductId ||
+          (creatorAuthUserId !== undefined && product.creatorAuthUserId !== creatorAuthUserId) ||
+          (product.packageId !== undefined && product.packageId !== packageId)
+        ) {
+          return Response.json({ error: 'Catalog product ownership required' }, { status: 403 });
+        }
+        creatorAuthUserId = product.creatorAuthUserId;
+        resolvedCatalogProductIds.push(resolvedCatalogProductId);
+      }
+      if (new Set(resolvedCatalogProductIds).size !== resolvedCatalogProductIds.length) {
+        return Response.json({ error: 'Catalog product selection is ambiguous' }, { status: 409 });
+      }
+      catalogProductIds = resolvedCatalogProductIds;
+      catalogProductId = catalogProductIds[0];
+    }
+    if (!creatorAuthUserId) {
+      return Response.json({ error: 'Catalog product ownership required' }, { status: 403 });
     }
 
     const billing = (await convex.query(api.certificateBilling.getAccountOverview, {
       apiSecret: config.convexApiSecret,
-      authUserId: session.user.id,
+      authUserId: creatorAuthUserId,
     })) as {
       billing?: { capabilities?: Array<{ capabilityKey: string; status: string }> };
     };
@@ -191,36 +243,7 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
     if (!canUpload) {
       return Response.json({ error: 'VPM repository capability required' }, { status: 403 });
     }
-    if (!registration && !catalogProductIds) {
-      return Response.json({ error: 'Catalog product ownership required' }, { status: 403 });
-    }
 
-    if (catalogProductIds) {
-      const resolvedCatalogProductIds: string[] = [];
-      for (const requestedCatalogProductId of catalogProductIds) {
-        const product = (await convex.query(
-          api.packageRegistry.getBuyerAccessContextByCatalogProductId,
-          {
-            apiSecret: config.convexApiSecret,
-            actor,
-            catalogProductId: requestedCatalogProductId,
-          }
-        )) as { catalogProductId: string; creatorAuthUserId: string; packageId?: string } | null;
-        if (
-          !product ||
-          product.creatorAuthUserId !== session.user.id ||
-          (product.packageId !== undefined && product.packageId !== packageId)
-        ) {
-          return Response.json({ error: 'Catalog product ownership required' }, { status: 403 });
-        }
-        resolvedCatalogProductIds.push(product.catalogProductId);
-      }
-      if (new Set(resolvedCatalogProductIds).size !== resolvedCatalogProductIds.length) {
-        return Response.json({ error: 'Catalog product selection is ambiguous' }, { status: 409 });
-      }
-      catalogProductIds = resolvedCatalogProductIds;
-      catalogProductId = catalogProductIds[0];
-    }
     let ensureCatalogTierEdition = false;
     if (editionId !== 'standard') {
       if (!catalogProductIds?.length) {
@@ -232,7 +255,7 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
       const editions = (await convex.query(api.packageEditions.listForCreator, {
         apiSecret: config.convexApiSecret,
         actor,
-        authUserId: session.user.id,
+        authUserId: creatorAuthUserId,
         packageId,
       })) as Array<{
         catalogProductIds: Array<Id<'product_catalog'>>;
@@ -267,7 +290,7 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
       const claim = (await convex.mutation(api.packageRegistry.claimPackageForCreatorUpload, {
         apiSecret: config.convexApiSecret,
         actor,
-        authUserId: session.user.id,
+        authUserId: creatorAuthUserId,
         catalogProductIds: catalogProductIds as Array<Id<'product_catalog'>>,
         packageId,
       })) as
@@ -295,7 +318,7 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
       await convex.mutation(api.packageEditions.ensureStandardForCreatorUpload, {
         apiSecret: config.convexApiSecret,
         actor,
-        authUserId: session.user.id,
+        authUserId: creatorAuthUserId,
         catalogProductIds: catalogProductIds as Array<Id<'product_catalog'>>,
         packageId,
       });
@@ -306,7 +329,7 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
         {
           apiSecret: config.convexApiSecret,
           actor,
-          authUserId: session.user.id,
+          authUserId: creatorAuthUserId,
           catalogProductIds: catalogProductIds as Array<Id<'product_catalog'>>,
           catalogTierId: catalogTierId as Id<'catalog_tiers'>,
           editionId,
@@ -319,14 +342,14 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
     }
 
     const versionId = deriveUploadVersionId({
-      creatorId: session.user.id,
+      creatorId: creatorAuthUserId,
       editionId,
       packageId,
       version,
     });
     const capability = await signUploadCapability({
       catalogProductId: catalogProductId ?? undefined,
-      creatorId: session.user.id,
+      creatorId: creatorAuthUserId,
       editionId,
       versionId,
       key: uploadHmacKey,

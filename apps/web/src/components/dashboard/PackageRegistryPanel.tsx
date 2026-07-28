@@ -201,6 +201,7 @@ function getProductSearchText(product: CreatorPackageProductSummary): string {
     product.provider,
     product.providerProductRef,
     product.canonicalSlug,
+    product.creatorDisplayName,
     ...(product.aliases ?? []),
     ...(product.storefronts?.flatMap((storefront) => [
       storefront.provider,
@@ -290,6 +291,14 @@ function getPickerProviderLabel(entry: CreatorPackagePickerProduct): string {
   )
     .sort((left, right) => left.localeCompare(right))
     .join(' + ');
+}
+
+function getPickerContextLabel(entry: CreatorPackagePickerProduct): string {
+  const providerLabel = getPickerProviderLabel(entry);
+  const collaboratorOwner = entry.products.find(
+    (product) => product.accessRole === 'collaborator' && product.creatorDisplayName?.trim()
+  )?.creatorDisplayName;
+  return collaboratorOwner ? `${collaboratorOwner} · ${providerLabel}` : providerLabel;
 }
 
 function getBuyerAccessUrl(product: CreatorPackageProductSummary): string {
@@ -744,6 +753,11 @@ function ProductRow({
                   {formatProviderLabel(storefront.provider)}
                 </Chip>
               ))}
+              {product.accessRole === 'collaborator' && product.creatorDisplayName ? (
+                <Chip size="sm" variant="soft" className="text-foreground/60">
+                  {product.creatorDisplayName}
+                </Chip>
+              ) : null}
               {isArchived ? (
                 <Chip size="sm" variant="soft">
                   Hidden
@@ -3010,7 +3024,7 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
                                     <div className="flex flex-col">
                                       <span>{getProductTitle(product)}</span>
                                       <span className="pm-subtle-copy text-xs">
-                                        {getPickerProviderLabel(entry)}
+                                        {getPickerContextLabel(entry)}
                                       </span>
                                     </div>
                                     <ListBox.ItemIndicator />

@@ -347,6 +347,33 @@ describe('package-scoped VPM routes', () => {
     });
   });
 
+  it('manages delivery settings in the shared creator workspace for a collaborator', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.getByPackageIdForAuthUser) {
+        return { ...product(), creatorAuthUserId: 'shared-store-owner' };
+      }
+      if (reference === apiMock.creatorVpmLinks.getActiveForCreator) {
+        return link();
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const response = await createRoutes('collaborating-creator').manageCreatorLink(
+      new Request('https://api.test/api/creator/packages/by-package/com.yucp.jammr/vcc-link'),
+      'com.yucp.jammr'
+    );
+
+    expect(response.status).toBe(200);
+    expect(convexQueryMock).toHaveBeenCalledWith(
+      apiMock.packageRegistry.getByPackageIdForAuthUser,
+      expect.objectContaining({ authUserId: 'collaborating-creator' })
+    );
+    expect(convexQueryMock).toHaveBeenCalledWith(
+      apiMock.creatorVpmLinks.getActiveForCreator,
+      expect.objectContaining({ authUserId: 'shared-store-owner' })
+    );
+  });
+
   it('reads package enablement without fabricating a repository URL', async () => {
     convexQueryMock.mockImplementation(async (reference: unknown) => {
       if (reference === apiMock.packageRegistry.getByPackageIdForAuthUser) return product();

@@ -9,6 +9,10 @@ import {
   requireServiceActor,
 } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
+import {
+  hasCreatorWorkspaceAccess,
+  requireCreatorWorkspaceActor,
+} from './lib/creatorWorkspaceAccess';
 
 const EDITION_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const MAX_EDITION_NAME_LENGTH = 80;
@@ -125,7 +129,7 @@ export const upsertForCreator = mutation({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
     const packageId = normalizedPackageId(args.packageId);
     const editionId = normalizedEditionId(args.editionId);
     const displayName = normalizedDisplayName(args.displayName);
@@ -188,7 +192,7 @@ export const listForCreator = query({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
     return (
       await ctx.db
         .query('package_editions')
@@ -224,14 +228,18 @@ export const getManagementScopeForCreator = query({
       .query('package_registry')
       .withIndex('by_package_id', (q) => q.eq('packageId', packageId))
       .unique();
-    if (!registration || registration.yucpUserId !== args.authUserId) {
+    if (
+      !registration ||
+      !(await hasCreatorWorkspaceAccess(ctx, args.authUserId, registration.yucpUserId))
+    ) {
       return null;
     }
+    const creatorAuthUserId = registration.yucpUserId;
     const edition = await ctx.db
       .query('package_editions')
       .withIndex('by_creator_package_edition', (q) =>
         q
-          .eq('creatorAuthUserId', args.authUserId)
+          .eq('creatorAuthUserId', creatorAuthUserId)
           .eq('packageId', packageId)
           .eq('editionId', editionId)
       )
@@ -265,7 +273,7 @@ export const ensureStandardForCreatorUpload = mutation({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
     const packageId = normalizedPackageId(args.packageId);
     const existing = await ctx.db
       .query('package_editions')
@@ -330,7 +338,7 @@ export const ensureCatalogTierForCreatorUpload = mutation({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
     const packageId = normalizedPackageId(args.packageId);
     const editionId = normalizedEditionId(args.editionId);
     if (editionId !== catalogTierPackageEditionId(String(args.catalogTierId))) {
@@ -415,7 +423,7 @@ export const archiveForCreator = mutation({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
     const packageId = normalizedPackageId(args.packageId);
     const editionId = normalizedEditionId(args.editionId);
     if (editionId === 'standard') {

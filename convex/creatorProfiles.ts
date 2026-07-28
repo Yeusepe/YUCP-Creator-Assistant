@@ -14,6 +14,7 @@ import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internalQuery, mutation, query } from './_generated/server';
 import { ApiActorBindingV, requireDelegatedAuthUserActor } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
+import { requireCreatorWorkspaceActor } from './lib/creatorWorkspaceAccess';
 
 const DELIVERY_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const PUBLIC_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -355,7 +356,7 @@ export const ensureDeliverySlug = mutation({
   }),
   handler: async (ctx, args): Promise<{ created: boolean; slug: string }> => {
     requireApiSecret(args.apiSecret);
-    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
     if (args.proposedSlugs.length === 0 || args.proposedSlugs.length > 8) {
       throw new ConvexError('Creator delivery slug candidates are invalid');
     }

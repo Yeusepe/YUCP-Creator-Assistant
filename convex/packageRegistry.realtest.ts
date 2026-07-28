@@ -50,6 +50,92 @@ async function createCreatorActorBinding(authUserId: string) {
 }
 
 describe('packageRegistry', () => {
+  it('lets an active collaborating creator discover and claim packages for the shared creator workspace', async () => {
+    const t = makeTestConvex();
+    const ownerAuthUserId = 'creator-collaboration-owner';
+    const collaboratorAuthUserId = 'creator-collaboration-publisher';
+    const catalogProductId = await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert('creator_profiles', {
+        authUserId: ownerAuthUserId,
+        name: 'Shared Creator Store',
+        ownerDiscordUserId: 'discord-collaboration-owner',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('creator_profiles', {
+        authUserId: collaboratorAuthUserId,
+        name: 'Package Publisher',
+        ownerDiscordUserId: 'discord-collaboration-publisher',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('collaborator_connections', {
+        ownerAuthUserId,
+        provider: 'jinxxy',
+        webhookConfigured: false,
+        linkType: 'api',
+        status: 'active',
+        collaboratorDiscordUserId: 'discord-collaboration-publisher',
+        collaboratorDisplayName: 'Package Publisher',
+        source: 'manual',
+        createdAt: now,
+        updatedAt: now,
+      });
+      return await ctx.db.insert('product_catalog', {
+        authUserId: ownerAuthUserId,
+        productId: 'shared-creator-product',
+        provider: 'jinxxy',
+        providerProductRef: 'shared-creator-product-ref',
+        displayName: 'Shared Creator Product',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+    const actor = await createCreatorActorBinding(collaboratorAuthUserId);
+
+    const productList = await t.query(api.packageRegistry.listByAuthUser, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId: collaboratorAuthUserId,
+      configuredOnly: false,
+      limit: 50,
+    });
+    const claim = await t.mutation(api.packageRegistry.claimPackageForCreatorUpload, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId: ownerAuthUserId,
+      catalogProductIds: [catalogProductId],
+      packageId: 'com.yucp.shared-creator-product',
+    });
+    const registration = await t.query(internal.packageRegistry.getRegistration, {
+      packageId: 'com.yucp.shared-creator-product',
+    });
+
+    expect(productList.data).toEqual([
+      expect.objectContaining({
+        _id: catalogProductId,
+        accessRole: 'collaborator',
+        creatorAuthUserId: ownerAuthUserId,
+        creatorDisplayName: 'Shared Creator Store',
+        displayName: 'Shared Creator Product',
+      }),
+    ]);
+    expect(claim).toEqual({
+      registered: true,
+      conflict: false,
+      archived: false,
+    });
+    expect(registration).toMatchObject({
+      packageId: 'com.yucp.shared-creator-product',
+      yucpUserId: ownerAuthUserId,
+    });
+  });
+
   it('claims one package namespace for every authenticated creator storefront', async () => {
     const t = makeTestConvex();
     const authUserId = 'auth-user-first-upload';

@@ -1,5 +1,8 @@
 import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { verifyUploadCapability } from '../../../../ops/storage-core/uploadSigning';
+import {
+  UPLOAD_CAPABILITY_HEADERS,
+  verifyUploadCapability,
+} from '../../../../ops/storage-core/uploadSigning';
 
 const convexQueryMock = mock(async (_reference?: unknown, _args?: unknown) => null as unknown);
 const convexMutationMock = mock(async (_reference?: unknown, _args?: unknown) => null as unknown);
@@ -9,8 +12,9 @@ const apiMock = {
     getAccountOverview: 'certificateBilling.getAccountOverview',
   },
   packageRegistry: {
-    getBuyerAccessContextByCatalogProductId:
-      'packageRegistry.getBuyerAccessContextByCatalogProductId',
+    getBuyerAccessContextByCatalogProductId: 'packageRegistry.getByIdForAuthUser',
+    getByIdForAuthUser: 'packageRegistry.getByIdForAuthUser',
+    getByPackageIdForAuthUser: 'packageRegistry.getByPackageIdForAuthUser',
     claimPackageForCreatorUpload: 'packageRegistry.claimPackageForCreatorUpload',
     lookupRegistration: 'packageRegistry.lookupRegistration',
   },
@@ -164,6 +168,64 @@ describe('creator upload authorization', () => {
         packageId: 'com.yucp.first-upload',
       }
     );
+  });
+
+  it('authorizes a collaborating creator to publish for the shared creator workspace', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown, args?: unknown) => {
+      if (reference === apiMock.packageRegistry.lookupRegistration) {
+        return null;
+      }
+      if (reference === apiMock.packageRegistry.getByIdForAuthUser) {
+        expect(args).toMatchObject({
+          authUserId: 'collaborating-creator',
+          catalogProductId: 'shared-catalog-product',
+        });
+        return {
+          _id: 'shared-catalog-product',
+          creatorAuthUserId: 'shared-store-owner',
+        };
+      }
+      if (reference === apiMock.certificateBilling.getAccountOverview) {
+        expect(args).toMatchObject({ authUserId: 'shared-store-owner' });
+        return activeVpmBilling;
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const response = await createRoutes('collaborating-creator').authorizeUpload(
+      authorizeRequest({
+        packageId: 'com.yucp.shared-store-product',
+        version: '1.0.0',
+        catalogProductIds: ['shared-catalog-product'],
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(convexMutationMock).toHaveBeenCalledWith(
+      apiMock.packageRegistry.claimPackageForCreatorUpload,
+      {
+        apiSecret: config.convexApiSecret,
+        actor: 'creator-actor-binding',
+        authUserId: 'shared-store-owner',
+        catalogProductIds: ['shared-catalog-product'],
+        packageId: 'com.yucp.shared-store-product',
+      }
+    );
+    expect(convexMutationMock).toHaveBeenCalledWith(
+      apiMock.packageEditions.ensureStandardForCreatorUpload,
+      {
+        apiSecret: config.convexApiSecret,
+        actor: 'creator-actor-binding',
+        authUserId: 'shared-store-owner',
+        catalogProductIds: ['shared-catalog-product'],
+        packageId: 'com.yucp.shared-store-product',
+      }
+    );
+    await expect(response.json()).resolves.toMatchObject({
+      headers: {
+        [UPLOAD_CAPABILITY_HEADERS.creatorId]: 'shared-store-owner',
+      },
+    });
   });
 
   it('returns 409 when another creator wins the package namespace claim', async () => {
@@ -400,6 +462,7 @@ describe('creator upload authorization', () => {
       {
         apiSecret: config.convexApiSecret,
         actor: 'creator-actor-binding',
+        authUserId: 'creator-123',
         catalogProductId: 'avatar-product-slug',
       }
     );
