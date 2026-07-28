@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
-import type { StorageGcCatalog } from '../catalog';
+import type { Catalog, StorageGcCatalog } from '../catalog';
 import type { ExactStoragePort } from '../storage-core/exactStorage';
 import {
   createStorageGcJanitor,
@@ -38,6 +38,12 @@ function idleCatalog(
   } as unknown as StorageGcCatalog;
 }
 
+function idleLifecycleCatalog(): Pick<Catalog, 'expireTerminalFailedVersions'> {
+  return {
+    expireTerminalFailedVersions: mock(async () => []),
+  };
+}
+
 const unusedStorage = {} as ExactStoragePort;
 
 describe('storage GC production runtime', () => {
@@ -50,6 +56,8 @@ describe('storage GC production runtime', () => {
       STORAGE_GC_INTERVAL_MS: '45000',
     } satisfies NodeJS.ProcessEnv;
     const fetchSecrets = mock(async () => ({
+      CATALOG_FAILED_RETENTION_MS: '604800000',
+      CATALOG_MAX_ATTEMPTS: '7',
       CATALOG_DATABASE_URL: 'postgresql://postgres:secret@127.0.0.1:5432/catalog',
       ...storageRoleSecrets(),
     }));
@@ -57,11 +65,15 @@ describe('storage GC production runtime', () => {
     const runtime = await loadStorageGcRuntimeEnv(sourceEnv, fetchSecrets);
 
     expect(STORAGE_GC_INFISICAL_KEYS).toContain('CATALOG_DATABASE_URL');
+    expect(STORAGE_GC_INFISICAL_KEYS).toContain('CATALOG_FAILED_RETENTION_MS');
+    expect(STORAGE_GC_INFISICAL_KEYS).toContain('CATALOG_MAX_ATTEMPTS');
     expect(fetchSecrets).toHaveBeenCalledWith(sourceEnv);
     expect(runtime).toMatchObject({
+      catalogMaxAttempts: 7,
       catalogDatabaseUrl: 'postgresql://postgres:secret@127.0.0.1:5432/catalog',
       common: { bucket: 'local-common' },
       deletionLimit: 37,
+      failedRetentionMs: 604_800_000,
       intervalMs: 45_000,
       metadata: { bucket: 'local-metadata' },
       protected: { bucket: 'local-protected' },
@@ -71,6 +83,8 @@ describe('storage GC production runtime', () => {
   test('rejects a deletion batch above the collector safety bound', async () => {
     await expect(
       loadStorageGcRuntimeEnv({
+        CATALOG_FAILED_RETENTION_MS: '604800000',
+        CATALOG_MAX_ATTEMPTS: '5',
         CATALOG_DATABASE_URL: 'postgresql://postgres:secret@127.0.0.1:5432/catalog',
         STORAGE_GC_DELETION_LIMIT: '1001',
         YUCP_STORAGE_PROFILE: 'interactive',
@@ -82,6 +96,8 @@ describe('storage GC production runtime', () => {
   test('rejects an interval that can create unbounded database pressure', async () => {
     await expect(
       loadStorageGcRuntimeEnv({
+        CATALOG_FAILED_RETENTION_MS: '604800000',
+        CATALOG_MAX_ATTEMPTS: '5',
         CATALOG_DATABASE_URL: 'postgresql://postgres:secret@127.0.0.1:5432/catalog',
         STORAGE_GC_INTERVAL_MS: '999',
         YUCP_STORAGE_PROFILE: 'interactive',
@@ -92,10 +108,16 @@ describe('storage GC production runtime', () => {
 
   test('passes the configured batch bound to PostgreSQL workflow truth', async () => {
     const now = new Date('2026-07-27T12:00:00.000Z');
+    const lifecycleCalls: string[] = [];
+    const expireTerminalFailedVersions = mock(async () => {
+      lifecycleCalls.push('expire');
+      return [];
+    });
     const listPendingDeletions = mock(async (_limit: number) => []);
     const janitor = createStorageGcJanitor({
-      catalog: idleCatalog(
-        async () => ({
+      catalog: idleCatalog(async () => {
+        lifecycleCalls.push('observe');
+        return {
           candidatesObserved: 0,
           generation: {
             completedAt: now,
@@ -103,17 +125,26 @@ describe('storage GC production runtime', () => {
             previousCompletedGenerationId: 40,
             startedAt: now,
           },
-        }),
-        listPendingDeletions
-      ),
+        };
+      }, listPendingDeletions),
       deletionLimit: 23,
+      failedRetentionMs: 604_800_000,
       intervalMs: 60_000,
+      lifecycleCatalog: {
+        expireTerminalFailedVersions,
+      },
       logger: { error: mock(() => undefined), info: mock(() => undefined) },
       storage: unusedStorage,
     });
 
     const result = await janitor.runOnce(now);
 
+    expect(expireTerminalFailedVersions).toHaveBeenCalledWith({
+      limit: 23,
+      now,
+      retentionMs: 604_800_000,
+    });
+    expect(lifecycleCalls).toEqual(['expire', 'observe']);
     expect(listPendingDeletions).toHaveBeenCalledWith(23);
     expect(result.generationId).toBe(41);
   });
@@ -139,7 +170,9 @@ describe('storage GC production runtime', () => {
         observeGeneration,
       } as unknown as StorageGcCatalog,
       deletionLimit: 23,
+      failedRetentionMs: 604_800_000,
       intervalMs: 60_000,
+      lifecycleCatalog: idleLifecycleCatalog(),
       logger: { error: mock(() => undefined), info: mock(() => undefined) },
       storage: unusedStorage,
     });
@@ -173,7 +206,9 @@ describe('storage GC production runtime', () => {
     const janitor = createStorageGcJanitor({
       catalog: idleCatalog(observeGeneration),
       deletionLimit: 10,
+      failedRetentionMs: 604_800_000,
       intervalMs: 1,
+      lifecycleCatalog: idleLifecycleCatalog(),
       logger: { error: mock(() => undefined), info: mock(() => undefined) },
       storage: unusedStorage,
     });

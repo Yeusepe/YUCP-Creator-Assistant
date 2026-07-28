@@ -343,28 +343,64 @@ export const upsertReadyVersion = mutation({
         createdAt: existing.createdAt,
         editionId,
       });
+      const publicationPatch = {
+        activeContentDigest: args.activeContentDigest,
+        activePolicyVersion: args.activePolicyVersion,
+        bindingRoot: args.bindingRoot,
+        bootstrapMedia: args.bootstrapMedia ?? [],
+        catalogProductId: args.catalogProductId,
+        channel: args.channel ?? DEFAULT_CHANNEL,
+        commonRoot: args.commonRoot,
+        editionId,
+        logicalBytes: args.logicalBytes,
+        logicalFiles: args.logicalFiles,
+        manifestSha256: args.manifestSha256,
+        packageMetadata: args.packageMetadata,
+        protectedFiles: args.protectedFiles,
+        protectedSourceRoot: args.protectedSourceRoot,
+        protectionPolicyDigest: args.protectionPolicyDigest,
+        protectionPolicyId: args.protectionPolicyId,
+        releaseRoot: args.releaseRoot,
+        vpmDependencies: args.vpmDependencies,
+        vpmRepositories: args.vpmRepositories,
+      };
+      if (existing.state === 'DELETED') {
+        if (existing.deletedAt !== undefined && args.createdAt <= existing.deletedAt) {
+          return existing._id;
+        }
+
+        const channel = args.channel ?? DEFAULT_CHANNEL;
+        const currentReadyVersions = await ctx.db
+          .query('package_versions_ref')
+          .withIndex('by_package_edition_channel', (q) =>
+            q
+              .eq('packageId', args.packageId)
+              .eq('editionId', editionId)
+              .eq('channel', channel)
+              .eq('state', 'READY')
+          )
+          .take(2);
+        if (currentReadyVersions.length > 1) {
+          throw new Error('Package edition has multiple current releases');
+        }
+        const hasCurrentReadyAtOrAfter = currentReadyVersions.some(
+          (current) => current.createdAt >= args.createdAt
+        );
+        for (const current of currentReadyVersions) {
+          if (current.createdAt < args.createdAt) {
+            await ctx.db.patch(current._id, { state: 'SUPERSEDED' });
+          }
+        }
+
+        await ctx.db.patch(existing._id, {
+          ...publicationPatch,
+          createdAt: args.createdAt,
+          deletedAt: undefined,
+          state: hasCurrentReadyAtOrAfter ? 'SUPERSEDED' : 'READY',
+        });
+        return existing._id;
+      }
       if (!hasCompleteReleasePublication(existing)) {
-        const publicationPatch = {
-          activeContentDigest: args.activeContentDigest,
-          activePolicyVersion: args.activePolicyVersion,
-          bindingRoot: args.bindingRoot,
-          bootstrapMedia: args.bootstrapMedia ?? [],
-          catalogProductId: args.catalogProductId,
-          channel: args.channel ?? DEFAULT_CHANNEL,
-          commonRoot: args.commonRoot,
-          editionId,
-          logicalBytes: args.logicalBytes,
-          logicalFiles: args.logicalFiles,
-          manifestSha256: args.manifestSha256,
-          packageMetadata: args.packageMetadata,
-          protectedFiles: args.protectedFiles,
-          protectedSourceRoot: args.protectedSourceRoot,
-          protectionPolicyDigest: args.protectionPolicyDigest,
-          protectionPolicyId: args.protectionPolicyId,
-          releaseRoot: args.releaseRoot,
-          vpmDependencies: args.vpmDependencies,
-          vpmRepositories: args.vpmRepositories,
-        };
         for (const [field, value] of Object.entries(publicationPatch)) {
           const current = existing[field as keyof typeof existing];
           if (current !== undefined && canonicalJson(current) !== canonicalJson(value)) {
@@ -450,7 +486,7 @@ export const markVersionDeleted = mutation({
     versionId: v.string(),
     deletedAt: v.number(),
   },
-  handler: async (ctx, args): Promise<Id<'package_versions_ref'>> => {
+  handler: async (ctx, args): Promise<Id<'package_versions_ref'> | null> => {
     requireApiSecret(args.apiSecret);
     await requireServiceActor(args.actor, ['downloads:service']);
 
@@ -459,7 +495,7 @@ export const markVersionDeleted = mutation({
       .withIndex('by_version_id', (q) => q.eq('versionId', args.versionId))
       .first();
     if (!existing) {
-      throw new Error(`Package version reference not found: ${args.versionId}`);
+      return null;
     }
     if (existing.state === 'DELETED') {
       return existing._id;

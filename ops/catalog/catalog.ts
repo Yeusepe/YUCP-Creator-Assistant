@@ -21,6 +21,8 @@ export type CatalogState = (typeof CATALOG_STATES)[number];
 export type LiveCatalogState = Extract<CatalogState, 'UPLOADING' | 'PROMOTING'>;
 
 export const CATALOG_HEARTBEAT_INTERVAL_MS = 30_000;
+export const TERMINAL_FAILURE_DELETION_REASON = 'terminal-failure-retention-expired';
+const MAX_TERMINAL_FAILURE_EXPIRATION_LIMIT = 1_000;
 
 const allowedTransitions = {
   CREATED: ['UPLOADING', 'FAILED', 'DELETED'],
@@ -1154,6 +1156,84 @@ export class Catalog {
         )
       `;
       return toPackageVersion(updated);
+    });
+  }
+
+  async expireTerminalFailedVersions(input: {
+    limit: number;
+    now?: Date;
+    retentionMs: number;
+  }): Promise<PackageVersion[]> {
+    if (
+      !Number.isSafeInteger(input.limit) ||
+      input.limit <= 0 ||
+      input.limit > MAX_TERMINAL_FAILURE_EXPIRATION_LIMIT
+    ) {
+      throw new CatalogInvariantError(
+        `Terminal failure expiration limit must be between 1 and ${MAX_TERMINAL_FAILURE_EXPIRATION_LIMIT}`
+      );
+    }
+    if (!Number.isSafeInteger(input.retentionMs) || input.retentionMs <= 0) {
+      throw new CatalogInvariantError('Terminal failure retention must be a positive safe integer');
+    }
+    if (input.now !== undefined && !Number.isFinite(input.now.getTime())) {
+      throw new CatalogInvariantError('Terminal failure expiration time is invalid');
+    }
+
+    return await this.sql.begin(async (transaction) => {
+      const observationRows = await transaction<{ observed_at: CatalogTimestamp }[]>`
+        SELECT COALESCE(${input.now ?? null}, clock_timestamp()) AS observed_at
+      `;
+      const observedAt = toCatalogDate(observationRows[0]?.observed_at ?? null);
+      if (!observedAt) {
+        throw new Error('PostgreSQL did not return the terminal failure expiration time');
+      }
+      const candidates = await transaction<PackageVersionRow[]>`
+        SELECT *
+        FROM package_versions
+        WHERE state = 'FAILED'
+          AND attempts >= ${this.retryPolicy.maxAttempts}
+          AND updated_at <=
+            ${observedAt} - (${input.retentionMs} * interval '1 millisecond')
+        ORDER BY updated_at, id
+        FOR UPDATE SKIP LOCKED
+        LIMIT ${input.limit}
+      `;
+      const expired: PackageVersion[] = [];
+      for (const current of candidates) {
+        const updatedRows = await transaction<PackageVersionRow[]>`
+          UPDATE package_versions
+          SET
+            state = 'DELETED',
+            deleted_at = ${observedAt},
+            deletion_reason = ${TERMINAL_FAILURE_DELETION_REASON},
+            next_attempt_at = NULL,
+            updated_at = ${observedAt}
+          WHERE id = ${current.id}
+            AND state = 'FAILED'
+            AND attempts >= ${this.retryPolicy.maxAttempts}
+          RETURNING *
+        `;
+        const updated = updatedRows[0];
+        if (!updated) {
+          throw new Error('PostgreSQL did not return the expired package version');
+        }
+        const event: CatalogEvent = {
+          type: 'catalog.version.deleted',
+          payload: { reason: TERMINAL_FAILURE_DELETION_REASON },
+        };
+        await transaction`
+          INSERT INTO catalog_outbox (id, aggregate_id, event_type, payload)
+          VALUES (
+            ${randomUUID()},
+            ${updated.id},
+            ${event.type},
+            ${transaction.json(eventPayload(event, updated, current.state, 'DELETED'))}
+          )
+        `;
+        expired.push(toPackageVersion(updated));
+      }
+      return expired;
     });
   }
 

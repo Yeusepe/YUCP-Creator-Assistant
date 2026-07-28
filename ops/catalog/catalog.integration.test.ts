@@ -2325,6 +2325,70 @@ describe.serial('PostgreSQL catalog integration', () => {
     );
   });
 
+  it('expires only retained failures that exhausted their retry policy', async () => {
+    const database = requireSql();
+    const maxAttempts = 5;
+    const retentionMs = 7 * 24 * 60 * 60 * 1_000;
+    const now = new Date('2026-07-28T12:00:00.000Z');
+    const lifecycleCatalog = new Catalog(database, { maxAttempts });
+    const expiredId = await createUploadingVersion('expired-terminal-failure');
+    const recentId = await createUploadingVersion('recent-terminal-failure');
+    const retryableId = await createUploadingVersion('retryable-retained-failure');
+
+    for (const versionId of [expiredId, recentId, retryableId]) {
+      await lifecycleCatalog.markFailed(versionId, 'permanent assembly failure');
+    }
+    await database`
+      UPDATE package_versions
+      SET attempts = ${maxAttempts}, updated_at = ${new Date(now.getTime() - retentionMs - 1)}
+      WHERE id = ${expiredId}
+    `;
+    await database`
+      UPDATE package_versions
+      SET attempts = ${maxAttempts}, updated_at = ${new Date(now.getTime() - retentionMs + 1)}
+      WHERE id = ${recentId}
+    `;
+    await database`
+      UPDATE package_versions
+      SET attempts = ${maxAttempts - 1}, updated_at = ${new Date(now.getTime() - retentionMs - 1)}
+      WHERE id = ${retryableId}
+    `;
+
+    const expired = await lifecycleCatalog.expireTerminalFailedVersions({
+      limit: 10,
+      now,
+      retentionMs,
+    });
+
+    expect(expired).toHaveLength(1);
+    expect(expired[0]).toMatchObject({
+      id: expiredId,
+      state: 'DELETED',
+      deletionReason: 'terminal-failure-retention-expired',
+    });
+    expect(await lifecycleCatalog.getVersion(recentId)).toMatchObject({ state: 'FAILED' });
+    expect(await lifecycleCatalog.getVersion(retryableId)).toMatchObject({ state: 'FAILED' });
+    const events = await database<
+      { aggregate_id: string; event_type: string; payload: Record<string, unknown> }[]
+    >`
+      SELECT aggregate_id, event_type, payload
+      FROM catalog_outbox
+      WHERE event_type = 'catalog.version.deleted'
+      ORDER BY created_at, id
+    `;
+    expect([...events]).toEqual([
+      {
+        aggregate_id: expiredId,
+        event_type: 'catalog.version.deleted',
+        payload: expect.objectContaining({
+          previousState: 'FAILED',
+          reason: 'terminal-failure-retention-expired',
+          state: 'DELETED',
+        }),
+      },
+    ]);
+  });
+
   it('backoff-skip: a future next_attempt_at prevents an otherwise stuck row from being touched', async () => {
     const database = requireSql();
     const versionId = await createUploadingVersion('future-backoff');

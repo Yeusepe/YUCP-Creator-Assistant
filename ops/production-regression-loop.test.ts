@@ -48,4 +48,16 @@ describe('production-regression-loop', () => {
     expect(gateArguments).toContain('./convex/creatorVpmLinks.realtest.ts');
     expect(gateArguments).toContain('./src/routes/packageInstallSessions.test.ts');
   });
+
+  it('keeps canonical product URL contracts and remediation in the external gate', () => {
+    const gateArguments = EXTERNAL_INTEGRATION_GATE_STEPS.flatMap((step) => step.args);
+
+    expect(gateArguments).toContain('./packages/providers/test/providerMetadata.test.ts');
+    expect(gateArguments).toContain('./apps/bot/test/commands/product.test.ts');
+    expect(gateArguments).toContain('./convex/catalogSyncIdentity.realtest.ts');
+    expect(gateArguments).toContain('./convex/migrations.realtest.ts');
+    expect(gateArguments).toContain('./ops/catalog-product-url-remediation.test.ts');
+    expect(gateArguments).toContain('./src/routes/connectUserProductAccess.test.ts');
+    expect(gateArguments).toContain('./test/unit/buyer-product-access-route.test.tsx');
+  });
 });

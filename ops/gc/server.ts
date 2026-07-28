@@ -3,7 +3,9 @@ import { fetchInfisicalSecrets } from '@yucp/shared/infisical/fetchSecrets';
 import { setActiveSpanAttributes, withObservedSpan } from '@yucp/shared/observability';
 import { initBunServerObservability } from '@yucp/shared/serverObservability';
 import {
+  Catalog,
   type CatalogDatabase,
+  DEFAULT_MAX_ATTEMPTS,
   openCatalogDatabase,
   runCatalogMigrations,
   StorageGcCatalog,
@@ -25,6 +27,7 @@ import {
 import { runQuarantineGarbageCollection } from './quarantineGc';
 
 const DEFAULT_DELETION_LIMIT = 100;
+const DEFAULT_FAILED_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 const DEFAULT_INTERVAL_MS = 60_000;
 const MAX_DELETION_LIMIT = 1_000;
 const MAX_INTERVAL_MS = 24 * 60 * 60 * 1_000;
@@ -32,6 +35,8 @@ const MIN_INTERVAL_MS = 1_000;
 const tracer = trace.getTracer('yucp-storage-gc');
 
 export const STORAGE_GC_INFISICAL_KEYS = [
+  'CATALOG_FAILED_RETENTION_MS',
+  'CATALOG_MAX_ATTEMPTS',
   'CATALOG_DATABASE_URL',
   'COMMON_S3_ENDPOINT',
   'COMMON_S3_REGION',
@@ -56,9 +61,11 @@ export const STORAGE_GC_INFISICAL_KEYS = [
 ] as const;
 
 export interface StorageGcRuntimeEnv {
+  catalogMaxAttempts: number;
   catalogDatabaseUrl: string;
   common: CasConfig;
   deletionLimit: number;
+  failedRetentionMs: number;
   intervalMs: number;
   metadata: CasConfig;
   protected: CasConfig;
@@ -133,7 +140,9 @@ function waitForNextCycle(milliseconds: number, signal: AbortSignal): Promise<vo
 class FixedCapacityStorageGcJanitor implements StorageGcJanitor {
   readonly #catalog: StorageGcCatalog;
   readonly #deletionLimit: number;
+  readonly #failedRetentionMs: number;
   readonly #intervalMs: number;
+  readonly #lifecycleCatalog: Pick<Catalog, 'expireTerminalFailedVersions'>;
   readonly #logger: StorageGcLogger;
   readonly #storage: ExactStoragePort;
   readonly #quarantine: { config: CasConfig; database: CatalogDatabase } | undefined;
@@ -143,14 +152,18 @@ class FixedCapacityStorageGcJanitor implements StorageGcJanitor {
   constructor(input: {
     catalog: StorageGcCatalog;
     deletionLimit: number;
+    failedRetentionMs: number;
     intervalMs: number;
+    lifecycleCatalog: Pick<Catalog, 'expireTerminalFailedVersions'>;
     logger: StorageGcLogger;
     quarantine?: { config: CasConfig; database: CatalogDatabase };
     storage: ExactStoragePort;
   }) {
     this.#catalog = input.catalog;
     this.#deletionLimit = input.deletionLimit;
+    this.#failedRetentionMs = input.failedRetentionMs;
     this.#intervalMs = input.intervalMs;
+    this.#lifecycleCatalog = input.lifecycleCatalog;
     this.#logger = input.logger;
     this.#quarantine = input.quarantine;
     this.#storage = input.storage;
@@ -164,6 +177,20 @@ class FixedCapacityStorageGcJanitor implements StorageGcJanitor {
         'storage.gc.batch.limit': this.#deletionLimit,
       },
       async () => {
+        const expiredFailures = await this.#lifecycleCatalog.expireTerminalFailedVersions({
+          limit: this.#deletionLimit,
+          now,
+          retentionMs: this.#failedRetentionMs,
+        });
+        if (expiredFailures.length > 0) {
+          this.#logger.info(
+            JSON.stringify({
+              event: 'storage_gc.terminal_failures_expired',
+              expiredVersions: expiredFailures.length,
+              retentionMs: this.#failedRetentionMs,
+            })
+          );
+        }
         const result = await runExactVersionGarbageCollection({
           catalog: this.#catalog,
           deletionLimit: this.#deletionLimit,
@@ -190,6 +217,7 @@ class FixedCapacityStorageGcJanitor implements StorageGcJanitor {
           }
         }
         setActiveSpanAttributes({
+          'storage.gc.expired.failed_versions': expiredFailures.length,
           'storage.gc.candidates.observed': result.candidatesObserved,
           'storage.gc.deleted.bytes': result.deletedBytes,
           'storage.gc.deleted.objects': result.deletedObjects,
@@ -264,6 +292,7 @@ export async function loadStorageGcRuntimeEnv(
   }
   const runtimeEnv = await hydrateStorageServiceEnv(env, STORAGE_GC_INFISICAL_KEYS, fetchSecrets);
   return {
+    catalogMaxAttempts: positiveInteger(runtimeEnv, 'CATALOG_MAX_ATTEMPTS', DEFAULT_MAX_ATTEMPTS),
     catalogDatabaseUrl: requiredValue(runtimeEnv, 'CATALOG_DATABASE_URL'),
     common: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.common),
     deletionLimit: positiveInteger(
@@ -271,6 +300,11 @@ export async function loadStorageGcRuntimeEnv(
       'STORAGE_GC_DELETION_LIMIT',
       DEFAULT_DELETION_LIMIT,
       MAX_DELETION_LIMIT
+    ),
+    failedRetentionMs: positiveInteger(
+      runtimeEnv,
+      'CATALOG_FAILED_RETENTION_MS',
+      DEFAULT_FAILED_RETENTION_MS
     ),
     intervalMs: boundedInterval(runtimeEnv, 'STORAGE_GC_INTERVAL_MS', DEFAULT_INTERVAL_MS),
     metadata: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.metadata),
@@ -282,7 +316,9 @@ export async function loadStorageGcRuntimeEnv(
 export function createStorageGcJanitor(input: {
   catalog: StorageGcCatalog;
   deletionLimit: number;
+  failedRetentionMs: number;
   intervalMs: number;
+  lifecycleCatalog: Pick<Catalog, 'expireTerminalFailedVersions'>;
   logger?: StorageGcLogger;
   quarantine?: { config: CasConfig; database: CatalogDatabase };
   storage: ExactStoragePort;
@@ -306,7 +342,11 @@ export async function buildStorageGcRuntime(
       janitor: createStorageGcJanitor({
         catalog: new StorageGcCatalog(database),
         deletionLimit: runtimeEnv.deletionLimit,
+        failedRetentionMs: runtimeEnv.failedRetentionMs,
         intervalMs: runtimeEnv.intervalMs,
+        lifecycleCatalog: new Catalog(database, {
+          maxAttempts: runtimeEnv.catalogMaxAttempts,
+        }),
         quarantine: { config: runtimeEnv.quarantine, database },
         storage: new S3ExactStoragePort({
           common: runtimeEnv.common,

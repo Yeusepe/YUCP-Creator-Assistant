@@ -717,6 +717,114 @@ describe('packageVersions', () => {
     ).rejects.toThrow('Package version immutable payload conflict');
   });
 
+  it('publishes new immutable release data when a deleted version is cleanly re-uploaded', async () => {
+    const t = makeTestConvex();
+    const actor = await createDownloadServiceActorBinding();
+    const input = {
+      channel: 'stable',
+      createdAt: 1_000,
+      editionId: 'standard',
+      packageId: 'com.yucp.deleted-reupload',
+      version: '2.0.0',
+      versionId: '00000000-0000-4000-8000-000000000022',
+    } as const;
+    const firstId = await t.mutation(
+      api.packageVersions.upsertReadyVersion,
+      await authenticatedReadyVersionArgs(input)
+    );
+    await t.mutation(api.packageVersions.markVersionDeleted, {
+      apiSecret: 'test-secret',
+      actor,
+      versionId: input.versionId,
+      deletedAt: 2_000,
+    });
+
+    const secondId = await t.mutation(
+      api.packageVersions.upsertReadyVersion,
+      await authenticatedReadyVersionArgs({
+        ...input,
+        activeContentDigest: 'aa'.repeat(32),
+        bindingRoot: 'bb'.repeat(32),
+        commonRoot: 'cc'.repeat(32),
+        createdAt: 3_000,
+        logicalBytes: 2_048,
+        manifestSha256: 'dd'.repeat(32),
+        protectedSourceRoot: 'ee'.repeat(32),
+        releaseRoot: 'ff'.repeat(32),
+      })
+    );
+    const resolved = await t.query(api.packageVersions.resolveDownloadableVersion, {
+      apiSecret: 'test-secret',
+      actor,
+      editionId: input.editionId,
+      packageId: input.packageId,
+    });
+
+    expect(secondId).toBe(firstId);
+    expect(resolved).toMatchObject({
+      activeContentDigest: 'aa'.repeat(32),
+      bindingRoot: 'bb'.repeat(32),
+      commonRoot: 'cc'.repeat(32),
+      createdAt: 3_000,
+      logicalBytes: 2_048,
+      manifestSha256: 'dd'.repeat(32),
+      protectedSourceRoot: 'ee'.repeat(32),
+      releaseRoot: 'ff'.repeat(32),
+      state: 'READY',
+      versionId: input.versionId,
+    });
+    expect(resolved?.deletedAt).toBeUndefined();
+  });
+
+  it('does not resurrect a deleted version from a stale READY event', async () => {
+    const t = makeTestConvex();
+    const actor = await createDownloadServiceActorBinding();
+    const input = {
+      createdAt: 1_000,
+      editionId: 'standard',
+      packageId: 'com.yucp.stale-reupload',
+      version: '2.0.0',
+      versionId: '00000000-0000-4000-8000-000000000023',
+    } as const;
+    const versionRefId = await t.mutation(
+      api.packageVersions.upsertReadyVersion,
+      await authenticatedReadyVersionArgs(input)
+    );
+    await t.mutation(api.packageVersions.markVersionDeleted, {
+      apiSecret: 'test-secret',
+      actor,
+      versionId: input.versionId,
+      deletedAt: 3_000,
+    });
+
+    await expect(
+      t.mutation(
+        api.packageVersions.upsertReadyVersion,
+        await authenticatedReadyVersionArgs({
+          ...input,
+          createdAt: 2_000,
+          manifestSha256: '99'.repeat(32),
+          releaseRoot: 'aa'.repeat(32),
+        })
+      )
+    ).resolves.toBe(versionRefId);
+    const resolved = await t.query(api.packageVersions.resolveDownloadableVersion, {
+      apiSecret: 'test-secret',
+      actor,
+      editionId: input.editionId,
+      packageId: input.packageId,
+    });
+    const stored = await t.run(async (ctx) => await ctx.db.get(versionRefId));
+
+    expect(resolved).toBeNull();
+    expect(stored).toMatchObject({
+      deletedAt: 3_000,
+      manifestSha256: '33'.repeat(32),
+      releaseRoot: '44'.repeat(32),
+      state: 'DELETED',
+    });
+  });
+
   it('rejects a different durable identity for an existing logical package version', async () => {
     const t = makeTestConvex();
     const logicalVersion = {
@@ -852,6 +960,23 @@ describe('packageVersions', () => {
       state: 'DELETED',
       versionId: baseVersionId,
     });
+  });
+
+  it('accepts a tombstone for a version that never reached the reference catalog', async () => {
+    const t = makeTestConvex();
+    const actor = await createDownloadServiceActorBinding();
+
+    await expect(
+      t.mutation(api.packageVersions.markVersionDeleted, {
+        apiSecret: 'test-secret',
+        actor,
+        versionId: '00000000-0000-4000-8000-000000000099',
+        deletedAt: 3_000,
+      })
+    ).resolves.toBeNull();
+    expect(
+      await t.run(async (ctx) => await ctx.db.query('package_versions_ref').collect())
+    ).toEqual([]);
   });
 
   it('deletes a base version without breaking the current update', async () => {

@@ -90,7 +90,7 @@ names consumed by apps/api, ingest-tus, the scheduler, and the delivery Worker.
 |---|---|---|
 | `/storage/ingest/shared/` | `UPLOAD_HMAC_KEY`, `INGEST_TUS_URL` | apps/api and ingest-tus |
 | `/storage/ingest/runtime/` | `INGEST_UPLOAD_DIR`, `INGEST_MAX_BYTES`, `INGEST_ALLOWED_ORIGIN` (optional) | ingest-tus only |
-| `/storage/catalog/` | `CATALOG_DATABASE_URL`, `CATALOG_MAX_ATTEMPTS` | ingest-tus and scheduler |
+| `/storage/catalog/` | `CATALOG_DATABASE_URL`, `CATALOG_MAX_ATTEMPTS`, `CATALOG_FAILED_RETENTION_MS` | ingest-tus, scheduler, and storage GC |
 | `/storage/common/configuration/` | `COMMON_S3_ENDPOINT`, `COMMON_S3_REGION`, `COMMON_S3_BUCKET`, `COMMON_CHUNK_PREFIX`, `COMMON_S3_REQUEST_TIMEOUT_MS`, `STORAGE_FORMAT_VERSION` | ingest-tus, scheduler, and common delivery Worker |
 | `/storage/common/write/` | `COMMON_S3_ACCESS_KEY_ID`, `COMMON_S3_SECRET_ACCESS_KEY` | ingest-tus and scheduler |
 | `/storage/common/read/` | `COMMON_S3_READONLY_ACCESS_KEY_ID`, `COMMON_S3_READONLY_SECRET_ACCESS_KEY` | common delivery Worker |
@@ -107,7 +107,7 @@ names consumed by apps/api, ingest-tus, the scheduler, and the delivery Worker.
 | `/storage/renditions/read/` | `RENDITION_S3_READONLY_ACCESS_KEY_ID`, `RENDITION_S3_READONLY_SECRET_ACCESS_KEY` | rendition Worker |
 | `/storage/materialization/capacity/` | `MATERIALIZATION_CHUNK_CACHE_MAX_BYTES`, `MATERIALIZATION_EMERGENCY_DISK_FLOOR_BYTES` | Linux materializer |
 | `/storage/delivery/shared/` | `DELIVERY_HMAC_KEY` | apps/api, VPM, and curated delivery Worker sync |
-| `/storage/delivery/api/` | `DELIVERY_BASE_URL`, `VPM_BASE_URL`, `VPM_PUBLIC_INDEX_URL` | apps/api and VPM only |
+| `/storage/delivery/api/` | `DELIVERY_BASE_URL`, `VPM_BASE_URL`, `VPM_PUBLIC_INDEX_URL`, `PRIVATE_VPM_ROOT_DOMAIN`, `PRIVATE_VPM_CLOUDFLARE_ACCOUNT_ID`, `PRIVATE_VPM_CLOUDFLARE_API_TOKEN`, `PRIVATE_VPM_CLOUDFLARE_SERVICE`, `PRIVATE_VPM_CLOUDFLARE_ZONE_ID`, `PRIVATE_VPM_CLOUDFLARE_ZONE_NAME` | apps/api and VPM only |
 | `/infra/convex/` | `CONVEX_URL`, `CONVEX_API_SECRET` | apps/api, Convex, bot, and scheduler |
 | `/infra/signing/service-auth/` | `INTERNAL_SERVICE_AUTH_SECRET` | apps/api, Convex, bot, and scheduler |
 
