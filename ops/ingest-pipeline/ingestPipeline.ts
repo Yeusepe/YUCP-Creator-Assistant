@@ -484,7 +484,12 @@ export async function beginVersion(input: BeginVersionInput): Promise<PackageVer
   if (created.state === 'UPLOADING') {
     return created;
   }
-  if (created.state !== 'CREATED') {
+  // FAILED is retriable, and the catalog state machine says so: it allows
+  // FAILED -> UPLOADING. Refusing it here meant one failed upload permanently
+  // burned that version number — every retry answered 409 while the creator saw
+  // an empty package list, because failed versions are not listed anywhere.
+  // Completed states stay immutable.
+  if (created.state !== 'CREATED' && created.state !== 'FAILED') {
     throw new Error('Package version is immutable after upload completion');
   }
 
