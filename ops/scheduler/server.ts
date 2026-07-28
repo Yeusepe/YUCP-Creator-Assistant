@@ -1,10 +1,13 @@
 import { fetchInfisicalSecrets } from '@yucp/shared/infisical/fetchSecrets';
+import { redactForLogging } from '@yucp/shared/logging/redaction';
+import { initBunServerObservability } from '@yucp/shared/serverObservability';
 import {
   Catalog,
   type CatalogDatabase,
   type ConvexCatalogPublishConfig,
   createConvexCatalogPublish,
   createConvexPackageCreatorResolver,
+  DEFAULT_MAX_ATTEMPTS,
   DEFAULT_RECONCILE_BATCH_LIMIT,
   ExactStorageCatalog,
   loadConvexCatalogPublishConfig,
@@ -33,6 +36,7 @@ export const SCHEDULER_INFISICAL_KEYS = [
   'CONVEX_API_SECRET',
   'CONVEX_URL',
   'INTERNAL_SERVICE_AUTH_SECRET',
+  'CATALOG_MAX_ATTEMPTS',
   'CATALOG_DATABASE_URL',
   'COMMON_S3_ENDPOINT',
   'COMMON_S3_REGION',
@@ -55,6 +59,7 @@ export interface SchedulerRuntimeEnv {
   common: CasConfig;
   metadata: CasConfig;
   protected: CasConfig;
+  catalogMaxAttempts: number;
   catalogDatabaseUrl: string;
   publish: ConvexCatalogPublishConfig;
   scratchRoot: string;
@@ -95,6 +100,7 @@ export async function loadSchedulerRuntimeEnv(
 
   return {
     common: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.common),
+    catalogMaxAttempts: positiveInteger(runtimeEnv, 'CATALOG_MAX_ATTEMPTS', DEFAULT_MAX_ATTEMPTS),
     metadata: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.metadata),
     protected: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.protected),
     catalogDatabaseUrl: requiredValue(runtimeEnv, 'CATALOG_DATABASE_URL'),
@@ -107,6 +113,26 @@ function errorName(error: unknown): string {
   return error instanceof Error ? error.name : 'unknown_error';
 }
 
+export function schedulerErrorDiagnostic(error: unknown): {
+  errorMessage: string;
+  reason: string;
+} {
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  const withoutUrlCredentials = rawMessage.replace(
+    /(\b[a-z][a-z0-9+.-]*:\/\/)[^@\s/]+@/giu,
+    '$1[REDACTED]@'
+  );
+  const errorMessage = String(redactForLogging(withoutUrlCredentials))
+    .replace(/\[AUTH_REDACTED\]\[TOKEN_REDACTED\]/gu, '[AUTH_REDACTED]')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .slice(0, 500);
+  return {
+    errorMessage: errorMessage || 'Unknown scheduler failure',
+    reason: errorName(error),
+  };
+}
+
 export async function buildSchedulerRuntime(
   env: NodeJS.ProcessEnv = process.env,
   fetchSecrets: FetchInfisicalSecrets = fetchInfisicalSecrets
@@ -115,7 +141,7 @@ export async function buildSchedulerRuntime(
   const database = openCatalogDatabase(runtimeEnv.catalogDatabaseUrl);
   try {
     await runCatalogMigrations(database);
-    const catalog = new Catalog(database);
+    const catalog = new Catalog(database, { maxAttempts: runtimeEnv.catalogMaxAttempts });
     const durableStorage = new DurableExactStorage(
       new ExactStorageCatalog(database),
       new S3ExactStoragePort({
@@ -143,9 +169,14 @@ export async function buildSchedulerRuntime(
       database,
       metadataStore,
       intervalMs: positiveInteger(env, 'SCHEDULER_INTERVAL_MS', DEFAULT_SCHEDULER_INTERVAL_MS),
-      onError(error) {
+      maxAttempts: runtimeEnv.catalogMaxAttempts,
+      onError(error, context) {
         console.error(
-          JSON.stringify({ event: 'ingest_scheduler.tick_failed', reason: errorName(error) })
+          JSON.stringify({
+            event: 'ingest_scheduler.tick_failed',
+            ...context,
+            ...schedulerErrorDiagnostic(error),
+          })
         );
       },
       publish: createConvexCatalogPublish(runtimeEnv.publish),
@@ -208,6 +239,14 @@ export async function buildSchedulerRuntime(
 }
 
 async function main(): Promise<void> {
+  initBunServerObservability({
+    env: process.env,
+    serviceName: 'yucp-ingest-scheduler',
+    resourceAttributes: {
+      'service.instance.capacity': 1,
+      'service.instance.mode': 'fixed',
+    },
+  });
   const runtime = await buildSchedulerRuntime();
   runtime.scheduler.start();
   console.info(JSON.stringify({ event: 'ingest_scheduler.started' }));
@@ -225,7 +264,10 @@ async function main(): Promise<void> {
   const stopOnSignal = (): void => {
     stop().catch((error) => {
       console.error(
-        JSON.stringify({ event: 'ingest_scheduler.stop_failed', reason: errorName(error) })
+        JSON.stringify({
+          event: 'ingest_scheduler.stop_failed',
+          ...schedulerErrorDiagnostic(error),
+        })
       );
       process.exitCode = 1;
     });
@@ -238,7 +280,10 @@ async function main(): Promise<void> {
 if (import.meta.main) {
   main().catch((error) => {
     console.error(
-      JSON.stringify({ event: 'ingest_scheduler.start_failed', reason: errorName(error) })
+      JSON.stringify({
+        event: 'ingest_scheduler.start_failed',
+        ...schedulerErrorDiagnostic(error),
+      })
     );
     process.exitCode = 1;
   });

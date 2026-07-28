@@ -1539,6 +1539,89 @@ describe('dashboard packages route', () => {
     expect(screen.queryByText(/duplicate key|constraint|pipeline/i)).not.toBeInTheDocument();
   });
 
+  it('keeps watching a recoverable promotion failure until the version becomes ready', async () => {
+    let statusPolls = 0;
+    apiPostMock.mockResolvedValue({
+      versionId: 'version-recovering',
+      exp: '123',
+      sig: 'signature',
+      tusEndpoint: 'https://ingest.test/files',
+      headers: { 'X-YUCP-Version-Id': 'version-recovering' },
+      catalogProductId: 'catalog_product_1',
+      protectionPolicyId: 'supported-visual-assets-v2',
+    });
+    apiGetMock.mockImplementation((path: string) => {
+      if (path === '/api/creator/packages') {
+        return Promise.resolve({ data: [product], hasMore: false, nextCursor: null });
+      }
+      if (path === versionStatusPath('version-recovering')) {
+        statusPolls += 1;
+        return Promise.resolve(
+          statusPolls === 1
+            ? {
+                editionId: 'standard',
+                errorCategory: null,
+                errorCode: null,
+                estimatedStartAt: new Date(Date.now() + 30_000).toISOString(),
+                packageId: 'com.creator.avatar-bundle',
+                queuePosition: null,
+                state: 'recovering',
+                updatedAt: new Date().toISOString(),
+                version: '2.5.2',
+                versionId: 'version-recovering',
+              }
+            : {
+                editionId: 'standard',
+                errorCategory: null,
+                errorCode: null,
+                estimatedStartAt: null,
+                packageId: 'com.creator.avatar-bundle',
+                queuePosition: null,
+                state: 'ready',
+                updatedAt: new Date().toISOString(),
+                version: '2.5.2',
+                versionId: 'version-recovering',
+              }
+        );
+      }
+      if (path === '/api/creator/packages/catalog_product_1') {
+        return Promise.resolve(product);
+      }
+      if (path === '/api/creator/packages/by-package/com.creator.avatar-bundle/vcc-link') {
+        return Promise.resolve({
+          status: 'inactive',
+          bootstrapDownloadUrl:
+            '/api/creator/packages/by-package/com.creator.avatar-bundle/bootstrap',
+        });
+      }
+      return Promise.reject(new Error(`Unexpected GET ${path}`));
+    });
+    const Component = DashboardPackagesRoute.options.component;
+    if (!Component) throw new Error('Dashboard packages component is missing');
+
+    render(<Component />, { wrapper: createWrapper() });
+    const productName = await screen.findByText('Avatar Bundle');
+    const productRow = productName.closest('.pm-product-row');
+    if (!productRow) throw new Error('Product row was not rendered');
+    fireEvent.click(within(productRow).getByRole('button', { name: 'Upload' }));
+    fireEvent.change(screen.getByLabelText('Release label'), { target: { value: '2.5.2' } });
+    const file = new File(['package bytes'], 'avatar-bundle-recovering.zip', {
+      type: 'application/zip',
+    });
+    fireEvent.change(screen.getByLabelText('Choose package file'), {
+      target: { files: Object.assign([file], { item: () => file }) },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload package' }));
+    await waitFor(() => expect(uploadStartMock).toHaveBeenCalledOnce());
+
+    uploadSuccessRef.current?.();
+
+    expect(await screen.findByText(/Recovering preparation/i)).toBeInTheDocument();
+    await waitFor(() => expect(statusPolls).toBeGreaterThanOrEqual(2), { timeout: 2_000 });
+    expect(screen.queryByText(/needs attention/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/could not be prepared/i)).not.toBeInTheDocument();
+  });
+
   it('loads another bounded catalog page with visible progress', async () => {
     let resolveNextPage: ((value: unknown) => void) | undefined;
     apiGetMock.mockImplementation((path: string, options?: { params?: { cursor?: string } }) => {

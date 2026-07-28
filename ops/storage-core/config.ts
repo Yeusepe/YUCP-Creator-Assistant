@@ -1,4 +1,5 @@
 import { fetchInfisicalSecrets } from '@yucp/shared/infisical/fetchSecrets';
+import { DEFAULT_MAX_ATTEMPTS } from '../catalog/retry-policy';
 
 const REQUIRED_CAS_KEYS = [
   'CAS_S3_ENDPOINT',
@@ -59,6 +60,7 @@ const LOCAL_STORAGE_OVERRIDE_KEYS = new Set([
 
 export const INGEST_INFISICAL_KEYS = [
   ...REQUIRED_INGEST_INFISICAL_KEYS,
+  'CATALOG_MAX_ATTEMPTS',
   'INGEST_ALLOWED_ORIGIN',
 ] as const;
 
@@ -81,6 +83,7 @@ export type IngestRuntimeEnv = {
   uploadHmacKey: string;
   catalogControlSharedSecret: string;
   catalogDatabaseUrl: string;
+  catalogMaxAttempts: number;
   ingestScratchDir: string;
   ingestUploadDir: string;
   ingestMaxBytes: number;
@@ -307,11 +310,18 @@ export async function loadIngestRuntimeEnv(
   if (!Number.isSafeInteger(ingestMaxBytes) || ingestMaxBytes <= 0) {
     throw new Error('Invalid ingest environment variable: INGEST_MAX_BYTES');
   }
+  const catalogMaxAttempts = Number(
+    normalizeOptional(runtimeEnv.CATALOG_MAX_ATTEMPTS) ?? DEFAULT_MAX_ATTEMPTS
+  );
+  if (!Number.isSafeInteger(catalogMaxAttempts) || catalogMaxAttempts <= 0) {
+    throw new Error('Invalid ingest environment variable: CATALOG_MAX_ATTEMPTS');
+  }
 
   return {
     uploadHmacKey: requireValue(runtimeEnv, 'UPLOAD_HMAC_KEY'),
     catalogControlSharedSecret: requireValue(runtimeEnv, 'PACKAGE_CATALOG_CONTROL_SHARED_SECRET'),
     catalogDatabaseUrl: requireValue(runtimeEnv, 'CATALOG_DATABASE_URL'),
+    catalogMaxAttempts,
     ingestScratchDir: requireValue(runtimeEnv, 'INGEST_SCRATCH_DIR'),
     ingestUploadDir: requireValue(runtimeEnv, 'INGEST_UPLOAD_DIR'),
     ingestMaxBytes,

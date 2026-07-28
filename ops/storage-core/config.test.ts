@@ -119,6 +119,7 @@ describe('loadIngestRuntimeEnv', () => {
     const runtime = await loadIngestRuntimeEnv(sourceEnv);
 
     expect(runtime.catalogDatabaseUrl).toBe('postgresql://local-test.invalid/catalog');
+    expect(runtime.catalogMaxAttempts).toBe(5);
     expect(runtime.uploadHmacKey).toBe('placeholder-local-upload-hmac-key');
     expect(runtime.catalogControlSharedSecret).toBe('placeholder-local-catalog-control-secret');
     expect(runtime.ingestScratchDir).toBe('C:/tmp/yucp-ingest-scratch-test');
@@ -129,6 +130,21 @@ describe('loadIngestRuntimeEnv', () => {
     expect(runtime.protected.chunkPrefix).toBe('chunks/');
     expect(runtime.quarantine.bucket).toBe('quarantine-test');
     expect(sourceEnv).toEqual(originalEnv);
+  });
+
+  it('validates the catalog retry cap used to classify recoverable versions', async () => {
+    await expect(
+      loadIngestRuntimeEnv({
+        ...COMPLETE_STORAGE_ROLE_ENV,
+        CATALOG_DATABASE_URL: 'postgresql://local-test.invalid/catalog',
+        CATALOG_MAX_ATTEMPTS: '0',
+        INGEST_SCRATCH_DIR: 'C:/tmp/yucp-ingest-scratch-test',
+        INGEST_UPLOAD_DIR: 'C:/tmp/yucp-ingest-test',
+        INGEST_MAX_BYTES: '1048576',
+        PACKAGE_CATALOG_CONTROL_SHARED_SECRET: 'placeholder-local-catalog-control-secret',
+        UPLOAD_HMAC_KEY: 'placeholder-local-upload-hmac-key',
+      })
+    ).rejects.toThrow('Invalid ingest environment variable: CATALOG_MAX_ATTEMPTS');
   });
 
   it('keeps disposable storage values local when Infisical bootstrap values exist', async () => {

@@ -1,5 +1,9 @@
 import { describe, expect, it, mock } from 'bun:test';
-import { loadSchedulerRuntimeEnv, SCHEDULER_INFISICAL_KEYS } from './server';
+import {
+  loadSchedulerRuntimeEnv,
+  SCHEDULER_INFISICAL_KEYS,
+  schedulerErrorDiagnostic,
+} from './server';
 
 const COMPLETE_RAW_ENV = {
   INFISICAL_PROJECT_ID: 'placeholder-project-id',
@@ -8,6 +12,7 @@ const COMPLETE_RAW_ENV = {
   CONVEX_API_SECRET: 'placeholder-raw-convex-api-secret',
   CONVEX_URL: 'https://raw-convex.invalid',
   INTERNAL_SERVICE_AUTH_SECRET: 'placeholder-raw-internal-auth-secret',
+  CATALOG_MAX_ATTEMPTS: '5',
   CATALOG_DATABASE_URL: 'postgresql://raw.invalid/catalog',
   INGEST_SCRATCH_DIR: 'C:/tmp/yucp-scheduler-scratch',
   COMMON_S3_ENDPOINT: 'https://raw-common.invalid',
@@ -28,6 +33,7 @@ const COMPLETE_RAW_ENV = {
 } satisfies NodeJS.ProcessEnv;
 
 const FETCHED_SCHEDULER_SECRETS = {
+  CATALOG_MAX_ATTEMPTS: '7',
   CONVEX_API_SECRET: 'placeholder-fetched-convex-api-secret',
   CONVEX_URL: 'https://fetched-convex.invalid',
   INTERNAL_SERVICE_AUTH_SECRET: 'placeholder-fetched-internal-auth-secret',
@@ -50,6 +56,25 @@ const FETCHED_SCHEDULER_SECRETS = {
 } as const;
 
 describe('scheduler production runtime environment', () => {
+  it('preserves actionable upstream request IDs while redacting credentials', () => {
+    expect(
+      schedulerErrorDiagnostic(new Error('[Request ID: 117d71b32c8b4ff3] Server Error'))
+    ).toEqual({
+      errorMessage: '[Request ID: 117d71b32c8b4ff3] Server Error',
+      reason: 'Error',
+    });
+    expect(
+      schedulerErrorDiagnostic(
+        new Error(
+          'postgresql://catalog-user:database-password@db.internal/catalog authorization: Bearer abc.def.ghi'
+        )
+      )
+    ).toEqual({
+      errorMessage: 'postgresql://[REDACTED]@db.internal/catalog authorization: [AUTH_REDACTED]',
+      reason: 'Error',
+    });
+  });
+
   it('hydrates the catalog publisher and storage config before reading them', async () => {
     const fetchSecrets = mock(async (_env: NodeJS.ProcessEnv) => FETCHED_SCHEDULER_SECRETS);
 
@@ -57,6 +82,7 @@ describe('scheduler production runtime environment', () => {
       'CONVEX_API_SECRET',
       'CONVEX_URL',
       'INTERNAL_SERVICE_AUTH_SECRET',
+      'CATALOG_MAX_ATTEMPTS',
       'CATALOG_DATABASE_URL',
       'COMMON_S3_ENDPOINT',
       'COMMON_S3_REGION',
@@ -79,6 +105,7 @@ describe('scheduler production runtime environment', () => {
 
     expect(fetchSecrets).toHaveBeenCalledTimes(1);
     expect(fetchSecrets).toHaveBeenCalledWith(COMPLETE_RAW_ENV);
+    expect(runtime.catalogMaxAttempts).toBe(7);
     expect(runtime.catalogDatabaseUrl).toBe(FETCHED_SCHEDULER_SECRETS.CATALOG_DATABASE_URL);
     expect(runtime.publish).toEqual({
       convexApiSecret: FETCHED_SCHEDULER_SECRETS.CONVEX_API_SECRET,

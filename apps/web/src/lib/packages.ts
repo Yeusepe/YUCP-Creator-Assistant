@@ -51,7 +51,15 @@ export type CreatorPackageVersionStatus = {
   estimatedStartAt: string | null;
   packageId: string;
   queuePosition: number | null;
-  state: 'queued' | 'uploading' | 'preparing' | 'publishing' | 'ready' | 'failed' | 'deleted';
+  state:
+    | 'queued'
+    | 'uploading'
+    | 'preparing'
+    | 'publishing'
+    | 'recovering'
+    | 'ready'
+    | 'failed'
+    | 'deleted';
   updatedAt: string;
   version: string;
   versionId: string;

@@ -228,10 +228,15 @@ describe('ingest catalog control boundary', () => {
 
   it('returns only a safe durable version status with preserved trace context', async () => {
     const getVersion = mock(async () => ({
+      assemblyObjectId: null,
+      attempts: 1,
       editionId: 'commercial',
       error: 'duplicate key value violates unique constraint package_versions_secret',
       id: VERSION_ID,
+      nextAttemptAt: new Date('2026-07-26T12:00:30.000Z'),
       packageId: PACKAGE_ID,
+      releaseRoot: null,
+      sourceFormat: null,
       state: 'FAILED',
       updatedAt: new Date('2026-07-26T12:00:00.000Z'),
       version: '2.5.0',
@@ -284,6 +289,56 @@ describe('ingest catalog control boundary', () => {
         versionId: VERSION_ID,
       });
       expect(JSON.stringify(body).includes('duplicate key')).toBe(false);
+    });
+  });
+
+  it('reports a resumable failed promotion as recovering until its bounded redrive runs', async () => {
+    const getVersion = mock(async () => ({
+      assemblyObjectId: 's3-index:assembly-1',
+      attempts: 1,
+      editionId: 'commercial',
+      error: 'temporary object-store failure',
+      id: VERSION_ID,
+      nextAttemptAt: new Date('2026-07-26T12:00:30.000Z'),
+      packageId: PACKAGE_ID,
+      releaseRoot: 'f'.repeat(64),
+      sourceFormat: 'CANONICAL_ZIP_V1',
+      state: 'FAILED',
+      updatedAt: new Date('2026-07-26T12:00:00.000Z'),
+      version: '2.5.0',
+    }));
+    const handler = createCatalogControlHandler({
+      catalog: {
+        deleteVersion: mock(async () => null as never),
+        getVersion,
+        listVersionsPage: mock(async () => ({ data: [], hasMore: false, nextCursor: null })),
+      },
+      maxAttempts: 5,
+      sharedSecret: SHARED_SECRET,
+    });
+
+    await withServer(handler, async (baseUrl) => {
+      const url = new URL(`${baseUrl}/v1/internal/catalog/package-versions/status`);
+      url.searchParams.set('editionId', 'commercial');
+      url.searchParams.set('packageId', PACKAGE_ID);
+      url.searchParams.set('versionId', VERSION_ID);
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${SHARED_SECRET}` },
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        editionId: 'commercial',
+        errorCategory: null,
+        errorCode: null,
+        estimatedStartAt: '2026-07-26T12:00:30.000Z',
+        packageId: PACKAGE_ID,
+        queuePosition: null,
+        state: 'recovering',
+        updatedAt: '2026-07-26T12:00:00.000Z',
+        version: '2.5.0',
+        versionId: VERSION_ID,
+      });
     });
   });
 

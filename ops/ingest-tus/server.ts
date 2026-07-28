@@ -54,7 +54,7 @@ export async function buildIngestTusRuntime(
   const database = openCatalogDatabase(runtimeEnv.catalogDatabaseUrl);
   try {
     await runCatalogMigrations(database);
-    const catalog = new Catalog(database);
+    const catalog = new Catalog(database, { maxAttempts: runtimeEnv.catalogMaxAttempts });
     const durableStorage = new DurableExactStorage(
       new ExactStorageCatalog(database),
       new S3ExactStoragePort({
@@ -68,6 +68,7 @@ export async function buildIngestTusRuntime(
       handler: createIngestTusServer({
         allowedOrigin: runtimeEnv.ingestAllowedOrigin,
         catalog,
+        catalogMaxAttempts: runtimeEnv.catalogMaxAttempts,
         releasePins: new StorageGcCatalog(database),
         commonStore: s3CasStore(runtimeEnv.common, {
           durableStorage,

@@ -146,7 +146,13 @@ async function claimRedrive(
         AND attempts < ${retryPolicy.maxAttempts}
         AND (next_attempt_at IS NULL OR next_attempt_at <= clock_timestamp())
         AND (
-          state = 'FAILED'
+          (
+            state = 'FAILED'
+            AND next_attempt_at IS NOT NULL
+            AND assembly_object_id IS NOT NULL
+            AND release_root IS NOT NULL
+            AND source_format IS NOT NULL
+          )
           OR (
             state IN ${transaction(transientStates)}
             AND updated_at <=
@@ -272,7 +278,13 @@ export async function reconcileCatalog(
       attempts < ${retryPolicy.maxAttempts}
       AND (next_attempt_at IS NULL OR next_attempt_at <= clock_timestamp())
       AND (
-        state = 'FAILED'
+        (
+          state = 'FAILED'
+          AND next_attempt_at IS NOT NULL
+          AND assembly_object_id IS NOT NULL
+          AND release_root IS NOT NULL
+          AND source_format IS NOT NULL
+        )
         OR (
           state IN ${sql(transientStates)}
           AND updated_at <=

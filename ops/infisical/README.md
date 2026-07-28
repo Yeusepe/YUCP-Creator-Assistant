@@ -90,7 +90,7 @@ names consumed by apps/api, ingest-tus, the scheduler, and the delivery Worker.
 |---|---|---|
 | `/storage/ingest/shared/` | `UPLOAD_HMAC_KEY`, `INGEST_TUS_URL` | apps/api and ingest-tus |
 | `/storage/ingest/runtime/` | `INGEST_UPLOAD_DIR`, `INGEST_MAX_BYTES`, `INGEST_ALLOWED_ORIGIN` (optional) | ingest-tus only |
-| `/storage/catalog/` | `CATALOG_DATABASE_URL` | ingest-tus and scheduler |
+| `/storage/catalog/` | `CATALOG_DATABASE_URL`, `CATALOG_MAX_ATTEMPTS` | ingest-tus and scheduler |
 | `/storage/common/configuration/` | `COMMON_S3_ENDPOINT`, `COMMON_S3_REGION`, `COMMON_S3_BUCKET`, `COMMON_CHUNK_PREFIX`, `COMMON_S3_REQUEST_TIMEOUT_MS`, `STORAGE_FORMAT_VERSION` | ingest-tus, scheduler, and common delivery Worker |
 | `/storage/common/write/` | `COMMON_S3_ACCESS_KEY_ID`, `COMMON_S3_SECRET_ACCESS_KEY` | ingest-tus and scheduler |
 | `/storage/common/read/` | `COMMON_S3_READONLY_ACCESS_KEY_ID`, `COMMON_S3_READONLY_SECRET_ACCESS_KEY` | common delivery Worker |

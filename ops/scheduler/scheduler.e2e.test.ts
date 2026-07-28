@@ -31,7 +31,11 @@ import { createS3Bucket } from '../storage-core/s3Control';
 import { waitForMinioReady } from '../testing/minioReadiness';
 import { waitForPostgres } from '../testing/postgresReadiness';
 import { createUnityPackageRecordFixture } from '../testing/unityPackageFixture';
-import { createIngestScheduler, type IngestScheduler } from './scheduler';
+import {
+  createIngestScheduler,
+  type IngestScheduler,
+  type IngestSchedulerErrorContext,
+} from './scheduler';
 import { buildSchedulerRuntime, type SchedulerRuntime } from './server';
 
 const POSTGRES_IMAGE =
@@ -165,6 +169,7 @@ async function buildProductionSchedulerRuntime(): Promise<SchedulerRuntime> {
     SCHEDULER_STUCK_THRESHOLD_MS: '60000',
   } satisfies NodeJS.ProcessEnv;
   const runtime = await buildSchedulerRuntime(sourceEnv, async () => ({
+    CATALOG_MAX_ATTEMPTS: '5',
     CONVEX_API_SECRET: 'scheduler-e2e-convex-api-secret',
     CONVEX_URL: 'https://scheduler-e2e.invalid',
     INTERNAL_SERVICE_AUTH_SECRET: 'scheduler-e2e-internal-auth-secret',
@@ -461,15 +466,15 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
 
     let activePublishes = 0;
     let maxConcurrentPublishes = 0;
-    const errors: unknown[] = [];
+    const errors: { context: IngestSchedulerErrorContext; error: unknown }[] = [];
     const scheduler = createIngestScheduler({
       batchLimit: 10,
       catalog: activeCatalog,
       ...activeStores,
       database: activeSql,
       intervalMs,
-      onError: (error) => {
-        errors.push(error);
+      onError: (error, context) => {
+        errors.push({ context, error });
       },
       publish: async (event) => {
         activePublishes += 1;
@@ -583,8 +588,8 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
       ...activeStores,
       database: activeSql,
       intervalMs,
-      onError: (error) => {
-        errors.push(error);
+      onError: (error, context) => {
+        errors.push({ context, error });
       },
       publish: dispatchPublishedEvent,
       redrive: dispatchRedrive,
@@ -598,10 +603,14 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
     await waitForState(recoveryVersion.id, 'READY');
     await errorScheduler.stop();
     expect(errors).toHaveLength(1);
-    expect(errors[0]).toHaveProperty(
+    expect(errors[0]?.error).toHaveProperty(
       'message',
       expect.stringContaining('CAS object store kind local does not match s3 store')
     );
+    expect(errors[0]?.context).toEqual({
+      stage: 'promotion',
+      versionId: badStoreVersion.id,
+    });
 
     console.log(
       [

@@ -17,6 +17,15 @@ export interface RetryPolicy {
   retryBackoffCapMs: number;
 }
 
+export interface CatalogVersionRedriveCandidate {
+  assemblyObjectId?: string | null;
+  attempts?: number;
+  nextAttemptAt?: Date | null;
+  releaseRoot?: string | null;
+  sourceFormat?: string | null;
+  state?: string;
+}
+
 function requirePositiveSafeInteger(value: number, name: string): void {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new RangeError(`${name} must be a positive safe integer`);
@@ -48,4 +57,21 @@ export function retryBackoffMs(attempts: number, policy: RetryPolicy): number {
   requirePositiveSafeInteger(attempts, 'attempts');
   const delay = policy.retryBackoffBaseMs * policy.retryBackoffFactor ** (attempts - 1);
   return Math.min(policy.retryBackoffCapMs, delay);
+}
+
+export function isCatalogVersionRedriveEligible(
+  version: CatalogVersionRedriveCandidate,
+  maxAttempts: number
+): boolean {
+  requirePositiveSafeInteger(maxAttempts, 'maxAttempts');
+  return (
+    version.state === 'FAILED' &&
+    Number.isSafeInteger(version.attempts) &&
+    (version.attempts ?? maxAttempts) < maxAttempts &&
+    version.nextAttemptAt instanceof Date &&
+    Number.isFinite(version.nextAttemptAt.getTime()) &&
+    Boolean(version.assemblyObjectId) &&
+    Boolean(version.releaseRoot) &&
+    Boolean(version.sourceFormat)
+  );
 }

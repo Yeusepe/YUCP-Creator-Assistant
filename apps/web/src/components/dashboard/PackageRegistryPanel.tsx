@@ -69,7 +69,15 @@ type SelectedUpload = {
   fileName: string;
   fileSize: number;
   progress: number;
-  status: 'ready' | 'uploading' | 'queued' | 'preparing' | 'publishing' | 'complete' | 'failed';
+  status:
+    | 'ready'
+    | 'uploading'
+    | 'queued'
+    | 'preparing'
+    | 'publishing'
+    | 'recovering'
+    | 'complete'
+    | 'failed';
   catalogProductId?: string;
   editionId?: string;
   errorMessage?: string;
@@ -93,7 +101,10 @@ type PersistedAcceptedUploadLane = {
   fileSize: number;
   packageId: string;
   progress: number;
-  status: Extract<SelectedUpload['status'], 'uploading' | 'queued' | 'preparing' | 'publishing'>;
+  status: Extract<
+    SelectedUpload['status'],
+    'uploading' | 'queued' | 'preparing' | 'publishing' | 'recovering'
+  >;
   version: string;
   versionId: string;
 };
@@ -124,7 +135,9 @@ function readAcceptedUploadLane(): PersistedAcceptedUploadLane | null {
       typeof parsed.fileSize !== 'number' ||
       typeof parsed.packageId !== 'string' ||
       typeof parsed.progress !== 'number' ||
-      !['uploading', 'queued', 'preparing', 'publishing'].includes(parsed.status ?? '') ||
+      !['uploading', 'queued', 'preparing', 'publishing', 'recovering'].includes(
+        parsed.status ?? ''
+      ) ||
       typeof parsed.version !== 'string' ||
       typeof parsed.versionId !== 'string'
     ) {
@@ -228,6 +241,8 @@ function getReleaseStateLabel(state: CreatorPackageVersionStatus['state']): stri
       return 'Preparing';
     case 'publishing':
       return 'Publishing';
+    case 'recovering':
+      return 'Recovering';
     case 'ready':
       return 'Ready';
     case 'failed':
@@ -381,7 +396,7 @@ class PackageVersionStatusCheckError extends Error {
 type PackageVersionProgress = {
   estimatedStartAt: string | null;
   queuePosition: number | null;
-  state: 'queued' | 'uploading' | 'preparing' | 'publishing';
+  state: 'queued' | 'uploading' | 'preparing' | 'publishing' | 'recovering';
 };
 
 async function waitForPackageVersionReady(
@@ -447,12 +462,13 @@ async function waitForPackageVersionReady(
 
 function isServerProcessingStatus(
   status: SelectedUpload['status'] | CreatorPackageVersionStatus['state']
-): status is 'uploading' | 'queued' | 'preparing' | 'publishing' {
+): status is 'uploading' | 'queued' | 'preparing' | 'publishing' | 'recovering' {
   return (
     status === 'uploading' ||
     status === 'queued' ||
     status === 'preparing' ||
-    status === 'publishing'
+    status === 'publishing' ||
+    status === 'recovering'
   );
 }
 
@@ -489,6 +505,8 @@ function getUploadJourneyPosition(upload: SelectedUpload): number {
       return 2;
     case 'publishing':
       return 3;
+    case 'recovering':
+      return 3;
     case 'complete':
       return UPLOAD_JOURNEY_STEPS.length;
     default:
@@ -508,6 +526,8 @@ function getUploadStatusLine(upload: SelectedUpload): string {
       return 'Optimizing delivery...';
     case 'publishing':
       return 'Publishing version...';
+    case 'recovering':
+      return 'Recovering preparation...';
     default:
       return '';
   }
@@ -631,6 +651,8 @@ function getUploadHeadline(upload: SelectedUpload): string {
       return `Preparing ${upload.fileName}`;
     case 'publishing':
       return `Publishing ${upload.fileName}`;
+    case 'recovering':
+      return `Recovering ${upload.fileName}`;
     case 'complete':
       return 'Upload complete';
     case 'failed':
@@ -652,6 +674,8 @@ function getUploadSupportingCopy(upload: SelectedUpload): string {
       return 'We are checking and preparing this version.';
     case 'publishing':
       return 'Preparation finished. We are making this version available to buyers.';
+    case 'recovering':
+      return 'The server is automatically resuming preparation from its last safe checkpoint.';
     case 'complete':
       return '';
     case 'failed':

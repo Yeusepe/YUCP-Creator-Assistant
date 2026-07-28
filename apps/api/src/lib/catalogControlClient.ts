@@ -20,6 +20,7 @@ export type CatalogVersionStatusState =
   | 'uploading'
   | 'preparing'
   | 'publishing'
+  | 'recovering'
   | 'ready'
   | 'failed'
   | 'deleted';
@@ -229,6 +230,7 @@ function parseVersionPage(
     'uploading',
     'preparing',
     'publishing',
+    'recovering',
     'ready',
     'failed',
   ]);
@@ -285,6 +287,7 @@ function parseVersionStatus(body: Record<string, unknown>): CatalogVersionStatus
     'uploading',
     'preparing',
     'publishing',
+    'recovering',
     'ready',
     'failed',
     'deleted',

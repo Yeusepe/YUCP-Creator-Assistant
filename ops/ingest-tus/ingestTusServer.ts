@@ -67,6 +67,7 @@ export interface CreateIngestTusServerInput {
   scratchRoot: string;
   uploadDir: string;
   maxBytes?: number;
+  catalogMaxAttempts?: number;
   uploadHmacKey: string;
   catalogControlSharedSecret: string;
   releasePins?: Pick<StorageGcCatalog, 'createReleasePin' | 'releaseReleasePin'>;
@@ -451,6 +452,7 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Ingest
   const inFlightAssemblies = new Set<Promise<void>>();
   const catalogControlHandler = createCatalogControlHandler({
     catalog: input.catalog,
+    ...(input.catalogMaxAttempts ? { maxAttempts: input.catalogMaxAttempts } : {}),
     ...(input.releasePins ? { releasePins: input.releasePins } : {}),
     sharedSecret: input.catalogControlSharedSecret,
   });

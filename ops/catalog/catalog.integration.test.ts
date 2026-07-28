@@ -2217,6 +2217,30 @@ describe.serial('PostgreSQL catalog integration', () => {
     expect(publishedIds).toHaveLength(3);
   });
 
+  it('does not redrive a failed version that has no assembled release to resume', async () => {
+    const activeCatalog = requireCatalog();
+    const database = requireSql();
+    const versionId = await createUploadingVersion('unresumable-failure');
+    await activeCatalog.markFailed(versionId, 'upload failed before assembly completed');
+    await database`
+      UPDATE package_versions
+      SET next_attempt_at = clock_timestamp() - interval '1 millisecond'
+      WHERE id = ${versionId}
+    `;
+
+    let redriveCalls = 0;
+    const result = await reconcileCatalog(database, {
+      stuckThresholdMs: 60 * 60 * 1000,
+      redrive: async () => {
+        redriveCalls += 1;
+      },
+      publish: async () => {},
+    });
+
+    expect(result.versionsRedriven).toBe(0);
+    expect(redriveCalls).toBe(0);
+  });
+
   it('no-infinite-retry: a perpetually failing row is never re-driven after the attempt cap', async () => {
     const activeCatalog = requireCatalog();
     const database = requireSql();
@@ -2224,6 +2248,14 @@ describe.serial('PostgreSQL catalog integration', () => {
     const maxAttempts = 5;
     const initialFailure = await activeCatalog.markFailed(versionId, 'permanent dispatch failure');
     expect(initialFailure.attempts).toBe(1);
+    await database`
+      UPDATE package_versions
+      SET
+        assembly_object_id = 's3-index:perpetually-failing',
+        release_root = ${'f'.repeat(64)},
+        source_format = 'CANONICAL_ZIP_V1'
+      WHERE id = ${versionId}
+    `;
     await database`UPDATE catalog_outbox SET published_at = clock_timestamp()`;
 
     let redriveCalls = 0;

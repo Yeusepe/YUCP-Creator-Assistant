@@ -1,6 +1,12 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
-import { IllegalCatalogTransitionError, PackageVersionNotFoundError } from '../catalog';
+import {
+  DEFAULT_MAX_ATTEMPTS,
+  IllegalCatalogTransitionError,
+  isCatalogVersionRedriveEligible,
+  PackageVersionNotFoundError,
+  resolveRetryPolicy,
+} from '../catalog';
 
 export const CATALOG_DELETE_VERSION_PATH = '/v1/internal/catalog/package-versions/delete' as const;
 export const CATALOG_LIST_VERSIONS_PATH = '/v1/internal/catalog/package-versions' as const;
@@ -26,9 +32,14 @@ type CatalogControlPort = {
     state: string;
   }>;
   getVersion(versionId: string): Promise<{
+    assemblyObjectId?: string | null;
+    attempts?: number;
     editionId?: string;
     error?: string | null;
+    nextAttemptAt?: Date | null;
     packageId: string;
+    releaseRoot?: string | null;
+    sourceFormat?: string | null;
     state?: string;
     updatedAt?: Date;
     version?: string;
@@ -45,8 +56,12 @@ type CatalogControlPort = {
       createdAt: Date;
       editionId: string;
       id: string;
+      assemblyObjectId?: string | null;
+      attempts?: number;
       packageId: string;
       releaseRoot: string | null;
+      nextAttemptAt?: Date | null;
+      sourceFormat?: string | null;
       state: string;
       updatedAt: Date;
       version: string;
@@ -89,6 +104,7 @@ export type CatalogControlEvent = {
 
 export interface CatalogControlHandlerInput {
   catalog: CatalogControlPort;
+  maxAttempts?: number;
   onEvent?: (event: CatalogControlEvent) => void;
   releasePins?: ReleasePinControlPort;
   sharedSecret: string;
@@ -351,9 +367,21 @@ function readVersionPageRequest(request: IncomingMessage): {
 }
 
 function publicVersionState(
-  state: string | undefined
-): 'queued' | 'uploading' | 'preparing' | 'publishing' | 'ready' | 'failed' | 'deleted' {
-  switch (state) {
+  version: Parameters<typeof isCatalogVersionRedriveEligible>[0],
+  maxAttempts: number
+):
+  | 'queued'
+  | 'uploading'
+  | 'preparing'
+  | 'publishing'
+  | 'recovering'
+  | 'ready'
+  | 'failed'
+  | 'deleted' {
+  if (isCatalogVersionRedriveEligible(version, maxAttempts)) {
+    return 'recovering';
+  }
+  switch (version.state) {
     case 'CREATED':
       return 'queued';
     case 'UPLOADING':
@@ -378,6 +406,9 @@ export function createCatalogControlHandler(input: CatalogControlHandlerInput): 
   if (Buffer.byteLength(sharedSecret, 'utf8') < 32) {
     throw new Error('Catalog control shared secret must contain at least 32 UTF-8 bytes');
   }
+  const maxAttempts = resolveRetryPolicy({
+    maxAttempts: input.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
+  }).maxAttempts;
 
   return (request, response) => {
     const startedAt = performance.now();
@@ -431,7 +462,7 @@ export function createCatalogControlHandler(input: CatalogControlHandlerInput): 
             editionId: version.editionId,
             packageId: version.packageId,
             releaseRoot: version.releaseRoot,
-            state: publicVersionState(version.state),
+            state: publicVersionState(version, maxAttempts),
             updatedAt: version.updatedAt.toISOString(),
             version: version.version,
             versionId: version.id,
@@ -493,7 +524,7 @@ export function createCatalogControlHandler(input: CatalogControlHandlerInput): 
         ) {
           throw new Error('Catalog returned an invalid package version status');
         }
-        const state = publicVersionState(current.state);
+        const state = publicVersionState(current, maxAttempts);
         emitEvent(input, {
           durationMs: Math.round(performance.now() - startedAt),
           event: eventName,
@@ -508,7 +539,10 @@ export function createCatalogControlHandler(input: CatalogControlHandlerInput): 
             editionId: current.editionId,
             errorCategory: state === 'failed' ? 'processing' : null,
             errorCode: state === 'failed' ? 'PACKAGE_VERSION_PROCESSING_FAILED' : null,
-            estimatedStartAt: null,
+            estimatedStartAt:
+              state === 'recovering' && current.nextAttemptAt
+                ? current.nextAttemptAt.toISOString()
+                : null,
             packageId: current.packageId,
             queuePosition: null,
             state,

@@ -181,6 +181,7 @@ describe('ingest-tus production runtime', () => {
       UPLOAD_HMAC_KEY: RAW_UPLOAD_HMAC_KEY,
     } satisfies NodeJS.ProcessEnv;
     const fetchSecrets = mock(async (_env: NodeJS.ProcessEnv) => ({
+      CATALOG_MAX_ATTEMPTS: '7',
       UPLOAD_HMAC_KEY: FETCHED_UPLOAD_HMAC_KEY,
       PACKAGE_CATALOG_CONTROL_SHARED_SECRET: FETCHED_CATALOG_CONTROL_SECRET,
       CATALOG_DATABASE_URL: requireCatalogDatabaseUrl(),
@@ -199,6 +200,7 @@ describe('ingest-tus production runtime', () => {
         `${prefix}_S3_ACCESS_KEY_ID`,
         `${prefix}_S3_SECRET_ACCESS_KEY`,
       ]),
+      'CATALOG_MAX_ATTEMPTS',
       'INGEST_ALLOWED_ORIGIN',
     ]);
 
@@ -304,6 +306,7 @@ describe('ingest-tus production runtime', () => {
       INGEST_SCRATCH_DIR: scratchDir,
     } satisfies NodeJS.ProcessEnv;
     const fetchSecrets = mock(async (_env: NodeJS.ProcessEnv) => ({
+      CATALOG_MAX_ATTEMPTS: '5',
       CONVEX_API_SECRET: 'placeholder-convex-api-secret',
       CONVEX_URL: 'https://placeholder-convex.invalid',
       INTERNAL_SERVICE_AUTH_SECRET: 'placeholder-internal-service-auth-secret',
