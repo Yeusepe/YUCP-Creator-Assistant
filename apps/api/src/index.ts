@@ -41,6 +41,7 @@ import {
   type PackageInstallerTufRepositoryRuntime,
 } from './lib/packageInstallerTufRepository';
 import { loadPackageInstallSessionConfig } from './lib/packageInstallSessionConfig';
+import { applyPublicOriginForwardingHeaders } from './lib/proxyForwardedOrigin';
 import {
   buildPublicApiRateLimitKey,
   checkPublicApiRateLimit,
@@ -829,6 +830,10 @@ async function routeRequest(request: Request): Promise<Response> {
       const proxyHeaders = new Headers(request.headers);
       proxyHeaders.delete('host');
       proxyHeaders.set('host', new URL(convexSiteUrl).host);
+
+      // Tell Convex which public origin the client actually called, so Better Auth
+      // validates DPoP `htu` against that URL instead of the internal convex.site one.
+      applyPublicOriginForwardingHeaders(proxyHeaders, url);
 
       // Better Auth owns RFC 8252 redirect and resource validation. The proxy
       // supplies the public API resource only when a client omits one.

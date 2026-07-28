@@ -1,6 +1,6 @@
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { verifyDpopProof } from 'better-auth/oauth2';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { canonicalizeBetterAuthProxyRequest } from '../../../../convex/auth';
 
 function encodeJson(value: unknown): string {
@@ -47,6 +47,48 @@ function readDpopHtu(proof: string): string {
 }
 
 describe('Convex Better Auth proxy DPoP contract', () => {
+  const originalConvexSiteUrl = process.env.CONVEX_SITE_URL;
+  const originalSiteUrl = process.env.SITE_URL;
+
+  // A forwarded host is only honored when it is one this auth server answers on,
+  // so the allowlist has to be configured for the proxied cases below.
+  beforeEach(() => {
+    process.env.CONVEX_SITE_URL = 'https://example.convex.site';
+    process.env.SITE_URL = 'http://localhost:3000';
+  });
+
+  afterEach(() => {
+    if (originalConvexSiteUrl === undefined) {
+      delete process.env.CONVEX_SITE_URL;
+    } else {
+      process.env.CONVEX_SITE_URL = originalConvexSiteUrl;
+    }
+    if (originalSiteUrl === undefined) {
+      delete process.env.SITE_URL;
+    } else {
+      process.env.SITE_URL = originalSiteUrl;
+    }
+  });
+
+  it('ignores a forwarded host this server does not answer on', () => {
+    // The Convex site is reachable directly, so x-forwarded-host is attacker
+    // controlled. An unrecognized value must not become the request URL.
+    const request = new Request('https://example.convex.site/api/auth/oauth2/token', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        'x-forwarded-host': 'attacker.example.com',
+        'x-forwarded-proto': 'https',
+      },
+      body: 'grant_type=authorization_code&code=test-code',
+    });
+
+    const result = canonicalizeBetterAuthProxyRequest(request);
+
+    expect(result.url).toBe('https://example.convex.site/api/auth/oauth2/token');
+    expect(new URL(result.url).host).not.toBe('attacker.example.com');
+  });
+
   it('does not read optional Request properties that the Convex runtime omits', () => {
     const request = {
       url: 'https://example.convex.site/api/auth/get-session',
