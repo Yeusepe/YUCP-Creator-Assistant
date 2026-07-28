@@ -139,6 +139,15 @@ describe('account UI contracts', () => {
     );
   });
 
+  it('does not reuse creator-account or login state forever in browser memory', () => {
+    expect(accountRouteSource).not.toContain('accountLoaderCache');
+    expect(accountRouteSource).not.toContain('staleTime: Infinity');
+    expect(accountRouteSource).toContain('queryClient.fetchQuery(');
+    expect(accountIndexRouteSource).toContain('CreatorAccountSessionExpiredError');
+    expect(accountIndexRouteSource).toContain("to: '/sign-in'");
+    expect(accountIndexRouteSource).toContain("redirectTo: '/account#creator-account'");
+  });
+
   it('announces inline account errors to assistive technology', () => {
     expect(accountComponentSource).toContain('role="alert"');
     expect(accountComponentSource).toContain('className="account-inline-error"');

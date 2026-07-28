@@ -11,7 +11,12 @@ import { StatusChip } from '@/components/ui/StatusChip';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { useAccountShell } from '@/hooks/useAccountShell';
-import { activateCreatorAccount, listUserLicenses, listUserOAuthGrants } from '@/lib/account';
+import {
+  activateCreatorAccount,
+  CreatorAccountSessionExpiredError,
+  listUserLicenses,
+  listUserOAuthGrants,
+} from '@/lib/account';
 import { authClient } from '@/lib/auth-client';
 import { listCreatorCertificates } from '@/lib/certificates';
 import { getUserAccountsQueryKey, listUserAccounts } from '@/lib/dashboard';
@@ -27,6 +32,7 @@ export const Route = createLazyFileRoute('/_authenticated/account/')({
 });
 
 function AccountProfile() {
+  const navigate = Route.useNavigate();
   const { creatorAccount, viewer } = useAccountShell();
   const toast = useToast();
   const isCreator = creatorAccount.isActive;
@@ -309,6 +315,16 @@ function AccountProfile() {
                   await activateCreatorAccount();
                   window.location.assign('/dashboard');
                 } catch (error) {
+                  if (error instanceof CreatorAccountSessionExpiredError) {
+                    setIsActivatingCreatorAccount(false);
+                    await navigate({
+                      to: '/sign-in',
+                      search: {
+                        redirectTo: '/account#creator-account',
+                      },
+                    });
+                    return;
+                  }
                   toast.error('Could not create creator account', {
                     description: error instanceof Error ? error.message : 'Try again.',
                   });

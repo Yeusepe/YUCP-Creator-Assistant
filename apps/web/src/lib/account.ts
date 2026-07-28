@@ -1,4 +1,5 @@
 import { apiClient } from '@/api/client';
+import { authClient } from '@/lib/auth-client';
 
 export interface UserLicenseEntitlement {
   id: string;
@@ -129,6 +130,14 @@ export interface CreatorAccountActivationResult {
   created: boolean;
 }
 
+export class CreatorAccountSessionExpiredError extends Error {
+  override readonly name = 'CreatorAccountSessionExpiredError';
+
+  constructor() {
+    super('Your session expired. Sign in again to create your creator account.');
+  }
+}
+
 function padTwoDigits(value: number) {
   return value.toString().padStart(2, '0');
 }
@@ -173,6 +182,15 @@ export async function listUserLicenses() {
 }
 
 export async function activateCreatorAccount() {
+  const session = await authClient.getSession({
+    query: {
+      disableCookieCache: true,
+    },
+  });
+  if (!session.data?.session || !session.data.user) {
+    throw new CreatorAccountSessionExpiredError();
+  }
+
   return apiClient.post<CreatorAccountActivationResult>('/api/connect/creator-account');
 }
 

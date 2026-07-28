@@ -137,12 +137,15 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'account',
     label: 'Account and connection surfaces',
     invariant:
-      'Account connection surfaces must show the signed-in user’s real provider state and always preserve reconnect, disconnect, and retry actions for degraded records.',
+      'Account connection surfaces must show the signed-in user’s real provider state and always preserve reconnect, disconnect, and retry actions for degraded records. Creator activation must revalidate the durable signed-in session, treat an existing active creator profile as success, and never reuse an account shell forever after creator or session state changes.',
     primaryRegressionHomes: [
+      'apps/api/src/routes/connect.guildChannels.test.ts',
       'apps/api/src/routes/connectUserVerification.readSurface.test.ts',
+      'apps/web/test/unit/account-creator-activation.test.ts',
       'apps/web/test/unit/account-connections.test.tsx',
     ],
     secondaryRegressionHomes: [
+      'apps/web/test/unit/account-ui-contracts.test.ts',
       'apps/web/test/unit/dashboard-connected-platforms.test.tsx',
       'apps/web/test/unit/store-integrations-status-label.test.tsx',
     ],
@@ -264,6 +267,13 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
     covers: ['identity', 'verification', 'account', 'backfill'],
   },
   {
+    id: 'api-account-creator-activation',
+    description: 'API creator-account activation regressions',
+    cwdRelativeToRepoRoot: 'apps/api',
+    args: ['test', './src/routes/connect.guildChannels.test.ts'],
+    covers: ['account'],
+  },
+  {
     id: 'api-vpm-bootstrap',
     description: 'API VPM bootstrap and creator repository regressions',
     cwdRelativeToRepoRoot: 'apps/api',
@@ -287,7 +297,9 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       'run',
       '--config',
       'vitest.config.ts',
+      './test/unit/account-creator-activation.test.ts',
       './test/unit/account-connections.test.tsx',
+      './test/unit/account-ui-contracts.test.ts',
       './test/unit/buyer-product-access-route.test.tsx',
       './test/unit/dashboard-connected-platforms.test.tsx',
       './test/unit/store-integrations-status-label.test.tsx',

@@ -548,6 +548,57 @@ describe('GET /api/connect/ensure-tenant', () => {
 });
 
 describe('POST /api/connect/creator-account', () => {
+  it('treats an existing active creator profile as an idempotent success', async () => {
+    const mutationCalls: Array<{ fn: unknown; args: unknown }> = [];
+
+    queryImpl = async (fn, args) => {
+      if (fn === apiMock.creatorProfiles.getCreatorProfile) {
+        expect(args).toEqual({
+          apiSecret: 'test-convex-secret',
+          authUserId: 'existing-creator',
+        });
+        return {
+          authUserId: 'existing-creator',
+          ownerDiscordUserId: 'discord-existing-creator',
+          status: 'active',
+        };
+      }
+      throw new Error(`Unexpected query fn: ${String(fn)}`);
+    };
+    mutationImpl = async (fn, args) => {
+      mutationCalls.push({ fn, args });
+      throw new Error('An existing creator profile must not be recreated');
+    };
+
+    const fakeAuth = {
+      ...auth,
+      getSession: async () => ({
+        user: {
+          id: 'existing-creator',
+          name: 'Existing Creator',
+        },
+        discordUserId: 'discord-existing-creator',
+      }),
+    } as unknown as Auth;
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+
+    const res = await isolatedRoutes.activateCreatorAccount(
+      new Request('http://localhost:3001/api/connect/creator-account', {
+        method: 'POST',
+        headers: {
+          Origin: 'http://localhost:3000',
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      creatorAccount: { isActive: true },
+      created: false,
+    });
+    expect(mutationCalls).toEqual([]);
+  });
+
   it('creates a creator profile for the signed-in user without creating a guild link', async () => {
     const mutationCalls: Array<{ fn: unknown; args: unknown }> = [];
 
