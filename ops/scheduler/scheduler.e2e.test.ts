@@ -189,6 +189,8 @@ async function buildProductionSchedulerRuntime(): Promise<SchedulerRuntime> {
     PROTECTED_S3_BUCKET: activeStores.protectedStore.config.bucket,
     PROTECTED_S3_ACCESS_KEY_ID: activeStores.protectedStore.config.accessKeyId,
     PROTECTED_S3_SECRET_ACCESS_KEY: activeStores.protectedStore.config.secretAccessKey,
+    SCHEDULER_STATUS_HEARTBEAT_URL:
+      'https://127.0.0.1:1/ext/heartbeat/yucp-ingest-scheduler/test-secret',
   }));
   schedulerRuntimes.add(runtime);
   return runtime;

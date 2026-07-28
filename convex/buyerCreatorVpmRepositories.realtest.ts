@@ -145,8 +145,7 @@ describe('buyer and creator VPM repositories', () => {
     }
 
     const buyerActor = await buyerRepositoryActor(buyerAuthUserId);
-    const repositories = (api as never as Record<string, Record<string, never>>)
-      .buyerCreatorVpmRepositories;
+    const repositories = api.buyerCreatorVpmRepositories;
     const first = await t.mutation(repositories.ensureActive, {
       apiSecret: 'test-secret',
       actor: buyerActor,
