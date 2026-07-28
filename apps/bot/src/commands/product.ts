@@ -54,6 +54,14 @@ import { canBotManageRole } from '../lib/roleHierarchy';
 import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
+const CATALOG_PRODUCT_PAGE_SIZE = 25;
+
+interface CatalogPickerProduct {
+  collaboratorName?: string;
+  id: string;
+  isAdded: boolean;
+  name: string;
+}
 
 // In-memory session store for multi-step product add flow
 interface ProductSession {
@@ -81,6 +89,9 @@ interface ProductSession {
   productThumbnails?: Record<string, Record<string, string>>;
   /** provider key -> (product id -> source/collaborator name) */
   productSources?: Record<string, Record<string, string>>;
+  /** Products in the current provider picker, ordered for browsing across pages. */
+  catalogPickerProducts?: CatalogPickerProduct[];
+  catalogPickerPage?: number;
   availableTiers?: Record<
     string,
     {
@@ -328,6 +339,92 @@ function getCatalogSelectCustomId(provider: string, userId: string, authUserId: 
   if (provider === 'lemonsqueezy')
     return `creator_product:ls_product_select:${userId}:${authUserId}`;
   return `creator_product:catalog_select:${provider}:${userId}:${authUserId}`;
+}
+
+function getCatalogPageCustomId(userId: string, authUserId: string, page: number): string {
+  return `creator_product:catalog_page:${userId}:${authUserId}:${page}`;
+}
+
+function buildCatalogProductPicker(
+  session: ProductSession,
+  provider: string,
+  userId: string,
+  authUserId: string,
+  requestedPage: number
+) {
+  const products = session.catalogPickerProducts ?? [];
+  const totalPages = Math.max(1, Math.ceil(products.length / CATALOG_PRODUCT_PAGE_SIZE));
+  const page = Math.min(Math.max(0, requestedPage), totalPages - 1);
+  const pageProducts = products.slice(
+    page * CATALOG_PRODUCT_PAGE_SIZE,
+    (page + 1) * CATALOG_PRODUCT_PAGE_SIZE
+  );
+  session.catalogPickerPage = page;
+
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(getCatalogSelectCustomId(provider, userId, authUserId))
+    .setPlaceholder(`Select a ${providerLabel(provider)} product...`)
+    .addOptions(
+      pageProducts.map((product) => {
+        const productLabel =
+          product.name.length > 100 ? `${product.name.slice(0, 97)}...` : product.name;
+        const sourcePrefix = product.collaboratorName ? `[${product.collaboratorName}] ` : '';
+        const addedSuffix = product.isAdded ? ' (already added)' : '';
+        const rawDescription = sourcePrefix + product.name + addedSuffix;
+        const description =
+          rawDescription.length > 100
+            ? `${rawDescription.slice(0, 97)}...`
+            : rawDescription || `ID: ${product.id}`;
+        const option = new StringSelectMenuOptionBuilder()
+          .setLabel(productLabel)
+          .setValue(product.id)
+          .setDescription(description);
+        if (product.isAdded) option.setEmoji(Emoji.Checkmark);
+        return option;
+      })
+    );
+
+  const components: Array<
+    ActionRowBuilder<StringSelectMenuBuilder> | ActionRowBuilder<ButtonBuilder>
+  > = [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select)];
+
+  if (totalPages > 1) {
+    components.push(
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(getCatalogPageCustomId(userId, authUserId, page - 1))
+          .setLabel('Previous')
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(page === 0),
+        new ButtonBuilder()
+          .setCustomId(`creator_product:catalog_page_status:${userId}:${authUserId}`)
+          .setLabel(`Page ${page + 1} of ${totalPages}`)
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(true),
+        new ButtonBuilder()
+          .setCustomId(getCatalogPageCustomId(userId, authUserId, page + 1))
+          .setLabel('Next')
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(page === totalPages - 1)
+      )
+    );
+  }
+
+  const hasCollaboratorProducts = products.some((product) => product.collaboratorName);
+  const hasAlreadyAdded = products.some((product) => product.isAdded);
+  const pageSummary =
+    totalPages > 1 ? `\n\nPage ${page + 1} of ${totalPages} · **${products.length}** products` : '';
+  const collaboratorNote = hasCollaboratorProducts
+    ? '\n\nCollaborator products are shown with **[Name]** in the description.'
+    : '';
+  const addedNote = hasAlreadyAdded
+    ? `\n\n**${E.Checkmark}** = already added to this server (re-adding maps additional roles).`
+    : '';
+
+  return {
+    content: `**Step 2 of 3:** Select a ${providerLabel(provider)} product from your store.${pageSummary}${collaboratorNote}${addedNote}`,
+    components,
+  };
 }
 
 /** Step 1: /creator-admin product add - show type select menu */
@@ -658,51 +755,15 @@ export async function handleProductTypeSelect(
         ...products.filter((p) => alreadyAddedIds.has(p.id)),
       ];
 
-      const MAX_OPTIONS = 25;
-      const toShow = sortedProducts.slice(0, MAX_OPTIONS);
-      const hasCollabProducts = products.some((p) => p.collaboratorName);
-      const hasAlreadyAdded = products.some((p) => alreadyAddedIds.has(p.id));
-      const catalogSelectId = getCatalogSelectCustomId(
-        selectedType,
-        interaction.user.id,
-        authUserId
+      session.catalogPickerProducts = sortedProducts.map((product) => ({
+        collaboratorName: product.collaboratorName,
+        id: product.id,
+        isAdded: alreadyAddedIds.has(product.id),
+        name: product.name,
+      }));
+      await interaction.editReply(
+        buildCatalogProductPicker(session, selectedType, interaction.user.id, authUserId, 0)
       );
-
-      const select = new StringSelectMenuBuilder()
-        .setCustomId(catalogSelectId)
-        .setPlaceholder(`Select a ${label} product...`)
-        .addOptions(
-          toShow.map((p) => {
-            const productLabel = p.name.length > 100 ? `${p.name.slice(0, 97)}...` : p.name;
-            const isAdded = alreadyAddedIds.has(p.id);
-            const sourcePrefix = p.collaboratorName ? `[${p.collaboratorName}] ` : '';
-            const addedSuffix = isAdded ? ' (already added)' : '';
-            const raw = sourcePrefix + p.name + addedSuffix;
-            const description = raw.length > 100 ? `${raw.slice(0, 97)}...` : raw || `ID: ${p.id}`;
-            const opt = new StringSelectMenuOptionBuilder()
-              .setLabel(productLabel)
-              .setValue(p.id)
-              .setDescription(description);
-            if (isAdded) opt.setEmoji(Emoji.Checkmark);
-            return opt;
-          })
-        );
-
-      const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
-      const moreNote =
-        products.length > MAX_OPTIONS
-          ? `\n\n*(Showing first ${MAX_OPTIONS} of ${products.length} products.)*`
-          : '';
-      const collabNote = hasCollabProducts
-        ? '\n\nCollaborator products are shown with **[Name]** in the description.'
-        : '';
-      const addedNote = hasAlreadyAdded
-        ? `\n\n**${E.Checkmark}** = already added to this server (re-adding maps additional roles).`
-        : '';
-      await interaction.editReply({
-        content: `**Step 2 of 3:** Select a ${label} product from your store.${moreNote}${collabNote}${addedNote}`,
-        components: [row],
-      });
     } catch (err) {
       logger.error(`Failed to load ${descriptor.label} products for product setup`, {
         error: err instanceof Error ? err.message : String(err),
@@ -794,6 +855,48 @@ export async function handleProductTypeSelect(
     content: `${E.X_} Unknown product type. Please run \`/creator-admin product add\` again.`,
     components: [],
   });
+}
+
+export async function handleProductCatalogPage(
+  interaction: ButtonInteraction,
+  userId: string,
+  authUserId: string,
+  requestedPage: number
+): Promise<void> {
+  const sessionKey = getSessionKey(userId, authUserId, interaction.guildId ?? '');
+  const session = productSessions.get(sessionKey);
+
+  if (!session || Date.now() > session.expiresAt) {
+    await interaction.update({
+      content: `${E.Timer} Session expired. Please run \`/creator-admin product add\` again.`,
+      components: [],
+    });
+    return;
+  }
+
+  const provider = session.type;
+  if (
+    !provider ||
+    !getProviderDescriptor(provider)?.capabilities.includes('catalog_sync') ||
+    !session.catalogPickerProducts?.length
+  ) {
+    await interaction.update({
+      content: `${E.X_} This product catalog is no longer available. Please run \`/creator-admin product add\` again.`,
+      components: [],
+    });
+    return;
+  }
+
+  const page = Number.isSafeInteger(requestedPage) ? requestedPage : 0;
+  const picker = buildCatalogProductPicker(session, provider, userId, authUserId, page);
+  track(interaction.user.id, 'catalog_product_page_viewed', {
+    authUserId,
+    guildId: session.guildId,
+    page: session.catalogPickerPage ?? 0,
+    productCount: session.catalogPickerProducts.length,
+    provider,
+  });
+  await interaction.update(picker);
 }
 
 /** Step 2b: Product selected from a catalog API select menu - show role select */

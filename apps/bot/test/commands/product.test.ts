@@ -121,6 +121,7 @@ import {
   handleProductTierSelect,
   handleProductTypeSelect,
 } from '../../src/commands/product';
+import { handleProductButton } from '../../src/handlers/interactions/product';
 import type { MockFn } from '../helpers/mockInteraction';
 import {
   extractAllCustomIds,
@@ -1097,6 +1098,83 @@ describe('product command', () => {
         id.startsWith('creator_product:catalog_select:')
     );
     expect(catalogSelectId).toBeDefined();
+  });
+
+  it('paginates catalog products so products after the first 25 remain reachable', async () => {
+    mockListProducts.mockImplementation(() =>
+      Promise.resolve({
+        products: Array.from({ length: 30 }, (_, index) => ({
+          id: `prod_${index + 1}`,
+          name: `Product ${index + 1}`,
+        })),
+      })
+    );
+
+    const userId = 'user_prod_pagination';
+    const authUserId = 'auth_product_pagination';
+    const guildId = 'guild_product_pagination';
+    const slashInteraction = mockSlashCommand({
+      userId,
+      guildId,
+      commandName: 'creator-admin',
+      subcommandGroup: 'product',
+      subcommand: 'add',
+      isAdmin: true,
+    });
+    await handleProductAddInteractive(
+      slashInteraction as unknown as ChatInputCommandInteraction,
+      {
+        authUserId,
+        guildLinkId: 'link_id_pagination' as ProductCtx['guildLinkId'],
+        guildId,
+      },
+      ALL_CONNECTED,
+      TEST_API_SECRET
+    );
+
+    const typeSelectInteraction = mockStringSelect({
+      userId,
+      guildId,
+      customId: `creator_product:type_select:${authUserId}`,
+      values: ['gumroad'],
+    });
+    await handleProductTypeSelect(
+      typeSelectInteraction as unknown as StringSelectMenuInteraction,
+      authUserId,
+      TYPE_SELECT_CONVEX,
+      TEST_API_SECRET
+    );
+
+    const initialPayload = typeSelectInteraction.editReply.mock.calls[0]?.[0];
+    expect(initialPayload?.content).toContain('Page 1 of 2');
+    expect(extractAllCustomIds(typeSelectInteraction)).toContain(
+      `creator_product:catalog_page:${userId}:${authUserId}:1`
+    );
+
+    const nextPageInteraction = mockButton({
+      userId,
+      guildId,
+      customId: `creator_product:catalog_page:${userId}:${authUserId}:1`,
+    });
+    const handled = await handleProductButton(
+      nextPageInteraction as unknown as ButtonInteraction,
+      {
+        convex: TYPE_SELECT_CONVEX,
+        apiSecret: TEST_API_SECRET,
+      } as never
+    );
+
+    expect(handled).toBe(true);
+    const nextPagePayload = nextPageInteraction.update.mock.calls[0]?.[0];
+    expect(nextPagePayload?.content).toContain('Page 2 of 2');
+    const nextPageSelect = nextPagePayload?.components?.[0]?.components?.[0];
+    const nextPageProductIds = (nextPageSelect?.options ?? []).map(
+      (option: { data?: { value?: string }; value?: string }) => option.data?.value ?? option.value
+    );
+    expect(nextPageProductIds).toEqual(['prod_26', 'prod_27', 'prod_28', 'prod_29', 'prod_30']);
+    expect(extractAllCustomIds(nextPageInteraction)).toContain(
+      `creator_product:catalog_page:${userId}:${authUserId}:0`
+    );
   });
 
   it('given handleProductTypeSelect with no session, shows session-expired message', async () => {

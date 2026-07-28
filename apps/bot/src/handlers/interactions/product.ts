@@ -12,6 +12,19 @@ export async function handleProductButton(
 ): Promise<boolean> {
   const customId = interaction.customId;
 
+  if (customId.startsWith('creator_product:catalog_page:')) {
+    const rest = customId.slice('creator_product:catalog_page:'.length);
+    const firstColon = rest.indexOf(':');
+    const userId = rest.slice(0, firstColon);
+    const remainder = rest.slice(firstColon + 1);
+    const lastColon = remainder.lastIndexOf(':');
+    const authUserId = remainder.slice(0, lastColon) as string;
+    const page = Number.parseInt(remainder.slice(lastColon + 1), 10);
+    const { handleProductCatalogPage } = await import('../../commands/product');
+    await handleProductCatalogPage(interaction, userId, authUserId, page);
+    return true;
+  }
+
   if (customId.startsWith('creator_product:confirm_add:')) {
     const rest = customId.slice('creator_product:confirm_add:'.length);
     const colonIdx = rest.indexOf(':');
