@@ -23,8 +23,9 @@ export type LiveCatalogState = Extract<CatalogState, 'UPLOADING' | 'PROMOTING'>;
 export const CATALOG_HEARTBEAT_INTERVAL_MS = 30_000;
 
 // DELETED -> UPLOADING: a deleted version number belongs to the creator again. Deletion removes
-// the version from listings and delivery; it does not retire the number. Entering UPLOADING from
-// any state starts from a clean slate (fields and quarantine intent are wiped in transition()).
+// the version from listings and delivery; it does not retire the number. A replacing upload
+// (TransitionOptions.replacesUpload) enters UPLOADING with a clean slate — fields and quarantine
+// intent wiped; the scheduler's redrive re-enters UPLOADING keeping both.
 const allowedTransitions = {
   CREATED: ['UPLOADING', 'FAILED', 'DELETED'],
   UPLOADING: ['ASSEMBLED', 'FAILED'],
@@ -330,7 +331,8 @@ function toPackageQuarantineObject(row: PackageQuarantineObjectRow): PackageQuar
 function validateTransitionFields(
   current: PackageVersionRow,
   targetState: CatalogState,
-  fields: TransitionFields
+  fields: TransitionFields,
+  replacesUpload: boolean
 ): {
   sourceFormat: string | null;
   releaseRoot: string | null;
@@ -351,11 +353,15 @@ function validateTransitionFields(
   vpmDependencies: Record<string, string>;
   vpmRepositories: Record<string, string>;
 } {
-  // A fresh upload replaces the version wholesale. Carrying assembled fields from a failed or
+  // A fresh upload replaces the version wholesale: carrying assembled fields from a failed or
   // deleted predecessor forward would let stale release data describe bytes that no longer exist.
-  if (targetState === 'UPLOADING') {
+  // The scheduler's redrive re-enters UPLOADING without the flag and must keep every field —
+  // promotion re-reads the retained assembly by the row's manifest digest.
+  if (targetState === 'UPLOADING' && replacesUpload) {
     if (Object.keys(fields).length > 0) {
-      throw new CatalogInvariantError('UPLOADING starts from a clean slate and accepts no fields');
+      throw new CatalogInvariantError(
+        'A replacing upload starts from a clean slate and accepts no fields'
+      );
     }
     return {
       activeContentDigest: null,
@@ -774,7 +780,7 @@ export class Catalog {
         throw new CatalogInvariantError('Package version is not a legacy READY release');
       }
 
-      const fields = validateTransitionFields(current, 'READY', options.fields);
+      const fields = validateTransitionFields(current, 'READY', options.fields, false);
       const updatedRows = await transaction<PackageVersionRow[]>`
         UPDATE package_versions
         SET
@@ -999,7 +1005,12 @@ export class Catalog {
         throw new IllegalCatalogTransitionError(versionId, current.state, targetState);
       }
 
-      const fields = validateTransitionFields(current, targetState, options.fields ?? {});
+      const fields = validateTransitionFields(
+        current,
+        targetState,
+        options.fields ?? {},
+        options.replacesUpload === true
+      );
       const enteringFailed = targetState === 'FAILED';
       const nextAttempts = current.attempts + (enteringFailed ? 1 : 0);
       const backoffMs = enteringFailed ? retryBackoffMs(nextAttempts, this.retryPolicy) : 0;
