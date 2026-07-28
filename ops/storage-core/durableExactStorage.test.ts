@@ -779,6 +779,78 @@ describe('durable exact storage', () => {
     ]);
   });
 
+  it('rewrites a committed intent whose object row was already marked DELETED', async () => {
+    // Version deletion GC marks object rows DELETED while their intents stay COMMITTED. A
+    // replacing upload of identical content then found "no exact object version" and failed
+    // instead of writing the bytes it was holding.
+    const calls: string[] = [];
+    const catalog: ExactStorageCatalogPort = {
+      async beginWriteIntent() {
+        calls.push('catalog.begin');
+        return { ...pendingIntent(), objectVersionId: 'object-version-1', state: 'COMMITTED' };
+      },
+      async claimUncertainWriteRetry() {
+        calls.push('catalog.claim-retry');
+        return retryClaim();
+      },
+      async commitVerifiedObject() {
+        calls.push('catalog.commit');
+        return object();
+      },
+      async findVerifiedCanonical() {
+        calls.push('catalog.find');
+        return null;
+      },
+      async getCommittedObjectForIntent() {
+        calls.push('catalog.committed');
+        return null;
+      },
+      async getPackageReleaseObject() {
+        throw new Error('Unexpected release read');
+      },
+      async linkPackageReleaseObject() {
+        calls.push('catalog.link');
+      },
+      async markWriteIntentUncertain() {
+        throw new Error('Unexpected uncertain state');
+      },
+      async reopenLostObjectWriteIntent(input) {
+        calls.push(`catalog.reopen:${input.objectVersionId}`);
+        return true;
+      },
+    };
+    const port = storage(calls);
+    port.listExactVersions = async () => {
+      calls.push('storage.list');
+      return [];
+    };
+    const durable = new DurableExactStorage(catalog, port);
+
+    expect(
+      await durable.putImmutable({
+        body,
+        contentType: 'application/octet-stream',
+        idempotencyKey: 'package:version:chunk',
+        objectKey: 'v2/common/chunks/object',
+        ownerId: 'version-1',
+        ownerKind: 'package-version',
+        storageDomain: 'common:global:v2',
+        storageRole: 'common',
+      })
+    ).toEqual(object());
+    expect(calls).toEqual([
+      'catalog.begin',
+      'catalog.committed',
+      'catalog.reopen:object-version-1',
+      'catalog.claim-retry',
+      'storage.list',
+      'catalog.find',
+      'storage.put',
+      'storage.head',
+      'catalog.commit',
+    ]);
+  });
+
   it('rewrites a committed object whose bytes were deleted from the store out-of-band', async () => {
     // Reproduced in production: the object store was emptied while the catalog still carried
     // COMMITTED rows, so every re-upload of identical content failed verification of an object

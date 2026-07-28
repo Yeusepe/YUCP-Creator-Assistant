@@ -157,6 +157,19 @@ export class DurableExactStorage {
       // The committed object is gone from the store; the intent reopened as UNCERTAIN and the
       // standard reconcile path below re-drives the physical write.
       effectiveState = 'UNCERTAIN';
+    } else if (intent.state === 'COMMITTED') {
+      // COMMITTED with no VERIFIED object: the object row was already marked DELETED (garbage
+      // collection after a version deletion). Same lost-object shape, one state later.
+      const reopened = intent.objectVersionId
+        ? await this.catalog.reopenLostObjectWriteIntent({
+            intentId: intent.id,
+            objectVersionId: intent.objectVersionId,
+          })
+        : false;
+      if (!reopened) {
+        throw new Error('Committed storage intent has no exact object version');
+      }
+      effectiveState = 'UNCERTAIN';
     }
     if (effectiveState === 'UNCERTAIN' || effectiveState === 'RETRYING') {
       const claim = await this.catalog.claimUncertainWriteRetry({

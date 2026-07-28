@@ -389,13 +389,20 @@ export class ExactStorageCatalog {
       if (!intent || intent.state !== 'COMMITTED' || intent.objectVersionId !== objectVersionId) {
         return false;
       }
-      const lost = await transaction<{ id: string }[]>`
-        UPDATE storage_object_versions
-        SET verification_state = 'DELETED', deleted_at = clock_timestamp()
-        WHERE id = ${objectVersionId} AND verification_state = 'VERIFIED'
-        RETURNING id
+      const objects = await transaction<{ verification_state: string }[]>`
+        SELECT verification_state FROM storage_object_versions
+        WHERE id = ${objectVersionId}
+        FOR UPDATE
       `;
-      if (lost.length !== 1) {
+      const objectState = objects[0]?.verification_state;
+      if (objectState === 'VERIFIED') {
+        await transaction`
+          UPDATE storage_object_versions
+          SET verification_state = 'DELETED', deleted_at = clock_timestamp()
+          WHERE id = ${objectVersionId}
+        `;
+      } else if (objectState !== 'DELETED') {
+        // REJECTED or missing rows are not the lost-object shape; leave the intent alone.
         return false;
       }
       await transaction`
