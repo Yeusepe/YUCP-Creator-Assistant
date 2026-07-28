@@ -1094,6 +1094,16 @@ async function routeRequest(request: Request): Promise<Response> {
     }
     return vpmRoutes.downloadCreatorBootstrap(request, packageId);
   }
+  const creatorPackageUnityBootstrapMatch = pathname.match(
+    /^\/api\/creator\/packages\/by-package\/([^/]+)\/bootstrap\.unitypackage$/
+  );
+  if (creatorPackageUnityBootstrapMatch && vpmRoutes) {
+    const packageId = safeDecodeURIComponent(creatorPackageUnityBootstrapMatch[1] ?? '');
+    if (packageId === null) {
+      return badPathEncodingResponse();
+    }
+    return vpmRoutes.downloadCreatorUnityPackage(request, packageId);
+  }
   if (pathname === '/api/creator/uploads/authorize' && creatorUploadRoutes) {
     return creatorUploadRoutes.authorizeUpload(request);
   }

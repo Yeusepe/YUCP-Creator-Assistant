@@ -16,8 +16,8 @@ import {
 
 describe('normalizeYucpAliasPackageContract', () => {
   it('requires the current immutable importer release', () => {
-    expect(YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION).toBe('0.1.36');
-    expect(YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_VERSION).toBe('>=0.1.36');
+    expect(YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION).toBe('0.1.55');
+    expect(YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_VERSION).toBe('>=0.1.55');
   });
 
   it('normalizes the shared alias package contract shape', () => {
@@ -415,7 +415,7 @@ describe('applyYucpAliasPackageManifestDefaults', () => {
       })
     ).toMatchObject({
       vpmDependencies: {
-        'com.yucp.importer': '>=0.1.36',
+        'com.yucp.importer': '>=0.1.55',
       },
     });
   });

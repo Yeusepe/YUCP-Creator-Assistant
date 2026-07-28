@@ -2734,12 +2734,20 @@ const package_vpm_presentations = defineTable({
     v.object({
       bucketName: v.string(),
       byteSize: v.number(),
-      contentType: v.literal('image/png'),
-      kind: v.union(v.literal('icon'), v.literal('banner')),
+      contentType: v.union(v.literal('image/png'), v.literal('image/jpeg')),
+      kind: v.union(
+        v.literal('icon'),
+        v.literal('banner'),
+        v.literal('gallery'),
+        v.literal('product-link')
+      ),
+      label: v.optional(v.string()),
       localPath: v.string(),
       objectKey: v.string(),
+      ordinal: v.optional(v.number()),
       providerVersion: v.string(),
       sha256: v.string(),
+      url: v.optional(v.string()),
     })
   ),
   presentationFingerprintSha256: v.string(),
@@ -2854,12 +2862,20 @@ const package_versions_ref = defineTable({
       v.object({
         bucketName: v.string(),
         byteSize: v.number(),
-        contentType: v.literal('image/png'),
-        kind: v.union(v.literal('icon'), v.literal('banner')),
+        contentType: v.union(v.literal('image/png'), v.literal('image/jpeg')),
+        kind: v.union(
+          v.literal('icon'),
+          v.literal('banner'),
+          v.literal('gallery'),
+          v.literal('product-link')
+        ),
+        label: v.optional(v.string()),
         localPath: v.string(),
         objectKey: v.string(),
+        ordinal: v.optional(v.number()),
         providerVersion: v.string(),
         sha256: v.string(),
+        url: v.optional(v.string()),
       })
     )
   ),

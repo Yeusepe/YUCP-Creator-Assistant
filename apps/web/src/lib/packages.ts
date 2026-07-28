@@ -178,13 +178,13 @@ export type CreatorPackageVccLink =
   | {
       bootstrapDownloadUrl: string;
       status: 'inactive';
+      unityPackageDownloadUrl: string;
     }
   | {
-      addRepoUrl: string;
       bootstrapDownloadUrl: string;
       createdAt: number;
-      indexUrl: string;
       status: 'active';
+      unityPackageDownloadUrl: string;
     };
 
 export interface CreatorPackagePresentation {

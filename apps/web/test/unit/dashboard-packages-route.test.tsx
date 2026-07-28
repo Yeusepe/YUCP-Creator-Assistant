@@ -341,6 +341,8 @@ describe('dashboard packages route', () => {
             status: 'inactive',
             bootstrapDownloadUrl:
               '/api/creator/packages/by-package/com.creator.avatar-bundle/bootstrap',
+            unityPackageDownloadUrl:
+              '/api/creator/packages/by-package/com.creator.avatar-bundle/bootstrap.unitypackage',
           });
         }
         return Promise.reject(new Error(`Unexpected GET ${path}`));
@@ -2278,7 +2280,7 @@ describe('dashboard packages route', () => {
     );
   });
 
-  it('creates, copies, downloads, and revokes durable Unity access from product details', async () => {
+  it('enables, downloads, and disables tailored Unity access from product details', async () => {
     const writeTextMock = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -2288,9 +2290,8 @@ describe('dashboard packages route', () => {
       | ((value: {
           status: 'active';
           createdAt: number;
-          addRepoUrl: string;
-          indexUrl: string;
           bootstrapDownloadUrl: string;
+          unityPackageDownloadUrl: string;
         }) => void)
       | undefined;
     apiPostMock.mockImplementation((path: string) => {
@@ -2304,10 +2305,9 @@ describe('dashboard packages route', () => {
     const createdLink = {
       status: 'active',
       createdAt: 1_700_000_000_000,
-      addRepoUrl:
-        'vcc://vpm/addRepo?url=https%3A%2F%2Fpackages.test%2Fapi%2Fvpm%2Faccess%2Fstable%2Findex.json',
-      indexUrl: 'https://packages.test/api/vpm/access/stable/index.json',
       bootstrapDownloadUrl: '/api/creator/packages/by-package/com.creator.avatar-bundle/bootstrap',
+      unityPackageDownloadUrl:
+        '/api/creator/packages/by-package/com.creator.avatar-bundle/bootstrap.unitypackage',
     } as const;
     let resolveRevoke: ((value: { revoked: boolean }) => void) | undefined;
     apiDeleteMock.mockImplementation(
@@ -2324,7 +2324,7 @@ describe('dashboard packages route', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Open details for Avatar Bundle' }));
     expect(await screen.findByText('Unity access')).toBeInTheDocument();
     expect(
-      screen.getByText('Create one reusable link for customers who install through VCC.')
+      screen.getByText("Enable this package in each verified buyer's private creator repository.")
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Copy buyer privacy notice' }));
     await waitFor(() =>
@@ -2332,44 +2332,40 @@ describe('dashboard packages route', () => {
         expect.stringMatching(/\/legal\/verification-and-attestation$/)
       )
     );
-    expect(await screen.findByRole('link', { name: 'Download bootstrap package' })).toHaveAttribute(
+    expect(await screen.findByRole('link', { name: 'Download bootstrap' })).toHaveAttribute(
       'href',
       '/api/creator/packages/by-package/com.creator.avatar-bundle/bootstrap'
     );
+    expect(screen.getByRole('link', { name: 'Download Unity package' })).toHaveAttribute(
+      'href',
+      '/api/creator/packages/by-package/com.creator.avatar-bundle/bootstrap.unitypackage'
+    );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create Unity access' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enable Unity access' }));
     expect(await screen.findByRole('button', { name: 'Creating access...' })).toBeDisabled();
     resolveCreate?.(createdLink);
-    expect(await screen.findByText('Ready to share')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Copy VCC link' }));
-    await waitFor(() =>
-      expect(writeTextMock).toHaveBeenCalledWith(
-        'vcc://vpm/addRepo?url=https%3A%2F%2Fpackages.test%2Fapi%2Fvpm%2Faccess%2Fstable%2Findex.json'
-      )
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Copy source URL' }));
-    await waitFor(() =>
-      expect(writeTextMock).toHaveBeenCalledWith(
-        'https://packages.test/api/vpm/access/stable/index.json'
-      )
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: 'Revoke Unity access' }));
+    expect(await screen.findByText('Enabled')).toBeInTheDocument();
     expect(
       screen.getByText(
-        'People who added this link cannot use it again. Installed packages stay in their projects.'
+        'A verified buyer sees this package automatically in the one private repository they receive for your creator profile.'
       )
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Revoke link' }));
-    expect(await screen.findByRole('button', { name: 'Revoking...' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Disable Unity access' }));
+    expect(
+      screen.getByText(
+        'This package disappears from tailored buyer repositories. Packages already installed in Unity stay in their projects.'
+      )
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Disable access' }));
+    expect(await screen.findByRole('button', { name: 'Disabling...' })).toBeDisabled();
     await waitFor(() =>
       expect(apiDeleteMock).toHaveBeenCalledWith(
         '/api/creator/packages/by-package/com.creator.avatar-bundle/vcc-link'
       )
     );
     resolveRevoke?.({ revoked: true });
-    expect(await screen.findByRole('button', { name: 'Create Unity access' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Enable Unity access' })).toBeInTheDocument();
   });
 
   it('lets the creator publish a friendly bootstrap package name', async () => {

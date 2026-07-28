@@ -11,6 +11,26 @@ function immutableArtifactUrl(version: string): string {
 }
 
 describe('YUCP public VPM alias package', () => {
+  it('uses the uploaded install ID and release version as the package identity shown by VPM clients', () => {
+    const built = buildYucpAliasVpmPackage({
+      aliasId: 'com.yucp.songthing',
+      bootstrapVersion: '1.0.0',
+      packageVersion: '2.0',
+      vpmDependencies: {},
+      artifactUrl: immutableArtifactUrl('1.0.0'),
+    } as Parameters<typeof buildYucpAliasVpmPackage>[0] & { packageVersion: string });
+
+    expect(built.packageId).toBe('com.yucp.songthing');
+    expect(built.manifest).toMatchObject({
+      name: 'com.yucp.songthing',
+      version: '2.0.0',
+      yucp: {
+        aliasId: 'com.yucp.songthing',
+        packageVersion: '2.0.0',
+      },
+    });
+  });
+
   it('builds a public alias from only the stable package identity', () => {
     const built = buildYucpAliasVpmPackage({
       aliasId: 'com.yucp.jammr',
@@ -93,7 +113,7 @@ describe('YUCP public VPM alias package', () => {
       zipSHA256: built.zipSha256,
       vpmDependencies: {
         'com.example.runtime': '>=2.0.0',
-        'com.yucp.importer': '>=0.1.36',
+        'com.yucp.importer': '>=0.1.55',
       },
       yucp: {
         kind: 'alias-v1',
@@ -101,7 +121,7 @@ describe('YUCP public VPM alias package', () => {
         channel: 'stable',
         installStrategy: 'server-authorized',
         importerPackage: 'com.yucp.importer',
-        minImporterVersion: '0.1.36',
+        minImporterVersion: '0.1.55',
       },
     });
     expect(artifactUrl).toBe(immutableArtifactUrl('1.20660.12345'));
@@ -118,7 +138,7 @@ describe('YUCP public VPM alias package', () => {
       },
       vpmDependencies: {
         'com.example.runtime': '>=2.0.0',
-        'com.yucp.importer': '>=0.1.36',
+        'com.yucp.importer': '>=0.1.55',
       },
       yucp: built.manifest.yucp,
     });
@@ -250,16 +270,16 @@ describe('YUCP public VPM alias package', () => {
       });
 
     expect(() => build({ ...media, localPath: '../icon.png' })).toThrow('local path');
-    expect(() => build({ ...media, contentType: 'image/jpeg' as 'image/png' })).toThrow(
+    expect(() => build({ ...media, contentType: 'image/gif' as 'image/png' })).toThrow(
       'content type'
     );
     expect(() => build({ ...media, sha256: '00'.repeat(32) })).toThrow('digest');
     expect(() =>
       build({
         ...media,
-        bytes: new Uint8Array(2 * 1024 * 1024 + 1).fill(1),
+        bytes: new Uint8Array(16 * 1024 * 1024 + 1).fill(1),
         sha256: createHash('sha256')
-          .update(new Uint8Array(2 * 1024 * 1024 + 1).fill(1))
+          .update(new Uint8Array(16 * 1024 * 1024 + 1).fill(1))
           .digest('hex'),
       })
     ).toThrow('byte limit');

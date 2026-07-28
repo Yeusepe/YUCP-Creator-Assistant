@@ -15,6 +15,8 @@ const PUBLICATION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SAFE_CHANNEL_PATTERN = /^[a-z0-9][a-z0-9._-]{0,31}$/;
 const SAFE_FAILURE_CODE_PATTERN = /^[A-Z][A-Z0-9_]{0,63}$/;
+const VPM_VERSION_PATTERN =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const MAX_REVISION_COMPONENT = 999_999;
 const REVISION_MINOR_SPAN = 1_000_000;
 const REVISION_MAJOR_SPAN = 1_000_000_000_000;
@@ -22,12 +24,20 @@ const REVISION_MAJOR_SPAN = 1_000_000_000_000;
 const MediaV = v.object({
   bucketName: v.string(),
   byteSize: v.number(),
-  contentType: v.literal('image/png'),
-  kind: v.union(v.literal('icon'), v.literal('banner')),
+  contentType: v.union(v.literal('image/png'), v.literal('image/jpeg')),
+  kind: v.union(
+    v.literal('icon'),
+    v.literal('banner'),
+    v.literal('gallery'),
+    v.literal('product-link')
+  ),
+  label: v.optional(v.string()),
   localPath: v.string(),
   objectKey: v.string(),
+  ordinal: v.optional(v.number()),
   providerVersion: v.string(),
   sha256: v.string(),
+  url: v.optional(v.string()),
 });
 
 const PresentationInputV = {
@@ -77,6 +87,7 @@ const PublicationReservationV = v.object({
   channel: v.string(),
   created: v.boolean(),
   packageId: v.string(),
+  packageVersion: v.string(),
   presentationFingerprintSha256: v.string(),
   publicationId: v.string(),
   revision: v.number(),
@@ -91,6 +102,7 @@ const PublishedPublicationV = v.object({
   contractVersion: v.literal(1),
   createdAt: v.number(),
   packageId: v.string(),
+  packageVersion: v.optional(v.string()),
   presentationFingerprintSha256: v.string(),
   publicationId: v.string(),
   publishedAt: v.number(),
@@ -118,12 +130,15 @@ type PresentationInput = {
   media: Array<{
     bucketName: string;
     byteSize: number;
-    contentType: 'image/png';
-    kind: 'icon' | 'banner';
+    contentType: 'image/jpeg' | 'image/png';
+    kind: 'banner' | 'gallery' | 'icon' | 'product-link';
+    label?: string;
     localPath: string;
     objectKey: string;
+    ordinal?: number;
     providerVersion: string;
     sha256: string;
+    url?: string;
   }>;
 };
 
@@ -141,6 +156,7 @@ type PublishedPublication = {
   contractVersion: 1;
   createdAt: number;
   packageId: string;
+  packageVersion?: string;
   presentationFingerprintSha256: string;
   publicationId: string;
   publishedAt: number;
@@ -156,6 +172,18 @@ function requiredText(value: string, name: string, maximumBytes: number): string
     throw new ConvexError(`${name} is invalid`);
   }
   return normalized;
+}
+
+function normalizePackageVersion(value: string): string {
+  const normalized = value.trim();
+  if (VPM_VERSION_PATTERN.test(normalized)) {
+    return normalized;
+  }
+  const abbreviated = /^(0|[1-9]\d*)(?:\.(0|[1-9]\d*))?$/.exec(normalized);
+  if (!abbreviated) {
+    throw new ConvexError('VPM package version is invalid');
+  }
+  return `${abbreviated[1]}.${abbreviated[2] ?? '0'}.0`;
 }
 
 function optionalText(
@@ -244,24 +272,61 @@ async function sha256Hex(value: string): Promise<string> {
 }
 
 function normalizeMedia(media: PresentationInput['media']): PresentationInput['media'] {
-  if (media.length > 2) {
-    throw new ConvexError('VPM presentation media exceeds two items');
+  if (media.length > 42) {
+    throw new ConvexError('VPM presentation media exceeds 42 items');
   }
-  const kinds = new Set<string>();
+  const roles = new Set<string>();
   return media
     .map((entry) => {
-      if (kinds.has(entry.kind)) {
-        throw new ConvexError(`VPM presentation contains a duplicate ${entry.kind}`);
+      const requiresOrdinal = entry.kind === 'gallery' || entry.kind === 'product-link';
+      const maximumOrdinal = entry.kind === 'gallery' ? 8 : 32;
+      if (
+        requiresOrdinal &&
+        (!Number.isSafeInteger(entry.ordinal) ||
+          (entry.ordinal as number) < 0 ||
+          (entry.ordinal as number) >= maximumOrdinal)
+      ) {
+        throw new ConvexError('VPM presentation media ordinal is invalid');
       }
-      kinds.add(entry.kind);
-      const expectedPath = `Documentation~/YUCP/${entry.kind}.png`;
+      if (!requiresOrdinal && entry.ordinal !== undefined) {
+        throw new ConvexError('VPM presentation media ordinal is invalid');
+      }
+      const role = `${entry.kind}:${entry.ordinal ?? 0}`;
+      if (roles.has(role)) {
+        throw new ConvexError(`VPM presentation contains a duplicate ${entry.kind} role`);
+      }
+      roles.add(role);
+      const extension = entry.contentType === 'image/png' ? 'png' : 'jpg';
+      const expectedPath =
+        entry.kind === 'icon' || entry.kind === 'banner'
+          ? `Documentation~/YUCP/${entry.kind}.${extension}`
+          : `Documentation~/YUCP/${
+              entry.kind === 'gallery' ? 'gallery' : 'product-links'
+            }/${String(entry.ordinal).padStart(3, '0')}.${extension}`;
       if (
         entry.localPath !== expectedPath ||
         !Number.isSafeInteger(entry.byteSize) ||
         entry.byteSize < 8 ||
-        entry.byteSize > 2 * 1024 * 1024
+        entry.byteSize > 16 * 1024 * 1024
       ) {
         throw new ConvexError('VPM presentation media is invalid');
+      }
+      let productLinkMetadata: Pick<PresentationInput['media'][number], 'label' | 'url'> = {};
+      if (entry.kind === 'product-link') {
+        const label = requiredText(entry.label ?? '', 'VPM product link label', 120);
+        const urlText = requiredText(entry.url ?? '', 'VPM product link URL', 2_048);
+        let url: URL;
+        try {
+          url = new URL(urlText);
+        } catch {
+          throw new ConvexError('VPM product link URL is invalid');
+        }
+        if (url.protocol !== 'https:' || url.username || url.password) {
+          throw new ConvexError('VPM product link URL is invalid');
+        }
+        productLinkMetadata = { label, url: url.toString() };
+      } else if (entry.label !== undefined || entry.url !== undefined) {
+        throw new ConvexError('VPM presentation media product link metadata is invalid');
       }
       return {
         bucketName: requiredText(entry.bucketName, 'VPM media bucket', 1_024),
@@ -270,11 +335,18 @@ function normalizeMedia(media: PresentationInput['media']): PresentationInput['m
         kind: entry.kind,
         localPath: entry.localPath,
         objectKey: requiredText(entry.objectKey, 'VPM media object key', 1_024),
+        ...(entry.ordinal === undefined ? {} : { ordinal: entry.ordinal }),
         providerVersion: requiredText(entry.providerVersion, 'VPM media provider version', 1_024),
         sha256: validateSha256(entry.sha256, 'VPM media SHA-256'),
+        ...productLinkMetadata,
       };
     })
-    .sort((left, right) => left.kind.localeCompare(right.kind));
+    .sort(
+      (left, right) =>
+        left.kind.localeCompare(right.kind) ||
+        (left.ordinal ?? 0) - (right.ordinal ?? 0) ||
+        left.localPath.localeCompare(right.localPath)
+    );
 }
 
 async function normalizePresentation(input: PresentationInput): Promise<NormalizedPresentation> {
@@ -310,7 +382,10 @@ async function normalizePresentation(input: PresentationInput): Promise<Normaliz
       contentType: entry.contentType,
       kind: entry.kind,
       localPath: entry.localPath,
+      ...(entry.ordinal === undefined ? {} : { ordinal: entry.ordinal }),
       sha256: entry.sha256,
+      ...(entry.label ? { label: entry.label } : {}),
+      ...(entry.url ? { url: entry.url } : {}),
     })),
     minImporterVersion: normalized.minImporterVersion,
     packageId: normalized.packageId,
@@ -373,6 +448,7 @@ function serializeReservation(
   channel: string;
   created: boolean;
   packageId: string;
+  packageVersion: string;
   presentationFingerprintSha256: string;
   publicationId: string;
   revision: number;
@@ -386,6 +462,7 @@ function serializeReservation(
     channel: publication.channel,
     created,
     packageId: publication.packageId,
+    packageVersion: publication.packageVersion ?? publication.bootstrapVersion,
     presentationFingerprintSha256: publication.presentationFingerprintSha256,
     publicationId: publication.publicationId,
     revision: publication.revision,
@@ -414,6 +491,7 @@ function serializePublished(
     contractVersion: publication.contractVersion,
     createdAt: publication.createdAt,
     packageId: publication.packageId,
+    ...(publication.packageVersion ? { packageVersion: publication.packageVersion } : {}),
     presentationFingerprintSha256: publication.presentationFingerprintSha256,
     publicationId: publication.publicationId,
     publishedAt: publication.publishedAt,
@@ -592,6 +670,7 @@ export const reservePublicationForService = mutation({
     channel: v.string(),
     presentationFingerprintSha256: v.string(),
     publicationId: v.string(),
+    packageVersion: v.optional(v.string()),
     publicationReason: PublicationReasonV,
     traceparent: v.optional(v.string()),
   },
@@ -605,6 +684,9 @@ export const reservePublicationForService = mutation({
       args.presentationFingerprintSha256,
       'VPM presentation fingerprint'
     );
+    const packageVersion = args.packageVersion
+      ? normalizePackageVersion(args.packageVersion)
+      : undefined;
     if (!PUBLICATION_ID_PATTERN.test(args.publicationId)) {
       throw new ConvexError('VPM publication ID is invalid');
     }
@@ -619,7 +701,7 @@ export const reservePublicationForService = mutation({
       authUserId: presentation.creatorAuthUserId,
       packageId,
     });
-    const existing = await ctx.db
+    const existingCandidates = await ctx.db
       .query('vpm_alias_publications')
       .withIndex('by_package_channel_fingerprint', (q) =>
         q
@@ -627,7 +709,10 @@ export const reservePublicationForService = mutation({
           .eq('channel', channel)
           .eq('presentationFingerprintSha256', fingerprint)
       )
-      .first();
+      .collect();
+    const existing = packageVersion
+      ? existingCandidates.find((candidate) => candidate.packageVersion === packageVersion)
+      : existingCandidates[0];
     if (existing && existing.status !== 'FAILED') {
       return serializeReservation(existing, false);
     }
@@ -658,13 +743,15 @@ export const reservePublicationForService = mutation({
     const revision = (latest?.revision ?? 0) + 1;
     const now = Date.now();
     const publicationId = args.publicationId.toLowerCase();
+    const bootstrapVersion = revisionToVersion(revision);
     const publication = {
       creatorAuthUserId: presentation.creatorAuthUserId,
       packageId,
       channel,
       publicationId,
       revision,
-      bootstrapVersion: revisionToVersion(revision),
+      bootstrapVersion,
+      packageVersion: packageVersion ?? bootstrapVersion,
       status: 'PREPARING' as const,
       contractVersion: presentation.contractVersion,
       artifactFormat: presentation.artifactFormat,
@@ -753,7 +840,7 @@ export const commitPublicationForService = mutation({
     if (
       typeof manifest.name !== 'string' ||
       typeof manifest.url !== 'string' ||
-      manifest.version !== publication.bootstrapVersion ||
+      manifest.version !== (publication.packageVersion ?? publication.bootstrapVersion) ||
       manifest.zipSHA256 !== artifact.sha256 ||
       !manifest.url.endsWith(expectedPath)
     ) {

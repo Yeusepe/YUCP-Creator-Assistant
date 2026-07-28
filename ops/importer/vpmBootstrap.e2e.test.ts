@@ -1029,9 +1029,7 @@ describe.serial('official VPM CLI bootstrap', () => {
       expect(packagedTrustSource).toContain(
         'internal const string PublisherTrustMode = "pinned-development";'
       );
-      expect(packagedTrustSource).not.toContain(
-        'internal const string ExecutableSha256 = "";'
-      );
+      expect(packagedTrustSource).not.toContain('internal const string ExecutableSha256 = "";');
 
       const installedAliasPath = join(
         unityProjectPath,
@@ -1050,7 +1048,7 @@ describe.serial('official VPM CLI bootstrap', () => {
         name: alias.packageId,
         version: alias.manifest.version,
         vpmDependencies: {
-          [IMPORTER_PACKAGE_ID]: '>=0.1.36',
+          [IMPORTER_PACKAGE_ID]: '>=0.1.55',
         },
         yucp: {
           aliasId: PACKAGE_ID,

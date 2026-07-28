@@ -19,12 +19,21 @@ import {
   type ZipEntry,
 } from './canonicalizer';
 import { resolveGnuArchiveTools, runCommand } from './process';
+import {
+  MAX_VPM_BOOTSTRAP_MEDIA_BYTES,
+  type VpmBootstrapMediaContentType,
+  type VpmBootstrapMediaKind,
+} from './vpmBootstrapMedia';
 
 const GUID_PATTERN = /^[0-9a-f]{32}$/;
 const PACKAGE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,127}$/;
 const OPAQUE_SPP_FILENAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,127}\.spp$/i;
-export const MAX_UNITY_PACKAGE_ICON_BYTES = 2 * 1024 * 1024;
+export const MAX_UNITY_PACKAGE_ICON_BYTES = MAX_VPM_BOOTSTRAP_MEDIA_BYTES;
+const MAX_PACKAGE_PRESENTATION_METADATA_BYTES = 256 * 1024;
+const MAX_PRODUCT_LINKS = 32;
+const MAX_GALLERY_IMAGES = 8;
 const PNG_SIGNATURE = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const JPEG_SIGNATURE = Uint8Array.from([0xff, 0xd8, 0xff]);
 
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -47,10 +56,14 @@ export type NormalizedPackage = {
 export type NormalizedPackageEnvelopeMetadata = {
   body: Uint8Array;
   bytes: number;
-  contentType: 'image/png';
-  kind: 'icon';
-  name: '.icon.png';
+  contentType: VpmBootstrapMediaContentType;
+  kind: VpmBootstrapMediaKind;
+  label?: string;
+  localPath: string;
+  name: string;
+  ordinal?: number;
   sha256: string;
+  url?: string;
 };
 
 function normalizeLogicalPath(value: string): string {
@@ -127,6 +140,202 @@ function commonZipPrefix(entries: ZipEntry[]): string | undefined {
   }
   const prefix = packageJsonEntries[0].slice(0, -'package.json'.length);
   return fileNames.every((name) => name.startsWith(prefix)) ? prefix : undefined;
+}
+
+function imageContentType(bytes: Uint8Array, sourcePath: string): VpmBootstrapMediaContentType {
+  if (PNG_SIGNATURE.every((value, index) => bytes[index] === value)) {
+    return 'image/png';
+  }
+  if (JPEG_SIGNATURE.every((value, index) => bytes[index] === value)) {
+    return 'image/jpeg';
+  }
+  throw new Error(`Package presentation image is not a supported PNG or JPEG: ${sourcePath}`);
+}
+
+function presentationLocalPath(
+  kind: VpmBootstrapMediaKind,
+  contentType: VpmBootstrapMediaContentType,
+  ordinal?: number
+): string {
+  const extension = contentType === 'image/png' ? 'png' : 'jpg';
+  if (kind === 'icon' || kind === 'banner') {
+    return `Documentation~/YUCP/${kind}.${extension}`;
+  }
+  const directory = kind === 'gallery' ? 'gallery' : 'product-links';
+  return `Documentation~/YUCP/${directory}/${String(ordinal).padStart(3, '0')}.${extension}`;
+}
+
+function presentationText(
+  value: unknown,
+  field: string,
+  maximumBytes: number,
+  allowEmpty = false
+): string {
+  if (typeof value !== 'string') {
+    throw new Error(`Package presentation ${field} is invalid`);
+  }
+  const normalized = value.trim();
+  if (
+    (!allowEmpty && !normalized) ||
+    new TextEncoder().encode(normalized).byteLength > maximumBytes ||
+    Array.from(normalized).some((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint <= 31 || codePoint === 127;
+    })
+  ) {
+    throw new Error(`Package presentation ${field} is invalid`);
+  }
+  return normalized;
+}
+
+function presentationUrl(value: unknown, field: string): string {
+  const text = presentationText(value, field, 2_048);
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    throw new Error(`Package presentation ${field} is invalid`);
+  }
+  if (url.protocol !== 'https:' || url.username || url.password) {
+    throw new Error(`Package presentation ${field} is invalid`);
+  }
+  return url.toString();
+}
+
+async function readPresentationImage(input: {
+  fileByPath: ReadonlyMap<string, NormalizedPackageFile>;
+  kind: VpmBootstrapMediaKind;
+  label?: string;
+  ordinal?: number;
+  sourcePath: unknown;
+  url?: string;
+}): Promise<NormalizedPackageEnvelopeMetadata> {
+  const sourcePath = presentationText(input.sourcePath, `${input.kind} path`, 2_048).replaceAll(
+    '\\',
+    '/'
+  );
+  const file = input.fileByPath.get(sourcePath);
+  if (!file) {
+    throw new Error(`Package presentation image is missing: ${sourcePath}`);
+  }
+  if (file.bytes < PNG_SIGNATURE.byteLength || file.bytes > MAX_VPM_BOOTSTRAP_MEDIA_BYTES) {
+    throw new Error(`Package presentation image size is invalid: ${sourcePath}`);
+  }
+  const body = Uint8Array.from(await readFile(file.path));
+  if (body.byteLength !== file.bytes) {
+    throw new Error(`Package presentation image changed during ingest: ${sourcePath}`);
+  }
+  const contentType = imageContentType(body, sourcePath);
+  return {
+    body,
+    bytes: body.byteLength,
+    contentType,
+    kind: input.kind,
+    localPath: presentationLocalPath(input.kind, contentType, input.ordinal),
+    name: basename(sourcePath),
+    sha256: file.sha256,
+    ...(input.ordinal === undefined ? {} : { ordinal: input.ordinal }),
+    ...(input.label === undefined ? {} : { label: input.label }),
+    ...(input.url === undefined ? {} : { url: input.url }),
+  };
+}
+
+async function extractPackagePresentationMedia(input: {
+  fallbackIcon?: NormalizedPackageEnvelopeMetadata;
+  files: readonly NormalizedPackageFile[];
+}): Promise<NormalizedPackageEnvelopeMetadata[]> {
+  const metadataFiles = input.files.filter(
+    (file) =>
+      file.normalizedPath.startsWith('Packages/yucp.installed-packages/') &&
+      file.normalizedPath.endsWith('/YUCP_PackageInfo.json')
+  );
+  if (metadataFiles.length === 0) {
+    return input.fallbackIcon ? [input.fallbackIcon] : [];
+  }
+  if (metadataFiles.length > 1) {
+    throw new Error('Unity package contains multiple YUCP presentation metadata files');
+  }
+  const metadataFile = metadataFiles[0] as NormalizedPackageFile;
+  if (metadataFile.bytes < 2 || metadataFile.bytes > MAX_PACKAGE_PRESENTATION_METADATA_BYTES) {
+    throw new Error('YUCP package presentation metadata size is invalid');
+  }
+  let metadata: unknown;
+  try {
+    metadata = JSON.parse(await readFile(metadataFile.path, 'utf8'));
+  } catch (error) {
+    throw new Error('YUCP package presentation metadata is invalid', { cause: error });
+  }
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    throw new Error('YUCP package presentation metadata is invalid');
+  }
+  const value = metadata as Record<string, unknown>;
+  const fileByPath = new Map(input.files.map((file) => [file.normalizedPath, file]));
+  const media: NormalizedPackageEnvelopeMetadata[] = [];
+  for (const kind of ['banner', 'icon'] as const) {
+    const sourcePath = value[kind];
+    if (sourcePath === undefined || sourcePath === null || sourcePath === '') {
+      continue;
+    }
+    media.push(
+      await readPresentationImage({
+        fileByPath,
+        kind,
+        sourcePath,
+      })
+    );
+  }
+  if (!media.some((item) => item.kind === 'icon') && input.fallbackIcon) {
+    media.push(input.fallbackIcon);
+  }
+
+  const galleryImages = value.galleryImages;
+  if (galleryImages !== undefined) {
+    if (!Array.isArray(galleryImages) || galleryImages.length > MAX_GALLERY_IMAGES) {
+      throw new Error('YUCP package gallery metadata is invalid');
+    }
+    for (const [ordinal, sourcePath] of galleryImages.entries()) {
+      media.push(
+        await readPresentationImage({
+          fileByPath,
+          kind: 'gallery',
+          ordinal,
+          sourcePath,
+        })
+      );
+    }
+  }
+
+  const productLinks = value.productLinks;
+  if (productLinks !== undefined) {
+    if (!Array.isArray(productLinks) || productLinks.length > MAX_PRODUCT_LINKS) {
+      throw new Error('YUCP package product link metadata is invalid');
+    }
+    for (const [ordinal, candidate] of productLinks.entries()) {
+      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+        throw new Error(`YUCP package product link ${ordinal} is invalid`);
+      }
+      const link = candidate as Record<string, unknown>;
+      if (link.icon === undefined || link.icon === null || link.icon === '') {
+        continue;
+      }
+      media.push(
+        await readPresentationImage({
+          fileByPath,
+          kind: 'product-link',
+          label: presentationText(link.label, `product link ${ordinal} label`, 120),
+          ordinal,
+          sourcePath: link.icon,
+          url: presentationUrl(link.url, `product link ${ordinal} URL`),
+        })
+      );
+    }
+  }
+  return media.sort(
+    (left, right) =>
+      left.kind.localeCompare(right.kind) ||
+      (left.ordinal ?? 0) - (right.ordinal ?? 0) ||
+      left.localPath.localeCompare(right.localPath)
+  );
 }
 
 async function normalizeZip(
@@ -228,7 +437,7 @@ async function normalizeUnityPackage(
     throw new Error('Unity package record count is invalid');
   }
   const names = new Set<string>();
-  const envelopeMetadata: NormalizedPackageEnvelopeMetadata[] = [];
+  let fallbackIcon: NormalizedPackageEnvelopeMetadata | undefined;
   const files: NormalizedPackageFile[] = [];
   for (const record of records.sort((left, right) => compareText(left.name, right.name))) {
     if (record.name === '.icon.png' && record.isFile()) {
@@ -245,14 +454,15 @@ async function normalizeUnityPackage(
       if (PNG_SIGNATURE.some((value, index) => icon[index] !== value)) {
         throw new Error('Unity package icon metadata is not a PNG file');
       }
-      envelopeMetadata.push({
-        body: icon,
+      fallbackIcon = {
+        body: Uint8Array.from(icon),
         bytes: details.size,
         contentType: 'image/png',
         kind: 'icon',
+        localPath: 'Documentation~/YUCP/icon.png',
         name: '.icon.png',
         sha256: createHash('sha256').update(icon).digest('hex'),
-      });
+      };
       continue;
     }
     if (!record.isDirectory() || !GUID_PATTERN.test(record.name)) {
@@ -299,7 +509,13 @@ async function normalizeUnityPackage(
       );
     }
   }
-  return { envelopeMetadata, files };
+  return {
+    envelopeMetadata: await extractPackagePresentationMedia({
+      files,
+      ...(fallbackIcon ? { fallbackIcon } : {}),
+    }),
+    files,
+  };
 }
 
 export async function normalizePackageArtifact(input: {

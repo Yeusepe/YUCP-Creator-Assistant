@@ -798,7 +798,6 @@ function ProductDetailsSheet({
   const [selectedHistoryEditionId, setSelectedHistoryEditionId] = useState('standard');
   const [confirmUnlinkStorefrontId, setConfirmUnlinkStorefrontId] = useState<string | null>(null);
   const [isConfirmingLinkRevoke, setIsConfirmingLinkRevoke] = useState(false);
-  const [copyingUnityLink, setCopyingUnityLink] = useState<'add' | 'source' | null>(null);
   const [isCopyingPrivacyNotice, setIsCopyingPrivacyNotice] = useState(false);
   const [storefrontSearch, setStorefrontSearch] = useState('');
   const [bootstrapPackageName, setBootstrapPackageName] = useState('');
@@ -882,7 +881,7 @@ function ProductDetailsSheet({
     onSuccess: (link) => {
       queryClient.setQueryData(['creator-package-vcc-link', packageId], link);
       toast.success('Unity access is ready', {
-        description: 'This link remains the same until you revoke it.',
+        description: 'Verified buyers now receive this package in their tailored repository.',
       });
     },
     onError: (error) => {
@@ -911,13 +910,21 @@ function ProductDetailsSheet({
         typeof currentLink.bootstrapDownloadUrl === 'string'
           ? currentLink.bootstrapDownloadUrl
           : '';
+      const unityPackageDownloadUrl =
+        currentLink &&
+        typeof currentLink === 'object' &&
+        'unityPackageDownloadUrl' in currentLink &&
+        typeof currentLink.unityPackageDownloadUrl === 'string'
+          ? currentLink.unityPackageDownloadUrl
+          : '';
       queryClient.setQueryData(['creator-package-vcc-link', packageId], {
         status: 'inactive',
         bootstrapDownloadUrl,
+        unityPackageDownloadUrl,
       });
       setIsConfirmingLinkRevoke(false);
       toast.success('Unity access revoked', {
-        description: 'Create a new link when you are ready to share access again.',
+        description: 'This package was removed from buyer repositories.',
       });
     },
     onError: (error) => {
@@ -1222,23 +1229,6 @@ function ProductDetailsSheet({
         detailQuery.data.productId
     );
   }, [detailQuery.data]);
-
-  async function copyUnityLink(kind: 'add' | 'source', value: string): Promise<void> {
-    setCopyingUnityLink(kind);
-    const copied = await copyToClipboard(value);
-    setCopyingUnityLink(null);
-    if (copied) {
-      toast.success(kind === 'add' ? 'VCC link copied' : 'Package source URL copied');
-      return;
-    }
-    toast.error('Could not copy to clipboard');
-  }
-
-  function copyCurrentUnityLink(kind: 'add' | 'source'): void {
-    const link = vccLinkQuery.data;
-    if (!link || link.status !== 'active') return;
-    void copyUnityLink(kind, kind === 'add' ? link.addRepoUrl : link.indexUrl);
-  }
 
   async function copyBuyerPrivacyNotice(): Promise<void> {
     setIsCopyingPrivacyNotice(true);
@@ -1618,12 +1608,12 @@ function ProductDetailsSheet({
                         <div className="space-y-1">
                           <p className="text-foreground text-sm font-semibold">Unity access</p>
                           <p className="pm-subtle-copy max-w-[58ch] text-xs leading-5">
-                            Create one reusable link for customers who install through VCC.
+                            Enable this package in each verified buyer's private creator repository.
                           </p>
                         </div>
                         {vccLinkQuery.data?.status === 'active' ? (
                           <Chip size="sm" variant="soft">
-                            Ready to share
+                            Enabled
                           </Chip>
                         ) : null}
                       </Card.Header>
@@ -1690,54 +1680,20 @@ function ProductDetailsSheet({
                         ) : (
                           <>
                             {vccLinkQuery.data.status === 'active' ? (
-                              <div className="space-y-3">
-                                <div className="pm-muted-panel grid gap-3 rounded-xl p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                                  <div className="min-w-0">
-                                    <p className="text-foreground text-sm font-medium">
-                                      Customer VCC link
-                                    </p>
-                                    <p className="pm-subtle-copy mt-1 truncate text-xs">
-                                      {vccLinkQuery.data.addRepoUrl}
-                                    </p>
-                                  </div>
-                                  <YucpButton
-                                    yucp="secondary"
-                                    size="sm"
-                                    isLoading={copyingUnityLink === 'add'}
-                                    isDisabled={copyingUnityLink !== null}
-                                    onPress={() => copyCurrentUnityLink('add')}
-                                  >
-                                    <Icon name="copy" className="size-4" />
-                                    {copyingUnityLink === 'add' ? 'Copying...' : 'Copy VCC link'}
-                                  </YucpButton>
-                                </div>
-                                <details className="pm-management-details rounded-xl p-3">
-                                  <summary className="text-foreground cursor-pointer text-sm font-medium">
-                                    Manual setup
-                                  </summary>
-                                  <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                                    <p className="pm-subtle-copy min-w-0 break-all text-xs leading-5">
-                                      {vccLinkQuery.data.indexUrl}
-                                    </p>
-                                    <YucpButton
-                                      yucp="ghost"
-                                      size="sm"
-                                      isLoading={copyingUnityLink === 'source'}
-                                      isDisabled={copyingUnityLink !== null}
-                                      onPress={() => copyCurrentUnityLink('source')}
-                                    >
-                                      <Icon name="copy" className="size-4" />
-                                      {copyingUnityLink === 'source'
-                                        ? 'Copying...'
-                                        : 'Copy source URL'}
-                                    </YucpButton>
-                                  </div>
-                                </details>
+                              <div className="pm-muted-panel space-y-1 rounded-xl p-3">
+                                <p className="text-foreground text-sm font-medium">
+                                  Buyer repositories enabled
+                                </p>
+                                <p className="pm-subtle-copy text-sm leading-6">
+                                  A verified buyer sees this package automatically in the one
+                                  private repository they receive for your creator profile.
+                                </p>
                               </div>
                             ) : (
                               <div className="pm-muted-panel flex flex-col gap-3 rounded-xl p-3 sm:flex-row sm:items-center sm:justify-between">
                                 <p className="pm-subtle-copy max-w-[48ch] text-sm leading-6">
-                                  Create the link once. It stays valid until you revoke it.
+                                  Enable this package once. It will appear in every entitled buyer's
+                                  existing repository for your creator profile.
                                 </p>
                                 <YucpButton
                                   size="sm"
@@ -1747,7 +1703,7 @@ function ProductDetailsSheet({
                                   <Icon name="link" className="size-4" />
                                   {createVccLinkMutation.isPending
                                     ? 'Creating access...'
-                                    : 'Create Unity access'}
+                                    : 'Enable Unity access'}
                                 </YucpButton>
                               </div>
                             )}
@@ -1759,7 +1715,15 @@ function ProductDetailsSheet({
                                 download
                               >
                                 <Icon name="download" className="size-4" />
-                                Download bootstrap package
+                                Download bootstrap
+                              </a>
+                              <a
+                                className="button button--sm button--secondary btn-ghost inline-flex min-h-9 items-center justify-center gap-2 rounded-[10px] px-3"
+                                href={vccLinkQuery.data.unityPackageDownloadUrl}
+                                download
+                              >
+                                <Icon name="download" className="size-4" />
+                                Download Unity package
                               </a>
                               {vccLinkQuery.data.status === 'active' && !isConfirmingLinkRevoke ? (
                                 <YucpButton
@@ -1771,7 +1735,7 @@ function ProductDetailsSheet({
                                   }
                                   onPress={() => setIsConfirmingLinkRevoke(true)}
                                 >
-                                  Revoke Unity access
+                                  Disable Unity access
                                 </YucpButton>
                               ) : null}
                             </div>
@@ -1780,11 +1744,11 @@ function ProductDetailsSheet({
                               <div className="pm-inline-note space-y-3 rounded-xl p-3">
                                 <div className="space-y-1">
                                   <p className="text-foreground text-sm font-semibold">
-                                    Revoke this link?
+                                    Disable Unity access?
                                   </p>
                                   <p className="pm-subtle-copy text-sm leading-6">
-                                    People who added this link cannot use it again. Installed
-                                    packages stay in their projects.
+                                    This package disappears from tailored buyer repositories.
+                                    Packages already installed in Unity stay in their projects.
                                   </p>
                                 </div>
                                 <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -1794,7 +1758,7 @@ function ProductDetailsSheet({
                                     isDisabled={revokeVccLinkMutation.isPending}
                                     onPress={() => setIsConfirmingLinkRevoke(false)}
                                   >
-                                    Keep link
+                                    Keep enabled
                                   </Button>
                                   <YucpButton
                                     yucp="danger"
@@ -1803,8 +1767,8 @@ function ProductDetailsSheet({
                                     onPress={() => revokeVccLinkMutation.mutate()}
                                   >
                                     {revokeVccLinkMutation.isPending
-                                      ? 'Revoking...'
-                                      : 'Revoke link'}
+                                      ? 'Disabling...'
+                                      : 'Disable access'}
                                   </YucpButton>
                                 </div>
                               </div>

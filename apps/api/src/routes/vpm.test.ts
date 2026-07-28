@@ -1,7 +1,9 @@
 import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { createHash } from 'node:crypto';
+import { unzipSync } from 'fflate';
 import { createTestLogger } from '../testSupport/loggerMock';
 import type { VpmRouteConfig } from './vpm';
+import { buildYucpAliasVpmPackage } from './vpmAliasPackage';
 
 const convexQueryMock = mock(async (_reference?: unknown, _args?: unknown) => null as unknown);
 const convexMutationMock = mock(async (_reference?: unknown, _args?: unknown) => null as unknown);
@@ -21,10 +23,10 @@ const importerIndexFetchMock = mock(async () =>
     packages: {
       'com.yucp.importer': {
         versions: {
-          '0.1.36': {
+          '0.1.55': {
             name: 'com.yucp.importer',
             displayName: 'YUCP Package Importer',
-            version: '0.1.36',
+            version: '0.1.55',
             unity: '2022.3',
             description: 'YUCP package importer',
             author: {
@@ -32,7 +34,7 @@ const importerIndexFetchMock = mock(async () =>
               url: 'https://vpm.yucp.club/',
             },
             zipSHA256: 'b8f611e191f4fc796c84c3a52f55f5c3b7e62acdf574962a0499aade61533380',
-            url: 'https://packages.example.test/com.yucp.importer-0.1.36.zip',
+            url: 'https://packages.example.test/com.yucp.importer-0.1.55.zip',
           },
         },
       },
@@ -41,6 +43,9 @@ const importerIndexFetchMock = mock(async () =>
 );
 
 const apiMock = {
+  buyerCreatorVpmRepositories: {
+    getActiveByLinkId: 'buyerCreatorVpmRepositories.getActiveByLinkId',
+  },
   creatorProfiles: {
     ensureDeliverySlug: 'creatorProfiles.ensureDeliverySlug',
     getCreatorProfile: 'creatorProfiles.getCreatorProfile',
@@ -207,16 +212,21 @@ function artifactReference(input: {
 }
 
 function publishedAlias(input: {
+  aliasPackageId?: string;
   bootstrapVersion: string;
+  packageId?: string;
+  packageVersion?: string;
   publicationId: string;
   publishedAt: number;
 }) {
-  const aliasPackageId = 'com.yucp.alias.0123456789abcdef0123456789abcdef';
+  const packageId = input.packageId ?? 'com.yucp.jammr';
+  const packageVersion = input.packageVersion ?? input.bootstrapVersion;
+  const aliasPackageId = input.aliasPackageId ?? packageId;
   const sha256 = createHash('sha256').update(input.publicationId, 'utf8').digest('hex');
   const manifest = {
     name: aliasPackageId,
     displayName: 'JAMMR',
-    version: input.bootstrapVersion,
+    version: packageVersion,
     unity: '2022.3',
     description: 'Adds JAMMR after purchase verification.',
     author: {
@@ -225,14 +235,15 @@ function publishedAlias(input: {
       url: 'https://yucp.club/',
     },
     vpmDependencies: {
-      'com.yucp.importer': '>=0.1.36',
+      'com.yucp.importer': '>=0.1.55',
     },
     yucp: {
       kind: 'alias-v1',
-      aliasId: 'com.yucp.jammr',
+      aliasId: packageId,
+      packageVersion,
       installStrategy: 'server-authorized',
       importerPackage: 'com.yucp.importer',
-      minImporterVersion: '0.1.36',
+      minImporterVersion: '0.1.55',
     },
     url: `https://mapache.private.yucp.club/api/vpm/alias-publications/${input.publicationId}/${input.bootstrapVersion}.zip`,
     zipSHA256: sha256,
@@ -249,7 +260,8 @@ function publishedAlias(input: {
     channel: 'stable',
     contractVersion: 1,
     createdAt: input.publishedAt - 1,
-    packageId: 'com.yucp.jammr',
+    packageId,
+    packageVersion,
     presentationFingerprintSha256: 'f'.repeat(64),
     publicationId: input.publicationId,
     publishedAt: input.publishedAt,
@@ -263,8 +275,11 @@ function publishedAlias(input: {
 function link(linkId = 'L'.repeat(43)) {
   return {
     createdAt: 100,
+    creatorName: 'Mapache',
     creatorSlug: 'mapache',
     linkId,
+    packageIds: ['com.yucp.jammr'],
+    packages: [{ packageId: 'com.yucp.jammr', version: '1.0.0' }],
     packageId: 'com.yucp.jammr',
     status: 'active' as const,
   };
@@ -309,7 +324,7 @@ describe('package-scoped VPM routes', () => {
     loggerErrorMock.mockReset();
   });
 
-  it('returns one durable package-scoped creator link across route instances', async () => {
+  it('returns durable package enablement without exposing an untailored repository link', async () => {
     convexQueryMock.mockImplementation(async (reference: unknown) => {
       if (reference === apiMock.packageRegistry.getByPackageIdForAuthUser) return product();
       if (reference === apiMock.creatorVpmLinks.getActiveForCreator) return link();
@@ -328,11 +343,11 @@ describe('package-scoped VPM routes', () => {
     expect(first.status).toBe(200);
     expect(await afterRestart.json()).toMatchObject({
       status: 'active',
-      indexUrl: `https://mapache.private.yucp.club/api/vpm/access/${'L'.repeat(43)}/index.json`,
+      bootstrapDownloadUrl: '/api/creator/packages/by-package/com.yucp.jammr/bootstrap',
     });
   });
 
-  it('never returns the shared VPM origin when private creator delivery is unconfigured', async () => {
+  it('reads package enablement without fabricating a repository URL', async () => {
     convexQueryMock.mockImplementation(async (reference: unknown) => {
       if (reference === apiMock.packageRegistry.getByPackageIdForAuthUser) return product();
       if (reference === apiMock.creatorVpmLinks.getActiveForCreator) return link();
@@ -349,8 +364,9 @@ describe('package-scoped VPM routes', () => {
     );
     const body = await response.text();
 
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(200);
     expect(body).not.toContain('vpm.test');
+    expect(body).not.toContain('indexUrl');
   });
 
   it('creates the first immutable alias publication when the creator activates a link', async () => {
@@ -380,6 +396,7 @@ describe('package-scoped VPM routes', () => {
           packageMetadata: {
             author: 'Mapache',
             packageName: 'JAMMR',
+            version: '2.0',
           },
         };
       }
@@ -409,6 +426,7 @@ describe('package-scoped VPM routes', () => {
           channel: 'stable',
           created: true,
           packageId: 'com.yucp.jammr',
+          packageVersion: '2.0.0',
           presentationFingerprintSha256: 'f'.repeat(64),
           publicationId: '00000000-0000-4000-8000-000000000201',
           revision: 1,
@@ -479,6 +497,9 @@ describe('package-scoped VPM routes', () => {
       if (reference === apiMock.vpmAliasPublications.getPresentationForService) {
         return presentation;
       }
+      if (reference === apiMock.packageVersions.resolvePublicBootstrapPresentation) {
+        return { bootstrapMedia: [], packageMetadata: { version: '2.0' } };
+      }
       throw new Error(`Unexpected query ${String(reference)}`);
     });
     convexMutationMock.mockImplementation(async (reference: unknown) => {
@@ -488,6 +509,7 @@ describe('package-scoped VPM routes', () => {
           channel: 'stable',
           created: false,
           packageId: 'com.yucp.jammr',
+          packageVersion: '2.0.0',
           presentationFingerprintSha256: 'f'.repeat(64),
           publicationId: '00000000-0000-4000-8000-000000000221',
           revision: 1,
@@ -523,7 +545,7 @@ describe('package-scoped VPM routes', () => {
     expect(ensureDomain).toHaveBeenCalledWith('mapache.private.yucp.club');
     expect(await response.json()).toMatchObject({
       status: 'active',
-      indexUrl: `https://mapache.private.yucp.club/api/vpm/access/${'L'.repeat(43)}/index.json`,
+      bootstrapDownloadUrl: '/api/creator/packages/by-package/com.yucp.jammr/bootstrap',
     });
   });
 
@@ -554,7 +576,7 @@ describe('package-scoped VPM routes', () => {
         return presentationSeeded ? presentation : null;
       }
       if (reference === apiMock.packageVersions.resolvePublicBootstrapPresentation) {
-        return { bootstrapMedia: [] };
+        return { bootstrapMedia: [], packageMetadata: { version: '2.0' } };
       }
       if (reference === apiMock.creatorProfiles.getCreatorProfile) {
         return { name: 'Mapache' };
@@ -581,6 +603,7 @@ describe('package-scoped VPM routes', () => {
           channel: 'stable',
           created: false,
           packageId: 'com.yucp.jammr',
+          packageVersion: '2.0.0',
           presentationFingerprintSha256: 'f'.repeat(64),
           publicationId: '00000000-0000-4000-8000-000000000211',
           revision: 1,
@@ -640,6 +663,9 @@ describe('package-scoped VPM routes', () => {
       if (reference === apiMock.vpmAliasPublications.getPresentationForService) {
         return presentationUpdated ? updatedPresentation : previousPresentation;
       }
+      if (reference === apiMock.packageVersions.resolvePublicBootstrapPresentation) {
+        return { bootstrapMedia: [], packageMetadata: { version: '2.0' } };
+      }
       throw new Error(`Unexpected query ${String(reference)}`);
     });
     convexMutationMock.mockImplementation(async (reference: unknown, args: unknown) => {
@@ -662,6 +688,7 @@ describe('package-scoped VPM routes', () => {
           channel: 'stable',
           created: true,
           packageId: 'com.yucp.jammr',
+          packageVersion: '2.0.0',
           presentationFingerprintSha256: 'f'.repeat(64),
           publicationId: '00000000-0000-4000-8000-000000000212',
           revision: 2,
@@ -748,6 +775,9 @@ describe('package-scoped VPM routes', () => {
       if (reference === apiMock.vpmAliasPublications.getPresentationForService) {
         return presentationUpdated ? currentPresentation : previousPresentation;
       }
+      if (reference === apiMock.packageVersions.resolvePublicBootstrapPresentation) {
+        return { bootstrapMedia: [], packageMetadata: { version: '2.0' } };
+      }
       throw new Error(`Unexpected query ${String(reference)}`);
     });
     convexMutationMock.mockImplementation(async (reference: unknown, args: unknown) => {
@@ -770,6 +800,7 @@ describe('package-scoped VPM routes', () => {
           channel: 'stable',
           created: true,
           packageId: 'com.yucp.jammr',
+          packageVersion: '2.0.0',
           presentationFingerprintSha256: 'f'.repeat(64),
           publicationId: '00000000-0000-4000-8000-000000000213',
           revision: 3,
@@ -833,6 +864,9 @@ describe('package-scoped VPM routes', () => {
       if (reference === apiMock.vpmAliasPublications.getPresentationForService) {
         return presentationUpdated ? currentPresentation : previousPresentation;
       }
+      if (reference === apiMock.packageVersions.resolvePublicBootstrapPresentation) {
+        return { bootstrapMedia: [], packageMetadata: { version: '2.0' } };
+      }
       throw new Error(`Unexpected query ${String(reference)}`);
     });
     convexMutationMock.mockImplementation(async (reference: unknown, args: unknown) => {
@@ -855,6 +889,7 @@ describe('package-scoped VPM routes', () => {
           channel: 'stable',
           created: false,
           packageId: 'com.yucp.jammr',
+          packageVersion: '2.0.0',
           presentationFingerprintSha256: 'f'.repeat(64),
           publicationId: '00000000-0000-4000-8000-000000000214',
           revision: 4,
@@ -893,6 +928,9 @@ describe('package-scoped VPM routes', () => {
     convexQueryMock.mockImplementation(async (reference: unknown) => {
       if (reference === apiMock.packageRegistry.getByPackageIdForAuthUser) return product();
       if (reference === apiMock.vpmAliasPublications.getPresentationForService) return presentation;
+      if (reference === apiMock.packageVersions.resolvePublicBootstrapPresentation) {
+        return { bootstrapMedia: [], packageMetadata: { version: '2.0' } };
+      }
       throw new Error(`Unexpected query ${String(reference)}`);
     });
     const failed = mock(async () => ({ failed: true }));
@@ -905,6 +943,7 @@ describe('package-scoped VPM routes', () => {
           channel: 'stable',
           created: true,
           packageId: 'com.yucp.jammr',
+          packageVersion: '2.0.0',
           presentationFingerprintSha256: 'f'.repeat(64),
           publicationId: '00000000-0000-4000-8000-000000000202',
           revision: 1,
@@ -962,10 +1001,12 @@ describe('package-scoped VPM routes', () => {
     expect(convexQueryMock).not.toHaveBeenCalled();
   });
 
-  it('returns 410 when a valid link has no published bootstrap', async () => {
+  it('returns a temporary delivery failure when an enabled package cannot self-publish', async () => {
     convexQueryMock.mockImplementation(async (reference: unknown) => {
-      if (reference === apiMock.creatorVpmLinks.getActiveByLinkId) return link('N'.repeat(43));
+      if (reference === apiMock.buyerCreatorVpmRepositories.getActiveByLinkId)
+        return link('N'.repeat(43));
       if (reference === apiMock.vpmAliasPublications.listPublishedForPackage) return [];
+      if (reference === apiMock.vpmAliasPublications.getPresentationForService) return null;
       throw new Error(`Unexpected query ${String(reference)}`);
     });
 
@@ -974,7 +1015,7 @@ describe('package-scoped VPM routes', () => {
       'N'.repeat(43)
     );
 
-    expect(response.status).toBe(410);
+    expect(response.status).toBe(503);
   });
 
   it('serves every immutable bootstrap revision under one package-scoped alias', async () => {
@@ -991,7 +1032,7 @@ describe('package-scoped VPM routes', () => {
       }),
     ];
     convexQueryMock.mockImplementation(async (reference: unknown) => {
-      if (reference === apiMock.creatorVpmLinks.getActiveByLinkId) return link();
+      if (reference === apiMock.buyerCreatorVpmRepositories.getActiveByLinkId) return link();
       if (reference === apiMock.vpmAliasPublications.listPublishedForPackage) {
         return publications;
       }
@@ -1016,6 +1057,151 @@ describe('package-scoped VPM routes', () => {
     expect(JSON.stringify(body)).not.toContain('catalog_jammr');
   });
 
+  it('serves every entitled enabled package through one tailored buyer-and-creator repository', async () => {
+    const first = publishedAlias({
+      bootstrapVersion: '1.0.0',
+      packageId: 'com.yucp.jammr',
+      packageVersion: '2.0.0',
+      publicationId: '00000000-0000-4000-8000-000000000121',
+      publishedAt: 100,
+    });
+    const second = publishedAlias({
+      bootstrapVersion: '1.0.0',
+      packageId: 'com.yucp.songthingextras',
+      packageVersion: '3.0.0',
+      publicationId: '00000000-0000-4000-8000-000000000122',
+      publishedAt: 100,
+    });
+    convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference === apiMock.buyerCreatorVpmRepositories.getActiveByLinkId) {
+        return {
+          ...link(),
+          packageIds: ['com.yucp.jammr', 'com.yucp.songthingextras'],
+          packages: [
+            { packageId: 'com.yucp.jammr', version: '2.0' },
+            { packageId: 'com.yucp.songthingextras', version: '3.0.0' },
+          ],
+        };
+      }
+      if (reference === apiMock.vpmAliasPublications.listPublishedForPackage) {
+        return (args as { packageId?: string }).packageId === 'com.yucp.jammr' ? [first] : [second];
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const response = await createRoutes(null).serveCreatorLinkIndex(
+      new Request(`https://mapache.private.yucp.club/api/vpm/access/${'L'.repeat(43)}/index.json`),
+      'L'.repeat(43)
+    );
+    const body = (await response.json()) as {
+      name: string;
+      packages: Record<string, { versions: Record<string, unknown> }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.name).toBe('Mapache verified packages');
+    expect(Object.keys(body.packages).sort()).toEqual([
+      'com.yucp.importer',
+      'com.yucp.jammr',
+      'com.yucp.songthingextras',
+    ]);
+    expect(Object.keys(body.packages['com.yucp.jammr']?.versions ?? {})).toEqual(['2.0.0']);
+    expect(Object.keys(body.packages['com.yucp.songthingextras']?.versions ?? {})).toEqual([
+      '3.0.0',
+    ]);
+  });
+
+  it('replaces the initial hashed revision manifest with the uploaded ID and current release version', async () => {
+    const legacy = publishedAlias({
+      aliasPackageId: 'com.yucp.alias.0123456789abcdef0123456789abcdef',
+      bootstrapVersion: '1.0.0',
+      packageVersion: '1.0.0',
+      publicationId: '00000000-0000-4000-8000-000000000123',
+      publishedAt: 100,
+    });
+    const current = publishedAlias({
+      bootstrapVersion: '1.0.1',
+      packageVersion: '2.0.0',
+      publicationId: '00000000-0000-4000-8000-000000000124',
+      publishedAt: 200,
+    });
+    const presentation = {
+      artifactBaseUrl: 'https://mapache.private.yucp.club',
+      artifactBucketName: 'metadata',
+      authorName: 'Mapache',
+      channel: 'stable',
+      description: 'Adds JAMMR after purchase verification.',
+      media: [],
+      minImporterVersion: '0.1.55',
+      packageId: 'com.yucp.jammr',
+      packageName: 'JAMMR',
+      presentationFingerprintSha256: 'f'.repeat(64),
+      unityVersion: '2022.3',
+    };
+    let committed = false;
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.buyerCreatorVpmRepositories.getActiveByLinkId) {
+        return {
+          ...link(),
+          packages: [{ packageId: 'com.yucp.jammr', version: '2.0' }],
+        };
+      }
+      if (reference === apiMock.vpmAliasPublications.listPublishedForPackage) {
+        return committed ? [legacy, current] : [legacy];
+      }
+      if (reference === apiMock.vpmAliasPublications.getPresentationForService) {
+        return presentation;
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+    convexMutationMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.vpmAliasPublications.reservePublicationForService) {
+        return {
+          bootstrapVersion: '1.0.1',
+          channel: 'stable',
+          created: true,
+          packageId: 'com.yucp.jammr',
+          packageVersion: '2.0.0',
+          presentationFingerprintSha256: 'f'.repeat(64),
+          publicationId: '00000000-0000-4000-8000-000000000124',
+          revision: 2,
+          status: 'PREPARING',
+        };
+      }
+      if (reference === apiMock.vpmAliasPublications.commitPublicationForService) {
+        committed = true;
+        return current;
+      }
+      throw new Error(`Unexpected mutation ${String(reference)}`);
+    });
+
+    const response = await createRoutes(null, {
+      aliasArtifactStore: {
+        bucketName: 'metadata',
+        publish: async (input) => ({
+          ...artifactReference({
+            bootstrapVersion: input.bootstrapVersion,
+            publicationId: input.publicationId,
+            sha256: input.sha256,
+          }),
+          byteSize: input.body.byteLength,
+        }),
+        readExact: async () => new Uint8Array(),
+      },
+    }).serveCreatorLinkIndex(
+      new Request(`https://mapache.private.yucp.club/api/vpm/access/${'L'.repeat(43)}/index.json`),
+      'L'.repeat(43)
+    );
+    const body = (await response.json()) as {
+      packages: Record<string, { versions: Record<string, unknown> }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(committed).toBe(true);
+    expect(body.packages['com.yucp.alias.0123456789abcdef0123456789abcdef']).toBeUndefined();
+    expect(Object.keys(body.packages['com.yucp.jammr']?.versions ?? {})).toEqual(['2.0.0']);
+  });
+
   it('binds a private repository index to the creator-owned request hostname', async () => {
     const publication = publishedAlias({
       bootstrapVersion: '1.0.0',
@@ -1023,7 +1209,7 @@ describe('package-scoped VPM routes', () => {
       publishedAt: 100,
     });
     convexQueryMock.mockImplementation(async (reference: unknown) => {
-      if (reference === apiMock.creatorVpmLinks.getActiveByLinkId) return link();
+      if (reference === apiMock.buyerCreatorVpmRepositories.getActiveByLinkId) return link();
       if (reference === apiMock.vpmAliasPublications.listPublishedForPackage) {
         return [publication];
       }
@@ -1052,7 +1238,7 @@ describe('package-scoped VPM routes', () => {
       publishedAt: 100,
     });
     convexQueryMock.mockImplementation(async (reference: unknown) => {
-      if (reference === apiMock.creatorVpmLinks.getActiveByLinkId) return link();
+      if (reference === apiMock.buyerCreatorVpmRepositories.getActiveByLinkId) return link();
       if (reference === apiMock.creatorProfiles.resolveDeliveryNamespace) {
         return {
           authUserId: 'creator-auth',
@@ -1081,7 +1267,7 @@ describe('package-scoped VPM routes', () => {
 
   it('never serves a creator repository through the shared VPM origin', async () => {
     convexQueryMock.mockImplementation(async (reference: unknown) => {
-      if (reference === apiMock.creatorVpmLinks.getActiveByLinkId) return link();
+      if (reference === apiMock.buyerCreatorVpmRepositories.getActiveByLinkId) return link();
       throw new Error(`Unexpected query ${String(reference)}`);
     });
 
@@ -1106,7 +1292,7 @@ describe('package-scoped VPM routes', () => {
       publishedAt: 100,
     });
     convexQueryMock.mockImplementation(async (reference: unknown) => {
-      if (reference === apiMock.creatorVpmLinks.getActiveByLinkId) return link();
+      if (reference === apiMock.buyerCreatorVpmRepositories.getActiveByLinkId) return link();
       if (reference === apiMock.vpmAliasPublications.listPublishedForPackage) {
         return [publication];
       }
@@ -1134,7 +1320,7 @@ describe('package-scoped VPM routes', () => {
 
   it('rejects a private repository link requested through another creator hostname', async () => {
     convexQueryMock.mockImplementation(async (reference: unknown) => {
-      if (reference === apiMock.creatorVpmLinks.getActiveByLinkId) return link();
+      if (reference === apiMock.buyerCreatorVpmRepositories.getActiveByLinkId) return link();
       if (reference === apiMock.creatorProfiles.resolveDeliveryNamespace) return null;
       throw new Error(`Unexpected query ${String(reference)}`);
     });
@@ -1176,10 +1362,10 @@ describe('package-scoped VPM routes', () => {
           },
           'com.yucp.importer': {
             versions: {
-              '0.1.36': {
+              '0.1.55': {
                 name: 'com.yucp.importer',
                 displayName: 'YUCP Package Importer',
-                version: '0.1.36',
+                version: '0.1.55',
                 unity: '2022.3',
                 description: 'YUCP package importer',
                 author: {
@@ -1187,7 +1373,7 @@ describe('package-scoped VPM routes', () => {
                   url: 'https://vpm.yucp.club/',
                 },
                 zipSHA256: 'b8f611e191f4fc796c84c3a52f55f5c3b7e62acdf574962a0499aade61533380',
-                url: 'https://packages.example.test/com.yucp.importer-0.1.36.zip',
+                url: 'https://packages.example.test/com.yucp.importer-0.1.55.zip',
               },
             },
           },
@@ -1195,7 +1381,7 @@ describe('package-scoped VPM routes', () => {
       })
     );
     convexQueryMock.mockImplementation(async (reference: unknown) => {
-      if (reference === apiMock.creatorVpmLinks.getActiveByLinkId) return link();
+      if (reference === apiMock.buyerCreatorVpmRepositories.getActiveByLinkId) return link();
       if (reference === apiMock.vpmAliasPublications.listPublishedForPackage) {
         return [publication];
       }
@@ -1212,7 +1398,7 @@ describe('package-scoped VPM routes', () => {
 
     expect(response.status).toBe(200);
     expect(Object.keys(body.packages).sort()).toEqual(
-      ['com.yucp.alias.0123456789abcdef0123456789abcdef', 'com.yucp.importer'].sort()
+      ['com.yucp.importer', 'com.yucp.jammr'].sort()
     );
   });
 
@@ -1227,10 +1413,10 @@ describe('package-scoped VPM routes', () => {
         packages: {
           'com.yucp.importer': {
             versions: {
-              '0.1.54': {
+              '0.1.55': {
                 name: 'com.yucp.importer',
                 displayName: 'YUCP Package Importer',
-                version: '0.1.54',
+                version: '0.1.55',
                 unity: '2022.3',
                 description: 'YUCP package importer',
                 author: {
@@ -1238,7 +1424,7 @@ describe('package-scoped VPM routes', () => {
                   url: 'https://vpm.yucp.club/',
                 },
                 zipSHA256: 'd'.repeat(64),
-                url: 'http://127.0.0.1:3004/packages/com.yucp.importer-0.1.54.zip',
+                url: 'http://127.0.0.1:3004/packages/com.yucp.importer-0.1.55.zip',
               },
               '0.1.13': {
                 name: 'com.yucp.importer',
@@ -1259,7 +1445,7 @@ describe('package-scoped VPM routes', () => {
       })
     );
     convexQueryMock.mockImplementation(async (reference: unknown) => {
-      if (reference === apiMock.creatorVpmLinks.getActiveByLinkId) return link();
+      if (reference === apiMock.buyerCreatorVpmRepositories.getActiveByLinkId) return link();
       if (reference === apiMock.vpmAliasPublications.listPublishedForPackage) {
         return [publication];
       }
@@ -1274,7 +1460,7 @@ describe('package-scoped VPM routes', () => {
       packages?: Record<string, { versions?: Record<string, unknown> }>;
     };
     expect(response.status).toBe(200);
-    expect(Object.keys(body.packages?.['com.yucp.importer']?.versions ?? {})).toEqual(['0.1.54']);
+    expect(Object.keys(body.packages?.['com.yucp.importer']?.versions ?? {})).toEqual(['0.1.55']);
   });
 
   it('keeps the repository stable when storefront and edition state changes', async () => {
@@ -1284,7 +1470,7 @@ describe('package-scoped VPM routes', () => {
       publishedAt: 100,
     });
     convexQueryMock.mockImplementation(async (reference: unknown) => {
-      if (reference === apiMock.creatorVpmLinks.getActiveByLinkId) return link();
+      if (reference === apiMock.buyerCreatorVpmRepositories.getActiveByLinkId) return link();
       if (reference === apiMock.vpmAliasPublications.listPublishedForPackage) {
         return [publication];
       }
@@ -1305,18 +1491,35 @@ describe('package-scoped VPM routes', () => {
     expect(convexQueryMock.mock.calls.flat().join(' ')).not.toContain('packageRegistry');
   });
 
-  it('downloads the latest creator bootstrap from its exact provider version', async () => {
+  it('rebuilds the latest creator bootstrap from its current presentation', async () => {
     const publication = publishedAlias({
       bootstrapVersion: '1.0.1',
       publicationId: '00000000-0000-4000-8000-000000000105',
       publishedAt: 200,
     });
-    const bytes = Uint8Array.from([0x50, 0x4b, 0x03, 0x04]);
-    const readExact = mock(async () => bytes);
+    const readExact = mock(async () => new Uint8Array());
     convexQueryMock.mockImplementation(async (reference: unknown) => {
       if (reference === apiMock.packageRegistry.getByPackageIdForAuthUser) return product();
       if (reference === apiMock.vpmAliasPublications.getLatestPublishedForPackage) {
         return publication;
+      }
+      if (reference === apiMock.vpmAliasPublications.getPresentationForService) {
+        return {
+          artifactBaseUrl: 'https://vpm.test',
+          artifactBucketName: 'metadata',
+          authorName: 'Mapache',
+          channel: 'stable',
+          description: 'Adds JAMMR after purchase verification.',
+          media: [],
+          minImporterVersion: '0.1.36',
+          packageId: 'com.yucp.jammr',
+          packageName: 'JAMMR',
+          presentationFingerprintSha256: 'f'.repeat(64),
+          unityVersion: '2022.3',
+        };
+      }
+      if (reference === apiMock.packageVersions.resolvePublicBootstrapPresentation) {
+        return null;
       }
       throw new Error(`Unexpected query ${String(reference)}`);
     });
@@ -1338,11 +1541,106 @@ describe('package-scoped VPM routes', () => {
 
     expect(unauthorized.status).toBe(401);
     expect(response.status).toBe(200);
-    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
-    expect(readExact).toHaveBeenCalledWith(publication.artifact);
+    const entries = unzipSync(new Uint8Array(await response.arrayBuffer()));
+    expect(entries['package.json']).toBeDefined();
+    expect(readExact).not.toHaveBeenCalled();
     expect(response.headers.get('content-disposition')).toBe(
       'attachment; filename="jammr-bootstrap-1.0.1.zip"'
     );
+  });
+
+  it('rebuilds creator bootstrap downloads with the authoritative product media', async () => {
+    const publication = publishedAlias({
+      bootstrapVersion: '1.0.1',
+      publicationId: '00000000-0000-4000-8000-000000000112',
+      publishedAt: 200,
+    });
+    const staleBootstrap = buildYucpAliasVpmPackage({
+      aliasId: 'com.yucp.jammr',
+      artifactUrl: `https://vpm.test/api/vpm/alias-publications/${publication.publicationId}/${publication.bootstrapVersion}.zip`,
+      bootstrapVersion: publication.bootstrapVersion,
+      packageMetadata: {
+        author: 'Mapache',
+        description: 'Adds JAMMR after purchase verification.',
+        packageName: 'JAMMR',
+      },
+      vpmDependencies: {},
+    });
+    const icon = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
+    const iconReference = {
+      bucketName: 'metadata',
+      byteSize: icon.byteLength,
+      contentType: 'image/png' as const,
+      kind: 'icon' as const,
+      localPath: 'Documentation~/YUCP/icon.png',
+      objectKey: 'indexes/bootstrap-media/icon.png',
+      providerVersion: 'exact-icon',
+      sha256: createHash('sha256').update(icon).digest('hex'),
+    };
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.getByPackageIdForAuthUser) return product();
+      if (reference === apiMock.vpmAliasPublications.getLatestPublishedForPackage) {
+        return publication;
+      }
+      if (reference === apiMock.vpmAliasPublications.getPresentationForService) {
+        return {
+          artifactBaseUrl: 'https://vpm.test',
+          artifactBucketName: 'metadata',
+          authorName: 'Mapache',
+          channel: 'stable',
+          description: 'Adds JAMMR after purchase verification.',
+          media: [],
+          minImporterVersion: '0.1.36',
+          packageId: 'com.yucp.jammr',
+          packageName: 'JAMMR',
+          presentationFingerprintSha256: 'f'.repeat(64),
+          unityVersion: '2022.3',
+        };
+      }
+      if (reference === apiMock.packageVersions.resolvePublicBootstrapPresentation) {
+        return {
+          bootstrapMedia: [iconReference],
+          packageMetadata: {
+            author: 'Mapache',
+            description: 'Adds JAMMR after purchase verification.',
+            packageName: 'JAMMR',
+          },
+        };
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const routes = createRoutes('creator-auth', {
+      aliasArtifactStore: {
+        bucketName: 'metadata',
+        publish: mock(async () => publication.artifact),
+        readExact: mock(async () => staleBootstrap.bytes),
+      },
+      bootstrapMediaReader: {
+        readExact: mock(async () => icon),
+      },
+    });
+    const response = await routes.downloadCreatorBootstrap(
+      new Request('https://api.test/api/creator/packages/by-package/com.yucp.jammr/bootstrap'),
+      'com.yucp.jammr'
+    );
+
+    expect(response.status).toBe(200);
+    const entries = unzipSync(new Uint8Array(await response.arrayBuffer()));
+    expect(entries['Documentation~/YUCP/icon.png']).toEqual(icon);
+
+    const unityResponse = await routes.downloadCreatorUnityPackage(
+      new Request(
+        'https://api.test/api/creator/packages/by-package/com.yucp.jammr/bootstrap.unitypackage'
+      ),
+      'com.yucp.jammr'
+    );
+    const unityBytes = new Uint8Array(await unityResponse.arrayBuffer());
+    expect(unityResponse.status).toBe(200);
+    expect(unityResponse.headers.get('content-disposition')).toBe(
+      'attachment; filename="jammr-bootstrap-1.0.1.unitypackage"'
+    );
+    expect(unityBytes.slice(0, 2)).toEqual(Uint8Array.from([0x1f, 0x8b]));
   });
 
   it('serves an alias artifact from its recorded exact provider version', async () => {

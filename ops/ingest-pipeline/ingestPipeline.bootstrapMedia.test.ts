@@ -24,6 +24,7 @@ describe('ingest bootstrap media storage', () => {
       body,
       contentType: 'image/png',
       kind: 'icon',
+      localPath: 'Documentation~/YUCP/icon.png',
       ownerId: 'package-version-1',
       sha256,
       store: {
@@ -59,6 +60,7 @@ describe('ingest bootstrap media storage', () => {
         body,
         contentType: 'image/png',
         kind: 'icon',
+        localPath: 'Documentation~/YUCP/icon.png',
         ownerId: 'package-version-1',
         sha256: createHash('sha256').update(body).digest('hex'),
         store: { kind: 'local', storePath: 'unused' } as never,

@@ -213,11 +213,15 @@ async function writePipelineMetadata(input: {
 
 export async function storeBootstrapMediaObject(input: {
   body: Uint8Array;
-  contentType: 'image/png';
-  kind: 'icon';
+  contentType: VpmBootstrapMediaObject['contentType'];
+  kind: VpmBootstrapMediaObject['kind'];
+  label?: string;
+  localPath: string;
+  ordinal?: number;
   ownerId: string;
   sha256: string;
   store: CasStore;
+  url?: string;
 }): Promise<VpmBootstrapMediaObject> {
   if (
     input.store.kind !== 's3' ||
@@ -226,7 +230,8 @@ export async function storeBootstrapMediaObject(input: {
   ) {
     throw new Error('Bootstrap media requires exact metadata-role storage');
   }
-  const objectKey = `${input.store.config.indexPrefix}bootstrap-media/${input.sha256}.png`;
+  const extension = input.contentType === 'image/png' ? 'png' : 'jpg';
+  const objectKey = `${input.store.config.indexPrefix}bootstrap-media/${input.sha256}.${extension}`;
   const object = await input.store.durableStorage.putImmutable({
     body: input.body,
     contentType: input.contentType,
@@ -250,10 +255,13 @@ export async function storeBootstrapMediaObject(input: {
       byteSize: object.bytes,
       contentType: input.contentType,
       kind: input.kind,
-      localPath: `Documentation~/YUCP/${input.kind}.png`,
+      localPath: input.localPath,
       objectKey: object.objectKey,
+      ...(input.ordinal === undefined ? {} : { ordinal: input.ordinal }),
       providerVersion: object.providerVersion,
       sha256: object.sha256,
+      ...(input.label === undefined ? {} : { label: input.label }),
+      ...(input.url === undefined ? {} : { url: input.url }),
     },
   ])[0] as VpmBootstrapMediaObject;
 }
@@ -434,9 +442,13 @@ async function prepareLogicalAssembly(
         body: media.body,
         contentType: media.contentType,
         kind: media.kind,
+        localPath: media.localPath,
+        ...(media.ordinal === undefined ? {} : { ordinal: media.ordinal }),
         ownerId: input.version.id,
         sha256: media.sha256,
         store: input.metadataStore,
+        ...(media.label === undefined ? {} : { label: media.label }),
+        ...(media.url === undefined ? {} : { url: media.url }),
       })
     )
   );

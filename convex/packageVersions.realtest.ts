@@ -402,6 +402,7 @@ describe('packageVersions', () => {
         author: 'YUCP Studio',
         packageName: 'Public Bootstrap',
         tagline: 'Shared tagline',
+        version: '9.0.0',
       },
     });
   });
@@ -452,6 +453,7 @@ describe('packageVersions', () => {
         description: 'One ready edition.',
         packageName: 'Single Edition',
         tagline: 'Complete presentation',
+        version: '4.2.0',
       },
     });
   });
@@ -505,6 +507,9 @@ describe('packageVersions', () => {
     expect(presentation).toEqual({
       bootstrapMedia: [],
       createdAt: 2_000,
+      packageMetadata: {
+        version: '1.0.0',
+      },
     });
   });
 
@@ -602,6 +607,7 @@ describe('packageVersions', () => {
       packageMetadata: {
         author: 'YUCP Studio',
         packageName: 'Active package name',
+        version: '1.0.0',
       },
     });
   });

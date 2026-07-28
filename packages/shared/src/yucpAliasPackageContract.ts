@@ -17,7 +17,7 @@ export const YUCP_FORWARDED_TOOLCHAIN_PACKAGE_IDS = [
   YUCP_ALIAS_PACKAGE_IMPORTER_PACKAGES.importer,
   YUCP_MOTION_TOOLKIT_PACKAGE_ID,
 ] as const;
-export const YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION = '0.1.36';
+export const YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION = '0.1.55';
 export const YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_VERSION = `>=${YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION}`;
 
 export type YucpAliasPackageInstallStrategy =
@@ -48,11 +48,14 @@ export type YucpAliasPackageMetadata = {
 };
 
 export type YucpAliasPackageMedia = {
-  kind: 'icon' | 'banner';
+  kind: 'banner' | 'gallery' | 'icon' | 'product-link';
+  label?: string;
   localPath: string;
-  contentType: 'image/png';
+  ordinal?: number;
+  contentType: 'image/jpeg' | 'image/png';
   byteSize: number;
   sha256: string;
+  url?: string;
 };
 
 export type YucpAliasCatalogProductRef = {
@@ -135,31 +138,53 @@ function normalizeMedia(value: unknown): YucpAliasPackageMedia[] | undefined {
   if (value === undefined) {
     return undefined;
   }
-  if (!Array.isArray(value) || value.length > 2) {
-    throw new Error(`${YUCP_METADATA_ALIAS_PATH}.media must contain at most two entries`);
+  if (!Array.isArray(value) || value.length > 42) {
+    throw new Error(`${YUCP_METADATA_ALIAS_PATH}.media must contain at most 42 entries`);
   }
+  const roles = new Set<string>();
   const media = value.map((entry, index): YucpAliasPackageMedia => {
     const fieldName = `${YUCP_METADATA_ALIAS_PATH}.media[${index}]`;
     if (!isRecord(entry)) {
       throw new Error(`${fieldName} must be an object`);
     }
     const kind = trimRequiredString(entry.kind, `${fieldName}.kind`);
-    if (kind !== 'icon' && kind !== 'banner') {
-      throw new Error(`${fieldName}.kind must be icon or banner`);
+    if (kind !== 'icon' && kind !== 'banner' && kind !== 'gallery' && kind !== 'product-link') {
+      throw new Error(`${fieldName}.kind is not supported`);
     }
-    const expectedPath = `Documentation~/YUCP/${kind}.png`;
+    const requiresOrdinal = kind === 'gallery' || kind === 'product-link';
+    const ordinal = requiresOrdinal ? entry.ordinal : undefined;
+    const maximumOrdinal = kind === 'gallery' ? 8 : 32;
+    if (
+      requiresOrdinal &&
+      (!Number.isSafeInteger(ordinal) ||
+        (ordinal as number) < 0 ||
+        (ordinal as number) >= maximumOrdinal)
+    ) {
+      throw new Error(`${fieldName}.ordinal is invalid`);
+    }
+    if (!requiresOrdinal && entry.ordinal !== undefined) {
+      throw new Error(`${fieldName}.ordinal is invalid`);
+    }
+    if (entry.contentType !== 'image/png' && entry.contentType !== 'image/jpeg') {
+      throw new Error(`${fieldName}.contentType is not supported`);
+    }
+    const contentType = entry.contentType;
+    const extension = contentType === 'image/png' ? 'png' : 'jpg';
+    const expectedPath =
+      kind === 'icon' || kind === 'banner'
+        ? `Documentation~/YUCP/${kind}.${extension}`
+        : `Documentation~/YUCP/${
+            kind === 'gallery' ? 'gallery' : 'product-links'
+          }/${String(ordinal).padStart(3, '0')}.${extension}`;
     const localPath = trimRequiredString(entry.localPath, `${fieldName}.localPath`);
     if (localPath !== expectedPath) {
       throw new Error(`${fieldName}.localPath must be ${expectedPath}`);
-    }
-    if (entry.contentType !== 'image/png') {
-      throw new Error(`${fieldName}.contentType must be image/png`);
     }
     if (
       typeof entry.byteSize !== 'number' ||
       !Number.isSafeInteger(entry.byteSize) ||
       entry.byteSize < 8 ||
-      entry.byteSize > 8 * 1024 * 1024
+      entry.byteSize > 16 * 1024 * 1024
     ) {
       throw new Error(`${fieldName}.byteSize is invalid`);
     }
@@ -167,17 +192,37 @@ function normalizeMedia(value: unknown): YucpAliasPackageMedia[] | undefined {
     if (!/^[0-9a-f]{64}$/.test(sha256)) {
       throw new Error(`${fieldName}.sha256 must be a lowercase SHA-256 digest`);
     }
+    const role = `${kind}:${ordinal ?? 0}`;
+    if (roles.has(role)) {
+      throw new Error(`${YUCP_METADATA_ALIAS_PATH}.media contains a duplicate role`);
+    }
+    roles.add(role);
+    let productLinkMetadata: Pick<YucpAliasPackageMedia, 'label' | 'url'> = {};
+    if (kind === 'product-link') {
+      const label = normalizeBoundedString(entry.label, `${fieldName}.label`, 120);
+      let url: URL;
+      try {
+        url = new URL(trimRequiredString(entry.url, `${fieldName}.url`));
+      } catch {
+        throw new Error(`${fieldName}.url must be an absolute HTTPS URL`);
+      }
+      if (url.protocol !== 'https:' || url.username || url.password) {
+        throw new Error(`${fieldName}.url must be an absolute HTTPS URL`);
+      }
+      productLinkMetadata = { label, url: url.toString() };
+    } else if (entry.label !== undefined || entry.url !== undefined) {
+      throw new Error(`${fieldName} has unexpected product link metadata`);
+    }
     return {
       kind,
       localPath,
-      contentType: 'image/png',
+      ...(ordinal === undefined ? {} : { ordinal: ordinal as number }),
+      contentType,
       byteSize: entry.byteSize,
       sha256,
+      ...productLinkMetadata,
     };
   });
-  if (new Set(media.map((entry) => entry.kind)).size !== media.length) {
-    throw new Error(`${YUCP_METADATA_ALIAS_PATH}.media contains a duplicate kind`);
-  }
   return media.length > 0 ? media : undefined;
 }
 

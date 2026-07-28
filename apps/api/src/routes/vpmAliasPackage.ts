@@ -8,9 +8,12 @@ const MAX_PACKAGE_AUTHOR_LENGTH = 120;
 const MAX_PACKAGE_DESCRIPTION_LENGTH = 500;
 const MAX_PACKAGE_NAME_LENGTH = 120;
 const MAX_PACKAGE_TAGLINE_LENGTH = 160;
-const MAX_BOOTSTRAP_MEDIA_BYTES = 2 * 1024 * 1024;
-const MAX_BOOTSTRAP_MEDIA_ITEMS = 2;
+const MAX_BOOTSTRAP_MEDIA_BYTES = 16 * 1024 * 1024;
+const MAX_BOOTSTRAP_MEDIA_ITEMS = 42;
+const MAX_GALLERY_MEDIA_ITEMS = 8;
+const MAX_PRODUCT_LINK_MEDIA_ITEMS = 32;
 const PNG_SIGNATURE = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const JPEG_SIGNATURE = Uint8Array.from([0xff, 0xd8, 0xff]);
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
 const ZIP_TIMESTAMP = new Date('1980-01-02T00:00:00.000Z');
 const VPM_PACKAGE_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,213}$/;
@@ -50,13 +53,16 @@ export type YucpAliasPackageMetadataInput = {
 
 export type YucpAliasPackageMediaInput = {
   bucketName?: string;
-  kind: 'icon' | 'banner';
+  kind: 'banner' | 'gallery' | 'icon' | 'product-link';
+  label?: string;
   localPath: string;
   objectKey?: string;
+  ordinal?: number;
   providerVersion?: string;
-  contentType: 'image/png';
+  contentType: 'image/jpeg' | 'image/png';
   bytes: Uint8Array;
   sha256: string;
+  url?: string;
 };
 
 export type YucpAliasPackageMediaReference = Omit<YucpAliasPackageMediaInput, 'bytes'> & {
@@ -189,33 +195,56 @@ function normalizeMedia(
   const seen = new Set<string>();
   return [...value]
     .map((media) => {
-      if (media.kind !== 'icon' && media.kind !== 'banner') {
+      if (
+        media.kind !== 'icon' &&
+        media.kind !== 'banner' &&
+        media.kind !== 'gallery' &&
+        media.kind !== 'product-link'
+      ) {
         throw new Error('YUCP alias media kind is not supported');
       }
+      const requiresOrdinal = media.kind === 'gallery' || media.kind === 'product-link';
+      const maximumOrdinal =
+        media.kind === 'gallery' ? MAX_GALLERY_MEDIA_ITEMS : MAX_PRODUCT_LINK_MEDIA_ITEMS;
+      if (
+        requiresOrdinal &&
+        (!Number.isSafeInteger(media.ordinal) ||
+          (media.ordinal as number) < 0 ||
+          (media.ordinal as number) >= maximumOrdinal)
+      ) {
+        throw new Error('YUCP alias media ordinal is invalid');
+      }
+      if (!requiresOrdinal && media.ordinal !== undefined) {
+        throw new Error('YUCP alias media ordinal is invalid');
+      }
+      if (media.contentType !== 'image/png' && media.contentType !== 'image/jpeg') {
+        throw new Error('YUCP alias media content type is not supported');
+      }
+      const extension = media.contentType === 'image/png' ? 'png' : 'jpg';
       const expectedPath =
-        media.kind === 'icon' ? 'Documentation~/YUCP/icon.png' : 'Documentation~/YUCP/banner.png';
+        media.kind === 'icon' || media.kind === 'banner'
+          ? `Documentation~/YUCP/${media.kind}.${extension}`
+          : `Documentation~/YUCP/${
+              media.kind === 'gallery' ? 'gallery' : 'product-links'
+            }/${String(media.ordinal).padStart(3, '0')}.${extension}`;
       if (media.localPath !== expectedPath) {
         throw new Error('YUCP alias media local path is invalid');
       }
-      if (media.contentType !== 'image/png') {
-        throw new Error('YUCP alias media content type is not supported');
-      }
       const bytes = Uint8Array.from(media.bytes);
-      if (
-        bytes.byteLength < PNG_SIGNATURE.byteLength ||
-        bytes.byteLength > MAX_BOOTSTRAP_MEDIA_BYTES
-      ) {
+      if (bytes.byteLength < 8 || bytes.byteLength > MAX_BOOTSTRAP_MEDIA_BYTES) {
         throw new Error('YUCP alias media exceeds its byte limit');
       }
-      if (PNG_SIGNATURE.some((signatureByte, index) => bytes[index] !== signatureByte)) {
+      const signature = media.contentType === 'image/png' ? PNG_SIGNATURE : JPEG_SIGNATURE;
+      if (signature.some((signatureByte, index) => bytes[index] !== signatureByte)) {
         throw new Error('YUCP alias media content type does not match its bytes');
       }
       const sha256 = createHash('sha256').update(bytes).digest('hex');
       if (sha256 !== media.sha256) {
         throw new Error('YUCP alias media digest does not match its bytes');
       }
-      if (seen.has(media.kind)) {
-        throw new Error(`YUCP alias media contains a duplicate ${media.kind}`);
+      const role = `${media.kind}:${media.ordinal ?? 0}`;
+      if (seen.has(role)) {
+        throw new Error(`YUCP alias media contains a duplicate ${media.kind} role`);
       }
       const storageFields = [media.bucketName, media.objectKey, media.providerVersion];
       if (
@@ -229,35 +258,70 @@ function normalizeMedia(
       ) {
         throw new Error('YUCP alias media exact storage reference is incomplete');
       }
-      seen.add(media.kind);
-      return { ...media, bytes, sha256 };
+      let productLinkMetadata: Pick<YucpAliasPackageMediaInput, 'label' | 'url'> = {};
+      if (media.kind === 'product-link') {
+        const label = media.label?.trim() ?? '';
+        if (!label || new TextEncoder().encode(label).byteLength > 120) {
+          throw new Error('YUCP alias product link label is invalid');
+        }
+        let url: URL;
+        try {
+          url = new URL(media.url ?? '');
+        } catch {
+          throw new Error('YUCP alias product link URL is invalid');
+        }
+        if (url.protocol !== 'https:' || url.username || url.password) {
+          throw new Error('YUCP alias product link URL is invalid');
+        }
+        productLinkMetadata = { label, url: url.toString() };
+      } else if (media.label !== undefined || media.url !== undefined) {
+        throw new Error('YUCP alias product link metadata is invalid');
+      }
+      seen.add(role);
+      return { ...media, ...productLinkMetadata, bytes, sha256 };
     })
-    .sort((left, right) => left.kind.localeCompare(right.kind));
-}
-
-function encodeAliasIdentity(input: { aliasId: string }): string {
-  return JSON.stringify({
-    v: 1,
-    a: normalizeAliasId(input.aliasId),
-  });
+    .sort(
+      (left, right) =>
+        left.kind.localeCompare(right.kind) ||
+        (left.ordinal ?? 0) - (right.ordinal ?? 0) ||
+        left.localPath.localeCompare(right.localPath)
+    );
 }
 
 export function buildYucpAliasVpmPackageId(input: { aliasId: string }): string {
-  const descriptor = encodeAliasIdentity(input);
-  const identity = createHash('sha256').update(descriptor, 'utf8').digest('hex');
-  return `com.yucp.alias.${identity.slice(0, 32)}`;
+  const packageId = normalizeAliasId(input.aliasId);
+  if (!VPM_PACKAGE_ID_PATTERN.test(packageId)) {
+    throw new Error('YUCP alias ID must be a valid VPM package ID');
+  }
+  return packageId;
+}
+
+export function normalizeYucpPackageVersion(value: string): string {
+  const normalized = value.trim();
+  if (VPM_VERSION_PATTERN.test(normalized)) {
+    return normalized;
+  }
+  const abbreviated = /^(0|[1-9]\d*)(?:\.(0|[1-9]\d*))?$/.exec(normalized);
+  if (!abbreviated) {
+    throw new Error('YUCP package version must use Semantic Versioning');
+  }
+  return `${abbreviated[1]}.${abbreviated[2] ?? '0'}.0`;
 }
 
 export function buildYucpAliasVpmPackage(input: {
   aliasId: string;
   artifactUrl: string;
   bootstrapVersion: string;
+  packageVersion?: string;
   vpmDependencies: Readonly<Record<string, string>>;
   packageMetadata?: YucpAliasPackageMetadataInput;
   media?: ReadonlyArray<YucpAliasPackageMediaInput>;
 }): BuiltYucpAliasVpmPackage {
   const aliasId = normalizeAliasId(input.aliasId);
   const bootstrapVersion = normalizeBootstrapVersion(input.bootstrapVersion);
+  const packageVersion = input.packageVersion
+    ? normalizeYucpPackageVersion(input.packageVersion)
+    : bootstrapVersion;
   const vpmDependencies = normalizeVpmDependencies(input.vpmDependencies);
   const packageMetadata = normalizePackageMetadata(input.packageMetadata);
   const media = normalizeMedia(input.media);
@@ -272,7 +336,7 @@ export function buildYucpAliasVpmPackage(input: {
       metadata: {
         name: packageId,
         displayName,
-        version: bootstrapVersion,
+        version: packageVersion,
         vpmDependencies,
         unity: '2022.3',
         description,
@@ -281,40 +345,40 @@ export function buildYucpAliasVpmPackage(input: {
           email: 'contact@yucp.club',
           url: 'https://yucp.club/',
         },
-        ...(packageMetadata || media.length > 0
-          ? {
-              yucp: {
-                kind: 'alias-v1',
-                aliasId,
-                packageDisplayName: displayName,
-                installStrategy: 'server-authorized',
-                importerPackage: 'com.yucp.importer',
-                ...(packageMetadata
-                  ? {
-                      packageMetadata: {
-                        packageName: displayName,
-                        author: authorName,
-                        ...(packageMetadata.description
-                          ? { description: packageMetadata.description }
-                          : {}),
-                        ...(packageMetadata.tagline ? { tagline: packageMetadata.tagline } : {}),
-                      },
-                    }
-                  : {}),
-                ...(media.length > 0
-                  ? {
-                      media: media.map((item) => ({
-                        kind: item.kind,
-                        byteSize: item.bytes.byteLength,
-                        contentType: item.contentType,
-                        localPath: item.localPath,
-                        sha256: item.sha256,
-                      })),
-                    }
-                  : {}),
-              },
-            }
-          : {}),
+        yucp: {
+          kind: 'alias-v1',
+          aliasId,
+          packageVersion,
+          packageDisplayName: displayName,
+          installStrategy: 'server-authorized',
+          importerPackage: 'com.yucp.importer',
+          ...(packageMetadata
+            ? {
+                packageMetadata: {
+                  packageName: displayName,
+                  author: authorName,
+                  ...(packageMetadata.description
+                    ? { description: packageMetadata.description }
+                    : {}),
+                  ...(packageMetadata.tagline ? { tagline: packageMetadata.tagline } : {}),
+                },
+              }
+            : {}),
+          ...(media.length > 0
+            ? {
+                media: media.map((item) => ({
+                  kind: item.kind,
+                  byteSize: item.bytes.byteLength,
+                  contentType: item.contentType,
+                  localPath: item.localPath,
+                  sha256: item.sha256,
+                  ...(item.ordinal === undefined ? {} : { ordinal: item.ordinal }),
+                  ...(item.label ? { label: item.label } : {}),
+                  ...(item.url ? { url: item.url } : {}),
+                })),
+              }
+            : {}),
+        },
       },
       aliasId,
       channel: 'stable',
