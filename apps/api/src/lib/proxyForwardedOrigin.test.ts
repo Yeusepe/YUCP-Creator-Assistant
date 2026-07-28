@@ -42,6 +42,19 @@ describe('applyPublicOriginForwardingHeaders', () => {
     expect(headers.get('x-forwarded-proto')).toBe('https');
   });
 
+  it('keeps https when the platform edge terminated TLS and the internal URL is http', () => {
+    // Zeabur terminates TLS, so request.url inside the container is http even
+    // though the client signed its DPoP htu for https. The edge's
+    // x-forwarded-proto carries the real scheme and must win, upgrade-only.
+    const headers = applyPublicOriginForwardingHeaders(
+      new Headers({ 'x-forwarded-proto': 'https' }),
+      new URL('http://api.creators.yucp.club/api/auth/oauth2/token')
+    );
+
+    expect(headers.get('x-better-auth-forwarded-proto')).toBe('https');
+    expect(headers.get('x-forwarded-proto')).toBe('https');
+  });
+
   it('keeps a non-default port, which the loopback and local origins depend on', () => {
     const headers = applyPublicOriginForwardingHeaders(
       new Headers(),

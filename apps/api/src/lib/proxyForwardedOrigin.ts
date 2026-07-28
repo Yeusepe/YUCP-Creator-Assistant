@@ -24,7 +24,15 @@
  */
 export function applyPublicOriginForwardingHeaders(headers: Headers, requestUrl: URL): Headers {
   const host = requestUrl.host;
-  const protocol = requestUrl.protocol.replace(/:$/, '');
+
+  // The platform edge terminates TLS, so request.url inside the container says
+  // http even though the client connected over https — and an htu signed for
+  // https would mismatch again. The edge records the real scheme in
+  // x-forwarded-proto; honor it upgrade-only, so a client-supplied value can
+  // raise the scheme to https (harmlessly, since that is the edge's own value)
+  // but never downgrade an https request to http.
+  const incomingProto = headers.get('x-forwarded-proto')?.trim().toLowerCase();
+  const protocol = incomingProto === 'https' ? 'https' : requestUrl.protocol.replace(/:$/, '');
 
   headers.set('x-better-auth-forwarded-host', host);
   headers.set('x-better-auth-forwarded-proto', protocol);
