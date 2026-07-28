@@ -447,11 +447,6 @@ async function createInterruptedUpload(input: {
   };
 }
 
-/**
- * A completed PATCH now only proves the bytes were accepted; assembly continues detached from the
- * request and reports through the catalog. Tests that assert on post-assembly state must drain the
- * handlers first, exactly like shutdown does.
- */
 async function drainAssemblies(): Promise<void> {
   await tusHandler?.drainInFlightAssemblies();
   await s3TusHandler?.drainInFlightAssemblies();
@@ -1324,13 +1319,8 @@ describe.serial('tus ingest end to end', () => {
   });
 
   it('re-assembles a replacing upload with different bytes into durable S3 storage', async () => {
-    // The write intent of the first attempt's assembly manifest pinned that attempt's exact
-    // content. With a versionId-only manifest name, a replacing upload with different bytes died
-    // with "Storage write intent idempotency conflict" — poisoning the version number for good.
     const activeCatalog = requireCatalog();
     const endpoint = `${requireS3ServerOrigin()}${INGEST_TUS_PATH}`;
-    // Production derives the versionId deterministically from the upload identity, so a replacing
-    // upload reuses the same row. The test pins one id for both attempts to match that contract.
     const versionId = randomUUID();
     await uploadToCompletion({
       endpoint,
@@ -1363,8 +1353,6 @@ describe.serial('tus ingest end to end', () => {
   });
 
   it('marks a version failed when detached assembly rejects the completed upload', async () => {
-    // The transfer itself succeeds: the bytes reached quarantine, so the request has nothing left
-    // to reject. Assembly fails afterwards and the catalog carries the verdict to status polls.
     const endpoint = `${requireServerOrigin()}${INGEST_TUS_PATH}`;
     await uploadToCompletion({
       endpoint,

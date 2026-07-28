@@ -48,9 +48,6 @@ describe('beginVersion retry semantics', () => {
   });
 
   it('restarts an upload for a version the creator deleted', async () => {
-    // Deleting a version withdraws it; it does not retire the number. A creator
-    // who deletes a version and uploads it again gets a clean slate, not a 409
-    // against a package list that shows nothing.
     const { catalog, transitions } = stubCatalog('DELETED');
 
     const result = await beginVersion({ ...beginInput, catalog });

@@ -37,8 +37,6 @@ export function normalizeUploadError(error: Error): Error {
     const conflict = new Error(
       'This package version already exists or is still being prepared. Wait for it to finish, or use a new version.'
     );
-    // Named so the dashboard can look up the existing version and answer with its actual state
-    // instead of this guess.
     conflict.name = 'UploadConflictError';
     return conflict;
   }

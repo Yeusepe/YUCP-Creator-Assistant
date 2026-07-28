@@ -287,13 +287,6 @@ async function readPipelineMetadata(input: {
   });
 }
 
-/**
- * The delivery manifest keeps a fixed, versionId-derived name because the delivery and
- * materialization workers resolve it by convention without consulting the catalog. Its content
- * changes when a replacing upload re-promotes the version, so it is written through the
- * replaceable versioned path instead of immutable exact storage; the content-scoped idempotency
- * key keeps identical re-promotions (the scheduler redrive) from writing twice.
- */
 async function writeReplaceablePipelineMetadata(input: {
   body: string;
   indexId: string;
@@ -502,8 +495,6 @@ async function prepareLogicalAssembly(
     vpmRepositories: bootstrapMetadata.vpmRepositories,
   });
   signal?.throwIfAborted();
-  // The manifest name carries its content digest, so it is only known once the body exists. A
-  // versionId-only name collided with previous attempts of the same version in immutable storage.
   const body = manifestBody(manifest);
   const bodySha256 = createHash('sha256').update(body, 'utf8').digest('hex');
   const assemblyStorage = resolveAssemblyStorage(input.metadataStore, input.version.id, bodySha256);
@@ -533,9 +524,6 @@ export async function beginVersion(input: BeginVersionInput): Promise<PackageVer
   if (created.state === 'UPLOADING') {
     return created;
   }
-  // FAILED and DELETED both hand the version number back to the creator: a failed attempt has
-  // nothing worth keeping and a deleted version was withdrawn on purpose. Only versions that
-  // completed and still stand (ASSEMBLED/PROMOTING/READY) refuse replacement.
   if (created.state !== 'CREATED' && created.state !== 'FAILED' && created.state !== 'DELETED') {
     throw new Error('Package version is immutable after upload completion');
   }

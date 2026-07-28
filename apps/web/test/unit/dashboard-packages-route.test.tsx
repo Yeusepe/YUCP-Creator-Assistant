@@ -981,9 +981,6 @@ describe('dashboard packages route', () => {
 
     expect(await screen.findByRole('button', { name: 'Check package status' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Retry upload' })).toBeEnabled();
-    // The handle is kept in this session, where retrying still has the File to send. It is
-    // deliberately not persisted: a reload cannot restore the File, so a restored failed lane
-    // could only re-report the same failure on every later visit.
     expect(localStorage.getItem(acceptedUploadLaneStorageKey)).toBeNull();
   });
 
@@ -1223,9 +1220,6 @@ describe('dashboard packages route', () => {
       vi.useRealTimers();
     }
 
-    // Two minutes of preparation must not cost hundreds of status requests. The poll backs off to
-    // a ceiling instead of ticking twice a second, and it has no attempt limit to run out of, so
-    // the version that only turns ready deep into the window is still the same watch that sees it.
     expect(statusPolls).toBeGreaterThan(readyAfterPolls);
     expect(statusPolls).toBeLessThan(40);
     expect(screen.queryByText(/needs attention/i)).not.toBeInTheDocument();
@@ -1298,9 +1292,6 @@ describe('dashboard packages route', () => {
     firstRender.unmount();
     render(<Component />, { wrapper: createWrapper() });
 
-    // The remounted page picks the watch back up on its own: preparation kept running while the
-    // tab was gone, so the creator should not have to press anything to learn it finished, and the
-    // restored lane must never re-authorize a second upload of bytes the server already has.
     await waitFor(() => expect(statusPolls).toBeGreaterThan(0));
     await waitFor(() => expect(localStorage.getItem(acceptedUploadLaneStorageKey)).toBeNull());
     expect(apiPostMock).toHaveBeenCalledTimes(1);
@@ -1371,8 +1362,6 @@ describe('dashboard packages route', () => {
     await waitFor(() => expect(uploadStartMock).toHaveBeenCalledOnce());
     uploadSuccessRef.current?.();
 
-    // A status request that fails once is not a failed release: the watch resumes and finishes it
-    // without the creator being told to press anything, and without re-sending the bytes.
     await waitFor(() => expect(localStorage.getItem(acceptedUploadLaneStorageKey)).toBeNull());
     expect(screen.queryByText(/needs attention/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/temporary network failure/i)).not.toBeInTheDocument();

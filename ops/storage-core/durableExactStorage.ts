@@ -56,12 +56,6 @@ export class DurableExactStorage {
     return object;
   }
 
-  /**
-   * Verifies a committed object during a WRITE, where the caller holds the correct bytes. If the
-   * store no longer has the object — deleted out-of-band, provider loss — the catalog row is a
-   * lie, so the object is marked lost and the intent reopens for a rewrite instead of failing the
-   * write forever. Returns null when reopened; the caller falls through to the rewrite path.
-   */
   async #verifyCommittedForWrite(
     intentId: string,
     committed: StorageObjectVersion
@@ -154,12 +148,8 @@ export class DurableExactStorage {
       if (verified) {
         return { object: verified, retryClaimToken: null };
       }
-      // The committed object is gone from the store; the intent reopened as UNCERTAIN and the
-      // standard reconcile path below re-drives the physical write.
       effectiveState = 'UNCERTAIN';
     } else if (intent.state === 'COMMITTED') {
-      // COMMITTED with no VERIFIED object: the object row was already marked DELETED (garbage
-      // collection after a version deletion). Same lost-object shape, one state later.
       const reopened = intent.objectVersionId
         ? await this.catalog.reopenLostObjectWriteIntent({
             intentId: intent.id,
@@ -361,8 +351,6 @@ export class DurableExactStorage {
           try {
             canonical = await this.#verify(reusable);
           } catch {
-            // Reuse is an optimization. A canonical row whose bytes are gone from the store must
-            // not fail the write when the caller is holding those very bytes.
             canonical = null;
           }
         }

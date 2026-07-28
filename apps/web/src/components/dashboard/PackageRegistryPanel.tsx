@@ -2163,8 +2163,6 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
   } = useDashboardSession();
   const [initialAcceptedUploadLane] = useState(readAcceptedUploadLane);
   const preparationAbortControllerRef = useRef<AbortController | null>(null);
-  // Mutation callbacks close over the render they were created in; this ref always sees the
-  // upload as it is now, including the versionId that authorization attached mid-flight.
   const selectedUploadRef = useRef<SelectedUpload | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isUploadOpen, setIsUploadOpen] = useState(false);
@@ -2255,8 +2253,6 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
   useEffect(() => {
     const storage = uploadLaneStorage();
     if (!storage) return;
-    // Only work the server is still doing is worth resuming. A failed lane has no continuation, so
-    // persisting it just greets the creator with a stale error on every later visit.
     if (
       selectedUpload?.versionId &&
       selectedUpload.catalogProductId &&
@@ -2455,8 +2451,6 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
         return;
       }
       if (error instanceof Error && error.name === 'UploadConflictError') {
-        // The catalog already has this version number. Its actual state decides what to say —
-        // guessing produced "already exists" errors for versions that were simply still preparing.
         void resolveUploadConflict();
         return;
       }
@@ -2519,8 +2513,6 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
       });
       return;
     }
-    // 'deleted' and 'failed' no longer produce upload conflicts: both hand the version number
-    // back, so a 409 that still names one is a transient race and gets the generic guidance.
     fallback();
   }
 

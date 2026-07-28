@@ -432,10 +432,6 @@ export async function handleTusPatchWithOwnershipSignal(input: {
  * https://github.com/tus/tus-node-server/tree/main/packages/server
  */
 export type IngestTusRequestListener = RequestListener & {
-  /**
-   * Resolves when every assembly detached from an upload request has settled. Shutdown calls this
-   * between closing the listener and ending the database pool.
-   */
   drainInFlightAssemblies(): Promise<void>;
 };
 
@@ -452,8 +448,6 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Ingest
   mkdirSync(uploadDir, { recursive: true });
   const fileStore = new FileStore({ directory: uploadDir });
   const heartbeatSignals = new AsyncLocalStorage<AbortSignal>();
-  // Assemblies detached from their upload request. Shutdown must drain these before closing the
-  // database pool, or every deploy kills whatever was being prepared mid-flight.
   const inFlightAssemblies = new Set<Promise<void>>();
   const catalogControlHandler = createCatalogControlHandler({
     catalog: input.catalog,

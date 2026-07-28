@@ -165,14 +165,6 @@ export function deliveryManifestObjectId(versionId: string): string {
   return `${versionId}.logical-tree-v4.json`;
 }
 
-/**
- * The assembly manifest is staging output whose content differs between upload attempts of the
- * same version. Its name therefore carries the content digest: exact storage is immutable per
- * object key, so a versionId-only name let a failed attempt permanently poison the key and every
- * replacing upload died with "Storage write intent idempotency conflict". Identical content maps
- * to the identical name, which keeps redrives and replays idempotent. Readers never derive this
- * name — they follow the catalog's assembly_object_id column.
- */
 export function deliveryAssemblyObjectId(versionId: string, contentSha256: string): string {
   if (!VERSION_ID_PATTERN.test(versionId)) {
     throw new Error('Delivery assembly versionId must be a safe object-key segment');

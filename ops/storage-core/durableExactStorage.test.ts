@@ -780,9 +780,6 @@ describe('durable exact storage', () => {
   });
 
   it('rewrites a committed intent whose object row was already marked DELETED', async () => {
-    // Version deletion GC marks object rows DELETED while their intents stay COMMITTED. A
-    // replacing upload of identical content then found "no exact object version" and failed
-    // instead of writing the bytes it was holding.
     const calls: string[] = [];
     const catalog: ExactStorageCatalogPort = {
       async beginWriteIntent() {
@@ -852,9 +849,6 @@ describe('durable exact storage', () => {
   });
 
   it('rewrites a committed object whose bytes were deleted from the store out-of-band', async () => {
-    // Reproduced in production: the object store was emptied while the catalog still carried
-    // COMMITTED rows, so every re-upload of identical content failed verification of an object
-    // that no longer existed instead of simply writing the bytes it was holding.
     const calls: string[] = [];
     let committedGone = true;
     const catalog: ExactStorageCatalogPort = {

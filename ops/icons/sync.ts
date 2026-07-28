@@ -49,10 +49,6 @@ async function main(): Promise<void> {
   const config = await resolveAssetsConfig();
   const generationFingerprint = await createLicensedIconGenerationFingerprint(iconManifest);
   const manifestEntries = Object.entries(iconManifest) as Array<[IconName, string]>;
-  // Every request carries the same fixed deadline, and it starts when the request is created, not
-  // when a connection frees up. Firing all of the manifest at once therefore leaves the tail of the
-  // batch spending its whole budget queued behind the connection pool and timing out on a link that
-  // is working fine.
   const icons = await mapBoundedOrdered(manifestEntries, ([name, sourcePath]) =>
     fetchIcon(name, sourcePath, config)
   );
