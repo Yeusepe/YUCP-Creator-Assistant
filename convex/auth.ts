@@ -77,26 +77,13 @@ function toHostOrNull(value: string | undefined | null): string | null {
   }
 }
 
-/**
- * Every host this auth server legitimately answers on: the frontend origin, the
- * Convex site itself, and the public API origin clients reach it through.
- *
- * Single source of truth for both `baseURL.allowedHosts` and the proxy
- * canonicalization allowlist, so the two cannot drift apart and leave a host
- * that one accepts and the other rejects.
- */
 export function resolveAllowedAuthHosts(
   env: Record<string, string | undefined> = process.env
 ): string[] {
-  // Total by construction: this runs on every proxied auth request, so missing
-  // configuration has to yield an empty allowlist rather than throw. An empty
-  // allowlist simply means no forwarded host is honored.
   const convexSiteUrl =
     env.CONVEX_SITE_URL?.replace(/\/$/, '') ??
     env.CONVEX_URL?.replace(/\/$/, '').replace('.convex.cloud', '.convex.site');
 
-  // Mirrors the siteUrl default in createAuthOptions so the allowlist stays
-  // identical to the one Better Auth resolves against.
   const siteUrl =
     env.FRONTEND_URL?.replace(/\/$/, '') ??
     env.SITE_URL?.replace(/\/$/, '') ??
@@ -113,30 +100,8 @@ export function resolveAllowedAuthHosts(
   ];
 }
 
-/**
- * Restores a trusted proxy URL before Better Auth validates request-bound proofs.
- *
- * Better Auth validates the DPoP `htu` claim against `Request.url`.
- * RFC 9449 requires that URL to identify the endpoint used by the client.
- *
- * `x-forwarded-host` is attacker-controlled input: the Convex site is reachable
- * directly, so anyone can send this header without passing through the proxy.
- * It is honored only for a host this server actually answers on, per the OWASP
- * guidance to validate forwarded hosts against an allowlist. An unrecognized
- * value is ignored rather than rejected, leaving the real request URL in place.
- *
- * References:
- * https://better-auth.com/docs/guides/1-7-upgrade-guide
- * https://better-auth.com/docs/guides/dynamic-base-url
- * https://www.rfc-editor.org/rfc/rfc9449#section-4.3
- * https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/17-Testing_for_Host_Header_Injection
- */
 export function canonicalizeBetterAuthProxyRequest(request: Request): Request {
   const requestUrl = new URL(request.url);
-  // Convex rewrites the standard x-forwarded-* headers before an httpAction
-  // sees them, so on routes the Better Auth component has not preprocessed the
-  // proxy's origin only survives under the prefixed names. Prefer those; the
-  // standard names still work for requests the component already restored.
   const forwardedHost = (
     request.headers.get('x-better-auth-forwarded-host') ?? request.headers.get('x-forwarded-host')
   )?.trim();
@@ -404,13 +369,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
   return {
     secret: betterAuthSecret,
     baseURL: {
-      // Shared with the proxy canonicalization allowlist. The public API host has
-      // to be here because clients reach the auth server through it: Better Auth
-      // throws rather than falling back when a resolved host is not listed.
       allowedHosts: resolveAllowedAuthHosts(),
-      // Better Auth fallback contract:
-      // https://better-auth.com/docs/guides/dynamic-base-url#choosing-a-fallback
-      // Direct Convex calls have no request host, so they use the canonical auth server.
       fallback: authBaseUrl,
     },
     trustedOrigins,

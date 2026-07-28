@@ -67,3 +67,4 @@ convex/tsconfig.tsbuildinfo
 # Licensed Streamline artwork is generated locally and must never be committed.
 /apps/web/src/icons/generated.tsx*
 /ops/icons/.cache/
+/test-results

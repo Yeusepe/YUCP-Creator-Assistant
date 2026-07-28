@@ -79,7 +79,6 @@ import { createPublicRoutes } from './routes/public';
 import { createPublicV2Routes } from './routes/publicV2';
 import { createSuiteRoutes } from './routes/suite';
 import { createVersionRouteHandler } from './routes/version';
-import { parsePublicImporterReleaseLedgerJson } from './routes/vpmImporterPackage';
 
 // Global auth instance
 let auth: Auth | null = null;
@@ -413,9 +412,6 @@ function initializeAuth(webhookBaseUrl?: string) {
       internalRpcSharedSecret,
       convexApiSecret: env.CONVEX_API_SECRET ?? '',
       convexUrl,
-      publicImporterReleaseLedger: parsePublicImporterReleaseLedgerJson(
-        env.VPM_IMPORTER_RELEASE_LEDGER_JSON
-      ),
       publicVpmIndexUrl: env.VPM_PUBLIC_INDEX_URL,
       privateVpmRootDomain: env.PRIVATE_VPM_ROOT_DOMAIN,
       vpmBaseUrl: env.VPM_BASE_URL,
@@ -848,12 +844,8 @@ async function routeRequest(request: Request): Promise<Response> {
       proxyHeaders.delete('host');
       proxyHeaders.set('host', new URL(convexSiteUrl).host);
 
-      // Tell Convex which public origin the client actually called, so Better Auth
-      // validates DPoP `htu` against that URL instead of the internal convex.site one.
       applyPublicOriginForwardingHeaders(proxyHeaders, url);
 
-      // Better Auth owns RFC 8252 redirect and resource validation. The proxy
-      // supplies the public API resource only when a client omits one.
       let proxyBody: BodyInit | undefined =
         request.method !== 'GET' && request.method !== 'HEAD'
           ? ((request.body as BodyInit | null | undefined) ?? undefined)

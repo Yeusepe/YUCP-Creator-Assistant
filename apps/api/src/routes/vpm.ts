@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { parseTraceparent, timingSafeStringEqual } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
-import publicImporterReleaseLedger from '../../../../ops/importer/public-importer-releases.json';
 import type { Auth } from '../auth';
 import { createApiServiceActorBinding, createAuthUserActorBinding } from '../lib/apiActor';
 import { getConvexClientFromUrl } from '../lib/convex';
@@ -26,9 +25,7 @@ import {
   type YucpAliasPackageMediaReference,
 } from './vpmAliasPackage';
 import {
-  assertPublicImporterIndexMatchesReleaseLedger,
   assertPublicImporterVersionsImmutable,
-  type PublicImporterReleaseLedger,
   selectPublicImporterManifest,
 } from './vpmImporterPackage';
 import {
@@ -85,7 +82,6 @@ export interface VpmRouteConfig {
   convexApiSecret: string;
   convexUrl: string;
   publicVpmIndexUrl?: string;
-  publicImporterReleaseLedger?: PublicImporterReleaseLedger;
   privateVpmRootDomain?: string;
   vpmBaseUrl?: string;
 }
@@ -326,11 +322,6 @@ export function createVpmRoutes({
         fetchImpl,
         indexUrl,
       });
-      assertPublicImporterIndexMatchesReleaseLedger(
-        index,
-        config.publicImporterReleaseLedger ??
-          (publicImporterReleaseLedger as PublicImporterReleaseLedger)
-      );
       if (cached) {
         assertPublicImporterVersionsImmutable(
           selectPublicImporterManifest(cached.index),

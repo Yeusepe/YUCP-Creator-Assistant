@@ -443,10 +443,6 @@ async function verifyOAuthRequest(
     const { requestToResourceInput, verifyAccessTokenRequest } = await import('better-auth/oauth2');
     const authBase = `${siteUrl.replace(/\/$/, '')}/api/auth`;
 
-    // RFC 9449: the DPoP proof's htu names the URL the client called, which is
-    // the public API origin. These routes receive the raw Convex request, so
-    // restore the forwarded public origin or every DPoP-bound call 401s with
-    // "htu does not match the request URL".
     const canonicalRequest = canonicalizeBetterAuthProxyRequest(request);
 
     const verified = await verifyAccessTokenRequest(requestToResourceInput(canonicalRequest), {

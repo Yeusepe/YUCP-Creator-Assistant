@@ -142,9 +142,6 @@ describe('createSchemaAuthOptions', () => {
   });
 
   it('prefers the prefixed forwarded headers, which survive the Convex platform rewrite', () => {
-    // On routes the Better Auth component has not preprocessed, Convex rewrites
-    // x-forwarded-host to its own value; only x-better-auth-forwarded-* carry
-    // the origin the client actually called (and signed its DPoP htu for).
     const canonical = canonicalizeBetterAuthProxyRequest(
       new Request('https://example.convex.site/v1/products', {
         method: 'GET',

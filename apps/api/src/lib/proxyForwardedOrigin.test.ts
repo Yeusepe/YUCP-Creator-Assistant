@@ -3,9 +3,6 @@ import { applyPublicOriginForwardingHeaders } from './proxyForwardedOrigin';
 
 describe('applyPublicOriginForwardingHeaders', () => {
   it('sends the prefixed pair the Convex component actually reads', () => {
-    // Convex rewrites the standard x-forwarded-* headers before an httpAction
-    // sees them, so only these survive to reach Better Auth. Sending just the
-    // standard names is silently ineffective and leaves DPoP htu mismatched.
     const headers = applyPublicOriginForwardingHeaders(
       new Headers(),
       new URL('https://api.creators.yucp.club/api/auth/oauth2/token')
@@ -43,9 +40,6 @@ describe('applyPublicOriginForwardingHeaders', () => {
   });
 
   it('keeps https when the platform edge terminated TLS and the internal URL is http', () => {
-    // Zeabur terminates TLS, so request.url inside the container is http even
-    // though the client signed its DPoP htu for https. The edge's
-    // x-forwarded-proto carries the real scheme and must win, upgrade-only.
     const headers = applyPublicOriginForwardingHeaders(
       new Headers({ 'x-forwarded-proto': 'https' }),
       new URL('http://api.creators.yucp.club/api/auth/oauth2/token')

@@ -28,20 +28,9 @@ type PackageBrokerOAuthClientDescriptor = {
   name: string;
   scopes: OAuthProviderScope[];
   authDomain: 'user' | 'creator';
-  /** RFC 8707 resource this client is linked to and requests tokens for. */
   resource: string;
 };
 
-/**
- * One public client per native application (RFC 8252 §8.4), each least-privileged
- * to a single RFC 8707 resource:
- *
- *   yucp-package-broker   consumer installer  → package operations
- *   yucp-package-exporter creator Unity tools → public API (certificate issuance)
- *
- * The exporter deliberately cannot request `package:operate`, and the broker
- * deliberately cannot request `cert:issue`.
- */
 const PACKAGE_BROKER_OAUTH_CLIENTS: readonly PackageBrokerOAuthClientDescriptor[] = [
   {
     clientId: 'yucp-package-broker',
@@ -53,10 +42,6 @@ const PACKAGE_BROKER_OAUTH_CLIENTS: readonly PackageBrokerOAuthClientDescriptor[
   {
     clientId: 'yucp-package-exporter',
     name: 'YUCP Package Exporter',
-    // Exactly the scopes the Unity exporter's routes require:
-    //   cert:issue        POST /v1/certificates, GET /v1/certificates/{me,devices}
-    //   products:read     GET /v1/products
-    //   verification:read GET /v1/me
     scopes: ['cert:issue', 'products:read', 'verification:read', OAUTH_REFRESH_TOKEN_SCOPE],
     authDomain: 'creator',
     resource: PUBLIC_API_AUDIENCE,
@@ -96,15 +81,6 @@ export function buildPackageBrokerOAuthResourceRecord() {
   };
 }
 
-/**
- * The public API resource. `apps/api` injects this identifier into every token
- * exchange that omits `resource` (see `bindDefaultOAuthResource`), so the row
- * has to exist or `resolveResourcePolicy` rejects the exchange with
- * `invalid_target` — `cachedResources` is only a read cache, not a definition.
- *
- * DPoP is not required at the resource level: browser and API-key callers
- * present plain bearer tokens. Native clients opt in per client record instead.
- */
 export function buildPublicApiOAuthResourceRecord() {
   return {
     identifier: PUBLIC_API_AUDIENCE,
@@ -135,13 +111,6 @@ export function buildPackageBrokerOAuthClientRecord(
   descriptor: PackageBrokerOAuthClientDescriptor,
   callbackUrl: string
 ) {
-  /**
-   * Better Auth supports DPoP-bound public clients through this client property.
-   * https://better-auth.com/docs/plugins/oauth-provider#dynamic-registration-endpoint
-   *
-   * RFC 9449 requires the token endpoint proof key to bind public-client refresh tokens.
-   * https://www.rfc-editor.org/rfc/rfc9449#section-8
-   */
   return {
     clientSecret: null,
     name: descriptor.name,
@@ -312,8 +281,6 @@ async function retireOAuthClient(ctx: any, clientId: string) {
 export const seedPackageBrokerOAuthClient = internalMutation({
   args: {},
   handler: async (ctx) => {
-    // Better Auth applies the RFC 8252 loopback-port exception when the
-    // requested URI has this exact scheme, host, path, and query.
     const callbackUrl = 'http://127.0.0.1/callback';
     const resource = [];
     for (const record of buildPackageBrokerOAuthResourceRecords()) {

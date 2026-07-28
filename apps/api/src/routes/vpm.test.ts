@@ -1216,7 +1216,7 @@ describe('package-scoped VPM routes', () => {
     );
   });
 
-  it('validates a local importer against its injected release ledger', async () => {
+  it('forwards only the newest compatible importer from a mixed public index', async () => {
     const publication = publishedAlias({
       bootstrapVersion: '1.0.0',
       publicationId: '00000000-0000-4000-8000-000000000107',
@@ -1240,6 +1240,19 @@ describe('package-scoped VPM routes', () => {
                 zipSHA256: 'd'.repeat(64),
                 url: 'http://127.0.0.1:3004/packages/com.yucp.importer-0.1.54.zip',
               },
+              '0.1.13': {
+                name: 'com.yucp.importer',
+                displayName: 'YUCP Package Importer',
+                version: '0.1.13',
+                unity: '2022.3',
+                description: 'Legacy YUCP package importer',
+                author: {
+                  name: 'YUCP Club',
+                  url: 'https://vpm.yucp.club/',
+                },
+                zipSHA256: 'a'.repeat(64),
+                url: 'https://packages.example.test/com.yucp.importer-0.1.13.zip',
+              },
             },
           },
         },
@@ -1253,23 +1266,15 @@ describe('package-scoped VPM routes', () => {
       throw new Error(`Unexpected query ${String(reference)}`);
     });
 
-    const response = await createRoutes(null, {
-      config: {
-        publicImporterReleaseLedger: {
-          releases: {
-            '0.1.54': {
-              sha256: 'd'.repeat(64),
-            },
-          },
-          schemaVersion: 1,
-        },
-      } as never,
-    }).serveCreatorLinkIndex(
+    const response = await createRoutes(null).serveCreatorLinkIndex(
       new Request(`https://mapache.private.yucp.club/api/vpm/access/${'L'.repeat(43)}/index.json`),
       'L'.repeat(43)
     );
-
+    const body = (await response.json()) as {
+      packages?: Record<string, { versions?: Record<string, unknown> }>;
+    };
     expect(response.status).toBe(200);
+    expect(Object.keys(body.packages?.['com.yucp.importer']?.versions ?? {})).toEqual(['0.1.54']);
   });
 
   it('keeps the repository stable when storefront and edition state changes', async () => {

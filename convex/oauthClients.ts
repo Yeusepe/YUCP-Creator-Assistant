@@ -269,13 +269,6 @@ export const getOAuthClientPublic = query({
   },
 });
 
-/**
- * Which client ids the public API backfill should link.
- *
- * The first-party native clients are seeded with their own least-privilege
- * resource links, so they are excluded: linking the consumer installer to the
- * public API would hand it an audience it has no business requesting.
- */
 export function selectClientIdsNeedingPublicApiLink(
   clientIds: readonly (string | undefined | null)[]
 ): string[] {
@@ -293,18 +286,6 @@ export function selectClientIdsNeedingPublicApiLink(
   );
 }
 
-/**
- * Link a client to the public API resource.
- *
- * `oauthProvider` runs with `enforcePerClientResources: true`, so a token
- * request naming a resource is rejected with `invalid_target` unless an
- * `oauthClientResource` row ties the client to it. `apps/api` injects
- * `resource=PUBLIC_API_AUDIENCE` into every token exchange that omits one
- * (`bindDefaultOAuthResource`), which means every creator-registered app needs
- * this link or it can never exchange a code.
- *
- * Idempotent, so it is safe to call on create and from the backfill.
- */
 async function ensurePublicApiResourceLink(ctx: any, clientId: string) {
   const existingResult = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
     model: 'oauthClientResource',
@@ -448,8 +429,6 @@ export const deleteOAuthClient = mutation({
       },
     });
 
-    // Drop the resource links too, so a later client id reuse cannot inherit
-    // authorization from a deleted client.
     await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
       input: {
         model: 'oauthClientResource',
@@ -462,14 +441,6 @@ export const deleteOAuthClient = mutation({
   },
 });
 
-/**
- * Backfill the public API resource link for OAuth clients registered before the
- * link was created automatically. Those clients cannot exchange a code at all.
- *
- *   npx convex run oauthClients:backfillPublicApiResourceLinks
- *
- * Safe to run again; only missing links are written.
- */
 export const backfillPublicApiResourceLinks = internalMutation({
   args: {},
   handler: async (ctx) => {
