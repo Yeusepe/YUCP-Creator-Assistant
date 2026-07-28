@@ -408,6 +408,26 @@ function isServerProcessingStatus(
   );
 }
 
+/**
+ * Elapsed-time suffix for a server-side step that runs without progress events.
+ *
+ * Preparation chunks the whole package and regularly takes minutes on a large
+ * upload. With a bare spinner and no changing text there is nothing to
+ * distinguish "working" from "hung", so a running timer is the honest signal.
+ */
+function formatElapsedSuffix(elapsedMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  if (totalSeconds < 5) {
+    return '';
+  }
+  if (totalSeconds < 60) {
+    return ` · ${totalSeconds}s`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return ` · ${minutes}m ${String(seconds).padStart(2, '0')}s`;
+}
+
 function getUploadHeadline(upload: SelectedUpload): string {
   switch (upload.status) {
     case 'uploading':
@@ -2015,6 +2035,29 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
     };
   }, []);
 
+  // Drives the elapsed-time readout while the server works. The timer restarts
+  // on each status change so the number describes the current step, and it only
+  // runs while a step is actually in flight.
+  const uploadStatus = selectedUpload?.status;
+  // Null when nothing is in flight; otherwise the step being timed. Keying the
+  // effect on this restarts the timer whenever the step changes, so the number
+  // always describes the current step rather than the whole upload.
+  const processingStepKey =
+    uploadStatus && isServerProcessingStatus(uploadStatus) ? uploadStatus : null;
+  const [processingElapsedMs, setProcessingElapsedMs] = useState(0);
+
+  useEffect(() => {
+    setProcessingElapsedMs(0);
+    if (!processingStepKey) {
+      return;
+    }
+    const startedAt = Date.now();
+    const interval = setInterval(() => {
+      setProcessingElapsedMs(Date.now() - startedAt);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [processingStepKey]);
+
   useEffect(() => {
     if (dashboardSessionStatus === 'signed_out' && typeof window !== 'undefined') {
       window.sessionStorage.removeItem(ACCEPTED_UPLOAD_LANE_STORAGE_KEY);
@@ -2207,12 +2250,13 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
       }
       const message = getFriendlyUploadError(error);
       setFormError(message);
+      // A failure is always shown as failed. Returning an upload that already
+      // has a versionId to 'uploading' left it on a spinner reading "Confirming
+      // package", so a hard server-side failure looked like work still in
+      // progress and the user waited indefinitely. The versionId is preserved,
+      // which is what allows retrying the same version.
       setSelectedUpload((current) =>
-        current
-          ? current.versionId
-            ? { ...current, status: 'uploading', errorMessage: message }
-            : { ...current, status: 'failed', errorMessage: message }
-          : current
+        current ? { ...current, status: 'failed', errorMessage: message } : current
       );
       toast.error('Upload interrupted', { description: message });
     },
@@ -2755,17 +2799,28 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
                                 </DropZone.FileProgress>
                               ) : null}
                               {isServerProcessingStatus(selectedUpload.status) ? (
-                                <output className="pm-subtle-copy mt-2 flex items-center gap-2 text-xs">
-                                  <span className="btn-loading-spinner" aria-hidden="true" />
-                                  {selectedUpload.status === 'uploading'
-                                    ? selectedUpload.progress >= 100
-                                      ? 'Confirming package...'
-                                      : `Uploading package: ${selectedUpload.progress}%`
-                                    : selectedUpload.status === 'queued'
-                                      ? 'Waiting for preparation...'
-                                      : selectedUpload.status === 'preparing'
-                                        ? 'Preparing version...'
-                                        : 'Publishing version...'}
+                                <output className="pm-subtle-copy mt-2 flex flex-col gap-1 text-xs">
+                                  <span className="flex items-center gap-2">
+                                    <span className="btn-loading-spinner" aria-hidden="true" />
+                                    {selectedUpload.status === 'uploading'
+                                      ? selectedUpload.progress >= 100
+                                        ? 'Confirming package...'
+                                        : `Uploading package: ${selectedUpload.progress}%`
+                                      : selectedUpload.status === 'queued'
+                                        ? 'Waiting for preparation...'
+                                        : selectedUpload.status === 'preparing'
+                                          ? 'Preparing version...'
+                                          : 'Publishing version...'}
+                                    {formatElapsedSuffix(processingElapsedMs)}
+                                  </span>
+                                  {selectedUpload.status === 'preparing' ||
+                                  (selectedUpload.status === 'uploading' &&
+                                    selectedUpload.progress >= 100) ? (
+                                    <span>
+                                      Large packages take several minutes. You can keep this open;
+                                      we will show the result here.
+                                    </span>
+                                  ) : null}
                                 </output>
                               ) : null}
                               {selectedUpload.errorMessage ? (
@@ -2799,8 +2854,14 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
                     Upload another version
                   </Button>
                 ) : selectedUpload?.versionId &&
-                  isServerProcessingStatus(selectedUpload.status) &&
+                  (isServerProcessingStatus(selectedUpload.status) ||
+                    selectedUpload.status === 'failed') &&
                   !uploadMutation.isPending ? (
+                  // A failed upload that still holds a version keeps its recovery
+                  // actions. Recoverability used to be expressed by leaving the
+                  // status on 'uploading', which made a hard failure look like
+                  // work in progress; the status is now honest and the footer
+                  // decides what can still be done.
                   <>
                     {selectedUpload.file ? (
                       <YucpButton
@@ -2824,10 +2885,6 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
                         : 'Check package status'}
                     </YucpButton>
                   </>
-                ) : selectedUpload?.versionId && selectedUpload.status === 'failed' ? (
-                  <Button variant="outline" isDisabled>
-                    Preparation failed
-                  </Button>
                 ) : (
                   <YucpButton
                     isLoading={uploadMutation.isPending}
