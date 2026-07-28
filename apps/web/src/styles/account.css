@@ -147,6 +147,80 @@
   gap: 12px;
 }
 
+.account-identity-card {
+  container-type: inline-size;
+}
+
+.account-identity-card .account-surface-card-header {
+  margin-bottom: 20px;
+  padding-bottom: 20px;
+}
+
+.account-identity-card .account-surface-card-actions {
+  padding-top: 2px;
+}
+
+.account-identity-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px 32px;
+  min-width: 0;
+  margin: 0;
+  padding: 4px 0 2px;
+  border: 0;
+}
+
+.dark .account-identity-grid {
+  border-color: transparent;
+}
+
+.account-identity-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.account-identity-label {
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.dark .account-identity-label {
+  color: #f8fafc;
+}
+
+.account-identity-input {
+  width: 100%;
+  min-height: 44px;
+}
+
+.account-identity-help {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.dark .account-identity-help {
+  color: rgba(226, 232, 240, 0.68);
+}
+
+@container (max-width: 860px) {
+  .account-identity-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 580px) {
+  .account-identity-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+}
+
 .account-surface-card-footer {
   margin-top: 14px;
   padding-top: 14px;

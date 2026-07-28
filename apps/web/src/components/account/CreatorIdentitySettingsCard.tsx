@@ -62,7 +62,7 @@ export function CreatorIdentitySettingsCard() {
 
   return (
     <AccountSectionCard
-      className="bento-col-12 animate-in animate-in-delay-2"
+      className="account-identity-card bento-col-12 animate-in animate-in-delay-2"
       leading={<Icon name="link" aria-hidden />}
       eyebrow="Creator settings"
       title="Creator identity and URLs"
@@ -70,9 +70,10 @@ export function CreatorIdentitySettingsCard() {
       actions={
         <YucpButton
           yucp="primary"
-          size="sm"
+          pill
           isLoading={saveIdentityMutation.isPending}
           isDisabled={!canSave}
+          className="account-btn account-btn--primary"
           aria-label="Save creator identity"
           onPress={() =>
             saveIdentityMutation.mutate({
@@ -96,59 +97,55 @@ export function CreatorIdentitySettingsCard() {
         />
       ) : (
         <>
-          <div className="grid gap-4 md:grid-cols-3" aria-busy={identityQuery.isLoading}>
-            <label className="space-y-2" htmlFor="creator-display-name">
-              <span className="text-foreground text-xs font-semibold dark:text-foreground">
-                Display name
-              </span>
+          <fieldset className="account-identity-grid" aria-busy={identityQuery.isLoading}>
+            <legend className="sr-only">Creator identity fields</legend>
+            <label className="account-identity-field" htmlFor="creator-display-name">
+              <span className="account-identity-label">Display name</span>
               <YucpInput
                 id="creator-display-name"
                 aria-label="Creator display name"
+                className="account-identity-input"
                 value={identityDraft.name}
                 isDisabled={isPending}
                 onValueChange={(name) => setIdentityDraft((current) => ({ ...current, name }))}
               />
-              <span className="text-foreground/55 block text-xs dark:text-foreground/55">
-                Shown to buyers and collaborators.
-              </span>
+              <span className="account-identity-help">Shown to buyers and collaborators.</span>
             </label>
 
-            <label className="space-y-2" htmlFor="creator-public-handle">
-              <span className="text-foreground text-xs font-semibold dark:text-foreground">
-                Public creator handle
-              </span>
+            <label className="account-identity-field" htmlFor="creator-public-handle">
+              <span className="account-identity-label">Public creator handle</span>
               <YucpInput
                 id="creator-public-handle"
                 aria-label="Public creator handle"
+                className="account-identity-input"
                 value={identityDraft.publicSlug}
                 isDisabled={isPending}
                 onValueChange={(publicSlug) =>
                   setIdentityDraft((current) => ({ ...current, publicSlug }))
                 }
               />
-              <span className="text-foreground/55 block break-all text-xs dark:text-foreground/55">
+              <span className="account-identity-help">
                 /get-in-unity/{identityDraft.publicSlug || 'your-handle'}/product
               </span>
             </label>
 
-            <label className="space-y-2" htmlFor="creator-private-vpm-subdomain">
-              <span className="text-foreground text-xs font-semibold dark:text-foreground">
-                Private VPM subdomain
-              </span>
+            <label className="account-identity-field" htmlFor="creator-private-vpm-subdomain">
+              <span className="account-identity-label">Private VPM subdomain</span>
               <YucpInput
                 id="creator-private-vpm-subdomain"
                 aria-label="Private VPM subdomain"
+                className="account-identity-input"
                 value={identityDraft.deliverySlug}
                 isDisabled={isPending}
                 onValueChange={(deliverySlug) =>
                   setIdentityDraft((current) => ({ ...current, deliverySlug }))
                 }
               />
-              <span className="text-foreground/55 block break-all text-xs dark:text-foreground/55">
+              <span className="account-identity-help">
                 https://{identityDraft.deliverySlug || 'your-handle'}.private.yucp.club
               </span>
             </label>
-          </div>
+          </fieldset>
           {identityQuery.isLoading ? (
             <output className="text-foreground/55 mt-4 text-sm dark:text-foreground/55">
               Loading creator identity...

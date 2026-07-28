@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { PropsWithChildren } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/components/ui/Toast', () => ({
   useToast: vi.fn(() => ({
@@ -31,6 +31,8 @@ function createWrapper() {
 }
 
 describe('account creator identity settings', () => {
+  afterEach(() => cleanup());
+
   beforeEach(() => {
     vi.mocked(dashboardApi.getCreatorIdentity).mockResolvedValue({
       deliverySlug: 'creator-10705330',
@@ -74,5 +76,28 @@ describe('account creator identity settings', () => {
         publicSlug: 'yeusepe',
       })
     );
+  });
+
+  it('uses the account form rhythm and shared HeroUI primary action treatment', async () => {
+    render(<CreatorIdentitySettingsCard />, { wrapper: createWrapper() });
+
+    await screen.findByDisplayValue('Creator 10705330');
+
+    const fields = screen.getByRole('group', { name: 'Creator identity fields' });
+    expect(fields).toHaveClass('account-identity-grid');
+
+    for (const inputName of [
+      'Creator display name',
+      'Public creator handle',
+      'Private VPM subdomain',
+    ]) {
+      expect(screen.getByRole('textbox', { name: inputName }).closest('label')).toHaveClass(
+        'account-identity-field'
+      );
+    }
+
+    const saveButton = screen.getByRole('button', { name: 'Save creator identity' });
+    expect(saveButton).toHaveClass('button--primary', 'account-btn', 'account-btn--primary');
+    expect(saveButton.className).not.toMatch(/blue-/);
   });
 });

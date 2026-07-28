@@ -150,6 +150,51 @@
   font-family: var(--font-display), sans-serif;
 }
 
+/* Shared branded primary action. HeroUI still owns semantics, focus, and pending states. */
+.yucp-button--primary {
+  border-color: color-mix(in oklch, var(--accent) 78%, var(--foreground));
+  background: var(--accent);
+  color: var(--accent-foreground);
+  box-shadow: 0 8px 18px color-mix(in oklch, var(--accent) 18%, transparent);
+}
+
+.dark .yucp-button--primary {
+  border-color: color-mix(in oklch, var(--accent) 82%, var(--foreground));
+  background: var(--accent);
+  color: var(--accent-foreground);
+  box-shadow: 0 8px 18px color-mix(in oklch, var(--accent) 12%, transparent);
+}
+
+.yucp-button--primary:hover:not(:disabled),
+.yucp-button--primary[data-hovered="true"] {
+  border-color: color-mix(in oklch, var(--accent) 68%, var(--foreground));
+  background: color-mix(in oklch, var(--accent) 88%, var(--foreground));
+  color: var(--accent-foreground);
+}
+
+.dark .yucp-button--primary:hover:not(:disabled),
+.dark .yucp-button--primary[data-hovered="true"] {
+  border-color: color-mix(in oklch, var(--accent) 88%, var(--foreground));
+  background: color-mix(in oklch, var(--accent) 88%, var(--foreground));
+  color: var(--accent-foreground);
+}
+
+.yucp-button--primary:disabled,
+.yucp-button--primary[aria-disabled="true"] {
+  border-color: color-mix(in oklch, var(--accent) 28%, transparent);
+  background: color-mix(in oklch, var(--accent) 58%, transparent);
+  color: color-mix(in oklch, var(--accent-foreground) 86%, transparent);
+  box-shadow: none;
+}
+
+.dark .yucp-button--primary:disabled,
+.dark .yucp-button--primary[aria-disabled="true"] {
+  border-color: color-mix(in oklch, var(--accent) 24%, transparent);
+  background: color-mix(in oklch, var(--accent) 46%, transparent);
+  color: color-mix(in oklch, var(--accent-foreground) 82%, transparent);
+  box-shadow: none;
+}
+
 /* Default soft chips in dark mode need more contrast vs card surface */
 .dark .chip--default.chip--soft,
 .dark .chip--default.chip--flat {
