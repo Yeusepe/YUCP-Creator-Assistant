@@ -987,6 +987,81 @@ describe('dashboard packages route', () => {
     expect(localStorage.getItem(acceptedUploadLaneStorageKey)).toBeNull();
   });
 
+  it('resumes watching when a conflict names a version that is still preparing', async () => {
+    let statusPolls = 0;
+    apiPostMock.mockResolvedValue({
+      versionId: 'version-conflict-preparing',
+      exp: '123',
+      sig: 'signature',
+      tusEndpoint: 'https://ingest.test/files',
+      headers: { 'X-YUCP-Version-Id': 'version-conflict-preparing' },
+      catalogProductId: 'catalog_product_1',
+      protectionPolicyId: 'supported-visual-assets-v2',
+    });
+    apiGetMock.mockImplementation((path: string) => {
+      if (path === '/api/creator/packages') {
+        return Promise.resolve({ data: [product], hasMore: false, nextCursor: null });
+      }
+      if (path === versionStatusPath('version-conflict-preparing')) {
+        statusPolls += 1;
+        return Promise.resolve({
+          editionId: 'standard',
+          errorCategory: null,
+          errorCode: null,
+          estimatedStartAt: null,
+          packageId: 'com.creator.avatar-bundle',
+          queuePosition: null,
+          state: statusPolls === 1 ? 'preparing' : 'ready',
+          updatedAt: '2026-07-26T12:00:00.000Z',
+          version: '2.6.0',
+          versionId: 'version-conflict-preparing',
+        });
+      }
+      if (path === '/api/creator/packages/catalog_product_1') {
+        return Promise.resolve(product);
+      }
+      if (path === '/api/creator/packages/by-package/com.creator.avatar-bundle/vcc-link') {
+        return Promise.resolve({
+          status: 'inactive',
+          bootstrapDownloadUrl:
+            '/api/creator/packages/by-package/com.creator.avatar-bundle/bootstrap',
+        });
+      }
+      return Promise.reject(new Error(`Unexpected GET ${path}`));
+    });
+    const Component = DashboardPackagesRoute.options.component;
+    if (!Component) throw new Error('Dashboard packages component is missing');
+
+    render(<Component />, { wrapper: createWrapper() });
+    const productName = await screen.findByText('Avatar Bundle');
+    const productRow = productName.closest('.pm-product-row');
+    if (!productRow) throw new Error('Product row was not rendered');
+    fireEvent.click(within(productRow).getByRole('button', { name: 'Upload' }));
+    fireEvent.change(screen.getByLabelText('Release label'), { target: { value: '2.6.0' } });
+    const file = new File(['package bytes'], 'avatar-bundle-conflict.zip', {
+      type: 'application/zip',
+    });
+    fireEvent.change(screen.getByLabelText('Choose package file'), {
+      target: { files: Object.assign([file], { item: () => file }) },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload package' }));
+    await waitFor(() => expect(uploadStartMock).toHaveBeenCalledOnce());
+
+    uploadErrorRef.current?.(
+      Object.assign(new Error('tus: unexpected response while creating upload'), {
+        originalResponse: {
+          getStatus: () => 409,
+        },
+      })
+    );
+
+    await waitFor(() => expect(statusPolls).toBeGreaterThan(1));
+    expect(screen.queryByText(/needs attention/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/already exists/i)).not.toBeInTheDocument();
+    await waitFor(() => expect(localStorage.getItem(acceptedUploadLaneStorageKey)).toBeNull());
+    expect(apiPostMock).toHaveBeenCalledTimes(1);
+  });
+
   it('shows server preparation until the uploaded version becomes ready', async () => {
     let statusPolls = 0;
     const states = ['queued', 'preparing', 'publishing', 'ready'] as const;

@@ -431,7 +431,15 @@ export async function handleTusPatchWithOwnershipSignal(input: {
  * Protocol and hook behavior: https://tus.io/protocols/resumable-upload and
  * https://github.com/tus/tus-node-server/tree/main/packages/server
  */
-export function createIngestTusServer(input: CreateIngestTusServerInput): RequestListener {
+export type IngestTusRequestListener = RequestListener & {
+  /**
+   * Resolves when every assembly detached from an upload request has settled. Shutdown calls this
+   * between closing the listener and ending the database pool.
+   */
+  drainInFlightAssemblies(): Promise<void>;
+};
+
+export function createIngestTusServer(input: CreateIngestTusServerInput): IngestTusRequestListener {
   const maxBytes = input.maxBytes ?? DEFAULT_MAX_UPLOAD_BYTES;
   const allowedOrigin = normalizeAllowedOrigin(input.allowedOrigin);
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
@@ -444,6 +452,9 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
   mkdirSync(uploadDir, { recursive: true });
   const fileStore = new FileStore({ directory: uploadDir });
   const heartbeatSignals = new AsyncLocalStorage<AbortSignal>();
+  // Assemblies detached from their upload request. Shutdown must drain these before closing the
+  // database pool, or every deploy kills whatever was being prepared mid-flight.
+  const inFlightAssemblies = new Set<Promise<void>>();
   const catalogControlHandler = createCatalogControlHandler({
     catalog: input.catalog,
     ...(input.releasePins ? { releasePins: input.releasePins } : {}),
@@ -605,7 +616,7 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
         versionId,
         inputPath: storedUpload.storage.path,
       };
-      void withCatalogHeartbeat({
+      const assemblyTask = withCatalogHeartbeat({
         catalog: input.catalog,
         state: 'UPLOADING',
         versionId,
@@ -643,7 +654,11 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
             })
           );
         })
-        .finally(() => removeUploadBestEffort(fileStore, upload.id, versionId));
+        .finally(() => {
+          inFlightAssemblies.delete(assemblyTask);
+          return removeUploadBestEffort(fileStore, upload.id, versionId);
+        });
+      inFlightAssemblies.add(assemblyTask);
       console.info(
         JSON.stringify({
           event: 'ingest_tus.assembly_started',
@@ -656,7 +671,7 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
     },
   });
 
-  return (request, response) => {
+  const listener: RequestListener = (request, response) => {
     const startedAt = performance.now();
     if (isCatalogControlRequest(request)) {
       catalogControlHandler(request, response);
@@ -732,4 +747,12 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
       await tusServer.handle(request, response);
     })().catch((error) => handleUnexpectedServerError(response, error, startedAt));
   };
+
+  return Object.assign(listener, {
+    async drainInFlightAssemblies(): Promise<void> {
+      while (inFlightAssemblies.size > 0) {
+        await Promise.allSettled([...inFlightAssemblies]);
+      }
+    },
+  });
 }

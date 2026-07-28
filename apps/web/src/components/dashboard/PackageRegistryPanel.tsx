@@ -439,7 +439,7 @@ async function waitForPackageVersionReady(
 }
 
 function isServerProcessingStatus(
-  status: SelectedUpload['status']
+  status: SelectedUpload['status'] | CreatorPackageVersionStatus['state']
 ): status is 'uploading' | 'queued' | 'preparing' | 'publishing' {
   return (
     status === 'uploading' ||
@@ -2163,6 +2163,9 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
   } = useDashboardSession();
   const [initialAcceptedUploadLane] = useState(readAcceptedUploadLane);
   const preparationAbortControllerRef = useRef<AbortController | null>(null);
+  // Mutation callbacks close over the render they were created in; this ref always sees the
+  // upload as it is now, including the versionId that authorization attached mid-flight.
+  const selectedUploadRef = useRef<SelectedUpload | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
@@ -2189,6 +2192,7 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
   );
   const [formError, setFormError] = useState<string | null>(null);
   const [copyingProductId, setCopyingProductId] = useState<string | null>(null);
+  selectedUploadRef.current = selectedUpload;
 
   const productsQuery = useInfiniteQuery({
     queryKey: creatorProductsQueryKey,
@@ -2450,6 +2454,12 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
         toast.warning('Status check interrupted', { description: message });
         return;
       }
+      if (error instanceof Error && error.name === 'UploadConflictError') {
+        // The catalog already has this version number. Its actual state decides what to say —
+        // guessing produced "already exists" errors for versions that were simply still preparing.
+        void resolveUploadConflict();
+        return;
+      }
       const message = getFriendlyUploadError(error);
       setFormError(message);
       setSelectedUpload((current) =>
@@ -2458,6 +2468,69 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
       toast.error('Upload interrupted', { description: message });
     },
   });
+
+  async function resolveUploadConflict(): Promise<void> {
+    const upload = selectedUploadRef.current;
+    const fallback = () => {
+      const message =
+        'This package version already exists. Use a new version number, or check the package details.';
+      setFormError(message);
+      setSelectedUpload((current) =>
+        current ? { ...current, status: 'failed', errorMessage: message } : current
+      );
+      toast.error('Version already exists', { description: message });
+    };
+    if (!upload?.packageId || !upload.editionId || !upload.versionId) {
+      fallback();
+      return;
+    }
+    let status: CreatorPackageVersionStatus;
+    try {
+      status = await getCreatorPackageVersionStatus(
+        upload.packageId,
+        upload.editionId,
+        upload.versionId
+      );
+    } catch {
+      fallback();
+      return;
+    }
+    const state = status.state;
+    if (isServerProcessingStatus(state)) {
+      setFormError(null);
+      setSelectedUpload((current) =>
+        current ? { ...current, progress: 100, status: state, errorMessage: undefined } : current
+      );
+      toast.info('Already in progress', {
+        description:
+          'An earlier upload of this version is still being prepared. Watching it instead.',
+      });
+      return;
+    }
+    if (status.state === 'ready') {
+      setSelectedUpload((current) =>
+        current
+          ? { ...current, progress: 100, status: 'complete', errorMessage: undefined }
+          : current
+      );
+      setFormError(null);
+      toast.success('Version already published', {
+        description: 'This version finished earlier and is available to buyers.',
+      });
+      return;
+    }
+    if (status.state === 'deleted') {
+      const message =
+        'This version number was published and later deleted. Deleted versions cannot be reused; raise the version number.';
+      setFormError(message);
+      setSelectedUpload((current) =>
+        current ? { ...current, status: 'failed', errorMessage: message } : current
+      );
+      toast.error('Version number retired', { description: message });
+      return;
+    }
+    fallback();
+  }
 
   const preparationStatusMutation = useMutation({
     onMutate: () => {

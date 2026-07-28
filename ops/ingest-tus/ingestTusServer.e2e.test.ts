@@ -37,6 +37,7 @@ import { createUnityPackageRecordFixture } from '../testing/unityPackageFixture'
 import {
   createIngestTusServer,
   INGEST_TUS_PATH,
+  type IngestTusRequestListener,
   UPLOAD_CAPABILITY_HEADERS,
 } from './ingestTusServer';
 import { createS3QuarantineStorage, type QuarantineStoragePort } from './quarantine';
@@ -64,6 +65,8 @@ let httpServer: HttpServer | undefined;
 let serverOrigin: string | undefined;
 let s3HttpServer: HttpServer | undefined;
 let s3ServerOrigin: string | undefined;
+let tusHandler: IngestTusRequestListener | undefined;
+let s3TusHandler: IngestTusRequestListener | undefined;
 let s3CommonStore: S3CasStore | undefined;
 let s3MetadataStore: S3CasStore | undefined;
 let s3ProtectedStore: S3CasStore | undefined;
@@ -443,6 +446,16 @@ async function createInterruptedUpload(input: {
   };
 }
 
+/**
+ * A completed PATCH now only proves the bytes were accepted; assembly continues detached from the
+ * request and reports through the catalog. Tests that assert on post-assembly state must drain the
+ * handlers first, exactly like shutdown does.
+ */
+async function drainAssemblies(): Promise<void> {
+  await tusHandler?.drainInFlightAssemblies();
+  await s3TusHandler?.drainInFlightAssemblies();
+}
+
 async function uploadToCompletion(input: {
   endpoint: string;
   filePath: string;
@@ -474,6 +487,7 @@ async function uploadToCompletion(input: {
   } finally {
     source.destroy();
   }
+  await drainAssemblies();
 }
 
 async function uploadExpectingRejection(input: {
@@ -667,6 +681,7 @@ beforeAll(async () => {
       catalogControlSharedSecret: 'e2e-catalog-control-test-secret-32-bytes',
       maxBytes,
     });
+    tusHandler = handler;
     const localListener = await listen(handler);
     httpServer = localListener.server;
     serverOrigin = localListener.origin;
@@ -683,6 +698,7 @@ beforeAll(async () => {
       catalogControlSharedSecret: 'e2e-catalog-control-test-secret-32-bytes',
       maxBytes,
     });
+    s3TusHandler = s3Handler;
     const s3Listener = await listen(s3Handler);
     s3HttpServer = s3Listener.server;
     s3ServerOrigin = s3Listener.origin;
@@ -718,6 +734,7 @@ afterAll(async () => {
   sql = undefined;
   catalog = undefined;
   try {
+    await drainAssemblies();
     await closeHttpServers();
     await activeSql?.end({ timeout: 1 });
   } finally {
@@ -763,6 +780,7 @@ describe.serial('tus ingest end to end', () => {
         cause: error,
       });
     }
+    await drainAssemblies();
 
     const completedUploadUrl = resumable.uploadUrl();
     if (!completedUploadUrl) {
@@ -866,6 +884,7 @@ describe.serial('tus ingest end to end', () => {
         cause: error,
       });
     }
+    await drainAssemblies();
     expect(resumable.resumeOffset()).toBe(interruptedAt);
 
     const assembledRow = await versionRow('com.yucp.tus-s3', '1.0.0');
@@ -1297,17 +1316,16 @@ describe.serial('tus ingest end to end', () => {
     expect(rows[0]?.count).toBe(0);
   });
 
-  it('marks a version failed when inline assembly rejects the completed upload', async () => {
+  it('marks a version failed when detached assembly rejects the completed upload', async () => {
+    // The transfer itself succeeds: the bytes reached quarantine, so the request has nothing left
+    // to reject. Assembly fails afterwards and the catalog carries the verdict to status polls.
     const endpoint = `${requireServerOrigin()}${INGEST_TUS_PATH}`;
-    const assemblyError = await uploadExpectingRejection({
+    await uploadToCompletion({
       endpoint,
       filePath: requireFixturePath(corruptFixturePath, 'corrupt unitypackage'),
-      filename: 'corrupt.unitypackage',
-      filetype: 'application/octet-stream',
       packageId: 'com.yucp.tus-corrupt',
       version: '1.0.0',
     });
-    expect(responseStatus(assemblyError)).toBe(500);
     const failedRow = await versionRow('com.yucp.tus-corrupt', '1.0.0');
     expect(failedRow.state).toBe('FAILED');
     expect(failedRow.error?.trim().length).toBeGreaterThan(0);

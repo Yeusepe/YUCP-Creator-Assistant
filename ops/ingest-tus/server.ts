@@ -1,4 +1,4 @@
-import { createServer, type RequestListener, type Server } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import { fetchInfisicalSecrets } from '@yucp/shared/infisical/fetchSecrets';
 import {
   Catalog,
@@ -18,7 +18,7 @@ import {
 import { s3CasStore } from '../storage-core/desyncCas';
 import { DurableExactStorage } from '../storage-core/durableExactStorage';
 import { S3ExactStoragePort } from '../storage-core/exactStorage';
-import { createIngestTusServer } from './ingestTusServer';
+import { createIngestTusServer, type IngestTusRequestListener } from './ingestTusServer';
 import { createS3QuarantineStorage } from './quarantine';
 
 const DEFAULT_INGEST_TUS_PORT = 3002;
@@ -27,7 +27,7 @@ export const INGEST_TUS_INFISICAL_KEYS = INGEST_INFISICAL_KEYS;
 
 export interface IngestTusRuntime {
   database: CatalogDatabase;
-  handler: RequestListener;
+  handler: IngestTusRequestListener;
 }
 
 export interface RunningIngestTusServer extends IngestTusRuntime {
@@ -132,6 +132,9 @@ async function main(): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       runtime.server.close((error) => (error ? reject(error) : resolve()));
     });
+    // Detached assemblies are still writing to the catalog and the object stores. Ending the
+    // database pool under them turns an orderly deploy into CONNECTION_ENDED failures.
+    await runtime.handler.drainInFlightAssemblies();
     await runtime.database.end({ timeout: 5 });
   };
 
