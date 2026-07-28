@@ -446,6 +446,9 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
   const tusServer = new Server({
     path: INGEST_TUS_PATH,
     datastore: fileStore,
+    // ponytail: relative Location so a TLS-terminating proxy cannot make us
+    // emit http:// upload URLs to an https page. Trusts no forwarded headers.
+    relativeLocation: true,
     getFileIdFromRequest(_request, lastPath) {
       return lastPath && UPLOAD_ID_PATTERN.test(lastPath) ? lastPath : undefined;
     },

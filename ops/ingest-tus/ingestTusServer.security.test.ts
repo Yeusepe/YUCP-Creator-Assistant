@@ -708,6 +708,9 @@ describe('ingest tus upload capability isolation', () => {
     if (!location) {
       throw new Error('Tus creation did not return an upload location');
     }
+    // A TLS-terminating proxy leaves the socket plain, so an absolute Location
+    // would send an https page to an http:// upload URL and get blocked.
+    expect(location.startsWith(`${INGEST_TUS_PATH}/`)).toBe(true);
     uploadDataPath = join(uploadDir, new URL(location, endpoint).pathname.split('/').at(-1) ?? '');
 
     const completion = await fetch(new URL(location, endpoint), {
