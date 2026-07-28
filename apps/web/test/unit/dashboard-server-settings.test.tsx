@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import type { PropsWithChildren } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/api/client';
@@ -62,7 +62,6 @@ vi.mock('@/lib/dashboard', () => {
     ),
     disconnectUserAccount: vi.fn(),
     getConnectionStatus: vi.fn(),
-    getCreatorIdentity: vi.fn(),
     getDashboardSettings: vi.fn(),
     getProviderIconPath: vi.fn((provider: { icon?: string | null }) =>
       provider.icon ? `/Icons/${provider.icon}` : null
@@ -71,7 +70,6 @@ vi.mock('@/lib/dashboard', () => {
     listGuildChannels: vi.fn(),
     listUserAccounts: vi.fn(),
     uninstallGuild: vi.fn(),
-    updateCreatorIdentity: vi.fn(),
     updateDashboardSetting: vi.fn(),
   };
 });
@@ -109,7 +107,6 @@ describe('dashboard server settings', () => {
     vi.mocked(dashboardApi.listDashboardProviders).mockReset();
     vi.mocked(dashboardApi.listUserAccounts).mockReset();
     vi.mocked(dashboardApi.getConnectionStatus).mockReset();
-    vi.mocked(dashboardApi.getCreatorIdentity).mockReset();
     vi.mocked(dashboardApi.getDashboardSettings).mockReset();
     vi.mocked(dashboardApi.listGuildChannels).mockReset();
 
@@ -202,19 +199,6 @@ describe('dashboard server settings', () => {
       logChannelId: 'channel-1',
       verificationScope: 'license',
     });
-    vi.mocked(dashboardApi.getCreatorIdentity).mockResolvedValue({
-      deliverySlug: 'creator-10705330',
-      name: 'Creator 10705330',
-      privateVpmHostname: 'creator-10705330.private.yucp.club',
-      publicSlug: 'creator-10705330',
-    });
-    vi.mocked(dashboardApi.updateCreatorIdentity).mockResolvedValue({
-      deliverySlug: 'mapache',
-      name: 'Mapache',
-      privateVpmHostname: 'mapache.private.yucp.club',
-      publicSlug: 'mapache',
-    });
-
     vi.mocked(dashboardApi.listGuildChannels).mockResolvedValue([
       { id: 'channel-1', name: 'logs', type: 0 },
       { id: 'channel-2', name: 'announcements', type: 0 },
@@ -239,32 +223,6 @@ describe('dashboard server settings', () => {
     expect(screen.getAllByText('Jinxxy').length).toBeGreaterThan(0);
     expect(screen.getAllByRole('button', { name: '#logs' }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('button', { name: '#announcements' }).length).toBeGreaterThan(0);
-  });
-
-  it('lets the creator rename their display identity and owned link namespaces', async () => {
-    const Component = DashboardIndexRoute.options.component;
-    if (!Component) {
-      throw new Error('Dashboard index route component is not defined');
-    }
-
-    render(<Component />, { wrapper: createWrapper() });
-
-    const nameInput = await screen.findByRole('textbox', { name: 'Creator display name' });
-    const publicHandleInput = screen.getByRole('textbox', { name: 'Public creator handle' });
-    const privateHostInput = screen.getByRole('textbox', { name: 'Private VPM subdomain' });
-    fireEvent.change(nameInput, { target: { value: 'Mapache' } });
-    fireEvent.change(publicHandleInput, { target: { value: 'mapache' } });
-    fireEvent.change(privateHostInput, { target: { value: 'mapache' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save creator identity' }));
-
-    await waitFor(() =>
-      expect(dashboardApi.updateCreatorIdentity).toHaveBeenCalledWith({
-        deliverySlug: 'mapache',
-        name: 'Mapache',
-        publicSlug: 'mapache',
-      })
-    );
-    expect(await screen.findByText('mapache.private.yucp.club')).toBeInTheDocument();
   });
 
   it('derives the server settings tenant from the selected guild when route tenant context is missing', async () => {

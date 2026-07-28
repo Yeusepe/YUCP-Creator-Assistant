@@ -4,6 +4,7 @@ import { useMutation as useConvexMutation, useQuery as useConvexQuery } from 'co
 import { type CSSProperties, useState } from 'react';
 import { AccountPage, AccountSectionCard } from '@/components/account/AccountPage';
 import { AccountProfileSkeleton } from '@/components/account/AccountProfileSkeleton';
+import { CreatorIdentitySettingsCard } from '@/components/account/CreatorIdentitySettingsCard';
 import { Icon } from '@/components/ui/Icon';
 import { ProviderChip } from '@/components/ui/ProviderChip';
 import { StatusChip } from '@/components/ui/StatusChip';
@@ -175,6 +176,8 @@ function AccountProfile() {
           </Link>
         </div>
       </AccountSectionCard>
+
+      {isCreator ? <CreatorIdentitySettingsCard /> : null}
 
       <AccountSectionCard
         className="bento-col-12 animate-in animate-in-delay-2"

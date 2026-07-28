@@ -74,6 +74,26 @@ export function AccountProfileSkeleton() {
       <AccountSectionCard
         className="bento-col-12 animate-in animate-in-delay-2"
         leading={<SkeletonTile size={44} radius={14} />}
+        eyebrow="Creator settings"
+        title="Creator identity and URLs"
+        description="Your account-wide creator name and URL namespaces are loading."
+      >
+        <div className="grid gap-4 md:grid-cols-3" aria-hidden="true">
+          {['Display name', 'Public creator handle', 'Private VPM subdomain'].map((label) => (
+            <div key={label} className="space-y-2">
+              <span className="text-foreground text-xs font-semibold dark:text-foreground">
+                {label}
+              </span>
+              <SkeletonLine width="100%" style={{ height: 40 }} />
+              <SkeletonLine width="min(220px, 82%)" className="skeleton-line-muted" />
+            </div>
+          ))}
+        </div>
+      </AccountSectionCard>
+
+      <AccountSectionCard
+        className="bento-col-12 animate-in animate-in-delay-2"
+        leading={<SkeletonTile size={44} radius={14} />}
         eyebrow="Account recovery"
         title="Can you get back in if Discord breaks?"
         description="Discord is your normal sign-in. Add backups so you are never stuck."

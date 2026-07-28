@@ -37,10 +37,8 @@ vi.mock('@/components/ui/Toast', () => {
 
 vi.mock('@/lib/dashboard', () => {
   return {
-    getCreatorIdentity: vi.fn(),
     getDashboardSettings: vi.fn(),
     listGuildChannels: vi.fn(),
-    updateCreatorIdentity: vi.fn(),
     updateDashboardSetting: vi.fn(),
   };
 });
@@ -64,13 +62,6 @@ describe('ServerSettingsPanel, HeroUI Switch', () => {
   });
 
   beforeEach(() => {
-    vi.mocked(dashboardApi.getCreatorIdentity).mockResolvedValue({
-      deliverySlug: 'creator-private',
-      name: 'Creator',
-      privateVpmHostname: 'creator-private.private.yucp.club',
-      publicSlug: 'creator',
-    });
-
     vi.mocked(dashboardApi.getDashboardSettings).mockResolvedValue({
       allowMismatchedEmails: false,
       announcementsChannelId: '',

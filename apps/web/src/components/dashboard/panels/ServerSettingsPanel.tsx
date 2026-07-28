@@ -7,23 +7,10 @@ import { DashboardPanelErrorState } from '@/components/dashboard/PanelErrorState
 import { Icon } from '@/components/ui/Icon';
 import { Select } from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
-import { YucpButton } from '@/components/ui/YucpButton';
-import { YucpInput } from '@/components/ui/YucpInput';
 import { isDashboardAuthError } from '@/hooks/useDashboardSession';
 import type { IconName } from '@/icons/manifest';
-import type {
-  CreatorIdentity,
-  DashboardGuildChannel,
-  DashboardPolicy,
-  DashboardSettingKey,
-} from '@/lib/dashboard';
-import {
-  getCreatorIdentity,
-  getDashboardSettings,
-  listGuildChannels,
-  updateCreatorIdentity,
-  updateDashboardSetting,
-} from '@/lib/dashboard';
+import type { DashboardGuildChannel, DashboardPolicy, DashboardSettingKey } from '@/lib/dashboard';
+import { getDashboardSettings, listGuildChannels, updateDashboardSetting } from '@/lib/dashboard';
 import {
   dashboardClientRevalidateQueryOptions,
   dashboardPanelQueryOptions,
@@ -299,12 +286,6 @@ export function ServerSettingsPanel({
   const queryClient = useQueryClient();
   const toast = useToast();
   const [policyDraft, setPolicyDraft] = useState<NormalizedPolicy>(DEFAULT_POLICY);
-  const [identityDraft, setIdentityDraft] = useState<CreatorIdentity>({
-    deliverySlug: '',
-    name: '',
-    privateVpmHostname: null,
-    publicSlug: '',
-  });
   const [saveStates, setSaveStates] = useState<Record<string, SaveIndicatorState>>({});
   const timeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -315,14 +296,6 @@ export function ServerSettingsPanel({
       queryKey: ['dashboard-settings', authUserId],
       queryFn: () => getDashboardSettings(authUserId),
       enabled: canRunPanelQueries && Boolean(authUserId && guildId),
-    })
-  );
-
-  const identityQuery = useQuery(
-    dashboardClientRevalidateQueryOptions<CreatorIdentity>({
-      queryKey: ['creator-identity'],
-      queryFn: getCreatorIdentity,
-      enabled: canRunPanelQueries,
     })
   );
 
@@ -341,22 +314,13 @@ export function ServerSettingsPanel({
     setPolicyDraft(toNormalizedPolicy(settingsQuery.data));
   }, [settingsQuery.data]);
 
-  useEffect(() => {
-    if (!identityQuery.data) return;
-    setIdentityDraft(identityQuery.data);
-  }, [identityQuery.data]);
-
   // ── Auth error detection ─────────────────────────────────────────────────
 
   useEffect(() => {
-    if (
-      isDashboardAuthError(identityQuery.error) ||
-      isDashboardAuthError(settingsQuery.error) ||
-      isDashboardAuthError(channelsQuery.error)
-    ) {
+    if (isDashboardAuthError(settingsQuery.error) || isDashboardAuthError(channelsQuery.error)) {
       onAuthError?.();
     }
-  }, [identityQuery.error, settingsQuery.error, channelsQuery.error, onAuthError]);
+  }, [settingsQuery.error, channelsQuery.error, onAuthError]);
 
   // ── Cleanup timeouts ────────────────────────────────────────────────────
 
@@ -415,27 +379,6 @@ export function ServerSettingsPanel({
     },
   });
 
-  const saveIdentityMutation = useMutation({
-    mutationFn: (input: { deliverySlug: string; name: string; publicSlug: string }) =>
-      updateCreatorIdentity(input),
-    onSuccess: async (identity) => {
-      setIdentityDraft(identity);
-      toast.success('Creator identity saved', {
-        description: 'New links use your updated creator and product namespaces.',
-      });
-      await queryClient.invalidateQueries({ queryKey: ['creator-identity'] });
-    },
-    onError: (error) => {
-      if (identityQuery.data) {
-        setIdentityDraft(identityQuery.data);
-      }
-      toast.error('Could not save creator identity', {
-        description: error instanceof Error ? error.message : 'Check the values and try again.',
-        duration: 5000,
-      });
-    },
-  });
-
   // ── Change handlers ─────────────────────────────────────────────────────
 
   const onBooleanSettingChange = useCallback(
@@ -478,7 +421,7 @@ export function ServerSettingsPanel({
 
   // ── Loading / render ────────────────────────────────────────────────────
 
-  const nonAuthError = [identityQuery.error, settingsQuery.error, channelsQuery.error].find(
+  const nonAuthError = [settingsQuery.error, channelsQuery.error].find(
     (err) => err && !isDashboardAuthError(err)
   );
   if (nonAuthError) {
@@ -491,16 +434,12 @@ export function ServerSettingsPanel({
             ? nonAuthError.message
             : 'An unexpected error occurred while loading settings.'
         }
-        onRetry={() =>
-          Promise.all([identityQuery.refetch(), settingsQuery.refetch(), channelsQuery.refetch()])
-        }
+        onRetry={() => Promise.all([settingsQuery.refetch(), channelsQuery.refetch()])}
       />
     );
   }
 
-  const isLoading =
-    canRunPanelQueries &&
-    (identityQuery.isLoading || settingsQuery.isLoading || channelsQuery.isLoading);
+  const isLoading = canRunPanelQueries && (settingsQuery.isLoading || channelsQuery.isLoading);
 
   const channelOptions = [
     { value: '', label: '\u2014 None \u2014' },
@@ -553,88 +492,6 @@ export function ServerSettingsPanel({
           />
         }
       >
-        <div className="mb-5 rounded-2xl border border-foreground/10 bg-foreground/[0.025] p-4 dark:border-foreground/10 dark:bg-foreground/[0.035]">
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="text-foreground text-sm font-semibold dark:text-foreground">
-                Creator identity
-              </h3>
-              <p className="text-foreground/60 mt-1 text-sm dark:text-foreground/60">
-                Controls your public creator links and private VPM hostname.
-              </p>
-            </div>
-            <YucpButton
-              yucp="primary"
-              size="sm"
-              isLoading={saveIdentityMutation.isPending}
-              isDisabled={
-                saveIdentityMutation.isPending ||
-                !identityDraft.name.trim() ||
-                !identityDraft.publicSlug.trim() ||
-                !identityDraft.deliverySlug.trim()
-              }
-              aria-label="Save creator identity"
-              onPress={() =>
-                saveIdentityMutation.mutate({
-                  deliverySlug: identityDraft.deliverySlug,
-                  name: identityDraft.name,
-                  publicSlug: identityDraft.publicSlug,
-                })
-              }
-            >
-              {saveIdentityMutation.isPending ? 'Saving...' : 'Save identity'}
-            </YucpButton>
-          </div>
-          <div className="grid gap-4 md:grid-cols-3">
-            <label className="space-y-2" htmlFor="creator-display-name">
-              <span className="text-foreground text-xs font-semibold dark:text-foreground">
-                Display name
-              </span>
-              <YucpInput
-                id="creator-display-name"
-                aria-label="Creator display name"
-                value={identityDraft.name}
-                isDisabled={saveIdentityMutation.isPending}
-                onValueChange={(name) => setIdentityDraft((current) => ({ ...current, name }))}
-              />
-            </label>
-            <label className="space-y-2" htmlFor="creator-public-handle">
-              <span className="text-foreground text-xs font-semibold dark:text-foreground">
-                Public handle
-              </span>
-              <YucpInput
-                id="creator-public-handle"
-                aria-label="Public creator handle"
-                value={identityDraft.publicSlug}
-                isDisabled={saveIdentityMutation.isPending}
-                onValueChange={(publicSlug) =>
-                  setIdentityDraft((current) => ({ ...current, publicSlug }))
-                }
-              />
-              <span className="text-foreground/55 block text-xs dark:text-foreground/55">
-                /get-in-unity/{identityDraft.publicSlug || 'your-handle'}/...
-              </span>
-            </label>
-            <label className="space-y-2" htmlFor="creator-private-vpm-subdomain">
-              <span className="text-foreground text-xs font-semibold dark:text-foreground">
-                Private VPM subdomain
-              </span>
-              <YucpInput
-                id="creator-private-vpm-subdomain"
-                aria-label="Private VPM subdomain"
-                value={identityDraft.deliverySlug}
-                isDisabled={saveIdentityMutation.isPending}
-                onValueChange={(deliverySlug) =>
-                  setIdentityDraft((current) => ({ ...current, deliverySlug }))
-                }
-              />
-              <span className="text-foreground/55 block break-all text-xs dark:text-foreground/55">
-                {identityDraft.privateVpmHostname ??
-                  `${identityDraft.deliverySlug || 'your-handle'}.private.yucp.club`}
-              </span>
-            </label>
-          </div>
-        </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {/* Boolean toggle settings */}
           {SWITCH_SETTING_CONFIG.map((setting) => (

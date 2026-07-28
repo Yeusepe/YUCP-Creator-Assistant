@@ -67,6 +67,10 @@ const accountComponentSource = readFileSync(
   resolve(__dirname, '../../src/components/account/AccountPage.tsx'),
   'utf8'
 );
+const serverSettingsPanelSource = readFileSync(
+  resolve(__dirname, '../../src/components/dashboard/panels/ServerSettingsPanel.tsx'),
+  'utf8'
+);
 
 describe('account UI contracts', () => {
   it('uses an account-scoped shell hook instead of the dashboard route hook', () => {
@@ -91,6 +95,12 @@ describe('account UI contracts', () => {
     expect(accountIndexRouteSource).toContain('AccountSectionCard');
     expect(accountCertificatesRouteSource).not.toContain('AccountPage');
     expect(accountCertificatesRouteSource).toContain('beforeLoad');
+  });
+
+  it('owns creator identity and private subdomain settings at the account level', () => {
+    expect(accountIndexRouteSource).toContain('<CreatorIdentitySettingsCard />');
+    expect(serverSettingsPanelSource).not.toContain('Creator identity');
+    expect(serverSettingsPanelSource).not.toContain('Private VPM subdomain');
   });
 
   it('renders Discord identity from auth session data with the account shell as fallback', () => {
