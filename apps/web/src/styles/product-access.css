@@ -80,19 +80,40 @@
 .vpa-provider {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.4rem;
   align-self: flex-start;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.06);
-  padding: 0.18rem 0.55rem;
+  padding: 0.3rem 0.45rem;
   color: rgba(255, 255, 255, 0.72);
-  font-size: 0.74rem;
-  font-weight: 700;
-  line-height: 1.2;
 }
 
-.vpa-provider svg {
+.dark .vpa-provider {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.vpa-provider-icon,
+.vpa-provider-icon-fallback {
+  display: inline-flex;
+  width: 1.35rem;
+  height: 1.35rem;
+  flex-shrink: 0;
+}
+
+.vpa-provider-icon {
+  object-fit: contain;
+}
+
+.vpa-provider-icon-fallback {
+  align-items: center;
+  justify-content: center;
+  color: rgba(125, 175, 255, 0.95);
+}
+
+.dark .vpa-provider-icon-fallback {
   color: rgba(125, 175, 255, 0.95);
 }
 
@@ -505,6 +526,42 @@
   color: rgba(255, 255, 255, 0.92);
 }
 
+.vpa-store-link {
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.045);
+  transition:
+    color 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease,
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dark .vpa-store-link {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.vpa-store-link:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.085);
+  transform: translateY(-1px);
+}
+
+.dark .vpa-store-link:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.085);
+}
+
+.vpa-store-icon {
+  width: 1.55rem;
+  height: 1.55rem;
+  object-fit: contain;
+}
+
 @media (max-width: 420px) {
   .vpa-head {
     gap: 0.85rem;
@@ -529,7 +586,8 @@
   .vpa-manual-panel,
   .vpa-manual-toggle-icon,
   .vpa-manual-toggle,
-  .vpa-foot-link {
+  .vpa-foot-link,
+  .vpa-store-link {
     transition: none;
   }
 

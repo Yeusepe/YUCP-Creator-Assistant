@@ -97,6 +97,9 @@ function BuyerProductAccessPage() {
   const providerSummary = Array.from(
     new Set(product.storefronts.map((storefront) => storefront.providerLabel))
   ).join(' + ');
+  const providerVisuals = Array.from(
+    new Map(product.storefronts.map((storefront) => [storefront.provider, storefront])).values()
+  );
 
   return (
     <AccessPageShell>
@@ -110,9 +113,26 @@ function BuyerProductAccessPage() {
             )}
           </div>
           <div className="vpa-head-text">
-            <span className="vpa-provider">
-              <Icon name="store" className="size-3.5" aria-hidden="true" />
-              {providerSummary}
+            <span className="vpa-provider" title={providerSummary}>
+              {providerVisuals.map((storefront) =>
+                storefront.providerIcon ? (
+                  <img
+                    key={storefront.provider}
+                    className="vpa-provider-icon"
+                    src={`/Icons/${storefront.providerIcon}`}
+                    alt={storefront.providerLabel}
+                  />
+                ) : (
+                  <span
+                    key={storefront.provider}
+                    className="vpa-provider-icon-fallback"
+                    role="img"
+                    aria-label={storefront.providerLabel}
+                  >
+                    <Icon name="store" className="size-4" aria-hidden="true" />
+                  </span>
+                )
+              )}
             </span>
             <h1 className="vpa-title">{product.displayName}</h1>
             <p className="vpa-meta">Purchase-verified VCC setup and package delivery</p>
@@ -290,11 +310,19 @@ function BuyerProductAccessPage() {
                 href={storefront.storefrontUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="vpa-foot-link"
+                className="vpa-foot-link vpa-store-link"
                 aria-label={`${storefront.providerLabel} store`}
+                title={`Open ${storefront.providerLabel} store`}
               >
-                <Icon name="externalLink" className="size-4" aria-hidden="true" />
-                {storefront.providerLabel}
+                {storefront.providerIcon ? (
+                  <img
+                    className="vpa-store-icon"
+                    src={`/Icons/${storefront.providerIcon}`}
+                    alt=""
+                  />
+                ) : (
+                  <Icon name="externalLink" className="size-4" aria-hidden="true" />
+                )}
               </a>
             ) : null
           )}

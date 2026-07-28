@@ -21,6 +21,7 @@ import {
   buildPublicVpmRepositoryAccess,
   type PublicVpmRepositoryAccess,
 } from '../lib/vpmPublicRepository';
+import { getProviderRuntime } from '../providers';
 import type { ConnectConfig } from '../providers/types';
 import {
   type HostedVerificationIntentRecord,
@@ -271,6 +272,7 @@ export function createConnectUserProductAccessRoutes({
             catalogProductId: String(storefront.catalogProductId),
             provider: storefront.provider,
             providerLabel: providerLabel(storefront.provider),
+            providerIcon: getProviderRuntime(storefront.provider)?.displayMeta?.icon ?? null,
             storefrontUrl: buildCatalogProductUrl(
               storefront.provider,
               storefront.providerProductRef

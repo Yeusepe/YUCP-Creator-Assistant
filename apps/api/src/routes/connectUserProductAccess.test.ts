@@ -320,6 +320,7 @@ describe('connect user product access routes', () => {
             catalogProductId: 'catalog_123',
             provider: 'gumroad',
             providerLabel: 'Gumroad',
+            providerIcon: 'Gumorad.png',
             storefrontUrl: 'https://store.test/gumroad/gumroad-ref',
           },
         ],

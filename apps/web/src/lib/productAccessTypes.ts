@@ -11,6 +11,7 @@ export interface BuyerProductAccessResponse {
       catalogProductId: string;
       provider: string;
       providerLabel: string;
+      providerIcon: string | null;
       storefrontUrl: string | null;
     }>;
   };

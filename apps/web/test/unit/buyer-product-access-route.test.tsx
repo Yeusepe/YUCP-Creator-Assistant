@@ -205,12 +205,14 @@ describe('buyer product access route', () => {
             catalogProductId: 'catalog-jammr-gumroad',
             provider: 'gumroad',
             providerLabel: 'Gumroad',
+            providerIcon: 'Gumorad.png',
             storefrontUrl: 'https://gumroad.test/jammr',
           },
           {
             catalogProductId: 'catalog-jammr-jinxxy',
             provider: 'jinxxy',
             providerLabel: 'Jinxxy',
+            providerIcon: 'Jinxxy.png',
             storefrontUrl: 'https://jinxxy.test/jammr',
           },
         ],
@@ -224,7 +226,12 @@ describe('buyer product access route', () => {
 
     render(<Component />, { wrapper: createWrapper() });
 
-    expect(screen.getByText('Gumroad + Jinxxy')).toBeVisible();
+    expect(screen.queryByText('Gumroad + Jinxxy')).not.toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Gumroad' })).toHaveAttribute(
+      'src',
+      '/Icons/Gumorad.png'
+    );
+    expect(screen.getByRole('img', { name: 'Jinxxy' })).toHaveAttribute('src', '/Icons/Jinxxy.png');
     expect(screen.getByRole('link', { name: 'Gumroad store' })).toHaveAttribute(
       'href',
       'https://gumroad.test/jammr'
@@ -232,6 +239,13 @@ describe('buyer product access route', () => {
     expect(screen.getByRole('link', { name: 'Jinxxy store' })).toHaveAttribute(
       'href',
       'https://jinxxy.test/jammr'
+    );
+    expect(
+      screen.getByRole('link', { name: 'Gumroad store' }).querySelector('img')
+    ).toHaveAttribute('src', '/Icons/Gumorad.png');
+    expect(screen.getByRole('link', { name: 'Jinxxy store' }).querySelector('img')).toHaveAttribute(
+      'src',
+      '/Icons/Jinxxy.png'
     );
   });
 
