@@ -175,9 +175,6 @@ describe('S3 immutable exact versions', () => {
   });
 
   it('writes without the conditional header when the store answers 501', async () => {
-    // Backblaze B2 does not implement If-None-Match and answers 501, which
-    // aborted every package assembly with "PutObject failed with HTTP status
-    // 501" after the upload had already been chunked.
     const body = Uint8Array.from([9, 9, 9]);
     const digest = createHash('sha256').update(body).digest('hex');
     const conditionalHeaders: (string | null)[] = [];

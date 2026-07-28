@@ -54,6 +54,31 @@ function xmlDecode(value: string): string {
     .replace(/&amp;/g, '&');
 }
 
+const S3_MIN_UPLOAD_BYTES_PER_MS = 64; // 64 KB/s floor
+const S3_MAX_REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
+
+function signedRequestBodyBytes(body: BodyInit | undefined): number {
+  if (!body) return 0;
+  if (typeof body === 'string') return Buffer.byteLength(body);
+  if (body instanceof Uint8Array) return body.byteLength;
+  if (body instanceof ArrayBuffer) return body.byteLength;
+  if (body instanceof Blob) return body.size;
+  return Number.POSITIVE_INFINITY;
+}
+
+export function resolveSignedRequestTimeoutMs(
+  requestTimeoutMs: number,
+  body: BodyInit | undefined
+): number {
+  const bytes = signedRequestBodyBytes(body);
+  if (bytes === 0) return requestTimeoutMs;
+  if (!Number.isFinite(bytes)) return S3_MAX_REQUEST_TIMEOUT_MS;
+  return Math.min(
+    S3_MAX_REQUEST_TIMEOUT_MS,
+    requestTimeoutMs + Math.ceil(bytes / S3_MIN_UPLOAD_BYTES_PER_MS)
+  );
+}
+
 /**
  * S3 requests are signed by the pinned aws4fetch dependency. Artifact chunks are transferred by
  * desync itself.
@@ -78,7 +103,9 @@ async function signedRequest(input: SignedRequestInput): Promise<Response> {
     body: input.body,
     headers: input.headers,
     method: input.method,
-    signal: AbortSignal.timeout(input.config.requestTimeoutMs),
+    signal: AbortSignal.timeout(
+      resolveSignedRequestTimeoutMs(input.config.requestTimeoutMs, input.body)
+    ),
   });
   if (!response.ok && !input.allowedStatuses?.includes(response.status)) {
     throw new Error(`S3 ${input.operation} failed with HTTP status ${response.status}`);
@@ -759,22 +786,12 @@ export async function createS3PutObjectUploadTicket(input: {
   };
 }
 
-/**
- * Endpoints observed to answer 501 for `If-None-Match`, remembered per process.
- *
- * Assembly writes one object per chunk, so without this every chunk would first
- * upload its whole body to be rejected, then upload it again — doubling the
- * transfer for the entire package against a store that will never support the
- * header. The capability is discovered from the store rather than configured,
- * so it cannot drift from reality, and it is only ever set from an actual 501.
- */
 const endpointsWithoutConditionalWrites = new Set<string>();
 
 function conditionalWriteCapabilityKey(config: CasConfig): string {
   return `${config.endpoint}/${config.bucket}`;
 }
 
-/** Clears the remembered capability so tests cannot leak it between cases. */
 export function resetConditionalWriteCapabilityForTests(): void {
   endpointsWithoutConditionalWrites.clear();
 }
@@ -798,18 +815,10 @@ export async function putS3ObjectImmutable(input: {
   const capabilityKey = conditionalWriteCapabilityKey(input.config);
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    // Skip the conditional attempt entirely once this store has already proven
-    // it does not support the header, rather than re-uploading the body to be
-    // rejected again.
     const skipConditional = endpointsWithoutConditionalWrites.has(capabilityKey);
     const response = skipConditional
       ? undefined
       : await signedRequest({
-          // 501 means the store does not implement conditional writes at all,
-          // which is how Backblaze B2 answers `if-none-match`. Tolerating it
-          // lets the reconcile path below decide what actually happened; a store
-          // that does implement them never returns it, so those keep the strong
-          // guarantee with no configuration.
           allowedStatuses: [409, 412, 501],
           body,
           config: input.config,
@@ -821,9 +830,6 @@ export async function putS3ObjectImmutable(input: {
           key: input.key,
           method: 'PUT',
           operation: 'PutObject',
-          // A 501 is deterministic, so the signer's retries would only re-send
-          // the body to earn the same answer. This is the one probing request
-          // per store; every other status is still retried normally below.
           retries: 0,
         });
 
@@ -856,15 +862,6 @@ export async function putS3ObjectImmutable(input: {
     );
 
     if (conditionalWritesUnsupported && versions.length === 0) {
-      // Nothing is there, so the rejection was purely about the unsupported
-      // header. Write it plainly.
-      //
-      // Two writers can both observe an absent key and both write. That is
-      // acceptable here: every key routed through this function is either
-      // content-addressed or pinned to an expected digest by the catalog write
-      // intent before any S3 call, so concurrent writers put identical bytes.
-      // Buckets are versioned, so a duplicate costs a redundant version rather
-      // than data, and readers verify digests on the way out.
       const plainResponse = await signedRequest({
         body,
         config: input.config,
@@ -887,10 +884,6 @@ export async function putS3ObjectImmutable(input: {
     if (versions.length === 0) {
       throw new Error('Immutable S3 object has no physical version');
     }
-    // A store without conditional writes can legitimately hold more than one
-    // physical version of the same content, since the race above is resolved by
-    // both writers succeeding. The digest checks below still have to pass, so
-    // any extra version is a duplicate of identical bytes.
     if (versions.length > 1 && !conditionalWritesUnsupported) {
       throw new Error('Immutable S3 object has multiple physical versions');
     }

@@ -382,12 +382,6 @@ function sendCapabilityError(response: ServerResponse, status: 401 | 403): void 
   response.end(status === 401 ? 'Upload capability required\n' : 'Invalid upload capability\n');
 }
 
-/**
- * Failure detail for structured logs. `reason` alone was just the error class
- * name — a plain Error logged as reason:"Error", which made a two-minute
- * assembly failure undiagnosable from the deployment logs. The message is
- * bounded so a pathological error cannot flood the log stream.
- */
 function loggedErrorDetail(error: unknown): { reason: string; errorMessage: string } {
   return error instanceof Error
     ? { reason: error.name, errorMessage: error.message.slice(0, 500) }
@@ -458,8 +452,6 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
   const tusServer = new Server({
     path: INGEST_TUS_PATH,
     datastore: fileStore,
-    // ponytail: relative Location so a TLS-terminating proxy cannot make us
-    // emit http:// upload URLs to an https page. Trusts no forwarded headers.
     relativeLocation: true,
     getFileIdFromRequest(_request, lastPath) {
       return lastPath && UPLOAD_ID_PATTERN.test(lastPath) ? lastPath : undefined;
@@ -598,46 +590,65 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
         throw tusError(503, 'Upload quarantine is temporarily unavailable.');
       }
 
-      let assembled: Awaited<ReturnType<typeof assembleVersion>>;
-      try {
-        assembled = await assembleVersion(
-          {
-            catalog: input.catalog,
-            commonStore: input.commonStore,
-            creatorId: requiredMetadata(
-              storedUpload.metadata,
-              CREATOR_ID_METADATA_KEY,
-              'creator identity'
-            ),
-            metadataStore: input.metadataStore,
-            protectedStore: input.protectedStore,
-            protectionPolicyId: requiredProtectionPolicyId(storedUpload.metadata),
-            scratchRoot: input.scratchRoot,
-            versionId,
-            inputPath: storedUpload.storage.path,
-          },
-          heartbeatSignals.getStore()
-        );
-      } catch (error) {
-        await removeUploadBestEffort(fileStore, upload.id, versionId);
-        console.error(
-          JSON.stringify({
-            event: 'ingest_tus.assembly_failed',
-            uploadId: upload.id,
-            versionId,
-            ...loggedErrorDetail(error),
-            durationMs: Math.round(performance.now() - startedAt),
-          })
-        );
-        throw tusError(500, 'Artifact assembly failed.');
-      }
-      await removeUploadBestEffort(fileStore, upload.id, versionId);
+      const assemblyInput = {
+        catalog: input.catalog,
+        commonStore: input.commonStore,
+        creatorId: requiredMetadata(
+          storedUpload.metadata,
+          CREATOR_ID_METADATA_KEY,
+          'creator identity'
+        ),
+        metadataStore: input.metadataStore,
+        protectedStore: input.protectedStore,
+        protectionPolicyId: requiredProtectionPolicyId(storedUpload.metadata),
+        scratchRoot: input.scratchRoot,
+        versionId,
+        inputPath: storedUpload.storage.path,
+      };
+      void withCatalogHeartbeat({
+        catalog: input.catalog,
+        state: 'UPLOADING',
+        versionId,
+        onHeartbeatError(error) {
+          console.error(
+            JSON.stringify({
+              event: 'ingest_tus.assembly_heartbeat_failed',
+              uploadId: upload.id,
+              versionId,
+              ...loggedErrorDetail(error),
+            })
+          );
+        },
+        operation: (signal) => assembleVersion(assemblyInput, signal),
+      })
+        .then((assembled) => {
+          console.info(
+            JSON.stringify({
+              event: 'ingest_tus.upload_assembled',
+              uploadId: upload.id,
+              versionId,
+              state: assembled.state,
+              durationMs: Math.round(performance.now() - startedAt),
+            })
+          );
+        })
+        .catch((error: unknown) => {
+          console.error(
+            JSON.stringify({
+              event: 'ingest_tus.assembly_failed',
+              uploadId: upload.id,
+              versionId,
+              ...loggedErrorDetail(error),
+              durationMs: Math.round(performance.now() - startedAt),
+            })
+          );
+        })
+        .finally(() => removeUploadBestEffort(fileStore, upload.id, versionId));
       console.info(
         JSON.stringify({
-          event: 'ingest_tus.upload_assembled',
+          event: 'ingest_tus.assembly_started',
           uploadId: upload.id,
           versionId,
-          state: assembled.state,
           durationMs: Math.round(performance.now() - startedAt),
         })
       );

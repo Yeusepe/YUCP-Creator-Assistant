@@ -1,10 +1,12 @@
 import {
+  Alert,
   Autocomplete,
   Button,
   Card,
   Chip,
   Label,
   ListBox,
+  ProgressBar,
   SearchField,
   Select,
   Skeleton,
@@ -13,6 +15,7 @@ import {
 import { DropZone } from '@heroui-pro/react/drop-zone';
 import { EmptyState } from '@heroui-pro/react/empty-state';
 import { Sheet } from '@heroui-pro/react/sheet';
+import { Stepper } from '@heroui-pro/react/stepper';
 import {
   type InfiniteData,
   useInfiniteQuery,
@@ -69,7 +72,9 @@ type SelectedUpload = {
   catalogProductId?: string;
   editionId?: string;
   errorMessage?: string;
+  estimatedStartAt?: string | null;
   packageId?: string;
+  queuePosition?: number | null;
   versionId?: string;
 };
 
@@ -80,6 +85,7 @@ const PACKAGE_FILE_EXTENSIONS = ['.unitypackage', '.zip', '.spp'] as const;
 const PACKAGE_FILE_ACCEPT = `${PACKAGE_FILE_EXTENSIONS.join(',')},application/octet-stream,application/zip`;
 
 type PersistedAcceptedUploadLane = {
+  acceptedAt?: number;
   catalogProductId: string;
   editionId: string;
   fileName: string;
@@ -94,11 +100,23 @@ type PersistedAcceptedUploadLane = {
   versionId: string;
 };
 
-function readAcceptedUploadLane(): PersistedAcceptedUploadLane | null {
+const ACCEPTED_UPLOAD_LANE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function uploadLaneStorage(): Storage | null {
   if (typeof window === 'undefined') return null;
   try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function readAcceptedUploadLane(): PersistedAcceptedUploadLane | null {
+  const storage = uploadLaneStorage();
+  if (!storage) return null;
+  try {
     const parsed = JSON.parse(
-      window.sessionStorage.getItem(ACCEPTED_UPLOAD_LANE_STORAGE_KEY) ?? 'null'
+      storage.getItem(ACCEPTED_UPLOAD_LANE_STORAGE_KEY) ?? 'null'
     ) as Partial<PersistedAcceptedUploadLane> | null;
     if (
       !parsed ||
@@ -116,9 +134,16 @@ function readAcceptedUploadLane(): PersistedAcceptedUploadLane | null {
     ) {
       return null;
     }
+    if (
+      typeof parsed.acceptedAt === 'number' &&
+      Date.now() - parsed.acceptedAt > ACCEPTED_UPLOAD_LANE_MAX_AGE_MS
+    ) {
+      storage.removeItem(ACCEPTED_UPLOAD_LANE_STORAGE_KEY);
+      return null;
+    }
     return parsed as PersistedAcceptedUploadLane;
   } catch {
-    window.sessionStorage.removeItem(ACCEPTED_UPLOAD_LANE_STORAGE_KEY);
+    storage.removeItem(ACCEPTED_UPLOAD_LANE_STORAGE_KEY);
     return null;
   }
 }
@@ -290,7 +315,8 @@ function uploadPackageAndWait(input: {
   version: string;
   catalogProductIds: string[];
   onProgress: (progress: number) => void;
-  onAccepted: (versionId: string) => void;
+  onAuthorized: (versionId: string) => void;
+  onTransferComplete: (versionId: string) => void;
 }): Promise<string> {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -302,7 +328,7 @@ function uploadPackageAndWait(input: {
         return;
       }
       settled = true;
-      input.onAccepted(versionId);
+      input.onTransferComplete(versionId);
       resolve(versionId);
     };
     const rejectOnce = (error: Error) => {
@@ -315,7 +341,7 @@ function uploadPackageAndWait(input: {
       ...input,
       onAuthorized: (authorization) => {
         versionId = authorization.versionId;
-        input.onAccepted(versionId);
+        input.onAuthorized(versionId);
       },
       onSuccess: resolveOnce,
       onError: rejectOnce,
@@ -325,8 +351,18 @@ function uploadPackageAndWait(input: {
   });
 }
 
-const PACKAGE_READY_POLL_INTERVAL_MS = 500;
-const PACKAGE_READY_POLL_LIMIT = 240;
+const PACKAGE_READY_POLL_MIN_INTERVAL_MS = 500;
+const PACKAGE_READY_POLL_MAX_INTERVAL_MS = 10_000;
+const PACKAGE_READY_POLL_BACKOFF_FACTOR = 1.6;
+const PACKAGE_READY_POLL_BUDGET_MS = 45 * 60 * 1000;
+
+export function packageReadyPollDelayMs(attempt: number, jitter = Math.random()): number {
+  const base = Math.min(
+    PACKAGE_READY_POLL_MAX_INTERVAL_MS,
+    PACKAGE_READY_POLL_MIN_INTERVAL_MS * PACKAGE_READY_POLL_BACKOFF_FACTOR ** attempt
+  );
+  return Math.round(base * (0.8 + jitter * 0.4));
+}
 
 class PackageVersionTerminalError extends Error {}
 
@@ -339,15 +375,22 @@ class PackageVersionStatusCheckError extends Error {
   }
 }
 
+type PackageVersionProgress = {
+  estimatedStartAt: string | null;
+  queuePosition: number | null;
+  state: 'queued' | 'uploading' | 'preparing' | 'publishing';
+};
+
 async function waitForPackageVersionReady(
   catalogProductId: string,
   packageId: string,
   editionId: string,
   versionId: string,
-  onStatus: (status: 'queued' | 'uploading' | 'preparing' | 'publishing') => void,
+  onStatus: (status: PackageVersionProgress) => void,
   signal?: AbortSignal
 ): Promise<CreatorPackageProductSummary | null> {
-  for (let attempt = 0; attempt < PACKAGE_READY_POLL_LIMIT; attempt += 1) {
+  const deadline = Date.now() + PACKAGE_READY_POLL_BUDGET_MS;
+  for (let attempt = 0; Date.now() < deadline; attempt += 1) {
     if (signal?.aborted) return null;
     let status: CreatorPackageVersionStatus;
     try {
@@ -381,18 +424,20 @@ async function waitForPackageVersionReady(
         'The uploaded version was removed before it became available.'
       );
     }
-    onStatus(status.state);
-    if (attempt + 1 < PACKAGE_READY_POLL_LIMIT) {
-      await new Promise<void>((resolve) => {
-        const finish = () => {
-          clearTimeout(timer);
-          signal?.removeEventListener('abort', finish);
-          resolve();
-        };
-        const timer = setTimeout(finish, PACKAGE_READY_POLL_INTERVAL_MS);
-        signal?.addEventListener('abort', finish, { once: true });
-      });
-    }
+    onStatus({
+      estimatedStartAt: status.estimatedStartAt,
+      queuePosition: status.queuePosition,
+      state: status.state,
+    });
+    await new Promise<void>((resolve) => {
+      const finish = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', finish);
+        resolve();
+      };
+      const timer = setTimeout(finish, packageReadyPollDelayMs(attempt));
+      signal?.addEventListener('abort', finish, { once: true });
+    });
   }
   return null;
 }
@@ -408,13 +453,6 @@ function isServerProcessingStatus(
   );
 }
 
-/**
- * Elapsed-time suffix for a server-side step that runs without progress events.
- *
- * Preparation chunks the whole package and regularly takes minutes on a large
- * upload. With a bare spinner and no changing text there is nothing to
- * distinguish "working" from "hung", so a running timer is the honest signal.
- */
 function formatElapsedSuffix(elapsedMs: number): string {
   const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
   if (totalSeconds < 5) {
@@ -426,6 +464,154 @@ function formatElapsedSuffix(elapsedMs: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return ` · ${minutes}m ${String(seconds).padStart(2, '0')}s`;
+}
+
+const UPLOAD_JOURNEY_STEPS = [
+  { description: 'Sending your file to our servers.', title: 'Upload' },
+  { description: 'Unpacking the package and checking what is inside.', title: 'Check' },
+  {
+    description: 'Splitting the release up so buyers only download what changed.',
+    title: 'Optimize delivery',
+  },
+  { description: 'Making this version available to buyers.', title: 'Publish' },
+] as const;
+
+function getUploadJourneyPosition(upload: SelectedUpload): number {
+  switch (upload.status) {
+    case 'uploading':
+      return upload.progress >= 100 ? 1 : Math.min(0.99, upload.progress / 100);
+    case 'queued':
+      return 1;
+    case 'preparing':
+      return 2;
+    case 'publishing':
+      return 3;
+    case 'complete':
+      return UPLOAD_JOURNEY_STEPS.length;
+    default:
+      return 0;
+  }
+}
+
+function getUploadStatusLine(upload: SelectedUpload): string {
+  switch (upload.status) {
+    case 'uploading':
+      return upload.progress >= 100
+        ? 'Checking your package...'
+        : `Uploading package: ${upload.progress}%`;
+    case 'queued':
+      return 'Waiting for a preparation slot...';
+    case 'preparing':
+      return 'Optimizing delivery...';
+    case 'publishing':
+      return 'Publishing version...';
+    default:
+      return '';
+  }
+}
+
+function formatQueueDetail(upload: SelectedUpload): string | null {
+  const parts: string[] = [];
+  if (typeof upload.queuePosition === 'number' && upload.queuePosition > 0) {
+    parts.push(
+      upload.queuePosition === 1
+        ? 'Next in the queue'
+        : `Position ${upload.queuePosition} in the queue`
+    );
+  }
+  if (upload.estimatedStartAt) {
+    const startsAt = new Date(upload.estimatedStartAt);
+    if (!Number.isNaN(startsAt.getTime())) {
+      parts.push(
+        `starts around ${startsAt.toLocaleTimeString(undefined, {
+          hour: 'numeric',
+          minute: '2-digit',
+        })}`
+      );
+    }
+  }
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+function UploadStatusAlert({ elapsedMs, upload }: { elapsedMs: number; upload: SelectedUpload }) {
+  if (upload.status === 'ready') return null;
+
+  if (upload.status === 'failed') {
+    return (
+      <Alert className="mt-4" status="danger">
+        <Alert.Indicator>
+          <Icon name="alert" className="size-4" />
+        </Alert.Indicator>
+        <Alert.Content>
+          <Alert.Title>This version could not be prepared</Alert.Title>
+          <Alert.Description>
+            {upload.errorMessage ?? 'The package could not be prepared.'}
+            {upload.versionId
+              ? ' Nothing was lost: retry the upload, or check the package status to pick it back up.'
+              : ''}
+          </Alert.Description>
+        </Alert.Content>
+      </Alert>
+    );
+  }
+
+  if (upload.status === 'complete') {
+    return (
+      <Alert className="mt-4" status="success">
+        <Alert.Indicator>
+          <Icon name="success" className="size-4" />
+        </Alert.Indicator>
+        <Alert.Content>
+          <Alert.Title>Version ready</Alert.Title>
+          <Alert.Description>Buyers can install this version now.</Alert.Description>
+        </Alert.Content>
+      </Alert>
+    );
+  }
+
+  const position = getUploadJourneyPosition(upload);
+  const isTransferring = upload.status === 'uploading' && upload.progress < 100;
+  const queueDetail = formatQueueDetail(upload);
+
+  return (
+    <Alert className="mt-4" status="accent">
+      <Alert.Indicator>
+        <Icon name="clock" className="size-4" />
+      </Alert.Indicator>
+      <Alert.Content>
+        <Alert.Title>
+          {getUploadStatusLine(upload)}
+          {formatElapsedSuffix(elapsedMs)}
+        </Alert.Title>
+        <Alert.Description>
+          {queueDetail ??
+            'You can close this window, or even this tab. Preparation keeps running and the result shows up here and in the package details.'}
+        </Alert.Description>
+        <ProgressBar
+          aria-label="Package preparation progress"
+          className="mt-3"
+          size="sm"
+          {...(isTransferring ? { value: upload.progress } : { isIndeterminate: true })}
+        >
+          <ProgressBar.Track>
+            <ProgressBar.Fill />
+          </ProgressBar.Track>
+        </ProgressBar>
+        <Stepper className="mt-4" currentStep={position} orientation="vertical" size="sm">
+          {UPLOAD_JOURNEY_STEPS.map((step) => (
+            <Stepper.Step key={step.title}>
+              <Stepper.Indicator />
+              <Stepper.Content>
+                <Stepper.Title>{step.title}</Stepper.Title>
+                <Stepper.Description>{step.description}</Stepper.Description>
+              </Stepper.Content>
+              <Stepper.Separator />
+            </Stepper.Step>
+          ))}
+        </Stepper>
+      </Alert.Content>
+    </Alert>
+  );
 }
 
 function getUploadHeadline(upload: SelectedUpload): string {
@@ -610,6 +796,12 @@ function ProductDetailsSheet({
     getNextPageParam: (lastPage) =>
       lastPage.hasMore && lastPage.nextCursor ? lastPage.nextCursor : undefined,
     enabled: canRunPanelQueries && isOpen && Boolean(packageId),
+    refetchInterval: (query) =>
+      query.state.data?.pages.some((page) =>
+        page.data.some((entry) => isServerProcessingStatus(entry.state))
+      )
+        ? 10_000
+        : false,
     retry: false,
   });
   const packageVersions = versionHistoryQuery.data?.pages.flatMap((page) => page.data) ?? [];
@@ -2035,13 +2227,7 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
     };
   }, []);
 
-  // Drives the elapsed-time readout while the server works. The timer restarts
-  // on each status change so the number describes the current step, and it only
-  // runs while a step is actually in flight.
   const uploadStatus = selectedUpload?.status;
-  // Null when nothing is in flight; otherwise the step being timed. Keying the
-  // effect on this restarts the timer whenever the step changes, so the number
-  // always describes the current step rather than the whole upload.
   const processingStepKey =
     uploadStatus && isServerProcessingStatus(uploadStatus) ? uploadStatus : null;
   const [processingElapsedMs, setProcessingElapsedMs] = useState(0);
@@ -2059,13 +2245,14 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
   }, [processingStepKey]);
 
   useEffect(() => {
-    if (dashboardSessionStatus === 'signed_out' && typeof window !== 'undefined') {
-      window.sessionStorage.removeItem(ACCEPTED_UPLOAD_LANE_STORAGE_KEY);
+    if (dashboardSessionStatus === 'signed_out') {
+      uploadLaneStorage()?.removeItem(ACCEPTED_UPLOAD_LANE_STORAGE_KEY);
     }
   }, [dashboardSessionStatus]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    const storage = uploadLaneStorage();
+    if (!storage) return;
     if (
       selectedUpload?.versionId &&
       selectedUpload.catalogProductId &&
@@ -2076,6 +2263,7 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
       (selectedUpload.status !== 'uploading' || Boolean(selectedUpload.versionId))
     ) {
       const persisted: PersistedAcceptedUploadLane = {
+        acceptedAt: readAcceptedUploadLane()?.acceptedAt ?? Date.now(),
         catalogProductId: selectedUpload.catalogProductId,
         editionId: selectedUpload.editionId,
         fileName: selectedUpload.fileName,
@@ -2086,10 +2274,10 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
         version,
         versionId: selectedUpload.versionId,
       };
-      window.sessionStorage.setItem(ACCEPTED_UPLOAD_LANE_STORAGE_KEY, JSON.stringify(persisted));
+      storage.setItem(ACCEPTED_UPLOAD_LANE_STORAGE_KEY, JSON.stringify(persisted));
       return;
     }
-    window.sessionStorage.removeItem(ACCEPTED_UPLOAD_LANE_STORAGE_KEY);
+    storage.removeItem(ACCEPTED_UPLOAD_LANE_STORAGE_KEY);
   }, [selectedUpload, version]);
 
   const products = useMemo(
@@ -2170,14 +2358,22 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
           setSelectedUpload((current) => {
             const roundedProgress = Math.round(progress);
             return current
-              ? {
-                  ...current,
-                  progress: roundedProgress,
-                  status: roundedProgress >= 100 ? 'preparing' : 'uploading',
-                }
+              ? { ...current, progress: roundedProgress, status: 'uploading' }
               : current;
           }),
-        onAccepted: (versionId) =>
+        onAuthorized: (versionId) =>
+          setSelectedUpload((current) =>
+            current
+              ? {
+                  ...current,
+                  catalogProductId: selectedProduct._id,
+                  editionId: selectedEditionId,
+                  packageId: normalizedPackageId,
+                  versionId,
+                }
+              : current
+          ),
+        onTransferComplete: (versionId) =>
           setSelectedUpload((current) =>
             current
               ? {
@@ -2200,9 +2396,17 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
           normalizedPackageId,
           selectedEditionId,
           versionId,
-          (status) =>
+          (progress) =>
             setSelectedUpload((current) =>
-              current ? { ...current, status, errorMessage: undefined } : current
+              current
+                ? {
+                    ...current,
+                    errorMessage: undefined,
+                    estimatedStartAt: progress.estimatedStartAt,
+                    queuePosition: progress.queuePosition,
+                    status: progress.state,
+                  }
+                : current
             ),
           controller.signal
         ).finally(() => {
@@ -2250,11 +2454,6 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
       }
       const message = getFriendlyUploadError(error);
       setFormError(message);
-      // A failure is always shown as failed. Returning an upload that already
-      // has a versionId to 'uploading' left it on a spinner reading "Confirming
-      // package", so a hard server-side failure looked like work still in
-      // progress and the user waited indefinitely. The versionId is preserved,
-      // which is what allows retrying the same version.
       setSelectedUpload((current) =>
         current ? { ...current, status: 'failed', errorMessage: message } : current
       );
@@ -2288,10 +2487,16 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
         upload.packageId,
         upload.editionId,
         upload.versionId,
-        (status) =>
+        (progress) =>
           setSelectedUpload((current) =>
             current && current.versionId === upload.versionId
-              ? { ...current, status, errorMessage: undefined }
+              ? {
+                  ...current,
+                  errorMessage: undefined,
+                  estimatedStartAt: progress.estimatedStartAt,
+                  queuePosition: progress.queuePosition,
+                  status: progress.state,
+                }
               : current
           ),
         controller.signal
@@ -2343,6 +2548,26 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
       toast.error('Could not prepare package', { description: message });
     },
   });
+
+  const resumedVersionIdRef = useRef<string | null>(null);
+  const resumeStatusWatch = preparationStatusMutation.mutate;
+  const resumableVersionId =
+    canRunPanelQueries &&
+    !uploadMutation.isPending &&
+    !preparationStatusMutation.isPending &&
+    selectedUpload?.versionId &&
+    selectedUpload.catalogProductId &&
+    selectedUpload.editionId &&
+    selectedUpload.packageId &&
+    isServerProcessingStatus(selectedUpload.status)
+      ? selectedUpload.versionId
+      : null;
+
+  useEffect(() => {
+    if (!resumableVersionId || resumedVersionIdRef.current === resumableVersionId) return;
+    resumedVersionIdRef.current = resumableVersionId;
+    resumeStatusWatch();
+  }, [resumableVersionId, resumeStatusWatch]);
 
   function openUpload(product?: CreatorPackageProductSummary) {
     const hasDraft = Boolean(
@@ -2773,59 +2998,9 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
                             <DropZone.FileInfo>
                               <DropZone.FileName>{selectedUpload.fileName}</DropZone.FileName>
                               <DropZone.FileMeta>
-                                {formatFileSize(selectedUpload.fileSize)} ·{' '}
-                                {selectedUpload.status === 'ready'
-                                  ? 'Ready to upload'
-                                  : selectedUpload.status === 'uploading'
-                                    ? selectedUpload.progress >= 100
-                                      ? 'Confirming package'
-                                      : `Uploading ${selectedUpload.progress}%`
-                                    : selectedUpload.status === 'queued'
-                                      ? 'Waiting for preparation'
-                                      : selectedUpload.status === 'preparing'
-                                        ? 'Preparing version'
-                                        : selectedUpload.status === 'publishing'
-                                          ? 'Publishing version'
-                                          : selectedUpload.status === 'complete'
-                                            ? 'Version ready'
-                                            : 'Upload failed'}
+                                {formatFileSize(selectedUpload.fileSize)}
+                                {selectedUpload.status === 'ready' ? ' · Ready to upload' : ''}
                               </DropZone.FileMeta>
-                              {selectedUpload.status === 'uploading' &&
-                              !selectedUpload.versionId ? (
-                                <DropZone.FileProgress value={selectedUpload.progress}>
-                                  <DropZone.FileProgressTrack>
-                                    <DropZone.FileProgressFill />
-                                  </DropZone.FileProgressTrack>
-                                </DropZone.FileProgress>
-                              ) : null}
-                              {isServerProcessingStatus(selectedUpload.status) ? (
-                                <output className="pm-subtle-copy mt-2 flex flex-col gap-1 text-xs">
-                                  <span className="flex items-center gap-2">
-                                    <span className="btn-loading-spinner" aria-hidden="true" />
-                                    {selectedUpload.status === 'uploading'
-                                      ? selectedUpload.progress >= 100
-                                        ? 'Confirming package...'
-                                        : `Uploading package: ${selectedUpload.progress}%`
-                                      : selectedUpload.status === 'queued'
-                                        ? 'Waiting for preparation...'
-                                        : selectedUpload.status === 'preparing'
-                                          ? 'Preparing version...'
-                                          : 'Publishing version...'}
-                                    {formatElapsedSuffix(processingElapsedMs)}
-                                  </span>
-                                  {selectedUpload.status === 'preparing' ||
-                                  (selectedUpload.status === 'uploading' &&
-                                    selectedUpload.progress >= 100) ? (
-                                    <span>
-                                      Large packages take several minutes. You can keep this open;
-                                      we will show the result here.
-                                    </span>
-                                  ) : null}
-                                </output>
-                              ) : null}
-                              {selectedUpload.errorMessage ? (
-                                <DropZone.FileMeta>{selectedUpload.errorMessage}</DropZone.FileMeta>
-                              ) : null}
                             </DropZone.FileInfo>
                             <DropZone.FileRemoveTrigger
                               aria-label={`Remove ${selectedUpload.fileName}`}
@@ -2838,6 +3013,9 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
                         </DropZone.FileList>
                       ) : null}
                     </DropZone>
+                    {selectedUpload ? (
+                      <UploadStatusAlert elapsedMs={processingElapsedMs} upload={selectedUpload} />
+                    ) : null}
                   </div>
                 </div>
 
@@ -2857,11 +3035,6 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
                   (isServerProcessingStatus(selectedUpload.status) ||
                     selectedUpload.status === 'failed') &&
                   !uploadMutation.isPending ? (
-                  // A failed upload that still holds a version keeps its recovery
-                  // actions. Recoverability used to be expressed by leaving the
-                  // status on 'uploading', which made a hard failure look like
-                  // work in progress; the status is now honest and the footer
-                  // decides what can still be done.
                   <>
                     {selectedUpload.file ? (
                       <YucpButton

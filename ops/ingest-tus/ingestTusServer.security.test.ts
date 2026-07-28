@@ -106,6 +106,22 @@ type SqlTag = {
   json(value: unknown): unknown;
 };
 
+async function waitForVersionState(
+  rows: Map<string, MemoryCatalogRow>,
+  versionId: string,
+  state: string,
+  timeoutMs = 10_000
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (rows.get(versionId)?.state === state) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(
+    `Package version ${versionId} stayed in ${rows.get(versionId)?.state ?? 'unknown'}, expected ${state}`
+  );
+}
+
 function createMemoryCatalog(
   options: { onTransition?: (row: MemoryCatalogRow) => Promise<void> } = {}
 ): { catalog: Catalog; rows: Map<string, MemoryCatalogRow> } {
@@ -708,8 +724,6 @@ describe('ingest tus upload capability isolation', () => {
     if (!location) {
       throw new Error('Tus creation did not return an upload location');
     }
-    // A TLS-terminating proxy leaves the socket plain, so an absolute Location
-    // would send an https page to an http:// upload URL and get blocked.
     expect(location.startsWith(`${INGEST_TUS_PATH}/`)).toBe(true);
     uploadDataPath = join(uploadDir, new URL(location, endpoint).pathname.split('/').at(-1) ?? '');
 
@@ -725,7 +739,7 @@ describe('ingest tus upload capability isolation', () => {
     });
 
     expect(completion.status).toBe(204);
-    expect(rows.get(capability.versionId)?.state).toBe('ASSEMBLED');
+    await waitForVersionState(rows, capability.versionId, 'ASSEMBLED');
     expect(rows.get(capability.versionId)?.error).toBeNull();
     console.log('INGEST_TUS_PATCH_NORMAL_RESULT completed=yes assembled=yes');
   });

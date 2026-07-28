@@ -280,6 +280,7 @@ describe('dashboard packages route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();
+    localStorage.clear();
     routeSearchMock.mockReturnValue({ view: undefined });
     uploadErrorRef.current = null;
     uploadSuccessRef.current = null;
@@ -861,7 +862,7 @@ describe('dashboard packages route', () => {
 
     uploadProgressRef.current?.(100, 100);
 
-    expect(await screen.findByText('Preparing version...')).toBeVisible();
+    expect(await screen.findByText('Checking your package...')).toBeVisible();
     expect(screen.queryByText('Uploading 100%')).not.toBeInTheDocument();
   });
 
@@ -955,7 +956,7 @@ describe('dashboard packages route', () => {
 
     expect(await screen.findByRole('button', { name: 'Check package status' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Retry upload' })).toBeEnabled();
-    expect(sessionStorage.getItem('yucp.package-upload.accepted-lane.v1')).toContain(
+    expect(localStorage.getItem(acceptedUploadLaneStorageKey)).toContain(
       'version-authorized-before-tus'
     );
   });
@@ -1035,7 +1036,7 @@ describe('dashboard packages route', () => {
     await waitFor(() => expect(uploadStartMock).toHaveBeenCalledOnce());
 
     uploadSuccessRef.current?.();
-    expect(await screen.findByText('Waiting for preparation...')).toBeVisible();
+    expect(await screen.findByText('Waiting for a preparation slot...')).toBeVisible();
     expect(screen.queryByText('Version ready')).not.toBeInTheDocument();
     fireEvent.click(screen.getByText('Close'));
     expect(await screen.findByText('Waiting to prepare avatar-bundle.zip')).toBeVisible();
@@ -1046,12 +1047,13 @@ describe('dashboard packages route', () => {
     await waitFor(() => expect(statusPolls).toBe(4), {
       timeout: 3_000,
     });
-    await waitFor(() => expect(sessionStorage.getItem(acceptedUploadLaneStorageKey)).toBeNull());
+    await waitFor(() => expect(localStorage.getItem(acceptedUploadLaneStorageKey)).toBeNull());
     expect(statusPolls).toBe(4);
   });
 
   it('continues preparation after the initial status checks and observes a later ready result', async () => {
     let statusPolls = 0;
+    const readyAfterPolls = 12;
     apiPostMock.mockResolvedValue({
       versionId: 'version-delayed-ready',
       exp: '123',
@@ -1074,7 +1076,7 @@ describe('dashboard packages route', () => {
           estimatedStartAt: null,
           packageId: 'com.creator.avatar-bundle',
           queuePosition: null,
-          state: statusPolls <= 240 ? 'preparing' : 'ready',
+          state: statusPolls <= readyAfterPolls ? 'preparing' : 'ready',
           updatedAt: '2026-07-26T12:00:00.000Z',
           version: '2.5.2',
           versionId: 'version-delayed-ready',
@@ -1120,11 +1122,13 @@ describe('dashboard packages route', () => {
       vi.useRealTimers();
     }
 
-    expect(statusPolls).toBe(240);
+    // Two minutes of preparation must not cost hundreds of status requests. The poll backs off to
+    // a ceiling instead of ticking twice a second, and it has no attempt limit to run out of, so
+    // the version that only turns ready deep into the window is still the same watch that sees it.
+    expect(statusPolls).toBeGreaterThan(readyAfterPolls);
+    expect(statusPolls).toBeLessThan(40);
     expect(screen.queryByText(/needs attention/i)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Check package status' }));
-    await waitFor(() => expect(statusPolls).toBe(241));
-    await waitFor(() => expect(sessionStorage.getItem(acceptedUploadLaneStorageKey)).toBeNull());
+    await waitFor(() => expect(localStorage.getItem(acceptedUploadLaneStorageKey)).toBeNull());
     expect(apiPostMock).toHaveBeenCalledTimes(1);
   });
 
@@ -1188,16 +1192,18 @@ describe('dashboard packages route', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Upload package' }));
     await waitFor(() => expect(uploadStartMock).toHaveBeenCalledOnce());
     uploadSuccessRef.current?.();
-    expect(await screen.findByText('Confirming package...')).toBeVisible();
+    expect(await screen.findByText('Checking your package...')).toBeVisible();
 
     firstRender.unmount();
     render(<Component />, { wrapper: createWrapper() });
 
-    expect(await screen.findByText('Confirming avatar-bundle-remount.zip')).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'View upload' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Check package status' }));
-    await waitFor(() => expect(sessionStorage.getItem(acceptedUploadLaneStorageKey)).toBeNull());
+    // The remounted page picks the watch back up on its own: preparation kept running while the
+    // tab was gone, so the creator should not have to press anything to learn it finished, and the
+    // restored lane must never re-authorize a second upload of bytes the server already has.
+    await waitFor(() => expect(statusPolls).toBeGreaterThan(0));
+    await waitFor(() => expect(localStorage.getItem(acceptedUploadLaneStorageKey)).toBeNull());
     expect(apiPostMock).toHaveBeenCalledTimes(1);
+    expect(uploadStartMock).toHaveBeenCalledOnce();
   });
 
   it('keeps accepted preparation retryable after a transient status request error', async () => {
@@ -1264,11 +1270,11 @@ describe('dashboard packages route', () => {
     await waitFor(() => expect(uploadStartMock).toHaveBeenCalledOnce());
     uploadSuccessRef.current?.();
 
-    expect(await screen.findByRole('button', { name: 'Check package status' })).toBeEnabled();
+    // A status request that fails once is not a failed release: the watch resumes and finishes it
+    // without the creator being told to press anything, and without re-sending the bytes.
+    await waitFor(() => expect(localStorage.getItem(acceptedUploadLaneStorageKey)).toBeNull());
     expect(screen.queryByText(/needs attention/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/temporary network failure/i)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Check package status' }));
-    await waitFor(() => expect(sessionStorage.getItem(acceptedUploadLaneStorageKey)).toBeNull());
     expect(apiPostMock).toHaveBeenCalledTimes(1);
   });
 
@@ -1335,11 +1341,9 @@ describe('dashboard packages route', () => {
     await waitFor(() => expect(uploadStartMock).toHaveBeenCalledOnce());
     uploadSuccessRef.current?.();
 
-    expect(await screen.findByRole('button', { name: 'Check package status' })).toBeEnabled();
+    await waitFor(() => expect(localStorage.getItem(acceptedUploadLaneStorageKey)).toBeNull());
     expect(screen.queryByText(/needs attention/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/temporary product refresh failure/i)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Check package status' }));
-    await waitFor(() => expect(sessionStorage.getItem(acceptedUploadLaneStorageKey)).toBeNull());
     expect(productRefreshes).toBe(2);
     expect(apiPostMock).toHaveBeenCalledTimes(1);
   });
@@ -2229,6 +2233,6 @@ describe('dashboard packages route', () => {
     expect(screen.getByRole('button', { name: 'Uploading package...' })).toBeDisabled();
 
     uploadSuccessRef.current?.();
-    await waitFor(() => expect(sessionStorage.getItem(acceptedUploadLaneStorageKey)).toBeNull());
+    await waitFor(() => expect(localStorage.getItem(acceptedUploadLaneStorageKey)).toBeNull());
   });
 });

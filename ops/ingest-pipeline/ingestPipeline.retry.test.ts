@@ -15,10 +15,6 @@ function stubVersion(state: StubCatalogState): PackageVersion {
   } as PackageVersion;
 }
 
-/**
- * Minimal catalog stand-in: createVersion reports the state an existing row is
- * already in, and transition records what beginVersion tried to do with it.
- */
 function stubCatalog(existingState: StubCatalogState) {
   const transitions: StubCatalogState[] = [];
   const catalog = {
@@ -43,10 +39,6 @@ const beginInput = {
 
 describe('beginVersion retry semantics', () => {
   it('restarts an upload for a version whose previous attempt failed', async () => {
-    // A failed upload must not burn the version number. The catalog state
-    // machine allows FAILED -> UPLOADING; refusing it here answered every
-    // retry with 409 while the creator saw an empty package list, because
-    // failed versions are not listed.
     const { catalog, transitions } = stubCatalog('FAILED');
 
     const result = await beginVersion({ ...beginInput, catalog });
@@ -73,15 +65,17 @@ describe('beginVersion retry semantics', () => {
     expect(result.state).toBe('UPLOADING');
   });
 
-  it.each(['ASSEMBLED', 'PROMOTING', 'READY', 'DELETED'] as const)(
-    'keeps %s immutable so a completed version cannot be overwritten',
-    async (state) => {
-      const { catalog, transitions } = stubCatalog(state);
+  it.each([
+    'ASSEMBLED',
+    'PROMOTING',
+    'READY',
+    'DELETED',
+  ] as const)('keeps %s immutable so a completed version cannot be overwritten', async (state) => {
+    const { catalog, transitions } = stubCatalog(state);
 
-      await expect(beginVersion({ ...beginInput, catalog })).rejects.toThrow(
-        'Package version is immutable after upload completion'
-      );
-      expect(transitions).toEqual([]);
-    }
-  );
+    await expect(beginVersion({ ...beginInput, catalog })).rejects.toThrow(
+      'Package version is immutable after upload completion'
+    );
+    expect(transitions).toEqual([]);
+  });
 });

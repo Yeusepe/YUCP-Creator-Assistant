@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { loadCasConfig } from './config';
-import { copyS3ObjectVersion, deleteS3ObjectVersion, getS3ObjectRetention } from './s3Control';
+import {
+  copyS3ObjectVersion,
+  deleteS3ObjectVersion,
+  getS3ObjectRetention,
+  resolveSignedRequestTimeoutMs,
+} from './s3Control';
 
 const originalFetch = globalThis.fetch;
 
@@ -81,5 +86,26 @@ describe('S3 exact version operations', () => {
     const url = new URL(request?.url ?? '');
     expect(url.searchParams.get('versionId')).toBe('version-retained');
     expect(url.searchParams.has('retention')).toBeTrue();
+  });
+});
+
+describe('signed request deadlines', () => {
+  it('keeps the configured deadline for bodyless control-plane calls', () => {
+    expect(resolveSignedRequestTimeoutMs(30_000, undefined)).toBe(30_000);
+  });
+
+  it('grants a large body time proportional to its size', () => {
+    const small = resolveSignedRequestTimeoutMs(30_000, new Uint8Array(1024 * 1024));
+    const large = resolveSignedRequestTimeoutMs(30_000, new Uint8Array(16 * 1024 * 1024));
+
+    expect(small).toBeGreaterThan(30_000);
+    expect(large).toBeGreaterThan(small);
+    expect(large).toBeLessThan(15 * 60 * 1000);
+  });
+
+  it('caps the deadline so a stalled transfer cannot hang forever', () => {
+    const body = new Uint8Array(4 * 1024 * 1024 * 1024);
+
+    expect(resolveSignedRequestTimeoutMs(30_000, body)).toBe(15 * 60 * 1000);
   });
 });
