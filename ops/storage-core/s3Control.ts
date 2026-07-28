@@ -760,6 +760,26 @@ export async function createS3PutObjectUploadTicket(input: {
 }
 
 /**
+ * Endpoints observed to answer 501 for `If-None-Match`, remembered per process.
+ *
+ * Assembly writes one object per chunk, so without this every chunk would first
+ * upload its whole body to be rejected, then upload it again — doubling the
+ * transfer for the entire package against a store that will never support the
+ * header. The capability is discovered from the store rather than configured,
+ * so it cannot drift from reality, and it is only ever set from an actual 501.
+ */
+const endpointsWithoutConditionalWrites = new Set<string>();
+
+function conditionalWriteCapabilityKey(config: CasConfig): string {
+  return `${config.endpoint}/${config.bucket}`;
+}
+
+/** Clears the remembered capability so tests cannot leak it between cases. */
+export function resetConditionalWriteCapabilityForTests(): void {
+  endpointsWithoutConditionalWrites.clear();
+}
+
+/**
  * Conditional PutObject reference:
  * https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html
  */
@@ -775,21 +795,39 @@ export async function putS3ObjectImmutable(input: {
       : Uint8Array.from(input.body);
   const sha256 = createHash('sha256').update(body).digest('hex');
 
+  const capabilityKey = conditionalWriteCapabilityKey(input.config);
+
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const response = await signedRequest({
-      allowedStatuses: [409, 412],
-      body,
-      config: input.config,
-      headers: {
-        'content-type': input.contentType,
-        'if-none-match': '*',
-        'x-amz-meta-yucp-sha256': sha256,
-      },
-      key: input.key,
-      method: 'PUT',
-      operation: 'PutObject',
-    });
-    if (response.ok) {
+    // Skip the conditional attempt entirely once this store has already proven
+    // it does not support the header, rather than re-uploading the body to be
+    // rejected again.
+    const skipConditional = endpointsWithoutConditionalWrites.has(capabilityKey);
+    const response = skipConditional
+      ? undefined
+      : await signedRequest({
+          // 501 means the store does not implement conditional writes at all,
+          // which is how Backblaze B2 answers `if-none-match`. Tolerating it
+          // lets the reconcile path below decide what actually happened; a store
+          // that does implement them never returns it, so those keep the strong
+          // guarantee with no configuration.
+          allowedStatuses: [409, 412, 501],
+          body,
+          config: input.config,
+          headers: {
+            'content-type': input.contentType,
+            'if-none-match': '*',
+            'x-amz-meta-yucp-sha256': sha256,
+          },
+          key: input.key,
+          method: 'PUT',
+          operation: 'PutObject',
+          // A 501 is deterministic, so the signer's retries would only re-send
+          // the body to earn the same answer. This is the one probing request
+          // per store; every other status is still retried normally below.
+          retries: 0,
+        });
+
+    if (response?.ok) {
       return {
         ...exactVersionFromResponse(response),
         bytes: body.byteLength,
@@ -797,19 +835,64 @@ export async function putS3ObjectImmutable(input: {
         status: 'created',
       };
     }
-    if (response.status === 409) {
+    if (response?.status === 409) {
       continue;
     }
 
+    const conditionalWritesUnsupported = skipConditional || response?.status === 501;
+    if (conditionalWritesUnsupported && !skipConditional) {
+      endpointsWithoutConditionalWrites.add(capabilityKey);
+      console.warn(
+        JSON.stringify({
+          event: 's3.conditional_write_unsupported',
+          endpoint: capabilityKey,
+          message:
+            'Store answered 501 for If-None-Match; writing without it for the rest of this process.',
+        })
+      );
+    }
     const versions = (await listS3ObjectVersions(input.config, input.key)).filter(
       (version) => !version.deleteMarker && version.key === input.key
     );
-    if (versions.length !== 1) {
-      throw new Error(
-        versions.length === 0
-          ? 'Immutable S3 object has no physical version'
-          : 'Immutable S3 object has multiple physical versions'
-      );
+
+    if (conditionalWritesUnsupported && versions.length === 0) {
+      // Nothing is there, so the rejection was purely about the unsupported
+      // header. Write it plainly.
+      //
+      // Two writers can both observe an absent key and both write. That is
+      // acceptable here: every key routed through this function is either
+      // content-addressed or pinned to an expected digest by the catalog write
+      // intent before any S3 call, so concurrent writers put identical bytes.
+      // Buckets are versioned, so a duplicate costs a redundant version rather
+      // than data, and readers verify digests on the way out.
+      const plainResponse = await signedRequest({
+        body,
+        config: input.config,
+        headers: {
+          'content-type': input.contentType,
+          'x-amz-meta-yucp-sha256': sha256,
+        },
+        key: input.key,
+        method: 'PUT',
+        operation: 'PutObject',
+      });
+      return {
+        ...exactVersionFromResponse(plainResponse),
+        bytes: body.byteLength,
+        sha256,
+        status: 'created',
+      };
+    }
+
+    if (versions.length === 0) {
+      throw new Error('Immutable S3 object has no physical version');
+    }
+    // A store without conditional writes can legitimately hold more than one
+    // physical version of the same content, since the race above is resolved by
+    // both writers succeeding. The digest checks below still have to pass, so
+    // any extra version is a duplicate of identical bytes.
+    if (versions.length > 1 && !conditionalWritesUnsupported) {
+      throw new Error('Immutable S3 object has multiple physical versions');
     }
     const existingVersion = versions[0];
     const existingResponse = await getS3ObjectVersion(

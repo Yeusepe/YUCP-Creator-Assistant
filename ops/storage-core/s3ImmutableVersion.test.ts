@@ -1,12 +1,17 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { loadCasConfig } from './config';
-import { putS3ObjectImmutable, putS3ObjectVersioned } from './s3Control';
+import {
+  putS3ObjectImmutable,
+  putS3ObjectVersioned,
+  resetConditionalWriteCapabilityForTests,
+} from './s3Control';
 
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  resetConditionalWriteCapabilityForTests();
 });
 
 function config() {
@@ -167,5 +172,91 @@ describe('S3 immutable exact versions', () => {
         key: 'v2/common/chunks/abcd',
       })
     ).rejects.toThrow('multiple physical versions');
+  });
+
+  it('writes without the conditional header when the store answers 501', async () => {
+    // Backblaze B2 does not implement If-None-Match and answers 501, which
+    // aborted every package assembly with "PutObject failed with HTTP status
+    // 501" after the upload had already been chunked.
+    const body = Uint8Array.from([9, 9, 9]);
+    const digest = createHash('sha256').update(body).digest('hex');
+    const conditionalHeaders: (string | null)[] = [];
+
+    globalThis.fetch = mock(async (input: string | URL | Request) => {
+      const request = new Request(input);
+      const url = new URL(request.url);
+      if (request.method === 'PUT') {
+        const ifNoneMatch = request.headers.get('if-none-match');
+        conditionalHeaders.push(ifNoneMatch);
+        if (ifNoneMatch) {
+          return new Response(null, { status: 501 });
+        }
+        return new Response(null, { headers: { 'x-amz-version-id': 'plain-version' } });
+      }
+      if (url.searchParams.has('versions')) {
+        return new Response(
+          '<ListVersionsResult><IsTruncated>false</IsTruncated></ListVersionsResult>'
+        );
+      }
+      throw new Error('Unexpected exact read');
+    }) as unknown as typeof fetch;
+
+    const result = await putS3ObjectImmutable({
+      body,
+      config: config(),
+      contentType: 'application/octet-stream',
+      key: 'v2/common/chunks/b2fallback',
+    });
+
+    expect(conditionalHeaders).toEqual(['*', null]);
+    expect(result).toEqual({
+      bytes: body.byteLength,
+      fileIdentifier: 'plain-version',
+      sha256: digest,
+      status: 'created',
+      versionId: 'plain-version',
+    });
+  });
+
+  it('reuses the existing object when the store answers 501 and the bytes already match', async () => {
+    const body = Uint8Array.from([9, 9, 9]);
+    const digest = createHash('sha256').update(body).digest('hex');
+    let plainPutCount = 0;
+
+    globalThis.fetch = mock(async (input: string | URL | Request) => {
+      const request = new Request(input);
+      const url = new URL(request.url);
+      if (request.method === 'PUT') {
+        if (request.headers.get('if-none-match')) {
+          return new Response(null, { status: 501 });
+        }
+        plainPutCount += 1;
+        return new Response(null, { headers: { 'x-amz-version-id': 'unexpected' } });
+      }
+      if (url.searchParams.has('versions')) {
+        return new Response(
+          '<ListVersionsResult>' +
+            '<IsTruncated>false</IsTruncated>' +
+            '<Version><Key>v2/common/chunks/b2existing</Key><VersionId>existing</VersionId>' +
+            '<IsLatest>true</IsLatest><LastModified>2026-07-24T00:00:00.000Z</LastModified>' +
+            '<Size>3</Size></Version>' +
+            '</ListVersionsResult>'
+        );
+      }
+      return new Response(body, {
+        headers: { 'x-amz-meta-yucp-sha256': digest, 'x-amz-version-id': 'existing' },
+      });
+    }) as unknown as typeof fetch;
+
+    const result = await putS3ObjectImmutable({
+      body,
+      config: config(),
+      contentType: 'application/octet-stream',
+      key: 'v2/common/chunks/b2existing',
+    });
+
+    expect(plainPutCount).toBe(0);
+    expect(result.status).toBe('existing');
+    expect(result.versionId).toBe('existing');
   });
 });
