@@ -97,20 +97,52 @@ async function signedRequest(input: SignedRequestInput): Promise<Response> {
     secretAccessKey: input.config.secretAccessKey,
     region: input.config.region,
     service: 's3',
-    retries: input.retries ?? 2,
+    retries: 0,
   });
-  const response = await client.fetch(url, {
-    body: input.body,
-    headers: input.headers,
-    method: input.method,
-    signal: AbortSignal.timeout(
-      resolveSignedRequestTimeoutMs(input.config.requestTimeoutMs, input.body)
-    ),
-  });
-  if (!response.ok && !input.allowedStatuses?.includes(response.status)) {
-    throw new Error(`S3 ${input.operation} failed with HTTP status ${response.status}`);
+  const timeoutMs = resolveSignedRequestTimeoutMs(input.config.requestTimeoutMs, input.body);
+  const attempts = isReplayableBody(input.body) ? (input.retries ?? 2) + 1 : 1;
+  let lastFailure: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (attempt > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** (attempt - 1)));
+    }
+    let response: Response;
+    try {
+      response = await client.fetch(url, {
+        body: input.body,
+        headers: input.headers,
+        method: input.method,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (error) {
+      lastFailure = error;
+      continue;
+    }
+    if (input.allowedStatuses?.includes(response.status)) {
+      return response;
+    }
+    if (!response.ok) {
+      if (response.status === 429 || response.status >= 500) {
+        lastFailure = new Error(`S3 ${input.operation} failed with HTTP status ${response.status}`);
+        continue;
+      }
+      throw new Error(`S3 ${input.operation} failed with HTTP status ${response.status}`);
+    }
+    return response;
   }
-  return response;
+  throw lastFailure instanceof Error
+    ? lastFailure
+    : new Error(`S3 ${input.operation} failed after ${attempts} attempts`);
+}
+
+function isReplayableBody(body: BodyInit | undefined): boolean {
+  return (
+    body === undefined ||
+    typeof body === 'string' ||
+    body instanceof Uint8Array ||
+    body instanceof ArrayBuffer ||
+    body instanceof Blob
+  );
 }
 
 /**

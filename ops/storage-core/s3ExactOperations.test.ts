@@ -4,6 +4,7 @@ import {
   copyS3ObjectVersion,
   deleteS3ObjectVersion,
   getS3ObjectRetention,
+  putS3ObjectVersioned,
   resolveSignedRequestTimeoutMs,
 } from './s3Control';
 
@@ -107,5 +108,64 @@ describe('signed request deadlines', () => {
     const body = new Uint8Array(4 * 1024 * 1024 * 1024);
 
     expect(resolveSignedRequestTimeoutMs(30_000, body)).toBe(15 * 60 * 1000);
+  });
+});
+
+describe('signed request retries', () => {
+  it('retries a timed-out provider call instead of failing the operation', async () => {
+    let calls = 0;
+    globalThis.fetch = mock(async () => {
+      calls += 1;
+      if (calls === 1) {
+        throw Object.assign(new Error('The operation timed out.'), { name: 'TimeoutError' });
+      }
+      return new Response(null, { headers: { 'x-amz-version-id': 'retried-version' } });
+    }) as unknown as typeof fetch;
+
+    const result = await putS3ObjectVersioned({
+      body: Uint8Array.from([7, 7, 7]),
+      config: config('metadata'),
+      contentType: 'application/json',
+      key: 'v2/metadata/retry-after-stall.json',
+    });
+
+    expect(calls).toBe(2);
+    expect(result.versionId).toBe('retried-version');
+  });
+
+  it('retries a throttled response and gives up with its status', async () => {
+    let calls = 0;
+    globalThis.fetch = mock(async () => {
+      calls += 1;
+      return new Response(null, { status: 503 });
+    }) as unknown as typeof fetch;
+
+    await expect(
+      putS3ObjectVersioned({
+        body: Uint8Array.from([1]),
+        config: config('metadata'),
+        contentType: 'application/json',
+        key: 'v2/metadata/throttled.json',
+      })
+    ).rejects.toThrow('HTTP status 503');
+    expect(calls).toBe(3);
+  });
+
+  it('does not retry a client error', async () => {
+    let calls = 0;
+    globalThis.fetch = mock(async () => {
+      calls += 1;
+      return new Response(null, { status: 403 });
+    }) as unknown as typeof fetch;
+
+    await expect(
+      putS3ObjectVersioned({
+        body: Uint8Array.from([1]),
+        config: config('metadata'),
+        contentType: 'application/json',
+        key: 'v2/metadata/forbidden.json',
+      })
+    ).rejects.toThrow('HTTP status 403');
+    expect(calls).toBe(1);
   });
 });
