@@ -25,6 +25,7 @@ vi.mock('@tanstack/react-router', () => ({
     useLoaderData: loaderDataMock,
     useSearch: routeSearchMock,
   }),
+  Link: ({ children }: PropsWithChildren) => <a href="/account/licenses">{children}</a>,
 }));
 
 vi.mock('@/components/three/CloudBackground', () => ({
@@ -39,6 +40,10 @@ vi.mock('@/api/client', () => ({
 
 vi.mock('@/hooks/usePublicAuth', () => ({
   usePublicAuth: vi.fn(),
+}));
+
+vi.mock('@/components/ui/Toast', () => ({
+  useToast: () => ({ error: vi.fn(), info: vi.fn(), success: vi.fn(), warning: vi.fn() }),
 }));
 
 vi.mock('@/lib/utils', () => ({
@@ -125,14 +130,17 @@ describe('get in unity route', () => {
     });
   });
 
-  it('restores the buyer-facing Unity card and sign-in action', async () => {
+  it('uses the established buyer access view and sign-in action', async () => {
     const Component = GetInUnityRoute.options.component;
     if (!Component) throw new Error('Get in Unity component is missing');
 
     render(<Component />, { wrapper: createWrapper() });
 
     expect(screen.getByRole('heading', { name: 'Avatar Bundle' })).toBeInTheDocument();
-    expect(screen.getByText('Verified for this account')).toBeInTheDocument();
+    expect(
+      screen.getByText('Purchase-verified VCC setup and package delivery')
+    ).toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Access steps' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Sign in to continue' }));
     await waitFor(() => expect(signInMock).toHaveBeenCalledOnce());
   });
@@ -186,9 +194,7 @@ describe('get in unity route', () => {
     expect(document.querySelector('a[href^="/api/access/"]')).not.toBeInTheDocument();
     expect(screen.getByText(/manual setup and troubleshooting/i)).toBeInTheDocument();
     expect(
-      screen.getByText(
-        'Add this product to VCC. The importer checks access and installs its files.'
-      )
+      screen.getByText('Add the product to VCC. YUCP then installs the verified files.')
     ).toBeInTheDocument();
     expect(screen.queryByText(/protected files/i)).not.toBeInTheDocument();
   });
