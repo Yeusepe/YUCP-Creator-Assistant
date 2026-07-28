@@ -2519,16 +2519,8 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
       });
       return;
     }
-    if (status.state === 'deleted') {
-      const message =
-        'This version number was published and later deleted. Deleted versions cannot be reused; raise the version number.';
-      setFormError(message);
-      setSelectedUpload((current) =>
-        current ? { ...current, status: 'failed', errorMessage: message } : current
-      );
-      toast.error('Version number retired', { description: message });
-      return;
-    }
+    // 'deleted' and 'failed' no longer produce upload conflicts: both hand the version number
+    // back, so a 409 that still names one is a transient race and gets the generic guidance.
     fallback();
   }
 

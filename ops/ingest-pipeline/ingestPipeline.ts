@@ -484,16 +484,22 @@ export async function beginVersion(input: BeginVersionInput): Promise<PackageVer
   if (created.state === 'UPLOADING') {
     return created;
   }
-  if (created.state !== 'CREATED' && created.state !== 'FAILED') {
+  // FAILED and DELETED both hand the version number back to the creator: a failed attempt has
+  // nothing worth keeping and a deleted version was withdrawn on purpose. Only versions that
+  // completed and still stand (ASSEMBLED/PROMOTING/READY) refuse replacement.
+  if (created.state !== 'CREATED' && created.state !== 'FAILED' && created.state !== 'DELETED') {
     throw new Error('Package version is immutable after upload completion');
   }
 
   try {
     return await input.catalog.transition(created.id, 'UPLOADING', {
       event: { type: 'catalog.version.uploading' },
+      replacesUpload: true,
     });
   } catch (error) {
-    await input.catalog.markFailed(created.id, errorMessage(error));
+    if (created.state !== 'DELETED') {
+      await input.catalog.markFailed(created.id, errorMessage(error));
+    }
     throw error;
   }
 }

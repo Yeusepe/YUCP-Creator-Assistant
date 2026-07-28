@@ -1823,6 +1823,80 @@ describe.serial('PostgreSQL catalog integration', () => {
     ]);
   });
 
+  it('hands a deleted version number back for a clean re-upload', async () => {
+    const activeCatalog = requireCatalog();
+    const versionId = await createUploadingVersion('deleted-reupload');
+    await activeCatalog.advanceVersion(versionId, 'ASSEMBLED', {
+      fields: {
+        sourceFormat: 'CANONICAL_ZIP_V1',
+        releaseRoot: 'd'.repeat(64),
+        assemblyObjectId: 'indexes/deleted-reupload.caibx',
+      },
+      event: { type: 'catalog.version.assembled' },
+    });
+    await activeCatalog.markFailed(versionId, 'assembly verification failed');
+    const deleted = await activeCatalog.deleteVersion(versionId, {
+      editionId: 'standard',
+      packageId: 'package-reconciler',
+      reason: 'creator-request',
+    });
+    expect(deleted.state).toBe('DELETED');
+
+    const reuploading = await activeCatalog.transition(versionId, 'UPLOADING', {
+      event: { type: 'catalog.version.uploading' },
+      replacesUpload: true,
+    });
+
+    expect(reuploading).toMatchObject({
+      id: versionId,
+      state: 'UPLOADING',
+      error: null,
+      deletionReason: null,
+      sourceFormat: null,
+      releaseRoot: null,
+      assemblyObjectId: null,
+    });
+    expect(reuploading.deletedAt).toBeNull();
+  });
+
+  it('purges the previous quarantine intent only when a new upload replaces the bytes', async () => {
+    const activeCatalog = requireCatalog();
+    const versionId = await createUploadingVersion('quarantine-replace');
+    await activeCatalog.beginQuarantineObject({
+      bytes: 1024,
+      contentType: 'application/zip',
+      objectKey: `raw/${versionId}/${'8'.repeat(64)}.zip`,
+      sha256: '8'.repeat(64),
+      versionId,
+    });
+    await activeCatalog.markFailed(versionId, 'upload interrupted');
+
+    // Redrive-style retry keeps the quarantine row: it is the provenance of the
+    // artifacts being re-promoted.
+    await activeCatalog.advanceVersion(versionId, 'UPLOADING', {
+      event: { type: 'catalog.version.retrying' },
+    });
+    expect(await activeCatalog.getQuarantineObject(versionId)).not.toBeNull();
+
+    await activeCatalog.markFailed(versionId, 'upload interrupted again');
+    // A creator re-upload replaces the bytes, so the pinned intent must go: left
+    // in place it rejects any file that differs from the failed attempt.
+    await activeCatalog.transition(versionId, 'UPLOADING', {
+      event: { type: 'catalog.version.uploading' },
+      replacesUpload: true,
+    });
+    expect(await activeCatalog.getQuarantineObject(versionId)).toBeNull();
+
+    const replacement = await activeCatalog.beginQuarantineObject({
+      bytes: 2048,
+      contentType: 'application/zip',
+      objectKey: `raw/${versionId}/${'9'.repeat(64)}.zip`,
+      sha256: '9'.repeat(64),
+      versionId,
+    });
+    expect(replacement).toMatchObject({ state: 'PENDING', sha256: '9'.repeat(64) });
+  });
+
   it('version-deletion-scope: rejects mismatched package and edition identities atomically', async () => {
     const activeCatalog = requireCatalog();
     const database = requireSql();

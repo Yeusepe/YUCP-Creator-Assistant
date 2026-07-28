@@ -22,6 +22,9 @@ export type LiveCatalogState = Extract<CatalogState, 'UPLOADING' | 'PROMOTING'>;
 
 export const CATALOG_HEARTBEAT_INTERVAL_MS = 30_000;
 
+// DELETED -> UPLOADING: a deleted version number belongs to the creator again. Deletion removes
+// the version from listings and delivery; it does not retire the number. Entering UPLOADING from
+// any state starts from a clean slate (fields and quarantine intent are wiped in transition()).
 const allowedTransitions = {
   CREATED: ['UPLOADING', 'FAILED', 'DELETED'],
   UPLOADING: ['ASSEMBLED', 'FAILED'],
@@ -29,7 +32,7 @@ const allowedTransitions = {
   PROMOTING: ['READY', 'FAILED'],
   READY: ['DELETED'],
   FAILED: ['UPLOADING', 'DELETED'],
-  DELETED: [],
+  DELETED: ['UPLOADING'],
 } as const satisfies Record<CatalogState, readonly CatalogState[]>;
 
 export const ALLOWED_CATALOG_TRANSITIONS: Readonly<Record<CatalogState, readonly CatalogState[]>> =
@@ -189,6 +192,13 @@ export interface TransitionFields {
 export interface TransitionOptions {
   fields?: TransitionFields;
   event: CatalogEvent;
+  /**
+   * The transition begins a brand-new upload that replaces whatever bytes the version had before.
+   * Purges the quarantine intent so the new file is not rejected for differing from the old one.
+   * The scheduler's redrive must NOT set this: it re-promotes the existing artifacts and the
+   * quarantine row is their provenance.
+   */
+  replacesUpload?: boolean;
 }
 
 export class PackageVersionNotFoundError extends Error {
@@ -341,6 +351,34 @@ function validateTransitionFields(
   vpmDependencies: Record<string, string>;
   vpmRepositories: Record<string, string>;
 } {
+  // A fresh upload replaces the version wholesale. Carrying assembled fields from a failed or
+  // deleted predecessor forward would let stale release data describe bytes that no longer exist.
+  if (targetState === 'UPLOADING') {
+    if (Object.keys(fields).length > 0) {
+      throw new CatalogInvariantError('UPLOADING starts from a clean slate and accepts no fields');
+    }
+    return {
+      activeContentDigest: null,
+      activePolicyVersion: null,
+      bindingRoot: null,
+      commonRoot: null,
+      sourceFormat: null,
+      releaseRoot: null,
+      assemblyObjectId: null,
+      error: null,
+      deletionReason: null,
+      logicalBytes: null,
+      logicalFiles: null,
+      manifestSha256: null,
+      protectedFiles: null,
+      protectedSourceRoot: null,
+      protectionPolicyDigest: null,
+      protectionPolicyId: null,
+      vpmDependencies: {},
+      vpmRepositories: {},
+    };
+  }
+
   const sourceFormat = fields.sourceFormat ?? current.source_format;
   const releaseRoot = fields.releaseRoot ?? current.release_root;
   const assemblyObjectId = fields.assemblyObjectId ?? current.assembly_object_id;
@@ -1006,6 +1044,15 @@ export class Catalog {
       const updated = updatedRows[0];
       if (!updated) {
         throw new Error('PostgreSQL did not return the transitioned package version');
+      }
+
+      if (targetState === 'UPLOADING' && options.replacesUpload) {
+        // The quarantine intent pins the previous attempt's exact bytes; left in place it rejects
+        // any retry whose file differs ("write intent does not match the accepted upload"). The
+        // old object itself stays referenced by its storage write intent, so GC still finds it.
+        await transaction`
+          DELETE FROM package_quarantine_objects WHERE version_id = ${versionId}
+        `;
       }
 
       await transaction`

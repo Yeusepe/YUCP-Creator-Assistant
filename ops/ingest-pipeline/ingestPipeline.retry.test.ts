@@ -47,6 +47,18 @@ describe('beginVersion retry semantics', () => {
     expect(result.state).toBe('UPLOADING');
   });
 
+  it('restarts an upload for a version the creator deleted', async () => {
+    // Deleting a version withdraws it; it does not retire the number. A creator
+    // who deletes a version and uploads it again gets a clean slate, not a 409
+    // against a package list that shows nothing.
+    const { catalog, transitions } = stubCatalog('DELETED');
+
+    const result = await beginVersion({ ...beginInput, catalog });
+
+    expect(transitions).toEqual(['UPLOADING']);
+    expect(result.state).toBe('UPLOADING');
+  });
+
   it('starts an upload for a freshly created version', async () => {
     const { catalog, transitions } = stubCatalog('CREATED');
 
@@ -69,7 +81,6 @@ describe('beginVersion retry semantics', () => {
     'ASSEMBLED',
     'PROMOTING',
     'READY',
-    'DELETED',
   ] as const)('keeps %s immutable so a completed version cannot be overwritten', async (state) => {
     const { catalog, transitions } = stubCatalog(state);
 
