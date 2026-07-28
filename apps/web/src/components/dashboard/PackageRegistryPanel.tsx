@@ -1249,7 +1249,6 @@ function ProductDetailsSheet({
       setConfirmUnlinkStorefrontId(null);
       setEditionEditor(null);
       setIsConfirmingLinkRevoke(false);
-      setCopyingUnityLink(null);
       setIsCopyingPrivacyNotice(false);
       setStorefrontSearch('');
       setBootstrapPackageName('');
