@@ -1,9 +1,9 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import {
   BuyerProductAccessError,
   BuyerProductAccessView,
 } from '@/components/productAccess/BuyerProductAccessView';
-import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 import { fetchBuyerProductAccess } from '@/lib/server/productAccess';
 
