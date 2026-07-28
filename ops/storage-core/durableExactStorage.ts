@@ -20,6 +20,7 @@ export type ExactStorageCatalogPort = Pick<
   | 'getPackageReleaseObject'
   | 'linkPackageReleaseObject'
   | 'markWriteIntentUncertain'
+  | 'reopenLostObjectWriteIntent'
 >;
 
 function verifyHead(object: StorageObjectVersion, head: ExactObjectHead): void {
@@ -53,6 +54,30 @@ export class DurableExactStorage {
       })
     );
     return object;
+  }
+
+  /**
+   * Verifies a committed object during a WRITE, where the caller holds the correct bytes. If the
+   * store no longer has the object — deleted out-of-band, provider loss — the catalog row is a
+   * lie, so the object is marked lost and the intent reopens for a rewrite instead of failing the
+   * write forever. Returns null when reopened; the caller falls through to the rewrite path.
+   */
+  async #verifyCommittedForWrite(
+    intentId: string,
+    committed: StorageObjectVersion
+  ): Promise<StorageObjectVersion | null> {
+    try {
+      return await this.#verify(committed);
+    } catch (error) {
+      const reopened = await this.catalog.reopenLostObjectWriteIntent({
+        intentId,
+        objectVersionId: committed.id,
+      });
+      if (!reopened) {
+        throw error;
+      }
+      return null;
+    }
   }
 
   async #verifyIntentBody(intent: StorageWriteIntent, head: ExactObjectHead): Promise<void> {
@@ -122,11 +147,18 @@ export class DurableExactStorage {
     ) {
       return { object: null, retryClaimToken: null };
     }
+    let effectiveState = intent.state;
     const committed = await this.catalog.getCommittedObjectForIntent(idempotencyKey);
     if (committed) {
-      return { object: await this.#verify(committed), retryClaimToken: null };
+      const verified = await this.#verifyCommittedForWrite(intent.id, committed);
+      if (verified) {
+        return { object: verified, retryClaimToken: null };
+      }
+      // The committed object is gone from the store; the intent reopened as UNCERTAIN and the
+      // standard reconcile path below re-drives the physical write.
+      effectiveState = 'UNCERTAIN';
     }
-    if (intent.state === 'UNCERTAIN' || intent.state === 'RETRYING') {
+    if (effectiveState === 'UNCERTAIN' || effectiveState === 'RETRYING') {
       const claim = await this.catalog.claimUncertainWriteRetry({
         claimDurationMs: EXACT_WRITE_RETRY_CLAIM_MS,
         intentId: intent.id,
@@ -134,7 +166,11 @@ export class DurableExactStorage {
       if (!claim) {
         const reconciled = await this.catalog.getCommittedObjectForIntent(idempotencyKey);
         if (reconciled) {
-          return { object: await this.#verify(reconciled), retryClaimToken: null };
+          const verified = await this.#verifyCommittedForWrite(intent.id, reconciled);
+          if (verified) {
+            return { object: verified, retryClaimToken: null };
+          }
+          throw new Error('Exact storage object was lost and reopened for rewrite');
         }
         throw new Error('Storage write reconciliation is already in progress');
       }
@@ -196,7 +232,11 @@ export class DurableExactStorage {
       } catch (error) {
         const reconciled = await this.catalog.getCommittedObjectForIntent(idempotencyKey);
         if (reconciled) {
-          return { object: await this.#verify(reconciled), retryClaimToken: null };
+          const verified = await this.#verifyCommittedForWrite(intent.id, reconciled);
+          if (verified) {
+            return { object: verified, retryClaimToken: null };
+          }
+          throw new Error('Exact storage object was lost and reopened for rewrite');
         }
         try {
           await this.catalog.markWriteIntentUncertain(intent.id, claim.token);
@@ -298,17 +338,26 @@ export class DurableExactStorage {
           storageDomain: input.storageDomain,
           storageRole: input.storageRole,
         });
+        let canonical: StorageObjectVersion | null = null;
         if (
           reusable &&
           reusable.bucketName === this.storage.bucketName(input.storageRole) &&
           reusable.objectKey === input.objectKey &&
           reusable.contentType === input.contentType
         ) {
-          const verified = await this.#verify(reusable);
+          try {
+            canonical = await this.#verify(reusable);
+          } catch {
+            // Reuse is an optimization. A canonical row whose bytes are gone from the store must
+            // not fail the write when the caller is holding those very bytes.
+            canonical = null;
+          }
+        }
+        if (canonical) {
           committedObject = await this.catalog.commitVerifiedObject({
-            fileIdentifier: verified.fileIdentifier,
+            fileIdentifier: canonical.fileIdentifier,
             intentId: intent.id,
-            providerVersion: verified.providerVersion,
+            providerVersion: canonical.providerVersion,
             retryClaimToken: resolution.retryClaimToken ?? undefined,
           });
         }
@@ -344,8 +393,13 @@ export class DurableExactStorage {
     } catch (error) {
       if (providerCallStarted || resolution.retryClaimToken) {
         const committed = await this.catalog.getCommittedObjectForIntent(input.idempotencyKey);
-        if (committed) {
-          committedObject = await this.#verify(committed);
+        const verified = committed
+          ? await this.#verifyCommittedForWrite(intent.id, committed)
+          : null;
+        if (verified) {
+          committedObject = verified;
+        } else if (committed) {
+          throw error;
         } else {
           try {
             await this.catalog.markWriteIntentUncertain(
@@ -440,19 +494,24 @@ export class DurableExactStorage {
     } catch (error) {
       if (providerCallStarted || resolution.retryClaimToken) {
         const committed = await this.catalog.getCommittedObjectForIntent(input.idempotencyKey);
-        if (committed) {
-          return this.#linkRelease(input.ownerId, input.releaseLink, await this.#verify(committed));
+        const verified = committed
+          ? await this.#verifyCommittedForWrite(intent.id, committed)
+          : null;
+        if (verified) {
+          return this.#linkRelease(input.ownerId, input.releaseLink, verified);
         }
-        try {
-          await this.catalog.markWriteIntentUncertain(
-            intent.id,
-            resolution.retryClaimToken ?? undefined
-          );
-        } catch (markError) {
-          throw new AggregateError(
-            [error, markError],
-            'Storage write failed and its intent could not become uncertain'
-          );
+        if (!committed) {
+          try {
+            await this.catalog.markWriteIntentUncertain(
+              intent.id,
+              resolution.retryClaimToken ?? undefined
+            );
+          } catch (markError) {
+            throw new AggregateError(
+              [error, markError],
+              'Storage write failed and its intent could not become uncertain'
+            );
+          }
         }
       }
       throw error;

@@ -163,6 +163,9 @@ describe('durable exact storage', () => {
       async markWriteIntentUncertain() {
         throw new Error('Unexpected uncertain state');
       },
+      async reopenLostObjectWriteIntent() {
+        throw new Error('Unexpected lost-object reopen');
+      },
     } as ExactStorageCatalogPort;
     const exactStorage = {
       ...storage(calls),
@@ -226,6 +229,10 @@ describe('durable exact storage', () => {
       async markWriteIntentUncertain() {
         calls.push('catalog.uncertain');
       },
+      async reopenLostObjectWriteIntent() {
+        calls.push('catalog.reopen');
+        return false;
+      },
     };
     const durable = new DurableExactStorage(catalog, storage(calls));
 
@@ -279,6 +286,9 @@ describe('durable exact storage', () => {
       },
       async markWriteIntentUncertain() {
         throw new Error('Unexpected uncertain state');
+      },
+      async reopenLostObjectWriteIntent() {
+        throw new Error('Unexpected lost-object reopen');
       },
     };
     const durable = new DurableExactStorage(catalog, storage(calls));
@@ -337,6 +347,10 @@ describe('durable exact storage', () => {
       },
       async markWriteIntentUncertain() {
         calls.push('catalog.uncertain');
+      },
+      async reopenLostObjectWriteIntent() {
+        calls.push('catalog.reopen');
+        return false;
       },
     };
     const exactStorage = storage(calls);
@@ -762,6 +776,91 @@ describe('durable exact storage', () => {
       'storage.get-exact',
       'catalog.committed',
       'catalog.uncertain',
+    ]);
+  });
+
+  it('rewrites a committed object whose bytes were deleted from the store out-of-band', async () => {
+    // Reproduced in production: the object store was emptied while the catalog still carried
+    // COMMITTED rows, so every re-upload of identical content failed verification of an object
+    // that no longer existed instead of simply writing the bytes it was holding.
+    const calls: string[] = [];
+    let committedGone = true;
+    const catalog: ExactStorageCatalogPort = {
+      async beginWriteIntent() {
+        calls.push('catalog.begin');
+        return { ...pendingIntent(), objectVersionId: 'object-version-1', state: 'COMMITTED' };
+      },
+      async claimUncertainWriteRetry() {
+        calls.push('catalog.claim-retry');
+        return retryClaim();
+      },
+      async commitVerifiedObject() {
+        calls.push('catalog.commit');
+        committedGone = false;
+        return object();
+      },
+      async findVerifiedCanonical() {
+        calls.push('catalog.find');
+        return null;
+      },
+      async getCommittedObjectForIntent() {
+        calls.push('catalog.committed');
+        return committedGone ? object() : null;
+      },
+      async getPackageReleaseObject() {
+        throw new Error('Unexpected release read');
+      },
+      async linkPackageReleaseObject() {
+        calls.push('catalog.link');
+      },
+      async markWriteIntentUncertain() {
+        throw new Error('Unexpected uncertain state');
+      },
+      async reopenLostObjectWriteIntent() {
+        calls.push('catalog.reopen');
+        committedGone = false;
+        return true;
+      },
+    };
+    let heads = 0;
+    const port = storage(calls);
+    port.headExactVersion = async () => {
+      heads += 1;
+      calls.push('storage.head');
+      if (heads === 1) {
+        throw new Error('S3 HeadObjectVersion failed with HTTP status 403');
+      }
+      return head();
+    };
+    port.listExactVersions = async () => {
+      calls.push('storage.list');
+      return [];
+    };
+    const durable = new DurableExactStorage(catalog, port);
+
+    expect(
+      await durable.putImmutable({
+        body,
+        contentType: 'application/octet-stream',
+        idempotencyKey: 'package:version:chunk',
+        objectKey: 'v2/common/chunks/object',
+        ownerId: 'version-1',
+        ownerKind: 'package-version',
+        storageDomain: 'common:global:v2',
+        storageRole: 'common',
+      })
+    ).toEqual(object());
+    expect(calls).toEqual([
+      'catalog.begin',
+      'catalog.committed',
+      'storage.head',
+      'catalog.reopen',
+      'catalog.claim-retry',
+      'storage.list',
+      'catalog.find',
+      'storage.put',
+      'storage.head',
+      'catalog.commit',
     ]);
   });
 });

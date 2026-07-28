@@ -368,6 +368,50 @@ export class ExactStorageCatalog {
     return rows[0] ? toObjectVersion(rows[0]) : null;
   }
 
+  /**
+   * A committed intent's object failed physical verification during a write: the store no longer
+   * has it (out-of-band deletion, provider loss). The write path holds verified-correct bytes, so
+   * the object row is marked DELETED and the intent reopens as UNCERTAIN — the standard
+   * reconcile-and-rewrite machinery then re-puts the content and commits a fresh object version.
+   * Returns false when the intent moved on concurrently; the caller rethrows its original error.
+   */
+  async reopenLostObjectWriteIntent(input: {
+    intentId: string;
+    objectVersionId: string;
+  }): Promise<boolean> {
+    const intentId = assertUuid(input.intentId, 'Storage write intent id');
+    const objectVersionId = assertUuid(input.objectVersionId, 'Storage object version id');
+    return this.sql.begin(async (transaction) => {
+      const intents = await transaction<StorageWriteIntentRow[]>`
+        SELECT * FROM storage_write_intents WHERE id = ${intentId} FOR UPDATE
+      `;
+      const intent = intents[0] ? toIntent(intents[0]) : null;
+      if (!intent || intent.state !== 'COMMITTED' || intent.objectVersionId !== objectVersionId) {
+        return false;
+      }
+      const lost = await transaction<{ id: string }[]>`
+        UPDATE storage_object_versions
+        SET verification_state = 'DELETED', deleted_at = clock_timestamp()
+        WHERE id = ${objectVersionId} AND verification_state = 'VERIFIED'
+        RETURNING id
+      `;
+      if (lost.length !== 1) {
+        return false;
+      }
+      await transaction`
+        UPDATE storage_write_intents
+        SET
+          state = 'UNCERTAIN',
+          object_version_id = NULL,
+          retry_claim_token = NULL,
+          retry_claim_expires_at = NULL,
+          updated_at = clock_timestamp()
+        WHERE id = ${intentId}
+      `;
+      return true;
+    });
+  }
+
   async getCommittedObjectForIntent(idempotencyKey: string): Promise<StorageObjectVersion | null> {
     const rows = await this.sql<StorageObjectVersionRow[]>`
       SELECT object.*
