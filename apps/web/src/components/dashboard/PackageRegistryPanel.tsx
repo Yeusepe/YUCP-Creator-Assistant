@@ -127,6 +127,7 @@ function readAcceptedUploadLane(): PersistedAcceptedUploadLane | null {
       typeof parsed.version !== 'string' ||
       typeof parsed.versionId !== 'string'
     ) {
+      storage.removeItem(ACCEPTED_UPLOAD_LANE_STORAGE_KEY);
       return null;
     }
     if (

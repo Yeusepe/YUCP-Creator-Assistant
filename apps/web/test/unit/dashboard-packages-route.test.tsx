@@ -913,6 +913,31 @@ describe('dashboard packages route', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('discards a lane left behind by an upload that already failed', async () => {
+    localStorage.setItem(
+      acceptedUploadLaneStorageKey,
+      JSON.stringify({
+        catalogProductId: 'catalog_product_1',
+        editionId: 'standard',
+        fileName: 'Song Thing_2.0.0.unitypackage',
+        fileSize: 1024,
+        packageId: 'com.creator.avatar-bundle',
+        progress: 100,
+        status: 'failed',
+        version: '2.0.0',
+        versionId: 'version-already-failed',
+      })
+    );
+    const Component = DashboardPackagesRoute.options.component;
+    if (!Component) throw new Error('Dashboard packages component is missing');
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    expect(await screen.findByText('Avatar Bundle')).toBeInTheDocument();
+    expect(screen.queryByText('Song Thing_2.0.0.unitypackage')).not.toBeInTheDocument();
+    await waitFor(() => expect(localStorage.getItem(acceptedUploadLaneStorageKey)).toBeNull());
+  });
+
   it('keeps the authorized version recovery handle when tus creation reports a server conflict', async () => {
     apiPostMock.mockResolvedValue({
       versionId: 'version-authorized-before-tus',
