@@ -1,6 +1,7 @@
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { type IconName, iconManifest } from '../../apps/web/src/icons/manifest';
+import { mapBoundedOrdered } from '../storage-core/boundedOrderedBatch';
 import { getS3Object } from '../storage-core/s3Control';
 import { resolveAssetsConfig } from './assetsConfig';
 import { createLicensedIconGenerationFingerprint } from './generationFingerprint';
@@ -48,8 +49,12 @@ async function main(): Promise<void> {
   const config = await resolveAssetsConfig();
   const generationFingerprint = await createLicensedIconGenerationFingerprint(iconManifest);
   const manifestEntries = Object.entries(iconManifest) as Array<[IconName, string]>;
-  const icons = await Promise.all(
-    manifestEntries.map(([name, sourcePath]) => fetchIcon(name, sourcePath, config))
+  // Every request carries the same fixed deadline, and it starts when the request is created, not
+  // when a connection frees up. Firing all of the manifest at once therefore leaves the tail of the
+  // batch spending its whole budget queued behind the connection pool and timing out on a link that
+  // is working fine.
+  const icons = await mapBoundedOrdered(manifestEntries, ([name, sourcePath]) =>
+    fetchIcon(name, sourcePath, config)
   );
   const generatedModule = renderGeneratedModule(icons, generationFingerprint);
   const temporaryPath = `${GENERATED_MODULE_PATH}.${process.pid}.tmp`;
