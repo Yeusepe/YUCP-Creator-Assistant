@@ -92,10 +92,7 @@ type PersistedAcceptedUploadLane = {
   fileSize: number;
   packageId: string;
   progress: number;
-  status: Extract<
-    SelectedUpload['status'],
-    'uploading' | 'queued' | 'preparing' | 'publishing' | 'complete' | 'failed'
-  >;
+  status: Extract<SelectedUpload['status'], 'uploading' | 'queued' | 'preparing' | 'publishing'>;
   version: string;
   versionId: string;
 };
@@ -126,9 +123,7 @@ function readAcceptedUploadLane(): PersistedAcceptedUploadLane | null {
       typeof parsed.fileSize !== 'number' ||
       typeof parsed.packageId !== 'string' ||
       typeof parsed.progress !== 'number' ||
-      !['uploading', 'queued', 'preparing', 'publishing', 'complete', 'failed'].includes(
-        parsed.status ?? ''
-      ) ||
+      !['uploading', 'queued', 'preparing', 'publishing'].includes(parsed.status ?? '') ||
       typeof parsed.version !== 'string' ||
       typeof parsed.versionId !== 'string'
     ) {
@@ -585,7 +580,9 @@ function UploadStatusAlert({ elapsedMs, upload }: { elapsedMs: number; upload: S
         </Alert.Title>
         <Alert.Description>
           {queueDetail ??
-            'You can close this window, or even this tab. Preparation keeps running and the result shows up here and in the package details.'}
+            (isTransferring
+              ? 'Your browser is sending the file, so keep this tab open until the transfer finishes.'
+              : 'The server has your file and is working on it. You can close this window or the tab; the result waits for you here and in the package details.')}
         </Alert.Description>
         <ProgressBar
           aria-label="Package preparation progress"
@@ -2253,14 +2250,14 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
   useEffect(() => {
     const storage = uploadLaneStorage();
     if (!storage) return;
+    // Only work the server is still doing is worth resuming. A failed lane has no continuation, so
+    // persisting it just greets the creator with a stale error on every later visit.
     if (
       selectedUpload?.versionId &&
       selectedUpload.catalogProductId &&
       selectedUpload.editionId &&
       selectedUpload.packageId &&
-      selectedUpload.status !== 'ready' &&
-      selectedUpload.status !== 'complete' &&
-      (selectedUpload.status !== 'uploading' || Boolean(selectedUpload.versionId))
+      isServerProcessingStatus(selectedUpload.status)
     ) {
       const persisted: PersistedAcceptedUploadLane = {
         acceptedAt: readAcceptedUploadLane()?.acceptedAt ?? Date.now(),

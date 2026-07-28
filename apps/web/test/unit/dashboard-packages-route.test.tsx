@@ -956,9 +956,10 @@ describe('dashboard packages route', () => {
 
     expect(await screen.findByRole('button', { name: 'Check package status' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Retry upload' })).toBeEnabled();
-    expect(localStorage.getItem(acceptedUploadLaneStorageKey)).toContain(
-      'version-authorized-before-tus'
-    );
+    // The handle is kept in this session, where retrying still has the File to send. It is
+    // deliberately not persisted: a reload cannot restore the File, so a restored failed lane
+    // could only re-report the same failure on every later visit.
+    expect(localStorage.getItem(acceptedUploadLaneStorageKey)).toBeNull();
   });
 
   it('shows server preparation until the uploaded version becomes ready', async () => {
