@@ -1,9 +1,25 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 
-const queryMock = mock(async () => undefined);
+const queryMock = mock(
+  async (_functionName?: unknown, _args?: unknown): Promise<unknown> => undefined
+);
 const mutationMock = mock(async () => undefined);
 const actionMock = mock(async () => undefined);
 const sendDashboardNotificationMock = mock(() => undefined);
+const listProviderProductsMock = mock(
+  async (
+    _provider?: string
+  ): Promise<{
+    products: Array<{
+      aliases?: string[];
+      canonicalSlug?: string;
+      id: string;
+      name: string;
+      productUrl?: string;
+      thumbnailUrl?: string;
+    }>;
+  }> => ({ products: [] })
+);
 const loggerMock = {
   child: mock(() => loggerMock),
   debug: mock(() => undefined),
@@ -39,7 +55,7 @@ mock.module('../../src/lib/roleHierarchy', () => ({
 }));
 
 mock.module('../../src/lib/internalRpc', () => ({
-  listProviderProducts: mock(async () => ({ products: [] })),
+  listProviderProducts: listProviderProductsMock,
 }));
 
 mock.module('../../../../convex/_generated/api', () => ({
@@ -93,7 +109,7 @@ mock.module('../../../../convex/_generated/api', () => ({
   },
 }));
 
-import type { Client } from 'discord.js';
+import { type Client, Collection } from 'discord.js';
 import { type OutboxJob, RoleSyncService } from '../../src/services/roleSync';
 
 const DUMMY_DISCORD_SOURCE_GUILD_ID = '100000000000000001';
@@ -137,6 +153,8 @@ describe('role sync service regressions', () => {
     mutationMock.mockReset();
     actionMock.mockReset();
     sendDashboardNotificationMock.mockReset();
+    listProviderProductsMock.mockReset();
+    listProviderProductsMock.mockImplementation(async () => ({ products: [] }));
     loggerMock.child.mockReset();
     loggerMock.debug.mockReset();
     loggerMock.info.mockReset();
@@ -327,6 +345,85 @@ describe('role sync service regressions', () => {
 
     expect(fetchGuildMock).not.toHaveBeenCalled();
     expect(mutationMock).not.toHaveBeenCalled();
+  });
+
+  it('preserves provider product URLs in durable setup plan entries', async () => {
+    listProviderProductsMock.mockImplementation(async (provider?: string) =>
+      provider === 'jinxxy'
+        ? {
+            products: [
+              {
+                id: 'jinxxy-product-1',
+                name: 'Creator Pack',
+                productUrl: 'https://jinxxy.com/creator/creator-pack',
+                canonicalSlug: 'creator-pack',
+              },
+            ],
+          }
+        : { products: [] }
+    );
+    queryMock.mockImplementation(async (functionName: unknown) => {
+      if (functionName === 'guildLinks:getVerifyPromptMessageForBot') {
+        return { authUserId: 'auth-user-123', guildId: 'guild-123' };
+      }
+      if (functionName === 'role_rules:getByGuildWithProductNames') {
+        return [];
+      }
+      return undefined;
+    });
+    const roles = new Collection<
+      string,
+      {
+        id: string;
+        managed: boolean;
+        name: string;
+        position: number;
+      }
+    >();
+    roles.set('guild-123', {
+      id: 'guild-123',
+      managed: false,
+      name: '@everyone',
+      position: 0,
+    });
+    const service = createService({
+      guilds: {
+        fetch: mock(async () => ({
+          id: 'guild-123',
+          roles: {
+            cache: roles,
+            fetch: mock(async () => roles),
+          },
+        })),
+      } as never,
+    });
+
+    await (
+      service as unknown as {
+        processSetupGeneratePlanJob: (job: OutboxJob) => Promise<void>;
+      }
+    ).processSetupGeneratePlanJob(
+      createJob({
+        jobType: 'setup_generate_plan',
+        payload: {
+          setupJobId: 'setup-job-123' as never,
+          guildLinkId: 'guild-link-123' as never,
+          guildId: 'guild-123',
+        },
+      })
+    );
+
+    expect(mutationMock).toHaveBeenCalledWith(
+      'setupJobs:upsertSetupRecommendation',
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          productId: 'jinxxy-product-1',
+          provider: 'jinxxy',
+          productUrl: 'https://jinxxy.com/creator/creator-pack',
+          canonicalSlug: 'creator-pack',
+        }),
+      })
+    );
   });
 
   it('treats legacy rules without a provider as existing setup matches', () => {
@@ -1298,6 +1395,8 @@ describe('role sync service regressions', () => {
             productId: 'prod-1',
             productName: 'Supporter',
             provider: 'gumroad',
+            productUrl: 'https://creator.gumroad.com/l/supporter',
+            canonicalSlug: 'supporter',
             action: 'create_role',
             proposedRoleName: 'Supporter',
           },
@@ -1410,6 +1509,8 @@ describe('role sync service regressions', () => {
             productId: 'prod-1',
             productName: 'Supporter',
             provider: 'gumroad',
+            productUrl: 'https://creator.gumroad.com/l/supporter',
+            canonicalSlug: 'supporter',
             action: 'create_role',
             proposedRoleName: 'Supporter',
             appliedRoleId: 'role-created-1',
@@ -1435,6 +1536,12 @@ describe('role sync service regressions', () => {
     );
 
     expect(roleCreateMock).not.toHaveBeenCalled();
+    expect(
+      (mutationMock.mock.calls as unknown as Array<[unknown, Record<string, unknown>]>)[0]?.[1]
+    ).toMatchObject({
+      productUrl: 'https://creator.gumroad.com/l/supporter',
+      canonicalSlug: 'supporter',
+    });
     expect(
       (mutationMock.mock.calls as unknown as Array<[unknown, Record<string, unknown>]>)[1]?.[1]
     ).toMatchObject({

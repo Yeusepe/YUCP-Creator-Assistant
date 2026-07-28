@@ -130,25 +130,31 @@ function normalizeProducts(
   products:
     | Array<{
         collaboratorName?: string;
+        canonicalSlug?: string;
         id?: string;
         name?: string;
         productUrl?: string;
         thumbnailUrl?: string;
+        aliases?: string[];
       }>
     | undefined
 ): Array<{
   collaboratorName?: string;
+  canonicalSlug?: string;
   id: string;
   name: string;
   productUrl?: string;
   thumbnailUrl?: string;
+  aliases?: string[];
 }> {
   return (products ?? []).map((product) => ({
     id: product.id ?? '',
     name: product.name ?? product.id ?? 'Unknown product',
     collaboratorName: product.collaboratorName,
+    canonicalSlug: product.canonicalSlug,
     productUrl: product.productUrl,
     thumbnailUrl: product.thumbnailUrl,
+    aliases: product.aliases,
   }));
 }
 
@@ -160,10 +166,12 @@ export async function listProviderProducts(
   error?: string;
   products: Array<{
     collaboratorName?: string;
+    canonicalSlug?: string;
     id: string;
     name: string;
     productUrl?: string;
     thumbnailUrl?: string;
+    aliases?: string[];
   }>;
 }> {
   const response = await (await getClients()).catalog.listProviderProducts({

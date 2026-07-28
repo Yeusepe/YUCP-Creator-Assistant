@@ -6,10 +6,10 @@
  */
 
 import {
-  buildCatalogProductUrl,
   CATALOG_SYNC_PROVIDER_KEYS,
   getProviderDescriptor,
   providerLabel,
+  resolveCatalogProductUrl,
 } from '@yucp/providers/providerMetadata';
 import type { ProviderKey } from '@yucp/providers/types';
 import { createLogger } from '@yucp/shared';
@@ -56,9 +56,12 @@ const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 const AUTOSETUP_PREFIX = 'creator_autosetup:';
 
 export interface AutosetupProduct {
+  aliases?: string[];
+  canonicalSlug?: string;
   id: string;
   name: string;
   provider: string;
+  productUrl?: string;
   thumbnailUrl?: string;
 }
 
@@ -911,7 +914,14 @@ export async function handleAutosetupProductsSelect(
           providerProductRef: product.id,
           provider: product.provider,
           displayName: product.name,
-          productUrl: buildCatalogProductUrl(product.provider, product.id) ?? undefined,
+          productUrl:
+            resolveCatalogProductUrl({
+              provider: product.provider,
+              productUrl: product.productUrl,
+              canonicalSlug: product.canonicalSlug,
+            }) ?? undefined,
+          canonicalSlug: product.canonicalSlug,
+          aliases: product.aliases,
           thumbnailUrl: normalizeProviderThumbnailUrl(product.thumbnailUrl),
           supportsAutoDiscovery: descriptor?.supportsAutoDiscovery ?? false,
         });
@@ -1450,7 +1460,17 @@ export async function handleAutosetupMigrateProductSelect(
       providerProductRef: product.id,
       provider: product.provider,
       displayName: product.name,
+      productUrl:
+        resolveCatalogProductUrl({
+          provider: product.provider,
+          productUrl: product.productUrl,
+          canonicalSlug: product.canonicalSlug,
+        }) ?? undefined,
+      canonicalSlug: product.canonicalSlug,
+      aliases: product.aliases,
       thumbnailUrl: normalizeProviderThumbnailUrl(product.thumbnailUrl),
+      supportsAutoDiscovery:
+        getProviderDescriptor(product.provider)?.supportsAutoDiscovery ?? false,
     });
     await convex.mutation(api.role_rules.createRoleRule, {
       apiSecret,
@@ -1685,7 +1705,17 @@ export async function handleAutosetupMigrateMapAllRoleSelect(
       providerProductRef: product.id,
       provider: product.provider,
       displayName: product.name,
+      productUrl:
+        resolveCatalogProductUrl({
+          provider: product.provider,
+          productUrl: product.productUrl,
+          canonicalSlug: product.canonicalSlug,
+        }) ?? undefined,
+      canonicalSlug: product.canonicalSlug,
+      aliases: product.aliases,
       thumbnailUrl: normalizeProviderThumbnailUrl(product.thumbnailUrl),
+      supportsAutoDiscovery:
+        getProviderDescriptor(product.provider)?.supportsAutoDiscovery ?? false,
     });
     await convex.mutation(api.role_rules.createRoleRule, {
       apiSecret,

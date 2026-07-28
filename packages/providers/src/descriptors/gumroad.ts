@@ -27,7 +27,8 @@ export const gumroad = {
   supportsCredentialLogin: false,
   supportsBuyerOAuthLink: true,
   supportsAutoDiscovery: true,
-  catalogProductUrlTemplate: 'https://gumroad.com/l/{ref}',
+  catalogProductUrlFromProvider: true,
+  catalogProductUrlTemplate: 'https://gumroad.com/l/{slug}',
   productInput: {
     label: 'Gumroad Product URL or ID',
     description: 'URL (gumroad.com/l/abc123) or product ID',

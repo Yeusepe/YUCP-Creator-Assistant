@@ -82,11 +82,12 @@ mock.module('../lib/apiActor', () => ({
 mock.module('@yucp/providers/providerMetadata', () => ({
   ...providerMetadataActual,
   CATALOG_SYNC_PROVIDER_KEYS: ['gumroad', 'jinxxy', 'lemonsqueezy', 'patreon'],
-  buildCatalogProductUrl: (provider: string, ref: string) => {
-    if (provider === 'jinxxy') {
-      return `https://jinxxy.app/products/${ref}`;
-    }
-    return `https://store.test/${provider}/${ref}`;
+  providerIcon: (provider: string) => {
+    const icons: Record<string, string> = {
+      gumroad: 'Gumorad.png',
+      jinxxy: 'Jinxxy.png',
+    };
+    return icons[provider] ?? null;
   },
   getProviderDescriptor: (provider: string) => {
     const descriptors: Record<
@@ -94,6 +95,7 @@ mock.module('@yucp/providers/providerMetadata', () => ({
       {
         buyerVerificationMethods: string[];
         capabilities: string[];
+        catalogProductUrlTemplate?: string;
         supportsAutoDiscovery?: boolean;
         supportsBuyerOAuthLink?: boolean;
       }
@@ -101,6 +103,7 @@ mock.module('@yucp/providers/providerMetadata', () => ({
       gumroad: {
         buyerVerificationMethods: ['account_link', 'license_key'],
         capabilities: ['catalog_sync', 'license_verification'],
+        catalogProductUrlTemplate: 'https://gumroad.com/l/{slug}',
         supportsAutoDiscovery: true,
         supportsBuyerOAuthLink: true,
       },
@@ -252,6 +255,7 @@ describe('connect user product access routes', () => {
           providerProductRef: 'gumroad-ref',
           displayName: 'Avatar Bundle',
           canonicalSlug: 'avatar-bundle',
+          productUrl: 'https://quaggycharr.gumroad.com/l/avatar-bundle',
           thumbnailUrl: 'https://cdn.test/avatar.png',
           status: 'active',
           storefronts: [
@@ -260,6 +264,8 @@ describe('connect user product access routes', () => {
               productId: 'product_123',
               provider: 'gumroad',
               providerProductRef: 'gumroad-ref',
+              canonicalSlug: 'avatar-bundle',
+              productUrl: 'https://quaggycharr.gumroad.com/l/avatar-bundle',
             },
           ],
         };
@@ -315,14 +321,14 @@ describe('connect user product access routes', () => {
         thumbnailUrl: 'https://cdn.test/avatar.png',
         provider: 'gumroad',
         providerLabel: 'Gumroad',
-        storefrontUrl: 'https://store.test/gumroad/gumroad-ref',
+        storefrontUrl: 'https://quaggycharr.gumroad.com/l/avatar-bundle',
         storefronts: [
           {
             catalogProductId: 'catalog_123',
             provider: 'gumroad',
             providerLabel: 'Gumroad',
             providerIcon: 'Gumorad.png',
-            storefrontUrl: 'https://store.test/gumroad/gumroad-ref',
+            storefrontUrl: 'https://quaggycharr.gumroad.com/l/avatar-bundle',
           },
         ],
       },
@@ -337,6 +343,136 @@ describe('connect user product access routes', () => {
           'https://avatar-studio.private.yucp.club/api/vpm/access/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/index.json',
       },
     });
+  });
+
+  it('does not issue a shared-origin repository when the private VPM root is unconfigured', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        return {
+          catalogProductId: 'catalog_123',
+          creatorAuthUserId: 'creator-auth-user',
+          packageId: 'com.yucp.avatar-bundle',
+          productId: 'product_123',
+          provider: 'gumroad',
+          providerProductRef: 'gumroad-ref',
+          status: 'active',
+          storefronts: [],
+        };
+      }
+      if (reference === apiMock.entitlements.listByAuthUser) {
+        return {
+          data: [{ id: 'ent_1', catalogProductId: 'catalog_123' }],
+          hasMore: false,
+        };
+      }
+      throw new Error(`Unexpected query reference: ${String(reference)}`);
+    });
+
+    const routes = createRoutes({ privateVpmRootDomain: undefined });
+    const response = await routes.getBuyerProductAccess(
+      new Request('http://localhost:3001/api/connect/user/product-access/catalog_123'),
+      'catalog_123'
+    );
+    const body = (await response.json()) as { repository: unknown };
+
+    expect(response.status).toBe(200);
+    expect(body.repository).toBeNull();
+    expect(convexQueryMock).not.toHaveBeenCalledWith(
+      apiMock.creatorVpmLinks.getActiveForPackageAccess,
+      expect.anything()
+    );
+  });
+
+  it('derives the storefront URL from the canonical slug when no stored URL exists', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown, _args: unknown) => {
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        return {
+          catalogProductId: 'catalog_123',
+          creatorAuthUserId: 'creator-auth-user',
+          productId: 'product_123',
+          provider: 'gumroad',
+          providerProductRef: 'Dcmv6A==',
+          displayName: 'Avatar Bundle',
+          canonicalSlug: 'avatar-bundle',
+          status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'catalog_123',
+              productId: 'product_123',
+              provider: 'gumroad',
+              providerProductRef: 'Dcmv6A==',
+              canonicalSlug: 'avatar-bundle',
+            },
+          ],
+        };
+      }
+      if (reference === apiMock.entitlements.listByAuthUser) {
+        return { data: [], hasMore: false };
+      }
+      throw new Error(`Unexpected query reference: ${String(reference)}`);
+    });
+
+    const routes = createRoutes();
+    const response = await routes.getBuyerProductAccess(
+      new Request('http://localhost:3001/api/connect/user/product-access/catalog_123'),
+      'catalog_123'
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      product: {
+        storefrontUrl: string | null;
+        storefronts: Array<{ storefrontUrl: string | null }>;
+      };
+    };
+    // The Gumroad permalink is globally routable; the API product id never is.
+    expect(body.product.storefrontUrl).toBe('https://gumroad.com/l/avatar-bundle');
+    expect(body.product.storefronts[0]?.storefrontUrl).toBe('https://gumroad.com/l/avatar-bundle');
+  });
+
+  it('returns a null storefront URL when the provider has no public product URL', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown, _args: unknown) => {
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        return {
+          catalogProductId: 'catalog_123',
+          creatorAuthUserId: 'creator-auth-user',
+          productId: 'product_123',
+          provider: 'jinxxy',
+          providerProductRef: 'jinxxy-product-uuid',
+          displayName: 'Avatar Bundle',
+          status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'catalog_123',
+              productId: 'product_123',
+              provider: 'jinxxy',
+              providerProductRef: 'jinxxy-product-uuid',
+            },
+          ],
+        };
+      }
+      if (reference === apiMock.entitlements.listByAuthUser) {
+        return { data: [], hasMore: false };
+      }
+      throw new Error(`Unexpected query reference: ${String(reference)}`);
+    });
+
+    const routes = createRoutes();
+    const response = await routes.getBuyerProductAccess(
+      new Request('http://localhost:3001/api/connect/user/product-access/catalog_123'),
+      'catalog_123'
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      product: {
+        storefrontUrl: string | null;
+        storefronts: Array<{ storefrontUrl: string | null }>;
+      };
+    };
+    // Jinxxy API ids are not routable; a missing URL must surface as null, not a guess.
+    expect(body.product.storefrontUrl).toBeNull();
+    expect(body.product.storefronts[0]?.storefrontUrl).toBeNull();
   });
 
   it('returns the same durable repository URL to two entitled buyers', async () => {

@@ -249,6 +249,60 @@ describe('buyer product access route', () => {
     );
   });
 
+  it('hides the store link for storefronts without a public product URL', async () => {
+    const Component = BuyerProductAccessRoute.options.component;
+    if (!Component) {
+      throw new Error('Buyer product access route component is not defined');
+    }
+
+    useLoaderDataMock.mockReturnValue({
+      product: {
+        catalogProductId: 'catalog-jammr-gumroad',
+        displayName: 'JAMMR',
+        canonicalSlug: 'jammr',
+        thumbnailUrl: null,
+        provider: 'gumroad',
+        providerLabel: 'Gumroad',
+        storefrontUrl: 'https://gumroad.test/jammr',
+        storefronts: [
+          {
+            catalogProductId: 'catalog-jammr-gumroad',
+            provider: 'gumroad',
+            providerLabel: 'Gumroad',
+            providerIcon: 'Gumorad.png',
+            storefrontUrl: 'https://gumroad.test/jammr',
+          },
+          {
+            catalogProductId: 'catalog-jammr-jinxxy',
+            provider: 'jinxxy',
+            providerLabel: 'Jinxxy',
+            providerIcon: 'Jinxxy.png',
+            storefrontUrl: null,
+          },
+        ],
+      },
+      accessState: {
+        hasActiveEntitlement: true,
+        requiresVerification: false,
+      },
+      repository,
+    });
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    expect(screen.queryByText('Gumroad + Jinxxy')).not.toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Gumroad' })).toHaveAttribute(
+      'src',
+      '/Icons/Gumorad.png'
+    );
+    expect(screen.getByRole('img', { name: 'Jinxxy' })).toHaveAttribute('src', '/Icons/Jinxxy.png');
+    expect(screen.getByRole('link', { name: 'Gumroad store' })).toHaveAttribute(
+      'href',
+      'https://gumroad.test/jammr'
+    );
+    expect(screen.queryByRole('link', { name: 'Jinxxy store' })).not.toBeInTheDocument();
+  });
+
   it('shows the durable creator-managed VPM handoff with a copyable index URL', async () => {
     const Component = BuyerProductAccessRoute.options.component;
     if (!Component) {

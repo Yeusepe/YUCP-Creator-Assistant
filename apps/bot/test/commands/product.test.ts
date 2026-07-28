@@ -18,6 +18,7 @@ const mockListProducts = mock(() =>
       name: string;
       collaboratorName?: string;
       productUrl?: string;
+      canonicalSlug?: string;
     }>,
   })
 );
@@ -98,14 +99,15 @@ mock.module('../../../../convex/_generated/api', () => ({
 const mockResolvePayhipProduct = mock((_permalink: string) =>
   Promise.resolve({ id: _permalink, name: 'This is a test' })
 );
+const mockResolveGumroadProduct = mock((_urlOrSlug: string) =>
+  Promise.resolve({ id: 'gumroad-api-product-id', name: 'Gumroad Product' })
+);
 
 mock.module('@yucp/providers', () => ({
   PROVIDER_META: REAL_PROVIDER_META,
   providerLabel: realProviderLabel,
   resolvePayhipProduct: mockResolvePayhipProduct,
-  resolveGumroadProduct: mock((urlOrSlug: string) =>
-    Promise.resolve({ id: urlOrSlug, name: 'Gumroad Product' })
-  ),
+  resolveGumroadProduct: mockResolveGumroadProduct,
 }));
 
 import {
@@ -120,6 +122,7 @@ import {
   handleProductRoleSelect,
   handleProductTierSelect,
   handleProductTypeSelect,
+  handleProductUrlModal,
 } from '../../src/commands/product';
 import { handleProductButton } from '../../src/handlers/interactions/product';
 import type { MockFn } from '../helpers/mockInteraction';
@@ -1881,10 +1884,110 @@ describe('handleProductConfirmAdd, Payhip displayName', () => {
     expect(addProductArgs?.provider).toBe('payhip');
     expect(addProductArgs?.productId).toBe('KZFw0');
     expect(addProductArgs?.displayName).toBe('This is a test');
+    expect(addProductArgs?.productUrl).toBe('https://payhip.com/b/KZFw0');
+    expect(addProductArgs?.canonicalSlug).toBe('KZFw0');
   });
 });
 
 describe('handleProductConfirmAdd, catalog product URLs', () => {
+  it('keeps the submitted Gumroad permalink separate from the resolved API product id', async () => {
+    const userId = 'user_gumroad_url';
+    const authUserId = 'auth_gumroad_url';
+    const guildId = 'guild_gumroad_url';
+    const storefrontUrl = 'https://creator.gumroad.com/l/fluffgan';
+
+    const slashInteraction = mockSlashCommand({
+      userId,
+      guildId,
+      commandName: 'creator-admin',
+      subcommandGroup: 'product',
+      subcommand: 'add',
+      isAdmin: true,
+    });
+    await handleProductAddInteractive(
+      slashInteraction as unknown as ChatInputCommandInteraction,
+      {
+        authUserId,
+        guildLinkId: 'link_gumroad_url' as ProductCtx['guildLinkId'],
+        guildId,
+      },
+      ALL_CONNECTED,
+      TEST_API_SECRET
+    );
+
+    const typeSelectInteraction = mockStringSelect({
+      userId,
+      guildId,
+      customId: `creator_product:type_select:${authUserId}`,
+      values: ['gumroad_url'],
+    });
+    typeSelectInteraction.showModal = mock(() => Promise.resolve(undefined)) as unknown as MockFn;
+    await handleProductTypeSelect(
+      typeSelectInteraction as unknown as StringSelectMenuInteraction,
+      authUserId,
+      TYPE_SELECT_CONVEX,
+      TEST_API_SECRET
+    );
+
+    const modalInteraction = mockModalSubmit({
+      userId,
+      guildId,
+      customId: `creator_product:url_modal:${userId}:${authUserId}`,
+      textInputValues: { url_or_id: storefrontUrl },
+    });
+    await handleProductUrlModal(
+      modalInteraction as unknown as import('discord.js').ModalSubmitInteraction,
+      userId,
+      authUserId
+    );
+
+    const roleSelectInteraction = {
+      user: { id: userId },
+      guildId,
+      guild: null,
+      values: ['role_gumroad_url'],
+      editReply: mock(() => Promise.resolve({ id: 'mock_msg_id' })),
+    } as unknown as RoleSelectMenuInteraction;
+    await handleProductRoleSelect(roleSelectInteraction, userId, authUserId);
+
+    const mutationArgs: unknown[][] = [];
+    const mockConvex = {
+      mutation: mock((...args: unknown[]) => {
+        mutationArgs.push(args);
+        if (mutationArgs.length === 1) {
+          return Promise.resolve({
+            productId: 'gumroad-api-product-id',
+            catalogProductId: 'cat_gumroad_url',
+          });
+        }
+        return Promise.resolve({ ruleId: 'rule_gumroad_url' });
+      }),
+      query: mock(() => Promise.resolve(undefined)),
+      action: mock(() => Promise.resolve(undefined)),
+    } as unknown as import('convex/browser').ConvexHttpClient;
+
+    const confirmInteraction = mockButton({
+      userId,
+      guildId,
+      customId: `creator_product:confirm_add:${userId}:${authUserId}`,
+    });
+    await handleProductConfirmAdd(
+      confirmInteraction as unknown as ButtonInteraction,
+      mockConvex,
+      TEST_API_SECRET,
+      userId,
+      authUserId
+    );
+
+    expect(mockResolveGumroadProduct).toHaveBeenCalledWith(storefrontUrl);
+    expect(mutationArgs[0]?.[1]).toMatchObject({
+      productId: 'gumroad-api-product-id',
+      providerProductRef: 'gumroad-api-product-id',
+      productUrl: storefrontUrl,
+      canonicalSlug: 'fluffgan',
+    });
+  });
+
   it('uses the provider-supplied product URL when the descriptor has no URL template', async () => {
     const userId = 'user_itch_catalog';
     const authUserId = 'auth_itch_catalog';

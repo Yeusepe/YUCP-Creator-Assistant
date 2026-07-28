@@ -23,7 +23,7 @@ export const jinxxy = {
   setupRequirements: ['api_key', 'webhook_secret'],
   verificationMethods: ['license_key'],
   supportsCredentialLogin: false,
-  catalogProductUrlTemplate: 'https://jinxxy.app/products/{ref}',
+  catalogProductUrlFromProvider: true,
   licenseKey: {
     inputLabel: 'License Key',
     placeholder: 'Enter your license key',

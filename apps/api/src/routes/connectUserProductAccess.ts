@@ -1,4 +1,8 @@
-import { buildCatalogProductUrl, providerLabel } from '@yucp/providers/providerMetadata';
+import {
+  providerIcon,
+  providerLabel,
+  resolveCatalogProductUrl,
+} from '@yucp/providers/providerMetadata';
 import { getSafeRelativeRedirectTarget } from '@yucp/shared';
 import { sha256Base64Url } from '@yucp/shared/crypto';
 import { api } from '../../../../convex/_generated/api';
@@ -22,7 +26,6 @@ import {
   buildPublicVpmRepositoryAccess,
   type PublicVpmRepositoryAccess,
 } from '../lib/vpmPublicRepository';
-import { getProviderRuntime } from '../providers';
 import type { ConnectConfig } from '../providers/types';
 import {
   type HostedVerificationIntentRecord,
@@ -80,6 +83,28 @@ function buildBuyerAccessFailureContext(
     lookupMode,
     errorName: error instanceof Error ? error.name : 'UnknownError',
   };
+}
+
+/**
+ * Resolve the public storefront URL shown to buyers: the stored provider-API
+ * URL first, slug derivation second, null when neither exists. Only https URLs
+ * are surfaced; a missing URL stays missing rather than being fabricated from
+ * the provider API product id.
+ */
+function resolveBuyerStorefrontUrl(input: {
+  provider: string;
+  productUrl?: string | null;
+  canonicalSlug?: string | null;
+}): string | null {
+  const resolved = resolveCatalogProductUrl(input);
+  if (!resolved) {
+    return null;
+  }
+  try {
+    return new URL(resolved).protocol === 'https:' ? resolved : null;
+  } catch {
+    return null;
+  }
 }
 
 function resolveBuyerAccessMachineFingerprint(request: Request): {
@@ -275,16 +300,21 @@ export function createConnectUserProductAccessRoutes({
           thumbnailUrl: product.thumbnailUrl ?? null,
           provider: product.provider,
           providerLabel: providerLabel(product.provider),
-          storefrontUrl: buildCatalogProductUrl(product.provider, product.providerProductRef),
+          storefrontUrl: resolveBuyerStorefrontUrl({
+            provider: product.provider,
+            productUrl: product.productUrl,
+            canonicalSlug: product.canonicalSlug,
+          }),
           storefronts: product.storefronts.map((storefront) => ({
             catalogProductId: String(storefront.catalogProductId),
             provider: storefront.provider,
+            providerIcon: providerIcon(storefront.provider),
             providerLabel: providerLabel(storefront.provider),
-            providerIcon: getProviderRuntime(storefront.provider)?.displayMeta?.icon ?? null,
-            storefrontUrl: buildCatalogProductUrl(
-              storefront.provider,
-              storefront.providerProductRef
-            ),
+            storefrontUrl: resolveBuyerStorefrontUrl({
+              provider: storefront.provider,
+              productUrl: storefront.productUrl,
+              canonicalSlug: storefront.canonicalSlug,
+            }),
           })),
         },
         accessState: {

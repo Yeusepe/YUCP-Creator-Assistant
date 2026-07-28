@@ -15,6 +15,7 @@ export const itchio = {
   verificationMethods: ['account_link'],
   supportsCredentialLogin: false,
   supportsBuyerOAuthLink: true,
+  catalogProductUrlFromProvider: true,
   collabCredential: {
     label: 'itch.io API Key',
     placeholder: 'Paste the itch.io API key the creator shared with you',

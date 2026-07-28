@@ -12,9 +12,9 @@
  */
 
 import {
-  buildCatalogProductUrl,
   CATALOG_SYNC_PROVIDER_KEYS,
   getProviderDescriptor,
+  resolveCatalogProductUrl,
 } from '@yucp/providers/providerMetadata';
 import type { ProviderKey } from '@yucp/providers/types';
 import { createStructuredLogger, type StructuredLogger } from '@yucp/shared';
@@ -191,6 +191,8 @@ export interface Entitlement {
 }
 
 interface SetupProduct {
+  aliases?: string[];
+  canonicalSlug?: string;
   id: string;
   name: string;
   provider: ProviderKey;
@@ -1017,6 +1019,9 @@ export class RoleSyncService {
           productId: product.id,
           productName: product.name,
           provider: product.provider,
+          productUrl: product.productUrl,
+          canonicalSlug: product.canonicalSlug,
+          aliases: product.aliases,
           action,
           proposedRoleName: sanitizeSetupRoleName(product.name),
           ...(matchingRole ? { proposedRoleId: matchingRole.id } : {}),
@@ -1288,6 +1293,9 @@ export class RoleSyncService {
           productId: string;
           productName: string;
           provider: string;
+          productUrl?: string;
+          canonicalSlug?: string;
+          aliases?: string[];
           action: 'create_role' | 'adopt_role' | 'skip';
           proposedRoleName: string;
           proposedRoleId?: string;
@@ -1311,6 +1319,9 @@ export class RoleSyncService {
             id: ep.productId,
             name: ep.productName,
             provider: ep.provider as ProviderKey,
+            productUrl: ep.productUrl,
+            canonicalSlug: ep.canonicalSlug,
+            aliases: ep.aliases,
           };
           if (this.matchesExistingGuildRule(existingRules, product)) {
             await this.persistSetupRolePlanEntry(entry, payload.setupJobId, {
@@ -1375,7 +1386,14 @@ export class RoleSyncService {
               providerProductRef: product.id,
               provider: product.provider,
               displayName: product.name,
-              productUrl: buildCatalogProductUrl(product.provider, product.id) ?? undefined,
+              productUrl:
+                resolveCatalogProductUrl({
+                  provider: product.provider,
+                  productUrl: product.productUrl,
+                  canonicalSlug: product.canonicalSlug,
+                }) ?? undefined,
+              canonicalSlug: product.canonicalSlug,
+              aliases: product.aliases,
               supportsAutoDiscovery: descriptor?.supportsAutoDiscovery ?? false,
             }
           );
@@ -1456,9 +1474,13 @@ export class RoleSyncService {
               provider: product.provider,
               displayName: product.name,
               productUrl:
-                product.productUrl ??
-                buildCatalogProductUrl(product.provider, product.id) ??
-                undefined,
+                resolveCatalogProductUrl({
+                  provider: product.provider,
+                  productUrl: product.productUrl,
+                  canonicalSlug: product.canonicalSlug,
+                }) ?? undefined,
+              canonicalSlug: product.canonicalSlug,
+              aliases: product.aliases,
               supportsAutoDiscovery: descriptor?.supportsAutoDiscovery ?? false,
             }
           );
@@ -2409,7 +2431,10 @@ export class RoleSyncService {
           products: result.products.map((product) => ({
             id: product.id,
             name: product.name,
+            canonicalSlug: product.canonicalSlug,
             productUrl: product.productUrl,
+            aliases: product.aliases,
+            thumbnailUrl: product.thumbnailUrl,
           })),
           error: result.error,
         };

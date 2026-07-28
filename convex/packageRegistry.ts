@@ -176,7 +176,7 @@ async function buildCreatorPackageProductSummary(
     aliasId: logicalGroup.aliasId,
     packageAssociationUpdatedAt: logicalGroup.associationUpdatedAt,
     catalogProductIds: logicalGroup.products.map((candidate) => candidate._id),
-    storefronts: logicalGroup.products.map(buildCatalogStorefront),
+    storefronts: logicalGroup.products.map((candidate) => buildCatalogStorefront(candidate)),
     packageId: logicalGroup.packageId,
     packageName:
       registration?.yucpUserId === product.authUserId ? registration.packageName : undefined,
@@ -208,7 +208,7 @@ function compareCatalogProducts(
   );
 }
 
-function buildCatalogStorefront(product: Doc<'product_catalog'>) {
+function buildCatalogStorefront(product: Doc<'product_catalog'>, productUrl?: string) {
   return {
     catalogProductId: product._id,
     productId: product.productId,
@@ -217,7 +217,35 @@ function buildCatalogStorefront(product: Doc<'product_catalog'>) {
     displayName: product.displayName,
     canonicalSlug: product.canonicalSlug,
     thumbnailUrl: product.thumbnailUrl,
+    ...(productUrl ? { productUrl } : {}),
   };
+}
+
+/**
+ * Load the stored canonical public URL (active `direct_product` link) for each
+ * catalog product. This is the URL captured from provider API data at sync
+ * time; products without one simply have no entry.
+ */
+async function loadDirectProductUrls(
+  ctx: QueryCtx,
+  products: ReadonlyArray<Doc<'product_catalog'>>
+): Promise<Map<string, string>> {
+  const productUrlByCatalogProductId = new Map<string, string>();
+  await Promise.all(
+    products.map(async (product) => {
+      const link = await ctx.db
+        .query('catalog_product_links')
+        .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', product._id))
+        .filter((q) =>
+          q.and(q.eq(q.field('linkKind'), 'direct_product'), q.eq(q.field('status'), 'active'))
+        )
+        .first();
+      if (link) {
+        productUrlByCatalogProductId.set(String(product._id), link.originalUrl);
+      }
+    })
+  );
+  return productUrlByCatalogProductId;
 }
 
 async function resolveLogicalCatalogProductGroup(
@@ -1079,6 +1107,8 @@ async function buildBuyerAccessContext(ctx: QueryCtx, product: Doc<'product_cata
   }
 
   const logicalGroup = await resolveLogicalCatalogProductGroup(ctx, product);
+  const productUrls = await loadDirectProductUrls(ctx, logicalGroup.products);
+  const productUrl = productUrls.get(String(product._id));
 
   return {
     catalogProductId: product._id,
@@ -1087,13 +1117,16 @@ async function buildBuyerAccessContext(ctx: QueryCtx, product: Doc<'product_cata
     aliasId: logicalGroup.aliasId,
     packageAssociationUpdatedAt: logicalGroup.associationUpdatedAt,
     ...(logicalGroup.packageId ? { packageId: logicalGroup.packageId } : {}),
-    storefronts: logicalGroup.products.map(buildCatalogStorefront),
+    storefronts: logicalGroup.products.map((candidate) =>
+      buildCatalogStorefront(candidate, productUrls.get(String(candidate._id)))
+    ),
     productId: product.productId,
     provider: product.provider,
     providerProductRef: product.providerProductRef,
     displayName: product.displayName,
     canonicalSlug: product.canonicalSlug,
     thumbnailUrl: product.thumbnailUrl,
+    ...(productUrl ? { productUrl } : {}),
     status,
   };
 }

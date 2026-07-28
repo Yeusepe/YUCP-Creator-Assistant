@@ -27,7 +27,7 @@ export const lemonsqueezy = {
   setupRequirements: ['api_token', 'store_selection', 'test_mode_toggle'],
   verificationMethods: ['license_key'],
   supportsCredentialLogin: true,
-  catalogProductUrlTemplate: 'https://app.lemonsqueezy.com/products/{ref}',
+  catalogProductUrlFromProvider: true,
   licenseKey: {
     inputLabel: 'License Key',
     placeholder: 'Enter your license key',

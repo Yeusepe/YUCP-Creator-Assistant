@@ -3069,3 +3069,200 @@ describe('package version edition identity migration', () => {
     expect(stored?.editionId).toBe('legacy');
   });
 });
+describe('catalog product canonical URL repair', () => {
+  async function seedCatalogProduct(
+    t: ReturnType<typeof makeTestConvex>,
+    input: {
+      authUserId: string;
+      provider: 'gumroad' | 'jinxxy' | 'lemonsqueezy' | 'vrchat';
+      providerProductRef: string;
+      canonicalSlug?: string;
+      link?: { originalUrl: string; urlHash?: string };
+    }
+  ) {
+    return await t.run(async (ctx) => {
+      const now = Date.now();
+      const catalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: input.authUserId,
+        productId: `product-${input.providerProductRef}`,
+        provider: input.provider,
+        providerProductRef: input.providerProductRef,
+        ...(input.canonicalSlug ? { canonicalSlug: input.canonicalSlug } : {}),
+        displayName: 'Seed Product',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      if (input.link) {
+        const normalized = input.link.originalUrl.toLowerCase().trim();
+        await ctx.db.insert('catalog_product_links', {
+          catalogProductId,
+          provider: input.provider,
+          originalUrl: input.link.originalUrl,
+          normalizedUrl: normalized,
+          urlHash: input.link.urlHash ?? `hash-${normalized}`,
+          linkKind: 'direct_product',
+          status: 'active',
+          submittedByAuthUserId: input.authUserId,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      return catalogProductId;
+    });
+  }
+
+  async function getLinks(t: ReturnType<typeof makeTestConvex>, catalogProductId: unknown) {
+    return await t.run(async (ctx) =>
+      ctx.db
+        .query('catalog_product_links')
+        .withIndex('by_catalog_product', (q) =>
+          q.eq('catalogProductId', catalogProductId as never)
+        )
+        .collect()
+    );
+  }
+
+  it('repairs a junk Gumroad template link using the stored canonical slug', async () => {
+    const t = makeTestConvex();
+    const catalogProductId = await seedCatalogProduct(t, {
+      authUserId: 'creator-repair-gumroad',
+      provider: 'gumroad',
+      providerProductRef: 'Dcmv6A==',
+      canonicalSlug: 'Fluffgan',
+      link: { originalUrl: 'https://gumroad.com/l/Dcmv6A==' },
+    });
+
+    const result = await t.mutation(internal.migrations.repairCatalogProductCanonicalUrls, {
+      apply: true,
+      limit: 100,
+    });
+
+    const links = await getLinks(t, catalogProductId);
+    expect(result).toMatchObject({ isDone: true, repaired: 1 });
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({
+      originalUrl: 'https://gumroad.com/l/Fluffgan',
+      normalizedUrl: 'https://gumroad.com/l/fluffgan',
+      status: 'active',
+    });
+  });
+
+  it('inserts a missing direct product link when the URL is slug-derivable', async () => {
+    const t = makeTestConvex();
+    const catalogProductId = await seedCatalogProduct(t, {
+      authUserId: 'creator-repair-missing',
+      provider: 'gumroad',
+      providerProductRef: 'Dcmv6A==',
+      canonicalSlug: 'fluffgan',
+    });
+
+    const result = await t.mutation(internal.migrations.repairCatalogProductCanonicalUrls, {
+      apply: true,
+      limit: 100,
+    });
+
+    const links = await getLinks(t, catalogProductId);
+    expect(result).toMatchObject({ isDone: true, inserted: 1 });
+    expect(links).toHaveLength(1);
+    expect(links[0]?.originalUrl).toBe('https://gumroad.com/l/fluffgan');
+  });
+
+  it('removes known junk links that have no derivable replacement', async () => {
+    const t = makeTestConvex();
+    const jinxxyId = await seedCatalogProduct(t, {
+      authUserId: 'creator-repair-junk-1',
+      provider: 'jinxxy',
+      providerProductRef: 'jinxxy-uuid-1',
+      link: { originalUrl: 'https://jinxxy.app/products/jinxxy-uuid-1' },
+    });
+    const lemonId = await seedCatalogProduct(t, {
+      authUserId: 'creator-repair-junk-2',
+      provider: 'lemonsqueezy',
+      providerProductRef: '123456',
+      link: { originalUrl: 'https://app.lemonsqueezy.com/products/123456' },
+    });
+    const vrchatId = await seedCatalogProduct(t, {
+      authUserId: 'creator-repair-junk-3',
+      provider: 'vrchat',
+      providerProductRef: 'prod_00000000-0000-0000-0000-000000000000',
+      link: {
+        originalUrl:
+          'https://vrchat.com/store/listing/prod_00000000-0000-0000-0000-000000000000',
+      },
+    });
+    const invalidId = await seedCatalogProduct(t, {
+      authUserId: 'creator-repair-junk-4',
+      provider: 'jinxxy',
+      providerProductRef: 'jinxxy-uuid-2',
+      link: { originalUrl: 'https://example.invalid/jinxxy/jinxxy-uuid-2' },
+    });
+
+    const result = await t.mutation(internal.migrations.repairCatalogProductCanonicalUrls, {
+      apply: true,
+      limit: 100,
+    });
+
+    expect(result).toMatchObject({ isDone: true, junkRemoved: 4, needsResync: 3 });
+    expect(await getLinks(t, jinxxyId)).toHaveLength(0);
+    expect(await getLinks(t, lemonId)).toHaveLength(0);
+    expect(await getLinks(t, vrchatId)).toHaveLength(0);
+    expect(await getLinks(t, invalidId)).toHaveLength(0);
+    expect(result.needsResyncProducts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ provider: 'jinxxy', providerProductRef: 'jinxxy-uuid-1' }),
+        expect.objectContaining({ provider: 'lemonsqueezy', providerProductRef: '123456' }),
+      ])
+    );
+    expect(result.needsResyncProducts).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: 'vrchat',
+          providerProductRef: 'prod_00000000-0000-0000-0000-000000000000',
+        }),
+      ])
+    );
+  });
+
+  it('leaves already-correct links untouched', async () => {
+    const t = makeTestConvex();
+    const catalogProductId = await seedCatalogProduct(t, {
+      authUserId: 'creator-repair-clean',
+      provider: 'gumroad',
+      providerProductRef: 'Dcmv6A==',
+      canonicalSlug: 'fluffgan',
+      link: { originalUrl: 'https://quaggycharr.gumroad.com/l/fluffgan' },
+    });
+
+    const result = await t.mutation(internal.migrations.repairCatalogProductCanonicalUrls, {
+      apply: true,
+      limit: 100,
+    });
+
+    const links = await getLinks(t, catalogProductId);
+    expect(result).toMatchObject({ isDone: true, repaired: 0, inserted: 0, junkRemoved: 0 });
+    expect(links).toHaveLength(1);
+    expect(links[0]?.originalUrl).toBe('https://quaggycharr.gumroad.com/l/fluffgan');
+  });
+
+  it('reports without writing when apply is false', async () => {
+    const t = makeTestConvex();
+    const catalogProductId = await seedCatalogProduct(t, {
+      authUserId: 'creator-repair-dry-run',
+      provider: 'gumroad',
+      providerProductRef: 'Dcmv6A==',
+      canonicalSlug: 'fluffgan',
+      link: { originalUrl: 'https://gumroad.com/l/Dcmv6A==' },
+    });
+
+    const result = await t.mutation(internal.migrations.repairCatalogProductCanonicalUrls, {
+      apply: false,
+      limit: 100,
+    });
+
+    const links = await getLinks(t, catalogProductId);
+    expect(result).toMatchObject({ isDone: true, repaired: 1 });
+    expect(links[0]?.originalUrl).toBe('https://gumroad.com/l/Dcmv6A==');
+  });
+});

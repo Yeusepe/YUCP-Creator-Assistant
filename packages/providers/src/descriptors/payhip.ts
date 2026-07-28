@@ -17,6 +17,8 @@ export const payhip = {
   setupRequirements: ['api_key', 'webhook_endpoint'],
   verificationMethods: ['license_key'],
   supportsCredentialLogin: true,
+  catalogProductUrlFromProvider: true,
+  catalogProductUrlTemplate: 'https://payhip.com/b/{slug}',
   collabCredential: {
     label: 'Payhip API Key',
     placeholder: 'Paste the Payhip API key the creator shared with you',

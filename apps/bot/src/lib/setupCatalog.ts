@@ -2,15 +2,25 @@ import { providerLabel } from '@yucp/providers/providerMetadata';
 import type { ProviderKey } from '@yucp/providers/types';
 
 export type SetupCatalogProduct = {
+  aliases?: string[];
+  canonicalSlug?: string;
   id: string;
   name: string;
   provider: ProviderKey;
   productUrl?: string;
+  thumbnailUrl?: string;
 };
 
 export type SetupCatalogProviderResult = {
   provider: ProviderKey;
-  products: Array<{ id: string; name: string; productUrl?: string }>;
+  products: Array<{
+    aliases?: string[];
+    canonicalSlug?: string;
+    id: string;
+    name: string;
+    productUrl?: string;
+    thumbnailUrl?: string;
+  }>;
   error?: string;
 };
 
@@ -45,10 +55,13 @@ export function summarizeSetupCatalogResults(
       }
       seen.add(key);
       products.push({
+        aliases: product.aliases,
+        canonicalSlug: product.canonicalSlug,
         id: product.id,
         name: product.name,
         provider: result.provider,
         productUrl: product.productUrl,
+        thumbnailUrl: product.thumbnailUrl,
       });
     }
   }

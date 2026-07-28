@@ -7,10 +7,10 @@
  */
 
 import {
-  buildCatalogProductUrl,
   getProviderDescriptor,
   PROVIDER_REGISTRY,
   providerLabel,
+  resolveCatalogProductUrl,
 } from '@yucp/providers/providerMetadata';
 import type { ProviderDescriptor } from '@yucp/providers/types';
 import { createLogger, parseProductId } from '@yucp/shared';
@@ -85,6 +85,10 @@ interface ProductSession {
   productNames?: Record<string, Record<string, string>>;
   /** provider key -> (product id -> provider-supplied canonical product URL) */
   productUrls?: Record<string, Record<string, string>>;
+  /** provider key -> (product id -> provider-supplied canonical public slug) */
+  productCanonicalSlugs?: Record<string, Record<string, string>>;
+  /** provider key -> (product id -> provider-supplied aliases) */
+  productAliases?: Record<string, Record<string, string[]>>;
   /** provider key -> (product id -> provider-supplied thumbnail URL) */
   productThumbnails?: Record<string, Record<string, string>>;
   /** provider key -> (product id -> source/collaborator name) */
@@ -218,16 +222,18 @@ function getSessionKey(userId: string, authUserId: string, guildId: string): str
   return `${userId}:${authUserId}:${guildId}`;
 }
 
-function resolveCatalogProductUrl(
+function resolveCatalogProductUrlForSession(
   session: ProductSession,
   provider: string,
   productId: string
 ): string | null {
   const providerProductUrl = session.productUrls?.[provider]?.[productId]?.trim();
-  if (providerProductUrl) {
-    return providerProductUrl;
-  }
-  return buildCatalogProductUrl(provider, productId);
+  const canonicalSlug = session.productCanonicalSlugs?.[provider]?.[productId]?.trim();
+  return resolveCatalogProductUrl({
+    provider,
+    productUrl: providerProductUrl || null,
+    canonicalSlug: canonicalSlug || null,
+  });
 }
 
 function resolveCatalogProductThumbnail(
@@ -697,6 +703,8 @@ export async function handleProductTypeSelect(
       }
 
       const products: Array<{
+        aliases?: string[];
+        canonicalSlug?: string;
         collaboratorName?: string;
         id: string;
         name: string;
@@ -729,6 +737,21 @@ export async function handleProductTypeSelect(
       if (Object.keys(productUrls).length > 0) {
         session.productUrls = { ...session.productUrls, [selectedType]: productUrls };
       }
+      const canonicalSlugs = Object.fromEntries(
+        products.flatMap((p) => (p.canonicalSlug ? [[p.id, p.canonicalSlug]] : []))
+      );
+      if (Object.keys(canonicalSlugs).length > 0) {
+        session.productCanonicalSlugs = {
+          ...session.productCanonicalSlugs,
+          [selectedType]: canonicalSlugs,
+        };
+      }
+      const aliases = Object.fromEntries(
+        products.flatMap((p) => (p.aliases?.length ? [[p.id, p.aliases]] : []))
+      );
+      if (Object.keys(aliases).length > 0) {
+        session.productAliases = { ...session.productAliases, [selectedType]: aliases };
+      }
       const productThumbnails = Object.fromEntries(
         products.flatMap((p) => {
           const thumbnailUrl = normalizeProviderThumbnailUrl(p.thumbnailUrl);
@@ -754,7 +777,6 @@ export async function handleProductTypeSelect(
         ...products.filter((p) => p.collaboratorName && !alreadyAddedIds.has(p.id)),
         ...products.filter((p) => alreadyAddedIds.has(p.id)),
       ];
-
       session.catalogPickerProducts = sortedProducts.map((product) => ({
         collaboratorName: product.collaboratorName,
         id: product.id,
@@ -1578,18 +1600,21 @@ export async function handleProductConfirmAdd(
           ? `${productName} (via ${collabSource})`
           : productName
         : undefined;
-      const canonicalUrl = resolveCatalogProductUrl(session, type, productIdFromApi);
-      if (!canonicalUrl) throw new Error(`No product URL available for provider: ${type}`);
+      const canonicalUrl = resolveCatalogProductUrlForSession(session, type, productIdFromApi);
       const result = await convex.mutation(api.role_rules.addCatalogProduct, {
         apiSecret,
         authUserId,
         productId: productIdFromApi,
         providerProductRef: productIdFromApi,
         provider: type,
-        canonicalUrl,
+        // Optional: providers without a public product URL (e.g. VRChat) store
+        // no link rather than a fabricated one.
+        canonicalUrl: canonicalUrl ?? undefined,
         supportsAutoDiscovery: descriptor.supportsAutoDiscovery ?? false,
         displayName,
         thumbnailUrl: resolveCatalogProductThumbnail(session, type, productIdFromApi),
+        canonicalSlug: session.productCanonicalSlugs?.[type]?.[productIdFromApi],
+        aliases: session.productAliases?.[type]?.[productIdFromApi],
       });
       productId = result.productId;
       catalogProductId = result.catalogProductId;
@@ -1622,7 +1647,8 @@ export async function handleProductConfirmAdd(
         providerProductRef: resolvedProductId,
         provider: 'gumroad',
         displayName: resolvedDisplayName,
-        productUrl: buildCatalogProductUrl('gumroad', resolvedProductId) ?? undefined,
+        productUrl: resolveCatalogProductUrl({ provider: 'gumroad', productUrl }) ?? undefined,
+        canonicalSlug: slug,
         supportsAutoDiscovery: true,
       });
       productId = result.productId;
@@ -1635,7 +1661,6 @@ export async function handleProductConfirmAdd(
         productId: parsed,
         providerProductRef: parsed,
         provider: 'gumroad',
-        productUrl: buildCatalogProductUrl('gumroad', parsed) ?? undefined,
         supportsAutoDiscovery: true,
       });
       productId = result.productId;
@@ -1686,7 +1711,8 @@ export async function handleProductConfirmAdd(
         providerProductRef: avatarId,
         provider: 'vrchat',
         displayName: vrchatDisplayName,
-        productUrl: buildCatalogProductUrl('vrchat', avatarId) ?? undefined,
+        // VRChat store listings have no confirmed public web URL; no link is stored.
+        productUrl: resolveCatalogProductUrl({ provider: 'vrchat' }) ?? undefined,
       });
       productId = result.productId;
       catalogProductId = result.catalogProductId;
@@ -1728,7 +1754,9 @@ export async function handleProductConfirmAdd(
         providerProductRef: permalink,
         provider: 'payhip',
         displayName: payhipDisplayName,
-        productUrl: buildCatalogProductUrl('payhip', permalink) ?? undefined,
+        productUrl:
+          resolveCatalogProductUrl({ provider: 'payhip', canonicalSlug: permalink }) ?? undefined,
+        canonicalSlug: permalink,
       });
       productId = result.productId;
       catalogProductId = result.catalogProductId;

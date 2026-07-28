@@ -14,10 +14,15 @@
  * - npx convex run migrations:purgeCreatorVpmLinkCatalogProductIds
  * - npx convex run migrations:repairCreatorVpmLinkPackageBindings
  * - npx convex run migrations:repairPackageVersionEditionIds
+ * - npx convex run migrations:repairCatalogProductCanonicalUrls
  * Re-run until the relevant migration returns 0 remaining records.
  */
 
 import { v } from 'convex/values';
+import {
+  getProviderDescriptor,
+  resolveCatalogProductUrl,
+} from '@yucp/providers/providerMetadata';
 import type { Doc, Id } from './_generated/dataModel';
 import {
   internalMutation,
@@ -28,6 +33,7 @@ import {
 import { PII_PURPOSES } from './lib/credentialKeys';
 import { upsertLicenseSubjectLink } from './lib/licenseSubjectLink';
 import { encryptPii } from './lib/piiCrypto';
+import { sha256Hex } from './lib/roleRules/queries';
 import { enqueueExistingRoleOutboxJobInWorkpool } from './lib/roleSyncWorkpoolDispatch';
 import {
   detectCanonicalAuthResolutionForSubject,
@@ -2143,6 +2149,194 @@ export const redriveDeadLetterRoleSync = internalMutation({
       skipped,
       // This is a bounded page signal, not a full backlog count. Keep re-running until it is 0.
       remaining: Math.max(targets.length - processed - skipped, 0),
+    };
+  },
+});
+
+
+const NEEDS_RESYNC_REPORT_LIMIT = 50;
+
+/**
+ * Legacy canonical-URL outputs produced by the old template-plus-providerProductRef
+ * write paths. These were never valid public product URLs:
+ * - example.invalid placeholders from addProductForProvider
+ * - jinxxy.app/products/{api-uuid} (wrong domain, wrong identifier kind)
+ * - app.lemonsqueezy.com/products/{id} (merchant dashboard, login-gated)
+ * - vrchat.com/store/listing/{id} (no such public page)
+ * - gumroad.com/l/{api-id} (API ids are not permalinks)
+ */
+function legacyJunkNormalizedUrls(provider: string, providerProductRef: string): string[] {
+  const ref = providerProductRef.toLowerCase();
+  return [
+    `https://example.invalid/${provider.toLowerCase()}/${ref}`,
+    `https://jinxxy.app/products/${ref}`,
+    `https://app.lemonsqueezy.com/products/${ref}`,
+    `https://vrchat.com/store/listing/${ref}`,
+    `https://gumroad.com/l/${ref}`,
+  ];
+}
+
+/**
+ * Repair canonical product URLs stored in catalog_product_links.
+ *
+ * For every active product_catalog row this migration:
+ * - patches legacy junk links to the slug-derived URL when one exists (repaired)
+ * - inserts a direct product link when none exists and the URL is slug-derivable (inserted)
+ * - deletes legacy junk links with no derivable replacement (junkRemoved)
+ * - leaves valid provider-supplied links untouched
+ *
+ * Rows left without any trustworthy URL are reported in needsResyncProducts so an
+ * operator can re-run catalog sync (bot autosetup / product add), which now stores
+ * the provider API product URL. Deterministic: no provider API calls are made here.
+ *
+ * Run with:
+ * - bun x convex run migrations:repairCatalogProductCanonicalUrls '{"apply":false}'
+ * - bun x convex run migrations:repairCatalogProductCanonicalUrls '{"apply":true,"cursor":"..."}'
+ */
+export const repairCatalogProductCanonicalUrls = internalMutation({
+  args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
+    limit: v.optional(v.number()),
+    apply: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    continueCursor: v.union(v.string(), v.null()),
+    isDone: v.boolean(),
+    scanned: v.number(),
+    repaired: v.number(),
+    inserted: v.number(),
+    junkRemoved: v.number(),
+    untouched: v.number(),
+    needsResync: v.number(),
+    needsResyncProducts: v.array(
+      v.object({
+        catalogProductId: v.string(),
+        authUserId: v.string(),
+        provider: v.string(),
+        providerProductRef: v.string(),
+      })
+    ),
+  }),
+  handler: async (ctx, args) => {
+    const apply = args.apply ?? false;
+    const limit = Math.max(1, Math.min(args.limit ?? 100, 500));
+    const page = await ctx.db
+      .query('product_catalog')
+      .paginate({ cursor: args.cursor ?? null, numItems: limit });
+
+    let repaired = 0;
+    let inserted = 0;
+    let junkRemoved = 0;
+    let untouched = 0;
+    let needsResync = 0;
+    const needsResyncProducts: Array<{
+      catalogProductId: string;
+      authUserId: string;
+      provider: string;
+      providerProductRef: string;
+    }> = [];
+    const now = Date.now();
+
+    const reportNeedsResync = (product: Doc<'product_catalog'>) => {
+      if (!getProviderDescriptor(product.provider)?.catalogProductUrlFromProvider) {
+        return;
+      }
+      needsResync++;
+      if (needsResyncProducts.length < NEEDS_RESYNC_REPORT_LIMIT) {
+        needsResyncProducts.push({
+          catalogProductId: String(product._id),
+          authUserId: product.authUserId,
+          provider: product.provider,
+          providerProductRef: product.providerProductRef,
+        });
+      }
+    };
+
+    for (const product of page.page) {
+      if (product.status !== 'active') {
+        continue;
+      }
+      const desired = resolveCatalogProductUrl({
+        provider: product.provider,
+        canonicalSlug: product.canonicalSlug,
+      });
+      const link = await ctx.db
+        .query('catalog_product_links')
+        .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', product._id))
+        .filter((q) =>
+          q.and(q.eq(q.field('linkKind'), 'direct_product'), q.eq(q.field('status'), 'active'))
+        )
+        .first();
+
+      if (!link) {
+        if (!desired) {
+          reportNeedsResync(product);
+          continue;
+        }
+        inserted++;
+        if (apply) {
+          const normalized = desired.toLowerCase();
+          await ctx.db.insert('catalog_product_links', {
+            catalogProductId: product._id,
+            provider: product.provider,
+            originalUrl: desired,
+            normalizedUrl: normalized,
+            urlHash: await sha256Hex(normalized),
+            linkKind: 'direct_product',
+            status: 'active',
+            submittedByAuthUserId: product.authUserId,
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+        continue;
+      }
+
+      const isJunk = legacyJunkNormalizedUrls(product.provider, product.providerProductRef).includes(
+        link.normalizedUrl
+      );
+      if (!isJunk) {
+        untouched++;
+        continue;
+      }
+
+      if (desired) {
+        const normalizedDesired = desired.toLowerCase();
+        if (link.normalizedUrl === normalizedDesired) {
+          // The legacy template output happens to equal the correct URL
+          // (e.g. Gumroad flows where the ref already was the permalink).
+          untouched++;
+          continue;
+        }
+        repaired++;
+        if (apply) {
+          await ctx.db.patch(link._id, {
+            originalUrl: desired,
+            normalizedUrl: normalizedDesired,
+            urlHash: await sha256Hex(normalizedDesired),
+            updatedAt: now,
+          });
+        }
+        continue;
+      }
+
+      junkRemoved++;
+      if (apply) {
+        await ctx.db.delete(link._id);
+      }
+      reportNeedsResync(product);
+    }
+
+    return {
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
+      scanned: page.page.length,
+      repaired,
+      inserted,
+      junkRemoved,
+      untouched,
+      needsResync,
+      needsResyncProducts,
     };
   },
 });

@@ -948,6 +948,81 @@ describe('packageRegistry', () => {
     expect(product?.packageId).toBe('com.yucp.bound-package');
   });
 
+  it('exposes the stored canonical storefront URL in the buyer access context', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-user-storefront-url';
+    const catalogProductId = await t.run(async (ctx) => {
+      const now = Date.now();
+      const productId = await ctx.db.insert('product_catalog', {
+        authUserId,
+        productId: 'product-with-storefront-url',
+        provider: 'gumroad',
+        providerProductRef: 'Dcmv6A==',
+        canonicalSlug: 'fluffgan',
+        displayName: 'Fluffgan',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const normalized = 'https://quaggycharr.gumroad.com/l/fluffgan';
+      await ctx.db.insert('catalog_product_links', {
+        catalogProductId: productId,
+        provider: 'gumroad',
+        originalUrl: normalized,
+        normalizedUrl: normalized,
+        urlHash: 'hash-storefront-url',
+        linkKind: 'direct_product',
+        status: 'active',
+        submittedByAuthUserId: authUserId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      return productId;
+    });
+
+    const product = await t.query(api.packageRegistry.getBuyerAccessContextByCatalogProductId, {
+      apiSecret: 'test-secret',
+      actor: await createServiceActorBinding(['verification-intents:service']),
+      catalogProductId,
+    });
+
+    expect(product?.productUrl).toBe('https://quaggycharr.gumroad.com/l/fluffgan');
+    expect(product?.storefronts).toEqual([
+      expect.objectContaining({
+        catalogProductId,
+        provider: 'gumroad',
+        productUrl: 'https://quaggycharr.gumroad.com/l/fluffgan',
+      }),
+    ]);
+  });
+
+  it('omits the storefront URL when the product has no active direct product link', async () => {
+    const t = makeTestConvex();
+    const catalogProductId = await t.run(async (ctx) => {
+      const now = Date.now();
+      return await ctx.db.insert('product_catalog', {
+        authUserId: 'auth-user-no-storefront-url',
+        productId: 'product-without-storefront-url',
+        provider: 'jinxxy',
+        providerProductRef: 'jinxxy-product-uuid',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const product = await t.query(api.packageRegistry.getBuyerAccessContextByCatalogProductId, {
+      apiSecret: 'test-secret',
+      actor: await createServiceActorBinding(['verification-intents:service']),
+      catalogProductId,
+    });
+
+    expect(product?.productUrl).toBeUndefined();
+    expect(product?.storefronts[0]).not.toHaveProperty('productUrl');
+  });
+
   it('does not associate same-name storefront products without an explicit binding', async () => {
     const t = makeTestConvex();
     const authUserId = 'auth-user-cross-store-product';

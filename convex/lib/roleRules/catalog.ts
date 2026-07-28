@@ -6,6 +6,7 @@
  */
 
 import type { GenericMutationCtx } from 'convex/server';
+import { resolveCatalogProductUrl } from '@yucp/providers/providerMetadata';
 import { internal } from '../../_generated/api';
 import type { DataModel, Doc, Id } from '../../_generated/dataModel';
 import { requireApiSecret, sha256Hex } from './queries';
@@ -18,8 +19,13 @@ export interface AddCatalogProductArgs {
   productId: string;
   providerProductRef: string;
   provider: string;
-  /** Canonical URL for the product page, pre-computed by the caller from PROVIDER_REGISTRY. */
-  canonicalUrl: string;
+  /**
+   * Canonical public URL for the product page, resolved by the caller from
+   * provider API data (`ProductRecord.productUrl`) or slug derivation via
+   * `resolveCatalogProductUrl`. When omitted, no link row is written; a
+   * missing URL must stay missing rather than be fabricated.
+   */
+  canonicalUrl?: string;
   /** Whether this provider supports auto-discovery via backfill. Pre-computed by caller. */
   supportsAutoDiscovery: boolean;
   displayName?: string;
@@ -65,6 +71,60 @@ function areCatalogAliasesEqual(left?: readonly string[], right?: readonly strin
   return normalizedLeft.every((value, index) => value === normalizedRight[index]);
 }
 
+/**
+ * Upsert the active `direct_product` link for a catalog product so the stored
+ * canonical URL tracks the latest provider data. Inserts when no link exists,
+ * patches when the URL changed, and writes nothing when no URL is available.
+ */
+export async function upsertDirectProductLink(
+  ctx: MutationCtx,
+  input: {
+    catalogProductId: Id<'product_catalog'>;
+    provider: string;
+    canonicalUrl?: string;
+    submittedByAuthUserId: string;
+  }
+): Promise<void> {
+  const canonicalUrl = input.canonicalUrl?.trim();
+  if (!canonicalUrl) {
+    return;
+  }
+  const now = Date.now();
+  const normalized = canonicalUrl.toLowerCase();
+  const existing = await ctx.db
+    .query('catalog_product_links')
+    .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', input.catalogProductId))
+    .filter((q) =>
+      q.and(q.eq(q.field('linkKind'), 'direct_product'), q.eq(q.field('status'), 'active'))
+    )
+    .first();
+
+  if (existing) {
+    if (existing.originalUrl !== canonicalUrl) {
+      await ctx.db.patch(existing._id, {
+        originalUrl: canonicalUrl,
+        normalizedUrl: normalized,
+        urlHash: await sha256Hex(normalized),
+        updatedAt: now,
+      });
+    }
+    return;
+  }
+
+  await ctx.db.insert('catalog_product_links', {
+    catalogProductId: input.catalogProductId,
+    provider: input.provider,
+    originalUrl: canonicalUrl,
+    normalizedUrl: normalized,
+    urlHash: await sha256Hex(normalized),
+    linkKind: 'direct_product',
+    status: 'active',
+    submittedByAuthUserId: input.submittedByAuthUserId,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
 export async function addCatalogProductImpl(
   ctx: MutationCtx,
   args: AddCatalogProductArgs
@@ -73,6 +133,12 @@ export async function addCatalogProductImpl(
   const now = Date.now();
   const canonicalSlug = normalizeCatalogIdentityString(args.canonicalSlug);
   const aliases = normalizeCatalogAliases(args.aliases);
+  const canonicalUrl =
+    resolveCatalogProductUrl({
+      provider: args.provider,
+      productUrl: args.canonicalUrl,
+      canonicalSlug,
+    }) ?? undefined;
 
   const existing = await ctx.db
     .query('product_catalog')
@@ -99,6 +165,12 @@ export async function addCatalogProductImpl(
     if (Object.keys(patch).length > 0) {
       await ctx.db.patch(existing._id, { ...patch, updatedAt: now });
     }
+    await upsertDirectProductLink(ctx, {
+      catalogProductId: existing._id,
+      provider: args.provider,
+      canonicalUrl,
+      submittedByAuthUserId: args.authUserId,
+    });
     if (args.supportsAutoDiscovery) {
       await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
         authUserId: args.authUserId,
@@ -109,9 +181,6 @@ export async function addCatalogProductImpl(
     }
     return { productId: existing.productId, catalogProductId: existing._id };
   }
-
-  const normalized = args.canonicalUrl.toLowerCase().trim();
-  const urlHash = await sha256Hex(normalized);
 
   const catalogId = await ctx.db.insert('product_catalog', {
     authUserId: args.authUserId,
@@ -128,17 +197,11 @@ export async function addCatalogProductImpl(
     updatedAt: now,
   });
 
-  await ctx.db.insert('catalog_product_links', {
+  await upsertDirectProductLink(ctx, {
     catalogProductId: catalogId,
     provider: args.provider,
-    originalUrl: args.canonicalUrl,
-    normalizedUrl: normalized,
-    urlHash,
-    linkKind: 'direct_product',
-    status: 'active',
+    canonicalUrl,
     submittedByAuthUserId: args.authUserId,
-    createdAt: now,
-    updatedAt: now,
   });
 
   if (args.supportsAutoDiscovery) {

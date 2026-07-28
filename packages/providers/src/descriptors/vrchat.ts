@@ -14,7 +14,6 @@ export const vrchat = {
   setupRequirements: [],
   verificationMethods: ['account_link'],
   supportsCredentialLogin: true,
-  catalogProductUrlTemplate: 'https://vrchat.com/store/listing/{ref}',
   productInput: {
     label: 'VRChat Avatar ID or URL',
     description: 'VRChat Avatar ID (avtr_\u2026) or vrchat.com/home/avatar/avtr_\u2026 URL',

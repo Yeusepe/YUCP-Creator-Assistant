@@ -128,7 +128,19 @@ export interface ProviderDescriptorInput {
     placeholder?: string;
     requiresConnection?: boolean;
   };
+  /**
+   * Public product URL template containing a `{slug}` placeholder, filled with
+   * the product's canonical slug (never the provider API product id). Omit when
+   * the provider has no slug-derivable public URL; those providers must supply
+   * the real URL via `ProductRecord.productUrl` at sync time.
+   */
   catalogProductUrlTemplate?: string;
+  /**
+   * True when catalog synchronization can return a trustworthy public URL in
+   * `ProductRecord.productUrl`. Remediation uses this to distinguish products
+   * that need re-sync from providers that intentionally have no public page.
+   */
+  catalogProductUrlFromProvider?: boolean;
   supportsAutoDiscovery?: boolean;
 }
 

@@ -69,10 +69,51 @@ export function providerLabel(providerKey: string): string {
   return getProviderDescriptor(providerKey)?.label ?? providerKey;
 }
 
-export function buildCatalogProductUrl(providerKey: string, productRef: string): string | null {
-  const descriptor = getProviderDescriptor(providerKey);
-  if (!descriptor?.catalogProductUrlTemplate) {
+export function providerIcon(providerKey: string): string | null {
+  const iconKey = getProviderDescriptor(providerKey)?.emojiKey.trim();
+  return iconKey ? `${iconKey}.png` : null;
+}
+
+/**
+ * Resolve the public storefront URL for a catalog product.
+ *
+ * Priority: the URL supplied by the provider API at sync time (the only
+ * trustworthy source for providers whose public URLs are not derivable),
+ * then template derivation from the product's canonical slug. Returns null
+ * when neither exists; callers must treat null as "no public link" rather
+ * than fabricating one. The provider API product id (`providerProductRef`)
+ * is intentionally not an input: it is not a URL-safe public identifier
+ * (e.g. Gumroad API ids are not permalinks).
+ */
+export function resolveCatalogProductUrl(input: {
+  provider: string;
+  productUrl?: string | null;
+  canonicalSlug?: string | null;
+}): string | null {
+  const productUrl = input.productUrl?.trim();
+  if (productUrl) {
+    try {
+      const parsed = new URL(productUrl);
+      if (parsed.protocol === 'https:' && !parsed.username && !parsed.password) {
+        return productUrl;
+      }
+    } catch {
+      // Fall through to canonical-slug derivation when the provider URL is malformed.
+    }
+  }
+  const canonicalSlug = input.canonicalSlug?.trim();
+  if (!canonicalSlug) {
     return null;
   }
-  return descriptor.catalogProductUrlTemplate.replace('{ref}', productRef);
+  const template = getProviderDescriptor(input.provider)?.catalogProductUrlTemplate;
+  if (!template) {
+    return null;
+  }
+  const derivedUrl = template.replace('{slug}', canonicalSlug);
+  try {
+    const parsed = new URL(derivedUrl);
+    return parsed.protocol === 'https:' && !parsed.username && !parsed.password ? derivedUrl : null;
+  } catch {
+    return null;
+  }
 }

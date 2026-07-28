@@ -11,6 +11,7 @@
  * - Optional removal on entitlement revoke
  */
 
+import { resolveCatalogProductUrl } from '@yucp/providers/providerMetadata';
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
@@ -665,7 +666,13 @@ export const addProductFromGumroad = mutation({
     addCatalogProductImpl(ctx, {
       ...args,
       provider: 'gumroad',
-      canonicalUrl: `https://gumroad.com/l/${args.providerProductRef}`,
+      // Gumroad permalinks are globally routable via gumroad.com/l/{slug}. Prefer
+      // the canonical slug; in the URL-based add flow the ref already is the
+      // permalink. API product ids are never valid here.
+      canonicalUrl: resolveCatalogProductUrl({
+        provider: 'gumroad',
+        canonicalSlug: args.canonicalSlug ?? args.providerProductRef,
+      }) ?? undefined,
       supportsAutoDiscovery: true,
     }),
 });
@@ -720,22 +727,9 @@ export const addProductFromJinxxy = mutation({
       updatedAt: now,
     });
 
-    const url = `https://jinxxy.app/products/${args.providerProductRef}`;
-    const normalized = url.toLowerCase().trim();
-    const urlHash = await sha256Hex(normalized);
-
-    await ctx.db.insert('catalog_product_links', {
-      catalogProductId: catalogId,
-      provider: 'jinxxy',
-      originalUrl: url,
-      normalizedUrl: normalized,
-      urlHash,
-      linkKind: 'direct_product',
-      status: 'active',
-      submittedByAuthUserId: args.authUserId,
-      createdAt: now,
-      updatedAt: now,
-    });
+    // No direct product link is written here: public Jinxxy URLs
+    // (jinxxy.com/{creator}/{item}) are not derivable from the API product id.
+    // The link is stored when catalog sync supplies the API-provided product URL.
 
     await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
       authUserId: args.authUserId,
@@ -796,22 +790,9 @@ export const addProductFromLemonSqueezy = mutation({
       updatedAt: now,
     });
 
-    const url = `https://app.lemonsqueezy.com/products/${args.providerProductRef}`;
-    const normalized = url.toLowerCase().trim();
-    const urlHash = await sha256Hex(normalized);
-
-    await ctx.db.insert('catalog_product_links', {
-      catalogProductId: catalogId,
-      provider: 'lemonsqueezy',
-      originalUrl: url,
-      normalizedUrl: normalized,
-      urlHash,
-      linkKind: 'direct_product',
-      status: 'active',
-      submittedByAuthUserId: args.authUserId,
-      createdAt: now,
-      updatedAt: now,
-    });
+    // No direct product link is written here: app.lemonsqueezy.com is the
+    // merchant dashboard, not a buyer-facing page. The link is stored when
+    // catalog sync supplies the API-provided product URL.
 
     await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
       authUserId: args.authUserId,
@@ -827,8 +808,8 @@ export const addProductFromLemonSqueezy = mutation({
 /**
  * Generic: get or create a product catalog entry for any catalog-sync provider.
  * Prefer this over provider-specific mutations when the provider key is dynamic.
- * @deprecated Use `addCatalogProduct` instead, it accepts a pre-computed canonicalUrl
- * from the caller (derived from PROVIDER_REGISTRY.catalogProductUrlTemplate).
+ * @deprecated Use `addCatalogProduct` instead. It accepts the provider-supplied
+ * canonical URL and canonical slug separately.
  */
 export const addProductForProvider = mutation({
   args: {
@@ -838,7 +819,7 @@ export const addProductForProvider = mutation({
     providerProductRef: v.string(),
     provider: v.string(),
     displayName: v.optional(v.string()),
-    /** Canonical product URL. Caller derives this from PROVIDER_REGISTRY.catalogProductUrlTemplate. */
+    /** Canonical public product URL supplied by the provider or resolved from a canonical slug. */
     productUrl: v.optional(v.string()),
     canonicalSlug: v.optional(v.string()),
     aliases: v.optional(v.array(v.string())),
@@ -857,8 +838,7 @@ export const addProductForProvider = mutation({
       productId: args.productId,
       providerProductRef: args.providerProductRef,
       provider: args.provider,
-      canonicalUrl:
-        args.productUrl ?? `https://example.invalid/${args.provider}/${args.providerProductRef}`,
+      canonicalUrl: args.productUrl,
       supportsAutoDiscovery: args.supportsAutoDiscovery ?? false,
       displayName: args.displayName,
       thumbnailUrl: args.thumbnailUrl,
@@ -870,10 +850,10 @@ export const addProductForProvider = mutation({
 /**
  * Generic: upsert a product catalog entry for any catalog-sync provider.
  *
- * The caller (bot/product.ts) is responsible for computing `canonicalUrl` from
- * PROVIDER_REGISTRY.catalogProductUrlTemplate and `supportsAutoDiscovery` from
- * PROVIDER_REGISTRY.supportsAutoDiscovery. This keeps the Convex mutation free
- * from baked provider metadata.
+ * The caller is responsible for resolving `canonicalUrl` from provider API
+ * data or the canonical slug and for reading `supportsAutoDiscovery` from the
+ * provider descriptor. This keeps the Convex mutation free from baked provider
+ * semantics.
  *
  * Replaces the per-provider mutations (addProductFromGumroad, addProductFromJinxxy,
  * addProductFromLemonSqueezy, addProductFromVrchatCatalog) for the catalog-sync flow.
@@ -889,8 +869,12 @@ export const addCatalogProduct = mutation({
     /** The provider-internal product reference (used as providerProductRef in product_catalog). */
     providerProductRef: v.string(),
     provider: v.string(),
-    /** Canonical URL for the product page, pre-computed by the caller from PROVIDER_REGISTRY. */
-    canonicalUrl: v.string(),
+    /**
+     * Canonical public URL for the product page, resolved by the caller from
+     * provider API data or `resolveCatalogProductUrl`. Optional: when no real
+     * URL is available, no link row is written.
+     */
+    canonicalUrl: v.optional(v.string()),
     /** Whether this provider supports auto-discovery via backfill. Pre-computed by caller. */
     supportsAutoDiscovery: v.boolean(),
     displayName: v.optional(v.string()),
@@ -1049,23 +1033,8 @@ export const addProductFromVrchatCatalog = mutation({
       updatedAt: now,
     });
 
-    // Use the VRChat store listing URL as the canonical link
-    const url = `https://vrchat.com/store/listing/${args.providerProductRef}`;
-    const normalized = url.toLowerCase().trim();
-    const urlHash = await sha256Hex(normalized);
-
-    await ctx.db.insert('catalog_product_links', {
-      catalogProductId: catalogId,
-      provider: 'vrchat',
-      originalUrl: url,
-      normalizedUrl: normalized,
-      urlHash,
-      linkKind: 'direct_product',
-      status: 'active',
-      submittedByAuthUserId: args.authUserId,
-      createdAt: now,
-      updatedAt: now,
-    });
+    // No direct product link is written here: VRChat store listings have no
+    // confirmed public web URL, so there is nothing trustworthy to store.
 
     return { productId: args.productId, catalogProductId: catalogId };
   },

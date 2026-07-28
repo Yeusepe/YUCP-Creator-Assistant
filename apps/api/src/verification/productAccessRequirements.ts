@@ -14,6 +14,8 @@ export type BuyerAccessCatalogProduct = {
   providerProductRef: string;
   displayName?: string;
   canonicalSlug?: string;
+  /** Canonical public storefront URL stored from provider API data at sync time. */
+  productUrl?: string;
   thumbnailUrl?: string;
   status: 'active';
   storefronts: BuyerAccessStorefront[];
@@ -26,6 +28,8 @@ export type BuyerAccessStorefront = {
   providerProductRef: string;
   displayName?: string;
   canonicalSlug?: string;
+  /** Canonical public storefront URL stored from provider API data at sync time. */
+  productUrl?: string;
   thumbnailUrl?: string;
 };
 

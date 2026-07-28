@@ -15,5 +15,6 @@ export const patreon = {
   verificationMethods: [],
   supportsCredentialLogin: false,
   supportsBuyerOAuthLink: true,
+  catalogProductUrlFromProvider: true,
   supportsAutoDiscovery: true,
 } as const satisfies ProviderDescriptorInput;
