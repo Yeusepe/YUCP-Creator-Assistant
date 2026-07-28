@@ -445,7 +445,7 @@ function PrivacyPolicyPage() {
             </ul>
             <p>
               The provider list depends on the active deployment and selected feature. Request the
-              current list at <a href="mailto:privacy@yucp.club">privacy@yucp.club</a>.
+              current list at <a href="mailto:contact@yucp.club">contact@yucp.club</a>.
             </p>
             <p>We do not sell personal data in exchange for money.</p>
           </div>
@@ -598,7 +598,7 @@ function PrivacyPolicyPage() {
             </ul>
             <h4>15.1 How to submit a request</h4>
             <p>
-              Send your request to <a href="mailto:privacy@yucp.club">privacy@yucp.club</a> with the
+              Send your request to <a href="mailto:contact@yucp.club">contact@yucp.club</a> with the
               subject line &quot;Privacy Request.&quot; Include your Discord® user ID, the server or
               tenant involved (if applicable), and a clear description of the right you wish to
               exercise. For access or portability requests, we may ask you to verify your identity
@@ -753,7 +753,7 @@ function PrivacyPolicyPage() {
               <strong>Creator Assistant</strong>
             </p>
             <p>
-              Privacy email: <a href="mailto:privacy@yucp.club">privacy@yucp.club</a>
+              Privacy email: <a href="mailto:contact@yucp.club">contact@yucp.club</a>
             </p>
             <p>
               General contact: <a href="mailto:contact@yucp.club">contact@yucp.club</a>

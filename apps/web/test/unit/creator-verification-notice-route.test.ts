@@ -24,53 +24,59 @@ describe('creator verification and attestation notice', () => {
     expect(source).not.toContain('beforeLoad');
   });
 
-  it('explains the buyer, creator, and YUCP data relationship in plain language', () => {
+  it('keeps the buyer notice practical and routes detailed privacy questions to the full policy', () => {
     const source = readRoute();
     const content = compact(source);
 
-    expect(content).toContain('For buyers');
-    expect(content).toContain('For creators');
-    expect(content).toContain('What YUCP records');
-    expect(content).toContain('What creators can see');
-    expect(content).toContain('not legal advice');
-    expect(content).toContain('does not replace a creator');
-    expect(content).toContain('controller-processor agreement');
+    expect(content).toContain('What happens when you verify access');
+    expect(content).toContain('The creator receives the result.');
+    expect(content).toContain('Ask about your data');
+    expect(content).toContain('complete privacy notice');
+    expect(content).not.toContain('The legal role follows the facts');
   });
 
-  it('explains delivery records without implementation-only package terms', () => {
+  it('presents the information people need at verification time', () => {
+    const content = compact(readRoute());
+
+    expect(content).toContain('What data YUCP uses');
+    expect(content).toContain('Why we use it');
+    expect(content).toContain('Who sees this data');
+    expect(content).toContain('Legal basis');
+    expect(content).toContain('Automated access checks');
+    expect(content).toContain('Your privacy choices');
+    expect(content).toContain('We do not sell personal data.');
+    expect(content).toContain('encrypted at rest');
+    expect(content).toContain('only when it is needed for a provider request');
+  });
+
+  it('uses the complete dashboard wordmark rather than a constrained decorative logo', () => {
+    const source = readRoute();
+    const styles = readFileSync(LEGAL_STYLES_PATH, 'utf8');
+
+    expect(source).toContain('alt="Creator Assistant"');
+    expect(styles).toMatch(/\.creator-notice-brand img\s*\{[\s\S]*?width:\s*auto;/);
+    expect(styles).toMatch(/\.creator-notice-brand img\s*\{[\s\S]*?height:\s*26px;/);
+  });
+
+  it('explains verification and delivery without implementation-only package terms', () => {
     const source = readRoute();
 
-    expect(source).toContain(
-      'package delivery results and the records needed to investigate misuse'
-    );
+    expect(source).toContain('prepare package access');
     expect(source).not.toMatch(/\bdelivery grants?\b/i);
     expect(source).not.toMatch(/\bsigned receipts?\b/i);
     expect(source).not.toMatch(/\bmaterialization\b/i);
-    expect(source).not.toMatch(/\bprovider\b/i);
   });
 
-  it('links every legal disclosure area to current official authorities', () => {
+  it('keeps the buyer notice concise and directs readers to the complete privacy disclosure', () => {
     const source = readRoute();
+    const content = compact(source);
 
-    expect(source).toContain('https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng');
-    expect(source).toContain(
-      'https://www.edpb.europa.eu/documents/guideline/guidelines-072020-on-the-concepts-of-controller-and-processor-in-the-gdpr_en'
+    expect(content).toContain('complete privacy notice');
+    expect(content).toContain(
+      'rights, provider categories, transfer safeguards, retention criteria'
     );
-    expect(source).toContain(
-      'https://commission.europa.eu/law/law-topic/data-protection/information-individuals_en'
-    );
-    expect(source).toContain('https://www.legislation.gov.uk/eur/2016/679/contents');
-    expect(source).toContain('https://www.legislation.gov.uk/ukpga/2018/12/contents');
-    expect(source).toContain('https://cppa.ca.gov/faq.html');
-    expect(source).toContain(
-      'https://leginfo.legislature.ca.gov/faces/codes_displayText.xhtml?article=&chapter=&division=3.&lawCode=CIV&part=4.&title=1.81.5.'
-    );
-    expect(source).toContain(
-      'https://www1.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=49981'
-    );
-    expect(source).toContain(
-      'https://www1.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=53646'
-    );
+    expect(source).not.toContain('OFFICIAL_SOURCES');
+    expect(source).not.toContain('Official legal sources');
   });
 
   it('provides direct policy, rights, and contact paths', () => {
@@ -78,7 +84,7 @@ describe('creator verification and attestation notice', () => {
 
     expect(source).toContain('href="/legal/privacy-policy"');
     expect(source).toContain('href="/legal/terms-of-service"');
-    expect(source).toContain('mailto:privacy@yucp.club');
+    expect(source).toContain('mailto:contact@yucp.club');
   });
 
   it('uses one current revision date across the legal pages', () => {
@@ -126,7 +132,7 @@ describe('creator verification and attestation notice', () => {
     expect(privacy).toContain('attribution token hashes');
     expect(privacy).toContain('short-lived buyer-specific packages');
     expect(privacy).toContain('We apply criteria for each record type');
-    expect(privacy).toContain('mailto:privacy@yucp.club');
+    expect(privacy).toContain('mailto:contact@yucp.club');
     expect(privacy).toContain('when you use the Creator Assistant services');
     expect(privacy).not.toContain('Creator Assistant Assistant');
     expect(privacy).not.toContain('Typically 30-90 days');

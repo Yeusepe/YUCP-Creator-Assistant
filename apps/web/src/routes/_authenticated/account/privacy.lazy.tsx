@@ -264,8 +264,8 @@ function AccountPrivacy() {
         <div className="account-note-stack">
           <p className="account-feature-copy">
             Contact{' '}
-            <a href="mailto:privacy@yucp.club" className="account-inline-link">
-              privacy@yucp.club
+            <a href="mailto:contact@yucp.club" className="account-inline-link">
+              contact@yucp.club
             </a>{' '}
             if you need to restrict processing or have questions about the export contents.
           </p>
