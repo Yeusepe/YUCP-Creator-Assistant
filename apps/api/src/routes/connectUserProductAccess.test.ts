@@ -16,6 +16,9 @@ const sharedActual = await import('@yucp/shared');
 const verificationConfigActual = await import('../verification/verificationConfig');
 
 const apiMock = {
+  buyerCreatorVpmRepositories: {
+    ensureActive: 'buyerCreatorVpmRepositories.ensureActive',
+  },
   creatorVpmLinks: {
     getActiveForPackageAccess: 'creatorVpmLinks.getActiveForPackageAccess',
   },
@@ -239,6 +242,26 @@ describe('connect user product access routes', () => {
   });
 
   it('returns product entitlement state for the signed-in buyer', async () => {
+    convexMutationMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference === apiMock.buyerCreatorVpmRepositories.ensureActive) {
+        expect(args).toEqual({
+          apiSecret: 'test-convex-secret',
+          actor: 'service-actor-binding',
+          buyerAuthUserId: 'buyer-auth-user',
+          creatorAuthUserId: 'creator-auth-user',
+          creatorSlug: 'avatar-studio',
+          proposedLinkId: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+          requiredCatalogProductIds: ['catalog_123'],
+        });
+        return {
+          created: true,
+          creatorSlug: 'avatar-studio',
+          linkId: 'A'.repeat(43),
+          status: 'active',
+        };
+      }
+      throw new Error(`Unexpected mutation reference: ${String(reference)}`);
+    });
     convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
       if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
         expect(args).toEqual({
@@ -292,14 +315,7 @@ describe('connect user product access routes', () => {
           authUserId: 'creator-auth-user',
           packageId: 'com.yucp.avatar-bundle',
         });
-        return {
-          catalogProductId: 'catalog_123',
-          createdAt: 1_700_000_000_000,
-          creatorSlug: 'avatar-studio',
-          linkId: 'A'.repeat(43),
-          packageId: 'com.yucp.avatar-bundle',
-          status: 'active',
-        };
+        return { creatorSlug: 'avatar-studio', status: 'active' };
       }
 
       throw new Error(`Unexpected query reference: ${String(reference)}`);
@@ -381,6 +397,7 @@ describe('connect user product access routes', () => {
       apiMock.creatorVpmLinks.getActiveForPackageAccess,
       expect.anything()
     );
+    expect(convexMutationMock).not.toHaveBeenCalled();
   });
 
   it('derives the storefront URL from the canonical slug when no stored URL exists', async () => {
@@ -475,7 +492,19 @@ describe('connect user product access routes', () => {
     expect(body.product.storefronts[0]?.storefrontUrl).toBeNull();
   });
 
-  it('returns the same durable repository URL to two entitled buyers', async () => {
+  it('returns a distinct durable repository URL to each entitled buyer', async () => {
+    convexMutationMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference === apiMock.buyerCreatorVpmRepositories.ensureActive) {
+        const buyerAuthUserId = String((args as { buyerAuthUserId?: string }).buyerAuthUserId);
+        return {
+          created: true,
+          creatorSlug: 'avatar-studio',
+          linkId: (buyerAuthUserId === 'buyer-one' ? 'A' : 'B').repeat(43),
+          status: 'active',
+        };
+      }
+      throw new Error(`Unexpected mutation reference: ${String(reference)}`);
+    });
     convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
       if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
         return {
@@ -507,11 +536,7 @@ describe('connect user product access routes', () => {
       }
       if (reference === apiMock.creatorVpmLinks.getActiveForPackageAccess) {
         return {
-          catalogProductId: 'catalog_123',
-          createdAt: 1_700_000_000_000,
           creatorSlug: 'avatar-studio',
-          linkId: 'S'.repeat(43),
-          packageId: 'com.yucp.avatar-bundle',
           status: 'active',
         };
       }
@@ -531,13 +556,94 @@ describe('connect user product access routes', () => {
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(firstBody.repository).toEqual(secondBody.repository);
+    expect(firstBody.repository).not.toEqual(secondBody.repository);
     expect(firstBody.repository).toEqual({
       addRepoUrl:
-        'vcc://vpm/addRepo?url=https%3A%2F%2Favatar-studio.private.yucp.club%2Fapi%2Fvpm%2Faccess%2FSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS%2Findex.json',
+        'vcc://vpm/addRepo?url=https%3A%2F%2Favatar-studio.private.yucp.club%2Fapi%2Fvpm%2Faccess%2FAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%2Findex.json',
       indexUrl:
-        'https://avatar-studio.private.yucp.club/api/vpm/access/SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS/index.json',
+        'https://avatar-studio.private.yucp.club/api/vpm/access/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/index.json',
     });
+    expect(secondBody.repository).toEqual({
+      addRepoUrl:
+        'vcc://vpm/addRepo?url=https%3A%2F%2Favatar-studio.private.yucp.club%2Fapi%2Fvpm%2Faccess%2FBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB%2Findex.json',
+      indexUrl:
+        'https://avatar-studio.private.yucp.club/api/vpm/access/BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB/index.json',
+    });
+  });
+
+  it('returns the same tailored repository from every entitled product page for one creator', async () => {
+    convexMutationMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference === apiMock.buyerCreatorVpmRepositories.ensureActive) {
+        expect(args).toMatchObject({
+          buyerAuthUserId: 'buyer-auth-user',
+          creatorAuthUserId: 'creator-auth-user',
+        });
+        return {
+          created: false,
+          creatorSlug: 'avatar-studio',
+          linkId: 'T'.repeat(43),
+          status: 'active',
+        };
+      }
+      throw new Error(`Unexpected mutation reference: ${String(reference)}`);
+    });
+    convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        const catalogProductId = String((args as { catalogProductId?: string }).catalogProductId);
+        const suffix = catalogProductId === 'catalog_one' ? 'one' : 'two';
+        return {
+          catalogProductId,
+          creatorAuthUserId: 'creator-auth-user',
+          packageId: `com.yucp.avatar-${suffix}`,
+          productId: `product_${suffix}`,
+          provider: 'gumroad',
+          providerProductRef: `gumroad-${suffix}`,
+          displayName: `Avatar ${suffix}`,
+          status: 'active',
+          storefronts: [
+            {
+              catalogProductId,
+              productId: `product_${suffix}`,
+              provider: 'gumroad',
+              providerProductRef: `gumroad-${suffix}`,
+            },
+          ],
+        };
+      }
+      if (reference === apiMock.entitlements.listByAuthUser) {
+        const productId = String((args as { productId?: string }).productId);
+        return {
+          data: [
+            {
+              id: `entitlement-${productId}`,
+              catalogProductId: productId === 'product_one' ? 'catalog_one' : 'catalog_two',
+            },
+          ],
+          hasMore: false,
+        };
+      }
+      if (reference === apiMock.creatorVpmLinks.getActiveForPackageAccess) {
+        return { creatorSlug: 'avatar-studio', status: 'active' };
+      }
+      throw new Error(`Unexpected query reference: ${String(reference)}`);
+    });
+
+    const routes = createRoutes();
+    const first = await routes.getBuyerProductAccess(
+      new Request('http://localhost:3001/api/connect/user/product-access/catalog_one'),
+      'catalog_one'
+    );
+    const second = await routes.getBuyerProductAccess(
+      new Request('http://localhost:3001/api/connect/user/product-access/catalog_two'),
+      'catalog_two'
+    );
+    const firstBody = (await first.json()) as { repository: unknown };
+    const secondBody = (await second.json()) as { repository: unknown };
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(firstBody.repository).toEqual(secondBody.repository);
+    expect(convexMutationMock).toHaveBeenCalledTimes(2);
   });
 
   it('returns verification-required state to signed-out product access callers', async () => {

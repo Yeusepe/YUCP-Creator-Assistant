@@ -716,11 +716,16 @@ export const resolvePublicBootstrapPresentation = query({
     const description = sharedText(metadata.map((value) => value?.description));
     const packageName = sharedText(metadata.map((value) => value?.packageName));
     const tagline = sharedText(metadata.map((value) => value?.tagline));
+    const latestCandidate = candidates.reduce((latest, candidate) =>
+      candidate.createdAt > latest.createdAt ? candidate : latest
+    );
+    const version = latestCandidate.packageMetadata?.version ?? latestCandidate.version;
     const packageMetadata = {
       ...(author ? { author } : {}),
       ...(description ? { description } : {}),
       ...(packageName ? { packageName } : {}),
       ...(tagline ? { tagline } : {}),
+      version,
     };
     const hasMetadata = Object.keys(packageMetadata).length > 0;
     const firstMedia = canonicalBootstrapMedia(candidates[0]?.bootstrapMedia ?? []);

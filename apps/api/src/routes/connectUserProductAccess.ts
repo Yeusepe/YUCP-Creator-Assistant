@@ -44,7 +44,11 @@ interface CreateConnectUserProductAccessRoutesOptions {
   rateLimitStore?: PublicApiRateLimitStore;
 }
 
-type ActiveCreatorVpmLink = {
+type ActiveCreatorPackageDelivery = {
+  creatorSlug: string;
+};
+
+type ActiveBuyerCreatorVpmRepository = {
   creatorSlug: string;
   linkId: string;
 };
@@ -73,6 +77,12 @@ function createBuyerAccessMachineFingerprint(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
   return `buyer-access-web:${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+}
+
+function createBuyerCreatorRepositoryLinkId(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Buffer.from(bytes).toString('base64url');
 }
 
 function buildBuyerAccessFailureContext(
@@ -223,28 +233,54 @@ export function createConnectUserProductAccessRoutes({
 
   async function resolvePrivateRepository(
     product: BuyerAccessCatalogProduct,
+    buyerAuthUserId: string | null,
     hasActiveEntitlement: boolean
   ): Promise<PublicVpmRepositoryAccess | null> {
-    if (!hasActiveEntitlement || !product.packageId || !config.privateVpmRootDomain) {
+    if (
+      !buyerAuthUserId ||
+      !hasActiveEntitlement ||
+      !product.packageId ||
+      !config.privateVpmRootDomain
+    ) {
       return null;
     }
     const actor = await createApiServiceActorBinding({
+      authUserId: buyerAuthUserId,
       service: 'buyer-product-access',
       scopes: ['downloads:service'],
     });
     const convex = getConvexClientFromUrl(config.convexUrl, actor);
-    const link = (await convex.query(api.creatorVpmLinks.getActiveForPackageAccess, {
+    const delivery = (await convex.query(api.creatorVpmLinks.getActiveForPackageAccess, {
       apiSecret: config.convexApiSecret,
       actor,
       authUserId: product.creatorAuthUserId,
       packageId: product.packageId,
-    })) as ActiveCreatorVpmLink | null;
-    if (!link) {
+    })) as ActiveCreatorPackageDelivery | null;
+    if (!delivery) {
       return null;
     }
-    const privateVpmBaseUrl = buildPrivateVpmBaseUrl(config.privateVpmRootDomain, link.creatorSlug);
+    const requiredCatalogProductIds = [
+      ...new Set([
+        String(product.catalogProductId),
+        ...(product.catalogProductIds ?? []).map(String),
+        ...product.storefronts.map((storefront) => String(storefront.catalogProductId)),
+      ]),
+    ] as Id<'product_catalog'>[];
+    const repository = (await convex.mutation(api.buyerCreatorVpmRepositories.ensureActive, {
+      apiSecret: config.convexApiSecret,
+      actor,
+      buyerAuthUserId,
+      creatorAuthUserId: product.creatorAuthUserId,
+      creatorSlug: delivery.creatorSlug,
+      requiredCatalogProductIds,
+      proposedLinkId: createBuyerCreatorRepositoryLinkId(),
+    })) as ActiveBuyerCreatorVpmRepository;
+    const privateVpmBaseUrl = buildPrivateVpmBaseUrl(
+      config.privateVpmRootDomain,
+      repository.creatorSlug
+    );
     return privateVpmBaseUrl
-      ? buildPublicVpmRepositoryAccess(privateVpmBaseUrl, link.linkId)
+      ? buildPublicVpmRepositoryAccess(privateVpmBaseUrl, repository.linkId)
       : null;
   }
 
@@ -290,7 +326,11 @@ export function createConnectUserProductAccessRoutes({
       if (!product) {
         return Response.json({ error: 'Product access page not found' }, { status: 404 });
       }
-      const repository = await resolvePrivateRepository(product, Boolean(activeEntitlement));
+      const repository = await resolvePrivateRepository(
+        product,
+        session?.user.id ?? null,
+        Boolean(activeEntitlement)
+      );
 
       return jsonNoStore({
         product: {

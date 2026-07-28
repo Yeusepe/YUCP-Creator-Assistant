@@ -2691,6 +2691,26 @@ const creator_vpm_links = defineTable({
   .index('by_creator_package_status', ['creatorAuthUserId', 'packageId', 'status']);
 
 /**
+ * One durable, tailored VPM repository per buyer and creator.
+ *
+ * Package membership is derived at read time from the buyer's active entitlements,
+ * active catalog bindings, and the creator's package delivery enablement.
+ */
+const buyer_creator_vpm_repositories = defineTable({
+  buyerAuthUserId: v.string(),
+  creatorAuthUserId: v.string(),
+  creatorSlug: v.string(),
+  linkId: v.string(),
+  status: v.union(v.literal('active'), v.literal('revoked')),
+  createdAt: v.number(),
+  revokedAt: v.optional(v.number()),
+  updatedAt: v.number(),
+})
+  .index('by_link_id', ['linkId'])
+  .index('by_buyer_creator_status', ['buyerAuthUserId', 'creatorAuthUserId', 'status'])
+  .index('by_creator_status', ['creatorAuthUserId', 'status']);
+
+/**
  * Mutable public presentation for one package-scoped VPM alias.
  *
  * Paid release versions and storefront bindings are intentionally absent.
@@ -2743,6 +2763,7 @@ const vpm_alias_publications = defineTable({
   publicationId: v.string(),
   revision: v.number(),
   bootstrapVersion: v.string(),
+  packageVersion: v.optional(v.string()),
   status: v.union(v.literal('PREPARING'), v.literal('PUBLISHED'), v.literal('FAILED')),
   contractVersion: v.literal(1),
   artifactFormat: v.literal('vpm-alias-zip-v1'),
@@ -3135,6 +3156,7 @@ export default defineSchema({
   package_public_namespaces,
   package_catalog_bindings,
   creator_vpm_links,
+  buyer_creator_vpm_repositories,
   package_vpm_presentations,
   vpm_alias_publications,
   package_editions,
