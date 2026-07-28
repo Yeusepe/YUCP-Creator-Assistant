@@ -70,7 +70,7 @@ import { httpRouter } from 'convex/server';
 import { api, components, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { httpAction } from './_generated/server';
-import { authComponent, createAuth } from './auth';
+import { authComponent, canonicalizeBetterAuthProxyRequest, createAuth } from './auth';
 import { buildPublicJwks } from './betterAuth/jwks';
 import { createServiceActorBinding } from './lib/apiActor';
 import {
@@ -444,7 +444,13 @@ async function verifyOAuthRequest(
       await import('better-auth/oauth2');
     const authBase = `${siteUrl.replace(/\/$/, '')}/api/auth`;
 
-    const verified = await verifyAccessTokenRequest(requestToResourceInput(request), {
+    // RFC 9449: the DPoP proof's htu names the URL the client called, which is
+    // the public API origin. These routes receive the raw Convex request, so
+    // restore the forwarded public origin or every DPoP-bound call 401s with
+    // "htu does not match the request URL".
+    const canonicalRequest = canonicalizeBetterAuthProxyRequest(request);
+
+    const verified = await verifyAccessTokenRequest(requestToResourceInput(canonicalRequest), {
       verifyOptions: {
         issuer: authBase,
         audience: PUBLIC_API_AUDIENCE,

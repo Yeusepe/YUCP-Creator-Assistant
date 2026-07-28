@@ -133,8 +133,18 @@ export function resolveAllowedAuthHosts(
  */
 export function canonicalizeBetterAuthProxyRequest(request: Request): Request {
   const requestUrl = new URL(request.url);
-  const forwardedHost = request.headers.get('x-forwarded-host')?.trim();
-  const forwardedProtocol = request.headers.get('x-forwarded-proto')?.trim();
+  // Convex rewrites the standard x-forwarded-* headers before an httpAction
+  // sees them, so on routes the Better Auth component has not preprocessed the
+  // proxy's origin only survives under the prefixed names. Prefer those; the
+  // standard names still work for requests the component already restored.
+  const forwardedHost = (
+    request.headers.get('x-better-auth-forwarded-host') ??
+    request.headers.get('x-forwarded-host')
+  )?.trim();
+  const forwardedProtocol = (
+    request.headers.get('x-better-auth-forwarded-proto') ??
+    request.headers.get('x-forwarded-proto')
+  )?.trim();
   if (!forwardedHost) {
     return request;
   }

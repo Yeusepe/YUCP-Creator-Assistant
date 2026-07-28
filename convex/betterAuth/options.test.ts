@@ -141,6 +141,26 @@ describe('createSchemaAuthOptions', () => {
     expect(direct.url).toBe('https://example.convex.site/api/auth/oauth2/token');
   });
 
+  it('prefers the prefixed forwarded headers, which survive the Convex platform rewrite', () => {
+    // On routes the Better Auth component has not preprocessed, Convex rewrites
+    // x-forwarded-host to its own value; only x-better-auth-forwarded-* carry
+    // the origin the client actually called (and signed its DPoP htu for).
+    const canonical = canonicalizeBetterAuthProxyRequest(
+      new Request('https://example.convex.site/v1/products', {
+        method: 'GET',
+        headers: {
+          host: 'example.convex.site',
+          'x-better-auth-forwarded-host': 'localhost:3000',
+          'x-better-auth-forwarded-proto': 'http',
+          'x-forwarded-host': 'example.convex.site',
+          'x-forwarded-proto': 'https',
+        },
+      })
+    );
+
+    expect(canonical.url).toBe('http://localhost:3000/v1/products');
+  });
+
   it('enforces the persisted RFC 8707 public API resource', () => {
     expect(new URL(PUBLIC_API_AUDIENCE).protocol).toBe('https:');
 
