@@ -440,8 +440,7 @@ async function verifyOAuthRequest(
   | { ok: false; error: string }
 > {
   try {
-    const { requestToResourceInput, verifyAccessTokenRequest } =
-      await import('better-auth/oauth2');
+    const { requestToResourceInput, verifyAccessTokenRequest } = await import('better-auth/oauth2');
     const authBase = `${siteUrl.replace(/\/$/, '')}/api/auth`;
 
     // RFC 9449: the DPoP proof's htu names the URL the client called, which is
@@ -1688,7 +1687,9 @@ function parseFingerprintVector(
 
 function parseAttestationRecordBody(
   body: unknown
-): { ok: true; nonce: string; anchors: RelayAnchor[]; attestation: RelayAttestation } | { ok: false } {
+):
+  | { ok: true; nonce: string; anchors: RelayAnchor[]; attestation: RelayAttestation }
+  | { ok: false } {
   if (!isRecord(body) || typeof body.nonce !== 'string' || !ATTESTATION_NONCE_RE.test(body.nonce)) {
     return { ok: false };
   }
@@ -1821,7 +1822,11 @@ function parseCouplingRecordBody(
 function parsePaymentAnchorBody(
   body: unknown
 ): { ok: true; licenseSubject: string; paymentFingerprintHash: string } | { ok: false } {
-  if (!isRecord(body) || !isHashString(body.licenseSubject) || !isHashString(body.paymentFingerprintHash)) {
+  if (
+    !isRecord(body) ||
+    !isHashString(body.licenseSubject) ||
+    !isHashString(body.paymentFingerprintHash)
+  ) {
     return { ok: false };
   }
   return {
@@ -1833,9 +1838,7 @@ function parsePaymentAnchorBody(
 
 function parseIdentityBlockBody(
   body: unknown
-):
-  | { ok: true; identityNodeId: string; reason: string; evidenceRef?: string }
-  | { ok: false } {
+): { ok: true; identityNodeId: string; reason: string; evidenceRef?: string } | { ok: false } {
   if (!isRecord(body)) {
     return { ok: false };
   }
@@ -1853,9 +1856,7 @@ function parseIdentityBlockBody(
   };
 }
 
-function parseIdentityBlockReviewBody(
-  body: unknown
-):
+function parseIdentityBlockReviewBody(body: unknown):
   | {
       ok: true;
       blockId: string;
@@ -1937,7 +1938,9 @@ http.route({
 
     let challenge: { correlationId: string };
     try {
-      challenge = await ctx.runMutation(internal.attestation.consumeChallenge, { nonce: parsed.nonce });
+      challenge = await ctx.runMutation(internal.attestation.consumeChallenge, {
+        nonce: parsed.nonce,
+      });
     } catch {
       return errorResponse('Invalid challenge', 422);
     }
@@ -1977,7 +1980,9 @@ http.route({
 
     let challenge: { correlationId: string };
     try {
-      challenge = await ctx.runMutation(internal.attestation.consumeChallenge, { nonce: parsed.nonce });
+      challenge = await ctx.runMutation(internal.attestation.consumeChallenge, {
+        nonce: parsed.nonce,
+      });
     } catch {
       return errorResponse('Invalid challenge', 422);
     }

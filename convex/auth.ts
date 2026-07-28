@@ -138,12 +138,10 @@ export function canonicalizeBetterAuthProxyRequest(request: Request): Request {
   // proxy's origin only survives under the prefixed names. Prefer those; the
   // standard names still work for requests the component already restored.
   const forwardedHost = (
-    request.headers.get('x-better-auth-forwarded-host') ??
-    request.headers.get('x-forwarded-host')
+    request.headers.get('x-better-auth-forwarded-host') ?? request.headers.get('x-forwarded-host')
   )?.trim();
   const forwardedProtocol = (
-    request.headers.get('x-better-auth-forwarded-proto') ??
-    request.headers.get('x-forwarded-proto')
+    request.headers.get('x-better-auth-forwarded-proto') ?? request.headers.get('x-forwarded-proto')
   )?.trim();
   if (!forwardedHost) {
     return request;
