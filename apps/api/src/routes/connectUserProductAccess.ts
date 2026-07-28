@@ -10,6 +10,7 @@ import { getClientAddress } from '../lib/clientAddress';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
+import { buildPrivateVpmBaseUrl } from '../lib/privateVpmDomain';
 import {
   buildPublicApiRateLimitKey,
   checkPublicApiRateLimit,
@@ -41,6 +42,7 @@ interface CreateConnectUserProductAccessRoutesOptions {
 }
 
 type ActiveCreatorVpmLink = {
+  creatorSlug: string;
   linkId: string;
 };
 
@@ -194,11 +196,11 @@ export function createConnectUserProductAccessRoutes({
     return { activeEntitlement, product };
   }
 
-  async function resolvePublicRepository(
+  async function resolvePrivateRepository(
     product: BuyerAccessCatalogProduct,
     hasActiveEntitlement: boolean
   ): Promise<PublicVpmRepositoryAccess | null> {
-    if (!hasActiveEntitlement || !product.packageId || !config.vpmBaseUrl) {
+    if (!hasActiveEntitlement || !product.packageId || !config.privateVpmRootDomain) {
       return null;
     }
     const actor = await createApiServiceActorBinding({
@@ -212,7 +214,13 @@ export function createConnectUserProductAccessRoutes({
       authUserId: product.creatorAuthUserId,
       packageId: product.packageId,
     })) as ActiveCreatorVpmLink | null;
-    return link ? buildPublicVpmRepositoryAccess(config.vpmBaseUrl, link.linkId) : null;
+    if (!link) {
+      return null;
+    }
+    const privateVpmBaseUrl = buildPrivateVpmBaseUrl(config.privateVpmRootDomain, link.creatorSlug);
+    return privateVpmBaseUrl
+      ? buildPublicVpmRepositoryAccess(privateVpmBaseUrl, link.linkId)
+      : null;
   }
 
   async function getBuyerProductAccess(
@@ -257,7 +265,7 @@ export function createConnectUserProductAccessRoutes({
       if (!product) {
         return Response.json({ error: 'Product access page not found' }, { status: 404 });
       }
-      const repository = await resolvePublicRepository(product, Boolean(activeEntitlement));
+      const repository = await resolvePrivateRepository(product, Boolean(activeEntitlement));
 
       return jsonNoStore({
         product: {

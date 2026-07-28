@@ -165,7 +165,7 @@ const testConfig: ConnectConfig = {
   convexApiSecret: 'test-convex-secret',
   convexUrl: 'http://localhost:3210',
   encryptionSecret: 'test-encryption-secret-32chars!!',
-  vpmBaseUrl: 'https://vpm.test',
+  privateVpmRootDomain: 'private.yucp.club',
 };
 
 function createRoutes(
@@ -289,6 +289,7 @@ describe('connect user product access routes', () => {
         return {
           catalogProductId: 'catalog_123',
           createdAt: 1_700_000_000_000,
+          creatorSlug: 'avatar-studio',
           linkId: 'A'.repeat(43),
           packageId: 'com.yucp.avatar-bundle',
           status: 'active',
@@ -331,9 +332,9 @@ describe('connect user product access routes', () => {
       },
       repository: {
         addRepoUrl:
-          'vcc://vpm/addRepo?url=https%3A%2F%2Fvpm.test%2Fapi%2Fvpm%2Faccess%2FAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%2Findex.json',
+          'vcc://vpm/addRepo?url=https%3A%2F%2Favatar-studio.private.yucp.club%2Fapi%2Fvpm%2Faccess%2FAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%2Findex.json',
         indexUrl:
-          'https://vpm.test/api/vpm/access/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/index.json',
+          'https://avatar-studio.private.yucp.club/api/vpm/access/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/index.json',
       },
     });
   });
@@ -372,6 +373,7 @@ describe('connect user product access routes', () => {
         return {
           catalogProductId: 'catalog_123',
           createdAt: 1_700_000_000_000,
+          creatorSlug: 'avatar-studio',
           linkId: 'S'.repeat(43),
           packageId: 'com.yucp.avatar-bundle',
           status: 'active',
@@ -396,9 +398,9 @@ describe('connect user product access routes', () => {
     expect(firstBody.repository).toEqual(secondBody.repository);
     expect(firstBody.repository).toEqual({
       addRepoUrl:
-        'vcc://vpm/addRepo?url=https%3A%2F%2Fvpm.test%2Fapi%2Fvpm%2Faccess%2FSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS%2Findex.json',
+        'vcc://vpm/addRepo?url=https%3A%2F%2Favatar-studio.private.yucp.club%2Fapi%2Fvpm%2Faccess%2FSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS%2Findex.json',
       indexUrl:
-        'https://vpm.test/api/vpm/access/SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS/index.json',
+        'https://avatar-studio.private.yucp.club/api/vpm/access/SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS/index.json',
     });
   });
 
