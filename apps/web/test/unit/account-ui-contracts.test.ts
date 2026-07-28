@@ -14,6 +14,11 @@ const accountIndexRouteSource = readFileSync(
   resolve(__dirname, '../../src/routes/_authenticated/account/index.lazy.tsx'),
   'utf8'
 );
+const accountApiSource = readFileSync(resolve(__dirname, '../../src/lib/account.ts'), 'utf8');
+const dashboardRouteSource = readFileSync(
+  resolve(__dirname, '../../src/routes/_authenticated/dashboard.tsx'),
+  'utf8'
+);
 const accountCertificatesRouteSource = readFileSync(
   resolve(__dirname, '../../src/routes/_authenticated/account/certificates.tsx'),
   'utf8'
@@ -104,7 +109,9 @@ describe('account UI contracts', () => {
   });
 
   it('renders Discord identity from auth session data with the account shell as fallback', () => {
-    expect(accountIndexRouteSource).toContain('const { guilds, viewer } = useAccountShell();');
+    expect(accountIndexRouteSource).toContain(
+      'const { creatorAccount, viewer } = useAccountShell();'
+    );
     expect(accountIndexRouteSource).toContain('authClient.getSession()');
     expect(accountIndexRouteSource).not.toContain('useConvexQuery(api.authViewer.getViewer)');
     expect(accountIndexRouteSource).not.toContain("'Your Account'");
@@ -116,6 +123,20 @@ describe('account UI contracts', () => {
       '<a href="/dashboard" className="account-btn account-btn--primary">'
     );
     expect(accountIndexRouteSource).not.toContain('key={label}');
+  });
+
+  it('lets a signed-in user activate a creator account without installing the bot', () => {
+    expect(accountApiSource).toContain(
+      "apiClient.post<CreatorAccountActivationResult>('/api/connect/creator-account')"
+    );
+    expect(accountIndexRouteSource).toContain('activateCreatorAccount');
+    expect(accountIndexRouteSource).toContain('isLoading={isActivatingCreatorAccount}');
+    expect(accountIndexRouteSource).toContain('Become a creator');
+    expect(accountIndexRouteSource).not.toContain('Add bot to a server');
+    expect(dashboardRouteSource).toContain('shell.creatorAccount.isActive');
+    expect(dashboardRouteSource).not.toContain(
+      'shell.guilds.length === 0 && !allowsFreshGuildBootstrap'
+    );
   });
 
   it('announces inline account errors to assistive technology', () => {

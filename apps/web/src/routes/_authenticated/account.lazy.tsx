@@ -158,13 +158,13 @@ function _toggleAccountSidebar() {
 }
 
 function AccountLayout() {
-  const { guilds } = useAccountShell();
+  const { creatorAccount } = useAccountShell();
   const { signOut } = useAuth();
   const routerState = useRouterState();
   const currentPath = routerState.location.pathname;
-  const isCreator = guilds.length > 0;
-  const footerHref = isCreator ? '/dashboard' : '/api/install/bot';
-  const footerLabel = isCreator ? 'Creator Dashboard' : 'Add a Server';
+  const isCreator = creatorAccount.isActive;
+  const footerHref = isCreator ? '/dashboard' : '/account#creator-account';
+  const footerLabel = isCreator ? 'Creator Dashboard' : 'Become a Creator';
 
   return (
     <DashboardSessionProvider>

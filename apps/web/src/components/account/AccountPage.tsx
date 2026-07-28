@@ -17,6 +17,7 @@ export function AccountPage({
 }
 
 export function AccountSectionCard({
+  id,
   eyebrow,
   title,
   description,
@@ -27,6 +28,7 @@ export function AccountSectionCard({
   leading,
   children,
 }: Readonly<{
+  id?: string;
   eyebrow?: string;
   title: string;
   description?: string;
@@ -39,7 +41,7 @@ export function AccountSectionCard({
   children: ReactNode;
 }>) {
   return (
-    <section className={joinClasses('section-card account-surface-card', className)}>
+    <section id={id} className={joinClasses('section-card account-surface-card', className)}>
       <div className="account-surface-card-header">
         <div className="account-surface-card-header-cluster">
           {leading ? <div className="account-surface-card-leading">{leading}</div> : null}

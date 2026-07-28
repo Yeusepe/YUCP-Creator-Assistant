@@ -1249,6 +1249,9 @@ async function routeRequest(request: Request): Promise<Response> {
   if (pathname === '/api/connect/dashboard/shell' && connectRoutes) {
     return connectRoutes.getDashboardShell(request);
   }
+  if (pathname === '/api/connect/creator-account' && connectRoutes) {
+    return connectRoutes.activateCreatorAccount(request);
+  }
   if (pathname === '/api/connect/branding' && connectRoutes) {
     return connectRoutes.getViewerBranding(request);
   }

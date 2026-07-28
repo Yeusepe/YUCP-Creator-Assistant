@@ -353,6 +353,53 @@ describe('GET /api/connect/dashboard/shell', () => {
       billingStatus: 'active',
     });
   });
+
+  it('reports an active creator account even when no Discord server is installed', async () => {
+    queryImpl = async (fn) => {
+      if (fn === apiMock.guildLinks.getUserGuilds) {
+        return [];
+      }
+      if (fn === apiMock.creatorProfiles.getCreatorProfile) {
+        return {
+          authUserId: 'creator-without-server',
+          status: 'active',
+        };
+      }
+      if (fn === apiMock.certificateBilling.getShellBrandingForAuthUser) {
+        return {
+          isPlus: false,
+          billingStatus: null,
+        };
+      }
+      throw new Error(`Unexpected query fn: ${String(fn)}`);
+    };
+
+    const fakeAuth = {
+      ...auth,
+      getSession: async () => ({
+        user: {
+          id: 'creator-without-server',
+          name: 'Independent Creator',
+        },
+        discordUserId: 'discord-creator-001',
+      }),
+    } as unknown as Auth;
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+
+    const res = await isolatedRoutes.getDashboardShell(
+      new Request('http://localhost:3001/api/connect/dashboard/shell')
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      creatorAccount: {
+        isActive: boolean;
+      };
+      guilds: unknown[];
+    };
+    expect(body.guilds).toEqual([]);
+    expect(body.creatorAccount).toEqual({ isActive: true });
+  });
 });
 
 describe('GET /api/connect/ensure-tenant', () => {
@@ -497,6 +544,78 @@ describe('GET /api/connect/ensure-tenant', () => {
         status: 'active',
       },
     });
+  });
+});
+
+describe('POST /api/connect/creator-account', () => {
+  it('creates a creator profile for the signed-in user without creating a guild link', async () => {
+    const mutationCalls: Array<{ fn: unknown; args: unknown }> = [];
+
+    queryImpl = async (fn, args) => {
+      if (fn === apiMock.creatorProfiles.getCreatorProfile) {
+        expect(args).toEqual({
+          apiSecret: 'test-convex-secret',
+          authUserId: 'creator-without-server',
+        });
+        return null;
+      }
+      throw new Error(`Unexpected query fn: ${String(fn)}`);
+    };
+    mutationImpl = async (fn, args) => {
+      mutationCalls.push({ fn, args });
+      return 'creator-profile-001';
+    };
+
+    const fakeAuth = {
+      ...auth,
+      getSession: async () => ({
+        user: {
+          id: 'creator-without-server',
+          name: 'Independent Creator',
+        },
+        discordUserId: 'discord-creator-001',
+      }),
+      getDiscordUserId: async () => 'discord-creator-001',
+    } as unknown as Auth;
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig) as ReturnType<
+      typeof createConnectRoutes
+    > & {
+      activateCreatorAccount?: (request: Request) => Promise<Response>;
+    };
+    expect(isolatedRoutes.activateCreatorAccount).toBeDefined();
+    if (!isolatedRoutes.activateCreatorAccount) {
+      throw new Error('activateCreatorAccount route is not defined');
+    }
+
+    const res = await isolatedRoutes.activateCreatorAccount(
+      new Request('http://localhost:3001/api/connect/creator-account', {
+        method: 'POST',
+        headers: {
+          Origin: 'http://localhost:3000',
+        },
+      })
+    );
+
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({
+      creatorAccount: { isActive: true },
+      created: true,
+    });
+    expect(mutationCalls).toEqual([
+      {
+        fn: apiMock.creatorProfiles.createCreatorProfile,
+        args: {
+          apiSecret: 'test-convex-secret',
+          name: 'Independent Creator',
+          ownerDiscordUserId: 'discord-creator-001',
+          authUserId: 'creator-without-server',
+          policy: {},
+        },
+      },
+    ]);
+    expect(mutationCalls.some((call) => call.fn === apiMock.guildLinks.upsertGuildLink)).toBe(
+      false
+    );
   });
 });
 

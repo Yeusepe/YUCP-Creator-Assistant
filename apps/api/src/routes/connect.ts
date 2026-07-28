@@ -51,7 +51,11 @@ export type { ConnectConfig } from '../providers/types';
 
 import { logger } from '../lib/logger';
 
-type CreatorProfileRecord = { authUserId: string; policy?: Record<string, unknown> } | null;
+type CreatorProfileRecord = {
+  authUserId: string;
+  policy?: Record<string, unknown>;
+  status?: string;
+} | null;
 
 const TOKEN_MAX_LEN = 256;
 const TOKEN_PATTERN = /^[a-zA-Z0-9._-]+$/;
@@ -81,6 +85,9 @@ interface DashboardShellResponse {
   branding?: {
     isPlus: boolean;
     billingStatus?: string;
+  };
+  creatorAccount: {
+    isActive: boolean;
   };
   guilds: Array<{
     authUserId: string;
@@ -426,6 +433,126 @@ export function createConnectRoutes(
         response: Response.json({ error: args.failureResponseMessage }, { status: 500 }),
       };
     }
+  }
+
+  /**
+   * POST /api/connect/creator-account
+   * Activates the signed-in user's creator workspace without requiring a Discord server.
+   */
+  async function activateCreatorAccount(request: Request): Promise<Response> {
+    if (request.method !== 'POST') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+
+    const timing = new RouteTimingCollector();
+    const csrfBlock = rejectCrossSiteRequest(
+      request,
+      new Set([new URL(config.apiBaseUrl).origin, new URL(config.frontendBaseUrl).origin])
+    );
+    if (csrfBlock) {
+      return buildTimedResponse(timing, () => csrfBlock, 'serialize creator activation');
+    }
+
+    const session = await timing.measure(
+      'session',
+      () => auth.getSession(request),
+      'resolve creator activation session'
+    );
+    if (!session) {
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ error: 'Authentication required' }, { status: 401 }),
+        'serialize creator activation'
+      );
+    }
+
+    const existingProfile = await timing.measure(
+      'convex_creator_profile',
+      () => getCreatorProfile(request, session.user.id),
+      'load creator activation profile'
+    );
+    if (existingProfile?.status === 'active') {
+      return buildTimedResponse(
+        timing,
+        () =>
+          Response.json({
+            creatorAccount: { isActive: true },
+            created: false,
+          }),
+        'serialize creator activation'
+      );
+    }
+    if (existingProfile) {
+      return buildTimedResponse(
+        timing,
+        () =>
+          Response.json(
+            { error: 'This creator account is not available for activation' },
+            { status: 409 }
+          ),
+        'serialize creator activation'
+      );
+    }
+
+    const discordUserId =
+      session.discordUserId ??
+      (await timing.measure(
+        'discord_identity',
+        () => getAuthenticatedDiscordUserId(request),
+        'resolve creator activation Discord identity'
+      ));
+    if (!discordUserId) {
+      return buildTimedResponse(
+        timing,
+        () => buildMissingDiscordIdentityResponse(),
+        'serialize creator activation'
+      );
+    }
+
+    const creatorName = session.user.name?.trim() || `Creator ${discordUserId.slice(0, 8)}`;
+    try {
+      await timing.measure(
+        'convex_creator_activation',
+        () =>
+          getConvexClientFromUrl(config.convexUrl).mutation(
+            api.creatorProfiles.createCreatorProfile,
+            {
+              apiSecret: config.convexApiSecret,
+              name: creatorName,
+              ownerDiscordUserId: discordUserId,
+              authUserId: session.user.id,
+              policy: {},
+            }
+          ),
+        'activate creator account'
+      );
+    } catch (error) {
+      logger.error('Creator account activation failed', {
+        authUserId: session.user.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return buildTimedResponse(
+        timing,
+        () => Response.json({ error: 'Could not activate creator account' }, { status: 500 }),
+        'serialize creator activation'
+      );
+    }
+
+    logger.info('Creator account activated', {
+      authUserId: session.user.id,
+    });
+    return buildTimedResponse(
+      timing,
+      () =>
+        Response.json(
+          {
+            creatorAccount: { isActive: true },
+            created: true,
+          },
+          { status: 201 }
+        ),
+      'serialize creator activation'
+    );
   }
 
   async function getCreatorProfile(
@@ -1552,7 +1679,7 @@ export function createConnectRoutes(
         url.searchParams.get('guildId') ?? url.searchParams.get('guild_id') ?? undefined;
       const includeHomeData =
         url.searchParams.get('includeHomeData') === 'true' || Boolean(requestedGuildId);
-      const [guilds, initialDashboardHome, branding] = await Promise.all([
+      const [guilds, initialDashboardHome, branding, creatorProfile] = await Promise.all([
         loadUserGuildsForAuthUser(session.user.id, timing),
         includeHomeData
           ? timing.measure(
@@ -1576,6 +1703,11 @@ export function createConnectRoutes(
             ),
           'load dashboard shell branding'
         ) as Promise<NonNullable<DashboardShellResponse['branding']>>,
+        timing.measure(
+          'convex_creator_profile',
+          () => getCreatorProfile(request, session.user.id),
+          'load dashboard shell creator profile'
+        ),
       ]);
       const dashboardShellService = new DashboardShellService({
         ownership: {
@@ -1639,6 +1771,9 @@ export function createConnectRoutes(
           discordUserId: session.discordUserId ?? null,
         },
         branding,
+        creatorAccount: {
+          isActive: creatorProfile?.status === 'active',
+        },
         guilds,
         ...(home ? { home } : {}),
         ...(selectedServer ? { selectedServer } : {}),
@@ -1876,6 +2011,7 @@ export function createConnectRoutes(
     createSessionEndpoint,
     createTokenEndpoint,
     completeSetup,
+    activateCreatorAccount,
     ensureTenant,
     dispatchPlugin,
     getStatus,

@@ -122,6 +122,13 @@ export interface UserCertificateWorkspace {
   availablePlans: UserCertificatePlan[];
 }
 
+export interface CreatorAccountActivationResult {
+  creatorAccount: {
+    isActive: boolean;
+  };
+  created: boolean;
+}
+
 function padTwoDigits(value: number) {
   return value.toString().padStart(2, '0');
 }
@@ -163,6 +170,10 @@ export async function listUserLicenses() {
     '/api/connect/user/licenses'
   );
   return data.subjects ?? [];
+}
+
+export async function activateCreatorAccount() {
+  return apiClient.post<CreatorAccountActivationResult>('/api/connect/creator-account');
 }
 
 export async function revokeUserLicense(entitlementId: string) {

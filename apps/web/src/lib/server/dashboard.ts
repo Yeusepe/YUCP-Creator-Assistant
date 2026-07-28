@@ -30,6 +30,10 @@ export interface DashboardBranding {
   billingStatus: string | null;
 }
 
+export interface DashboardCreatorAccount {
+  isActive: boolean;
+}
+
 export interface DashboardUserAccountConnection {
   id: string;
   provider: string;
@@ -59,6 +63,7 @@ export interface DashboardPolicy {
 export interface DashboardShellData {
   viewer: DashboardViewer;
   branding: DashboardBranding;
+  creatorAccount: DashboardCreatorAccount;
   guilds: Guild[];
   home?: {
     providers: DashboardProvider[];
@@ -105,6 +110,9 @@ interface DashboardShellResponse {
   branding?: {
     isPlus?: boolean;
     billingStatus?: string | null;
+  } | null;
+  creatorAccount?: {
+    isActive?: boolean;
   } | null;
   guilds?: GuildResponse[];
   home?: DashboardShellData['home'];
@@ -169,6 +177,9 @@ function normalizeDashboardShellResponse(response: DashboardShellResponse): Dash
         response.branding.billingStatus.length > 0
           ? response.branding.billingStatus
           : null,
+    },
+    creatorAccount: {
+      isActive: response.creatorAccount?.isActive === true,
     },
     guilds: (response.guilds ?? []).map(normalizeGuild),
     home: response.home

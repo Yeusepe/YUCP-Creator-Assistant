@@ -11,7 +11,7 @@ import { StatusChip } from '@/components/ui/StatusChip';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { useAccountShell } from '@/hooks/useAccountShell';
-import { listUserLicenses, listUserOAuthGrants } from '@/lib/account';
+import { activateCreatorAccount, listUserLicenses, listUserOAuthGrants } from '@/lib/account';
 import { authClient } from '@/lib/auth-client';
 import { listCreatorCertificates } from '@/lib/certificates';
 import { getUserAccountsQueryKey, listUserAccounts } from '@/lib/dashboard';
@@ -27,9 +27,10 @@ export const Route = createLazyFileRoute('/_authenticated/account/')({
 });
 
 function AccountProfile() {
-  const { guilds, viewer } = useAccountShell();
+  const { creatorAccount, viewer } = useAccountShell();
   const toast = useToast();
-  const isCreator = guilds.length > 0;
+  const isCreator = creatorAccount.isActive;
+  const [isActivatingCreatorAccount, setIsActivatingCreatorAccount] = useState(false);
   const [isDismissingRecoveryPrompt, setIsDismissingRecoveryPrompt] = useState(false);
   const securityOverview = useConvexQuery(api.accountSecurity.getSecurityOverview, {});
   const dismissRecoveryPrompt = useConvexMutation(api.accountSecurity.dismissRecoveryPrompt);
@@ -85,8 +86,6 @@ function AccountProfile() {
     .filter((entry): entry is { key: string; label: string } => entry !== null)
     .filter((entry, index, arr) => arr.findIndex((e) => e.label === entry.label) === index)
     .slice(0, 3);
-
-  const workspaceHref = '/api/install/bot';
 
   const renderMetricValue = (query: { isLoading: boolean; isError: boolean }, value: number) => {
     if (query.isLoading) {
@@ -279,19 +278,20 @@ function AccountProfile() {
       </AccountSectionCard>
 
       <AccountSectionCard
+        id="creator-account"
         className="bento-col-12 animate-in animate-in-delay-2"
         eyebrow={isCreator ? 'Creator mode' : 'Get started'}
-        title={isCreator ? 'Your Creator Identity is ready' : 'Unlock the creator dashboard'}
+        title={isCreator ? 'Your Creator Identity is ready' : 'Create your Creator Identity'}
         description={
           isCreator
             ? 'Switch from account controls into your Creator Identity whenever you want.'
-            : 'Invite the bot to a Discord server to unlock storefront connections, role automation, and creator-only tooling.'
+            : 'Turn on your creator workspace now. You can connect a Discord server later if you want role automation.'
         }
       >
         <p className="account-feature-copy">
           {isCreator
-            ? 'Use the creator dashboard to configure storefront integrations, server policies, collaboration flows, and audit visibility for every connected community.'
-            : 'Once the bot is installed on a server you manage, this account immediately gains access to the dashboard and its setup flows.'}
+            ? 'Use the creator dashboard to configure storefront integrations, packages, collaboration flows, and any connected communities.'
+            : 'This creates your creator account immediately and opens the dashboard. No server or bot installation is required.'}
         </p>
 
         <div className="account-inline-actions">
@@ -299,11 +299,26 @@ function AccountProfile() {
             <Link to="/dashboard" className="account-btn account-btn--primary">
               Open creator dashboard
             </Link>
-          ) : workspaceHref ? (
-            <a href={workspaceHref} className="account-btn account-btn--primary">
-              Add bot to a server
-            </a>
-          ) : null}
+          ) : (
+            <YucpButton
+              yucp="primary"
+              isLoading={isActivatingCreatorAccount}
+              onPress={async () => {
+                setIsActivatingCreatorAccount(true);
+                try {
+                  await activateCreatorAccount();
+                  window.location.assign('/dashboard');
+                } catch (error) {
+                  toast.error('Could not create creator account', {
+                    description: error instanceof Error ? error.message : 'Try again.',
+                  });
+                  setIsActivatingCreatorAccount(false);
+                }
+              }}
+            >
+              Become a creator
+            </YucpButton>
+          )}
           {isCreator ? (
             <Link to="/account/billing" className="account-btn account-btn--secondary">
               Manage billing

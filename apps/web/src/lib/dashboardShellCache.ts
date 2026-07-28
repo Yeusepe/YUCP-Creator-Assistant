@@ -11,6 +11,7 @@ export function primeDashboardShellCaches(
   const baseShell: DashboardShellData = {
     viewer: shell.viewer,
     branding: shell.branding,
+    creatorAccount: shell.creatorAccount,
     guilds: shell.guilds,
     ...(shell.home ? { home: shell.home } : {}),
   };

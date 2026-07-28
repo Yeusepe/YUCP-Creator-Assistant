@@ -112,7 +112,7 @@ export const Route = createFileRoute('/_authenticated/dashboard')({
         locationHref.includes('connect_token=') ||
         locationHash.includes('s=') ||
         locationHash.includes('token=');
-      if (shell.guilds.length === 0 && !allowsFreshGuildBootstrap) {
+      if (!shell.creatorAccount.isActive && !allowsFreshGuildBootstrap) {
         throw redirect({ to: '/account' });
       }
       if (typeof window !== 'undefined') {
