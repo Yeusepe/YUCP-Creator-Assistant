@@ -22,10 +22,6 @@ export type LiveCatalogState = Extract<CatalogState, 'UPLOADING' | 'PROMOTING'>;
 
 export const CATALOG_HEARTBEAT_INTERVAL_MS = 30_000;
 
-// DELETED -> UPLOADING: a deleted version number belongs to the creator again. Deletion removes
-// the version from listings and delivery; it does not retire the number. A replacing upload
-// (TransitionOptions.replacesUpload) enters UPLOADING with a clean slate — fields and quarantine
-// intent wiped; the scheduler's redrive re-enters UPLOADING keeping both.
 const allowedTransitions = {
   CREATED: ['UPLOADING', 'FAILED', 'DELETED'],
   UPLOADING: ['ASSEMBLED', 'FAILED'],
@@ -193,12 +189,6 @@ export interface TransitionFields {
 export interface TransitionOptions {
   fields?: TransitionFields;
   event: CatalogEvent;
-  /**
-   * The transition begins a brand-new upload that replaces whatever bytes the version had before.
-   * Purges the quarantine intent so the new file is not rejected for differing from the old one.
-   * The scheduler's redrive must NOT set this: it re-promotes the existing artifacts and the
-   * quarantine row is their provenance.
-   */
   replacesUpload?: boolean;
 }
 
@@ -353,10 +343,6 @@ function validateTransitionFields(
   vpmDependencies: Record<string, string>;
   vpmRepositories: Record<string, string>;
 } {
-  // A fresh upload replaces the version wholesale: carrying assembled fields from a failed or
-  // deleted predecessor forward would let stale release data describe bytes that no longer exist.
-  // The scheduler's redrive re-enters UPLOADING without the flag and must keep every field —
-  // promotion re-reads the retained assembly by the row's manifest digest.
   if (targetState === 'UPLOADING' && replacesUpload) {
     if (Object.keys(fields).length > 0) {
       throw new CatalogInvariantError(
@@ -1058,11 +1044,24 @@ export class Catalog {
       }
 
       if (targetState === 'UPLOADING' && options.replacesUpload) {
-        // The quarantine intent pins the previous attempt's exact bytes; left in place it rejects
-        // any retry whose file differs ("write intent does not match the accepted upload"). The
-        // old object itself stays referenced by its storage write intent, so GC still finds it.
         await transaction`
           DELETE FROM package_quarantine_objects WHERE version_id = ${versionId}
+        `;
+        await transaction`
+          DELETE FROM package_release_storage_objects WHERE package_version_id = ${versionId}
+        `;
+        await transaction`
+          UPDATE storage_write_intents
+          SET
+            state = 'ABORTED',
+            object_version_id = NULL,
+            candidate_object_version_id = NULL,
+            retry_claim_token = NULL,
+            retry_claim_expires_at = NULL,
+            updated_at = clock_timestamp()
+          WHERE owner_kind = 'package-version'
+            AND owner_id = ${versionId}
+            AND state IN ('ISSUED', 'RETRYING', 'UNCERTAIN', 'COMMITTED')
         `;
       }
 

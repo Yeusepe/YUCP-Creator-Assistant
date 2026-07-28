@@ -270,6 +270,22 @@ export class ExactStorageCatalog {
       expectedSha256,
       leaseGeneration: values.leaseGeneration ?? 0,
     });
+    if (intent.state === 'ABORTED') {
+      const revived = await this.sql<StorageWriteIntentRow[]>`
+        UPDATE storage_write_intents
+        SET state = 'ISSUED', updated_at = clock_timestamp()
+        WHERE id = ${intent.id} AND state = 'ABORTED'
+        RETURNING *
+      `;
+      if (revived[0]) {
+        return toIntent(revived[0]);
+      }
+      const refreshed = await this.getWriteIntentByIdempotencyKey(values.idempotencyKey);
+      if (!refreshed) {
+        throw new Error('Storage write intent was not returned');
+      }
+      return refreshed;
+    }
     return intent;
   }
 
@@ -368,13 +384,6 @@ export class ExactStorageCatalog {
     return rows[0] ? toObjectVersion(rows[0]) : null;
   }
 
-  /**
-   * A committed intent's object failed physical verification during a write: the store no longer
-   * has it (out-of-band deletion, provider loss). The write path holds verified-correct bytes, so
-   * the object row is marked DELETED and the intent reopens as UNCERTAIN — the standard
-   * reconcile-and-rewrite machinery then re-puts the content and commits a fresh object version.
-   * Returns false when the intent moved on concurrently; the caller rethrows its original error.
-   */
   async reopenLostObjectWriteIntent(input: {
     intentId: string;
     objectVersionId: string;
@@ -402,7 +411,6 @@ export class ExactStorageCatalog {
           WHERE id = ${objectVersionId}
         `;
       } else if (objectState !== 'DELETED') {
-        // REJECTED or missing rows are not the lost-object shape; leave the intent alone.
         return false;
       }
       await transaction`

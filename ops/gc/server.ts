@@ -22,6 +22,7 @@ import {
   type ExactVersionGarbageCollectionResult,
   runExactVersionGarbageCollection,
 } from './exactVersionGc';
+import { runQuarantineGarbageCollection } from './quarantineGc';
 
 const DEFAULT_DELETION_LIMIT = 100;
 const DEFAULT_INTERVAL_MS = 60_000;
@@ -47,6 +48,11 @@ export const STORAGE_GC_INFISICAL_KEYS = [
   'PROTECTED_S3_BUCKET',
   'PROTECTED_S3_ACCESS_KEY_ID',
   'PROTECTED_S3_SECRET_ACCESS_KEY',
+  'QUARANTINE_S3_ENDPOINT',
+  'QUARANTINE_S3_REGION',
+  'QUARANTINE_S3_BUCKET',
+  'QUARANTINE_S3_ACCESS_KEY_ID',
+  'QUARANTINE_S3_SECRET_ACCESS_KEY',
 ] as const;
 
 export interface StorageGcRuntimeEnv {
@@ -56,6 +62,7 @@ export interface StorageGcRuntimeEnv {
   intervalMs: number;
   metadata: CasConfig;
   protected: CasConfig;
+  quarantine: CasConfig;
 }
 
 export interface StorageGcJanitor {
@@ -129,6 +136,7 @@ class FixedCapacityStorageGcJanitor implements StorageGcJanitor {
   readonly #intervalMs: number;
   readonly #logger: StorageGcLogger;
   readonly #storage: ExactStoragePort;
+  readonly #quarantine: { config: CasConfig; database: CatalogDatabase } | undefined;
   #controller: AbortController | undefined;
   #loop: Promise<void> | undefined;
 
@@ -137,12 +145,14 @@ class FixedCapacityStorageGcJanitor implements StorageGcJanitor {
     deletionLimit: number;
     intervalMs: number;
     logger: StorageGcLogger;
+    quarantine?: { config: CasConfig; database: CatalogDatabase };
     storage: ExactStoragePort;
   }) {
     this.#catalog = input.catalog;
     this.#deletionLimit = input.deletionLimit;
     this.#intervalMs = input.intervalMs;
     this.#logger = input.logger;
+    this.#quarantine = input.quarantine;
     this.#storage = input.storage;
   }
 
@@ -160,6 +170,25 @@ class FixedCapacityStorageGcJanitor implements StorageGcJanitor {
           now,
           storage: this.#storage,
         });
+        if (this.#quarantine) {
+          const quarantine = await runQuarantineGarbageCollection({
+            config: this.#quarantine.config,
+            deletionLimit: this.#deletionLimit,
+            sql: this.#quarantine.database,
+          });
+          if (
+            quarantine.releasedRows > 0 ||
+            quarantine.deletedOrphans > 0 ||
+            quarantine.failedObjects > 0
+          ) {
+            this.#logger.info(
+              JSON.stringify({
+                event: 'storage_gc.quarantine_swept',
+                ...quarantine,
+              })
+            );
+          }
+        }
         setActiveSpanAttributes({
           'storage.gc.candidates.observed': result.candidatesObserved,
           'storage.gc.deleted.bytes': result.deletedBytes,
@@ -246,6 +275,7 @@ export async function loadStorageGcRuntimeEnv(
     intervalMs: boundedInterval(runtimeEnv, 'STORAGE_GC_INTERVAL_MS', DEFAULT_INTERVAL_MS),
     metadata: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.metadata),
     protected: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.protected),
+    quarantine: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.quarantine),
   };
 }
 
@@ -254,6 +284,7 @@ export function createStorageGcJanitor(input: {
   deletionLimit: number;
   intervalMs: number;
   logger?: StorageGcLogger;
+  quarantine?: { config: CasConfig; database: CatalogDatabase };
   storage: ExactStoragePort;
 }): StorageGcJanitor {
   return new FixedCapacityStorageGcJanitor({
@@ -276,6 +307,7 @@ export async function buildStorageGcRuntime(
         catalog: new StorageGcCatalog(database),
         deletionLimit: runtimeEnv.deletionLimit,
         intervalMs: runtimeEnv.intervalMs,
+        quarantine: { config: runtimeEnv.quarantine, database },
         storage: new S3ExactStoragePort({
           common: runtimeEnv.common,
           metadata: runtimeEnv.metadata,

@@ -9,7 +9,7 @@ import {
 
 function storageRoleSecrets(): Record<string, string> {
   return Object.fromEntries(
-    ['COMMON', 'METADATA', 'PROTECTED'].flatMap((prefix) => [
+    ['COMMON', 'METADATA', 'PROTECTED', 'QUARANTINE'].flatMap((prefix) => [
       [`${prefix}_S3_ENDPOINT`, 'http://127.0.0.1:9000'],
       [`${prefix}_S3_REGION`, 'us-east-1'],
       [`${prefix}_S3_BUCKET`, `local-${prefix.toLowerCase()}`],

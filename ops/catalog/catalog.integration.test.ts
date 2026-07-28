@@ -1859,6 +1859,73 @@ describe.serial('PostgreSQL catalog integration', () => {
     expect(reuploading.deletedAt).toBeNull();
   });
 
+  it('releases a superseded attempt storage claims when a replacing upload starts', async () => {
+    const storage = new ExactStorageCatalog(requireSql());
+    const versionId = await createUploadingVersion('supersede-claims');
+    const idempotencyKey = `package-version:${versionId}:chunk:${'c'.repeat(64)}`;
+    const intent = await storage.beginWriteIntent({
+      bucketName: 'common',
+      contentType: 'application/octet-stream',
+      expectedBytes: 2_048,
+      expectedSha256: 'c'.repeat(64),
+      idempotencyKey,
+      objectKey: `v2/common/chunks/${'d'.repeat(64)}`,
+      operation: 'PUT',
+      ownerId: versionId,
+      ownerKind: 'package-version',
+      storageDomain: 'common:global:v2',
+      storageRole: 'common',
+    });
+    const exact = await storage.commitVerifiedObject({
+      fileIdentifier: 'supersede-file-1',
+      intentId: intent.id,
+      providerVersion: 'supersede-provider-1',
+    });
+    await storage.linkPackageReleaseObject({
+      logicalDigest: 'c'.repeat(64),
+      logicalKind: 'chunk',
+      objectVersionId: exact.id,
+      packageVersionId: versionId,
+    });
+    await requireCatalog().markFailed(versionId, 'assembly failed');
+
+    await requireCatalog().transition(versionId, 'UPLOADING', {
+      event: { type: 'catalog.version.uploading' },
+      replacesUpload: true,
+    });
+
+    const links = await requireSql()<{ count: number | string }[]>`
+      SELECT count(*)::int AS count
+      FROM package_release_storage_objects
+      WHERE package_version_id = ${versionId}
+    `;
+    expect(Number(links[0]?.count)).toBe(0);
+    const aborted = await storage.getWriteIntentByIdempotencyKey(idempotencyKey);
+    expect(aborted).toMatchObject({ objectVersionId: null, state: 'ABORTED' });
+
+    // Identical content coming back revives the intent for a fresh write instead of jamming.
+    const revived = await storage.beginWriteIntent({
+      bucketName: 'common',
+      contentType: 'application/octet-stream',
+      expectedBytes: 2_048,
+      expectedSha256: 'c'.repeat(64),
+      idempotencyKey,
+      objectKey: `v2/common/chunks/${'d'.repeat(64)}`,
+      operation: 'PUT',
+      ownerId: versionId,
+      ownerKind: 'package-version',
+      storageDomain: 'common:global:v2',
+      storageRole: 'common',
+    });
+    expect(revived).toMatchObject({ id: intent.id, state: 'ISSUED' });
+    const recommitted = await storage.commitVerifiedObject({
+      fileIdentifier: 'supersede-file-2',
+      intentId: intent.id,
+      providerVersion: 'supersede-provider-2',
+    });
+    expect(recommitted.verificationState).toBe('VERIFIED');
+  });
+
   it('purges the previous quarantine intent only when a new upload replaces the bytes', async () => {
     const activeCatalog = requireCatalog();
     const versionId = await createUploadingVersion('quarantine-replace');
