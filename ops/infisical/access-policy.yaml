@@ -110,6 +110,25 @@ identities:
       - /infra/convex/*
       - /infra/signing/service-auth/*
       - /storage/catalog/*
+      - /storage/monitoring/scheduler/*
+      - /storage/cas/common/*
+      - /storage/cas/write/*
+    environments: [prod]
+    constraints:
+      ip_whitelist: true
+      time_based_access: false
+      mfa_required: false
+
+  storage-gc-prod:
+    name: "Storage GC Production"
+    description: "Production exact-storage garbage collection runtime"
+    type: machine
+    projects:
+      - project: prod
+        role: viewer
+    allowed_paths:
+      - /storage/catalog/*
+      - /storage/monitoring/garbage-collection/*
       - /storage/cas/common/*
       - /storage/cas/write/*
     environments: [prod]
@@ -319,15 +338,23 @@ path_access:
 
   "/storage/catalog/":
     description: "Storage catalog database credentials"
-    allowed_identities: [ingest-tus-prod, catalog-scheduler-prod, admin]
+    allowed_identities: [ingest-tus-prod, catalog-scheduler-prod, storage-gc-prod, admin]
+
+  "/storage/monitoring/scheduler/":
+    description: "Scheduler Kener heartbeat endpoint"
+    allowed_identities: [catalog-scheduler-prod, admin]
+
+  "/storage/monitoring/garbage-collection/":
+    description: "Storage GC Kener heartbeat endpoint"
+    allowed_identities: [storage-gc-prod, admin]
 
   "/storage/cas/common/":
     description: "Shared non-credential CAS configuration"
-    allowed_identities: [ingest-tus-prod, catalog-scheduler-prod, delivery-worker-sync-prod, admin]
+    allowed_identities: [ingest-tus-prod, catalog-scheduler-prod, storage-gc-prod, delivery-worker-sync-prod, admin]
 
   "/storage/cas/write/":
     description: "Write-capable CAS credentials"
-    allowed_identities: [ingest-tus-prod, catalog-scheduler-prod, admin]
+    allowed_identities: [ingest-tus-prod, catalog-scheduler-prod, storage-gc-prod, admin]
 
   "/storage/cas/read/":
     description: "Read-only delivery CAS credentials"

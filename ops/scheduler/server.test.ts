@@ -30,6 +30,7 @@ const COMPLETE_RAW_ENV = {
   PROTECTED_S3_BUCKET: 'raw-protected',
   PROTECTED_S3_ACCESS_KEY_ID: 'placeholder-raw-protected-key-id',
   PROTECTED_S3_SECRET_ACCESS_KEY: 'placeholder-raw-protected-key-secret',
+  SCHEDULER_STATUS_HEARTBEAT_URL: 'https://status.example.test/ext/heartbeat/scheduler/raw-secret',
 } satisfies NodeJS.ProcessEnv;
 
 const FETCHED_SCHEDULER_SECRETS = {
@@ -53,6 +54,8 @@ const FETCHED_SCHEDULER_SECRETS = {
   PROTECTED_S3_BUCKET: 'fetched-protected',
   PROTECTED_S3_ACCESS_KEY_ID: 'placeholder-fetched-protected-key-id',
   PROTECTED_S3_SECRET_ACCESS_KEY: 'placeholder-fetched-protected-key-secret',
+  SCHEDULER_STATUS_HEARTBEAT_URL:
+    'https://status.example.test/ext/heartbeat/scheduler/fetched-secret',
 } as const;
 
 describe('scheduler production runtime environment', () => {
@@ -99,6 +102,7 @@ describe('scheduler production runtime environment', () => {
       'PROTECTED_S3_BUCKET',
       'PROTECTED_S3_ACCESS_KEY_ID',
       'PROTECTED_S3_SECRET_ACCESS_KEY',
+      'SCHEDULER_STATUS_HEARTBEAT_URL',
     ]);
 
     const runtime = await loadSchedulerRuntimeEnv(COMPLETE_RAW_ENV, fetchSecrets);
@@ -117,6 +121,9 @@ describe('scheduler production runtime environment', () => {
     expect(runtime.common.accessKeyId).toBe(FETCHED_SCHEDULER_SECRETS.COMMON_S3_ACCESS_KEY_ID);
     expect(runtime.metadata.bucket).toBe(FETCHED_SCHEDULER_SECRETS.METADATA_S3_BUCKET);
     expect(runtime.protected.bucket).toBe(FETCHED_SCHEDULER_SECRETS.PROTECTED_S3_BUCKET);
+    expect(runtime.statusHeartbeatUrl).toBe(
+      FETCHED_SCHEDULER_SECRETS.SCHEDULER_STATUS_HEARTBEAT_URL
+    );
   });
 
   it('does not use raw secret values when the required Infisical key is absent', async () => {

@@ -466,6 +466,7 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
 
     let activePublishes = 0;
     let maxConcurrentPublishes = 0;
+    let successfulTicks = 0;
     const errors: { context: IngestSchedulerErrorContext; error: unknown }[] = [];
     const scheduler = createIngestScheduler({
       batchLimit: 10,
@@ -475,6 +476,9 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
       intervalMs,
       onError: (error, context) => {
         errors.push({ context, error });
+      },
+      onTickSucceeded: () => {
+        successfulTicks += 1;
       },
       publish: async (event) => {
         activePublishes += 1;
@@ -528,6 +532,7 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
     await waitForState(second.id, 'READY');
     await waitFor(async () => (await unpublishedCount()) === 0, 'the reconciler outbox to drain');
     await scheduler.stop();
+    expect(successfulTicks).toBeGreaterThan(0);
 
     const stopInFlight = await ingestVersion({
       catalog: activeCatalog,

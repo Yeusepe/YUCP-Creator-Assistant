@@ -68,6 +68,7 @@ export * from './product';
 export * from './productParsers';
 export * from './publicApiScopes';
 export * from './publicAuthority';
+export * from './statusHeartbeat';
 export * from './traceparent';
 export * from './verificationSupport';
 export * from './yucpAliasPackageContract';

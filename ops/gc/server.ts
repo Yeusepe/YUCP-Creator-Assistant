@@ -2,6 +2,7 @@ import { SpanKind, trace } from '@opentelemetry/api';
 import { fetchInfisicalSecrets } from '@yucp/shared/infisical/fetchSecrets';
 import { setActiveSpanAttributes, withObservedSpan } from '@yucp/shared/observability';
 import { initBunServerObservability } from '@yucp/shared/serverObservability';
+import { createStatusHeartbeatReporter } from '@yucp/shared/statusHeartbeat';
 import {
   Catalog,
   type CatalogDatabase,
@@ -58,6 +59,7 @@ export const STORAGE_GC_INFISICAL_KEYS = [
   'QUARANTINE_S3_BUCKET',
   'QUARANTINE_S3_ACCESS_KEY_ID',
   'QUARANTINE_S3_SECRET_ACCESS_KEY',
+  'STORAGE_GC_STATUS_HEARTBEAT_URL',
 ] as const;
 
 export interface StorageGcRuntimeEnv {
@@ -70,6 +72,7 @@ export interface StorageGcRuntimeEnv {
   metadata: CasConfig;
   protected: CasConfig;
   quarantine: CasConfig;
+  statusHeartbeatUrl?: string;
 }
 
 export interface StorageGcJanitor {
@@ -89,7 +92,10 @@ function errorName(error: unknown): string {
   return error instanceof Error ? error.name : 'unknown_error';
 }
 
-function requiredValue(env: NodeJS.ProcessEnv, key: 'CATALOG_DATABASE_URL'): string {
+function requiredValue(
+  env: NodeJS.ProcessEnv,
+  key: 'CATALOG_DATABASE_URL' | 'STORAGE_GC_STATUS_HEARTBEAT_URL'
+): string {
   const value = env[key]?.trim();
   if (!value) {
     throw new Error(`Missing required storage GC environment variable: ${key}`);
@@ -144,6 +150,7 @@ class FixedCapacityStorageGcJanitor implements StorageGcJanitor {
   readonly #intervalMs: number;
   readonly #lifecycleCatalog: Pick<Catalog, 'expireTerminalFailedVersions'>;
   readonly #logger: StorageGcLogger;
+  readonly #onCycleSucceeded: (() => Promise<void> | void) | undefined;
   readonly #storage: ExactStoragePort;
   readonly #quarantine: { config: CasConfig; database: CatalogDatabase } | undefined;
   #controller: AbortController | undefined;
@@ -156,6 +163,7 @@ class FixedCapacityStorageGcJanitor implements StorageGcJanitor {
     intervalMs: number;
     lifecycleCatalog: Pick<Catalog, 'expireTerminalFailedVersions'>;
     logger: StorageGcLogger;
+    onCycleSucceeded?: () => Promise<void> | void;
     quarantine?: { config: CasConfig; database: CatalogDatabase };
     storage: ExactStoragePort;
   }) {
@@ -165,6 +173,7 @@ class FixedCapacityStorageGcJanitor implements StorageGcJanitor {
     this.#intervalMs = input.intervalMs;
     this.#lifecycleCatalog = input.lifecycleCatalog;
     this.#logger = input.logger;
+    this.#onCycleSucceeded = input.onCycleSucceeded;
     this.#quarantine = input.quarantine;
     this.#storage = input.storage;
   }
@@ -252,6 +261,16 @@ class FixedCapacityStorageGcJanitor implements StorageGcJanitor {
       const startedAt = performance.now();
       try {
         const result = await this.runOnce();
+        try {
+          await this.#onCycleSucceeded?.();
+        } catch (error) {
+          this.#logger.error(
+            JSON.stringify({
+              event: 'storage_gc.health_signal_failed',
+              reason: errorName(error),
+            })
+          );
+        }
         this.#logger.info(
           JSON.stringify({
             candidatesObserved: result.candidatesObserved,
@@ -287,10 +306,14 @@ export async function loadStorageGcRuntimeEnv(
   env: NodeJS.ProcessEnv = process.env,
   fetchSecrets: FetchInfisicalSecrets = fetchInfisicalSecrets
 ): Promise<StorageGcRuntimeEnv> {
-  if (!isLocalStorageProfile(env)) {
+  const localProfile = isLocalStorageProfile(env);
+  if (!localProfile) {
     requireInfisicalBootstrap(env);
   }
-  const runtimeEnv = await hydrateStorageServiceEnv(env, STORAGE_GC_INFISICAL_KEYS, fetchSecrets);
+  const requiredKeys = localProfile
+    ? STORAGE_GC_INFISICAL_KEYS.filter((key) => key !== 'STORAGE_GC_STATUS_HEARTBEAT_URL')
+    : STORAGE_GC_INFISICAL_KEYS;
+  const runtimeEnv = await hydrateStorageServiceEnv(env, requiredKeys, fetchSecrets);
   return {
     catalogMaxAttempts: positiveInteger(runtimeEnv, 'CATALOG_MAX_ATTEMPTS', DEFAULT_MAX_ATTEMPTS),
     catalogDatabaseUrl: requiredValue(runtimeEnv, 'CATALOG_DATABASE_URL'),
@@ -310,6 +333,11 @@ export async function loadStorageGcRuntimeEnv(
     metadata: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.metadata),
     protected: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.protected),
     quarantine: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.quarantine),
+    ...(localProfile
+      ? {}
+      : {
+          statusHeartbeatUrl: requiredValue(runtimeEnv, 'STORAGE_GC_STATUS_HEARTBEAT_URL'),
+        }),
   };
 }
 
@@ -320,6 +348,7 @@ export function createStorageGcJanitor(input: {
   intervalMs: number;
   lifecycleCatalog: Pick<Catalog, 'expireTerminalFailedVersions'>;
   logger?: StorageGcLogger;
+  onCycleSucceeded?: () => Promise<void> | void;
   quarantine?: { config: CasConfig; database: CatalogDatabase };
   storage: ExactStoragePort;
 }): StorageGcJanitor {
@@ -334,6 +363,10 @@ export async function buildStorageGcRuntime(
   fetchSecrets: FetchInfisicalSecrets = fetchInfisicalSecrets
 ): Promise<StorageGcRuntime> {
   const runtimeEnv = await loadStorageGcRuntimeEnv(env, fetchSecrets);
+  const statusHeartbeat = createStatusHeartbeatReporter({
+    serviceName: 'yucp-storage-gc',
+    url: runtimeEnv.statusHeartbeatUrl,
+  });
   const database = openCatalogDatabase(runtimeEnv.catalogDatabaseUrl);
   try {
     await runCatalogMigrations(database);
@@ -347,6 +380,13 @@ export async function buildStorageGcRuntime(
         lifecycleCatalog: new Catalog(database, {
           maxAttempts: runtimeEnv.catalogMaxAttempts,
         }),
+        ...(statusHeartbeat
+          ? {
+              onCycleSucceeded: async () => {
+                await statusHeartbeat.signal();
+              },
+            }
+          : {}),
         quarantine: { config: runtimeEnv.quarantine, database },
         storage: new S3ExactStoragePort({
           common: runtimeEnv.common,

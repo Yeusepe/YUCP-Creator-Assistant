@@ -19,6 +19,7 @@ export type CreateIngestSchedulerOptions = Omit<
   database: CatalogDatabase;
   intervalMs: number;
   onError: (error: unknown, context: IngestSchedulerErrorContext) => Promise<void> | void;
+  onTickSucceeded?: () => Promise<void> | void;
   publish?: ReconcileCatalogOptions['publish'];
   commonStore: CasStore;
   metadataStore: CasStore;
@@ -35,6 +36,7 @@ export interface IngestScheduler {
 export type IngestSchedulerErrorStage =
   | 'candidate-load'
   | 'catalog-reconcile'
+  | 'health-signal'
   | 'legacy-migration'
   | 'promotion';
 
@@ -67,6 +69,7 @@ export function createIngestScheduler(options: CreateIngestSchedulerOptions): In
     intervalMs,
     metadataStore,
     onError,
+    onTickSucceeded,
     publish = createConvexCatalogPublish(loadConvexCatalogPublishConfig()),
     protectedStore,
     resolveCreatorId,
@@ -100,13 +103,15 @@ export function createIngestScheduler(options: CreateIngestSchedulerOptions): In
     );
   }
 
-  async function executeTick(): Promise<void> {
+  async function executeTick(): Promise<boolean> {
+    let succeeded = true;
     const reconcileContext = { stage: 'catalog-reconcile' } as const;
     try {
       await observeStage(reconcileContext, async () => {
         await reconcileCatalog(database, { ...reconcileOptions, batchLimit, publish });
       });
     } catch (error) {
+      succeeded = false;
       await reportError(error, reconcileContext);
     }
 
@@ -130,7 +135,7 @@ export function createIngestScheduler(options: CreateIngestSchedulerOptions): In
       });
     } catch (error) {
       await reportError(error, candidateLoadContext);
-      return;
+      return false;
     }
 
     for (const candidate of candidates) {
@@ -174,19 +179,29 @@ export function createIngestScheduler(options: CreateIngestSchedulerOptions): In
           });
         });
       } catch (error) {
+        succeeded = false;
         await reportError(error, context);
       }
     }
+    return succeeded;
   }
 
   async function runTick(): Promise<void> {
-    await withObservedSpan(
+    const succeeded = await withObservedSpan(
       tracer,
       'ingest_scheduler.tick',
       { 'scheduler.batch.limit': batchLimit },
       executeTick,
       SpanKind.CONSUMER
     );
+    if (!succeeded || !onTickSucceeded) {
+      return;
+    }
+    try {
+      await onTickSucceeded();
+    } catch (error) {
+      await reportError(error, { stage: 'health-signal' });
+    }
   }
 
   function beginTick(): void {

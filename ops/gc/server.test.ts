@@ -59,6 +59,8 @@ describe('storage GC production runtime', () => {
       CATALOG_FAILED_RETENTION_MS: '604800000',
       CATALOG_MAX_ATTEMPTS: '7',
       CATALOG_DATABASE_URL: 'postgresql://postgres:secret@127.0.0.1:5432/catalog',
+      STORAGE_GC_STATUS_HEARTBEAT_URL:
+        'https://status.example.test/ext/heartbeat/storage-gc/fetched-secret',
       ...storageRoleSecrets(),
     }));
 
@@ -67,6 +69,7 @@ describe('storage GC production runtime', () => {
     expect(STORAGE_GC_INFISICAL_KEYS).toContain('CATALOG_DATABASE_URL');
     expect(STORAGE_GC_INFISICAL_KEYS).toContain('CATALOG_FAILED_RETENTION_MS');
     expect(STORAGE_GC_INFISICAL_KEYS).toContain('CATALOG_MAX_ATTEMPTS');
+    expect(STORAGE_GC_INFISICAL_KEYS).toContain('STORAGE_GC_STATUS_HEARTBEAT_URL');
     expect(fetchSecrets).toHaveBeenCalledWith(sourceEnv);
     expect(runtime).toMatchObject({
       catalogMaxAttempts: 7,
@@ -77,6 +80,7 @@ describe('storage GC production runtime', () => {
       intervalMs: 45_000,
       metadata: { bucket: 'local-metadata' },
       protected: { bucket: 'local-protected' },
+      statusHeartbeatUrl: 'https://status.example.test/ext/heartbeat/storage-gc/fetched-secret',
     });
   });
 
@@ -189,6 +193,7 @@ describe('storage GC production runtime', () => {
   test('runs no overlapping batches and finishes the active batch during shutdown', async () => {
     const batchStarted = Promise.withResolvers<void>();
     const releaseBatch = Promise.withResolvers<void>();
+    const onCycleSucceeded = mock(async () => undefined);
     const observeGeneration = mock(async () => {
       batchStarted.resolve();
       await releaseBatch.promise;
@@ -210,6 +215,7 @@ describe('storage GC production runtime', () => {
       intervalMs: 1,
       lifecycleCatalog: idleLifecycleCatalog(),
       logger: { error: mock(() => undefined), info: mock(() => undefined) },
+      onCycleSucceeded,
       storage: unusedStorage,
     });
 
@@ -228,5 +234,6 @@ describe('storage GC production runtime', () => {
     releaseBatch.resolve();
     await stopping;
     expect(observeGeneration).toHaveBeenCalledTimes(1);
+    expect(onCycleSucceeded).toHaveBeenCalledTimes(1);
   });
 });

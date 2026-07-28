@@ -1,6 +1,7 @@
 import { fetchInfisicalSecrets } from '@yucp/shared/infisical/fetchSecrets';
 import { redactForLogging } from '@yucp/shared/logging/redaction';
 import { initBunServerObservability } from '@yucp/shared/serverObservability';
+import { createStatusHeartbeatReporter } from '@yucp/shared/statusHeartbeat';
 import {
   Catalog,
   type CatalogDatabase,
@@ -53,6 +54,7 @@ export const SCHEDULER_INFISICAL_KEYS = [
   'PROTECTED_S3_BUCKET',
   'PROTECTED_S3_ACCESS_KEY_ID',
   'PROTECTED_S3_SECRET_ACCESS_KEY',
+  'SCHEDULER_STATUS_HEARTBEAT_URL',
 ] as const;
 
 export interface SchedulerRuntimeEnv {
@@ -63,6 +65,7 @@ export interface SchedulerRuntimeEnv {
   catalogDatabaseUrl: string;
   publish: ConvexCatalogPublishConfig;
   scratchRoot: string;
+  statusHeartbeatUrl?: string;
 }
 
 export interface SchedulerRuntime {
@@ -72,7 +75,7 @@ export interface SchedulerRuntime {
 
 function requiredValue(
   env: NodeJS.ProcessEnv,
-  key: 'CATALOG_DATABASE_URL' | 'INGEST_SCRATCH_DIR'
+  key: 'CATALOG_DATABASE_URL' | 'INGEST_SCRATCH_DIR' | 'SCHEDULER_STATUS_HEARTBEAT_URL'
 ): string {
   const value = env[key]?.trim();
   if (!value) {
@@ -93,10 +96,14 @@ export async function loadSchedulerRuntimeEnv(
   env: NodeJS.ProcessEnv = process.env,
   fetchSecrets: FetchInfisicalSecrets = fetchInfisicalSecrets
 ): Promise<SchedulerRuntimeEnv> {
-  if (!isLocalStorageProfile(env)) {
+  const localProfile = isLocalStorageProfile(env);
+  if (!localProfile) {
     requireInfisicalBootstrap(env);
   }
-  const runtimeEnv = await hydrateStorageServiceEnv(env, SCHEDULER_INFISICAL_KEYS, fetchSecrets);
+  const requiredKeys = localProfile
+    ? SCHEDULER_INFISICAL_KEYS.filter((key) => key !== 'SCHEDULER_STATUS_HEARTBEAT_URL')
+    : SCHEDULER_INFISICAL_KEYS;
+  const runtimeEnv = await hydrateStorageServiceEnv(env, requiredKeys, fetchSecrets);
 
   return {
     common: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.common),
@@ -106,6 +113,11 @@ export async function loadSchedulerRuntimeEnv(
     catalogDatabaseUrl: requiredValue(runtimeEnv, 'CATALOG_DATABASE_URL'),
     publish: loadConvexCatalogPublishConfig(runtimeEnv),
     scratchRoot: requiredValue(runtimeEnv, 'INGEST_SCRATCH_DIR'),
+    ...(localProfile
+      ? {}
+      : {
+          statusHeartbeatUrl: requiredValue(runtimeEnv, 'SCHEDULER_STATUS_HEARTBEAT_URL'),
+        }),
   };
 }
 
@@ -138,6 +150,10 @@ export async function buildSchedulerRuntime(
   fetchSecrets: FetchInfisicalSecrets = fetchInfisicalSecrets
 ): Promise<SchedulerRuntime> {
   const runtimeEnv = await loadSchedulerRuntimeEnv(env, fetchSecrets);
+  const statusHeartbeat = createStatusHeartbeatReporter({
+    serviceName: 'yucp-ingest-scheduler',
+    url: runtimeEnv.statusHeartbeatUrl,
+  });
   const database = openCatalogDatabase(runtimeEnv.catalogDatabaseUrl);
   try {
     await runCatalogMigrations(database);
@@ -179,6 +195,13 @@ export async function buildSchedulerRuntime(
           })
         );
       },
+      ...(statusHeartbeat
+        ? {
+            onTickSucceeded: async () => {
+              await statusHeartbeat.signal();
+            },
+          }
+        : {}),
       publish: createConvexCatalogPublish(runtimeEnv.publish),
       redrive: async ({ version }) => {
         const { releaseRoot, assemblyObjectId, sourceFormat } = version;

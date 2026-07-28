@@ -1,4 +1,4 @@
-import { createLogger } from '@yucp/shared';
+import { createLogger, createStatusHeartbeatReporter } from '@yucp/shared';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -14,33 +14,18 @@ export function startHeartbeat(url?: string, intervalMinutes = 5): (() => void) 
 
   const intervalMinutesNumber = Number(intervalMinutes) || 5;
   const intervalMs = Math.max(1000, Math.round(intervalMinutesNumber * 60 * 1000));
-  const timeoutMs = 10_000;
+  const reporter = createStatusHeartbeatReporter({
+    logger,
+    serviceName: 'yucp-discord-bot',
+    url,
+  });
+  if (!reporter) {
+    return undefined;
+  }
+  const activeReporter = reporter;
 
   async function ping() {
-    if (!url) return;
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), timeoutMs);
-      try {
-        const res = await fetch(url, { method: 'GET', signal: controller.signal });
-        if (!res.ok) {
-          const body = await res.text().catch(() => '<unreadable>');
-          logger.warn('Heartbeat ping non-OK response', {
-            status: res.status,
-            statusText: res.statusText,
-            body: body.slice(0, 300),
-          });
-        } else {
-          logger.debug('Heartbeat ping success', { status: res.status });
-        }
-      } finally {
-        clearTimeout(timeout);
-      }
-    } catch (err) {
-      logger.warn('Heartbeat ping failed', {
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
+    await activeReporter.signal();
   }
 
   // Run immediately and then schedule
@@ -49,20 +34,10 @@ export function startHeartbeat(url?: string, intervalMinutes = 5): (() => void) 
     void ping();
   }, intervalMs);
 
-  logger.info('Heartbeat started', { intervalMinutes, url: redactUrl(url) });
+  logger.info('Heartbeat started', { intervalMinutes });
 
   return () => {
     clearInterval(intervalHandle);
     logger.info('Heartbeat stopped');
   };
-}
-
-function redactUrl(url: string): string {
-  try {
-    const u = new URL(url);
-    u.search = u.search ? '?[REDACTED]' : '';
-    return `${u.origin}${u.pathname}${u.search}`;
-  } catch {
-    return '[REDACTED]';
-  }
 }
