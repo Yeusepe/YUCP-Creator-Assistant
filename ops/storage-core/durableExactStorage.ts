@@ -379,6 +379,10 @@ export class DurableExactStorage {
     objectKey: string;
     ownerId: string;
     ownerKind: StorageWriteIntent['ownerKind'];
+    releaseLink?: {
+      logicalDigest: string;
+      logicalKind: PackageReleaseStorageLogicalKind;
+    };
     storageRole: StorageRole;
   }): Promise<StorageObjectVersion> {
     const body =
@@ -401,7 +405,7 @@ export class DurableExactStorage {
     });
     const resolution = await this.#resolveExistingIntent(intent, input.idempotencyKey);
     if (resolution.object) {
-      return resolution.object;
+      return this.#linkRelease(input.ownerId, input.releaseLink, resolution.object);
     }
 
     let providerCallStarted = false;
@@ -426,17 +430,18 @@ export class DurableExactStorage {
       ) {
         throw new Error('Exact versioned storage write failed read-back verification');
       }
-      return await this.catalog.commitVerifiedObject({
+      const committedObject = await this.catalog.commitVerifiedObject({
         fileIdentifier: exact.fileIdentifier,
         intentId: intent.id,
         providerVersion: exact.providerVersion,
         retryClaimToken: resolution.retryClaimToken ?? undefined,
       });
+      return await this.#linkRelease(input.ownerId, input.releaseLink, committedObject);
     } catch (error) {
       if (providerCallStarted || resolution.retryClaimToken) {
         const committed = await this.catalog.getCommittedObjectForIntent(input.idempotencyKey);
         if (committed) {
-          return this.#verify(committed);
+          return this.#linkRelease(input.ownerId, input.releaseLink, await this.#verify(committed));
         }
         try {
           await this.catalog.markWriteIntentUncertain(

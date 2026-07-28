@@ -7,7 +7,12 @@ import type { DeliveryManifestChunk } from './deliveryManifest';
 import type { DurableExactStorage } from './durableExactStorage';
 import type { StorageRole } from './exactStorage';
 import { commandPathEnv, runCommand } from './process';
-import { deleteS3Objects, getS3Object, putS3ObjectImmutable } from './s3Control';
+import {
+  deleteS3Objects,
+  getS3Object,
+  putS3ObjectImmutable,
+  putS3ObjectVersioned,
+} from './s3Control';
 
 const REQUIRED_DESYNC_COMMANDS = ['make', 'extract', 'chop', 'cat', 'inspect-chunks'] as const;
 const DESYNC_CHUNK_PROFILE = '64:256:1024';
@@ -337,6 +342,7 @@ export async function writeCasIndexObject(input: {
   body: string;
   contentType: string;
   indexId: string;
+  replaceExisting?: boolean;
   store: CasStore;
 }): Promise<void> {
   if (input.store.kind === 'local') {
@@ -347,6 +353,15 @@ export async function writeCasIndexObject(input: {
   }
 
   assertRemoteIndexId(input.indexId);
+  if (input.replaceExisting) {
+    await putS3ObjectVersioned({
+      body: input.body,
+      config: input.store.config,
+      contentType: input.contentType,
+      key: `${input.store.config.indexPrefix}${input.indexId}`,
+    });
+    return;
+  }
   await putS3ObjectImmutable({
     body: input.body,
     config: input.store.config,

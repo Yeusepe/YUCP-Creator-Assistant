@@ -9,11 +9,7 @@ import {
   openCatalogDatabase,
   runCatalogMigrations,
 } from '../catalog';
-import {
-  deliveryAssemblyObjectId,
-  deliveryManifestObjectId,
-  parseDeliveryManifest,
-} from '../storage-core/deliveryManifest';
+import { deliveryManifestObjectId, parseDeliveryManifest } from '../storage-core/deliveryManifest';
 import {
   localCasStore,
   measureLocalStore,
@@ -23,7 +19,12 @@ import {
 import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId';
 import { waitForPostgres } from '../testing/postgresReadiness';
 import { createUnityPackageRecordFixture } from '../testing/unityPackageFixture';
-import { ingestVersion, promoteVersion, retrieveVersion } from './ingestPipeline';
+import {
+  ingestVersion,
+  promoteVersion,
+  resolvePipelineCasIndexId,
+  retrieveVersion,
+} from './ingestPipeline';
 
 const postgresImage =
   'postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193'; // postgres:17-alpine
@@ -299,9 +300,9 @@ describe.serial('logical-tree ingest pipeline end to end', () => {
       expect(new Bun.CryptoHasher('sha256').update(bytes).digest('hex')).toBe(expectedSha256);
     }
     expect(
-      await stat(join(stores.metadataStore.storePath, deliveryAssemblyObjectId(readyV2.id))).catch(
-        () => null
-      )
+      await stat(
+        resolvePipelineCasIndexId(stores.metadataStore, readyV2.assemblyObjectId ?? '')
+      ).catch(() => null)
     ).toBeNull();
   }, 60_000);
 
@@ -321,7 +322,7 @@ describe.serial('logical-tree ingest pipeline end to end', () => {
     const assembly = parseDeliveryManifest(
       JSON.parse(
         await readFile(
-          join(stores.metadataStore.storePath, deliveryAssemblyObjectId(assembled.id)),
+          resolvePipelineCasIndexId(stores.metadataStore, assembled.assemblyObjectId ?? ''),
           'utf8'
         )
       )

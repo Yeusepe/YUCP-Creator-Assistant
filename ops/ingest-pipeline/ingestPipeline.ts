@@ -158,21 +158,21 @@ export function resolvePipelineCasIndexId(store: CasStore, assemblyObjectId: str
   return indexId;
 }
 
-function resolveAssemblyStorage(store: CasStore, versionId: string): ResolvedAssemblyStorage {
-  if (store.kind === 's3') {
-    return {
-      assemblyId: deliveryAssemblyObjectId(versionId),
-      store,
-    };
-  }
+function resolveAssemblyStorage(
+  store: CasStore,
+  versionId: string,
+  contentSha256: string
+): ResolvedAssemblyStorage {
+  const name = deliveryAssemblyObjectId(versionId, contentSha256);
   return {
-    assemblyId: resolve(store.storePath, deliveryAssemblyObjectId(versionId)),
+    assemblyId: store.kind === 's3' ? name : resolve(store.storePath, name),
     store,
   };
 }
 
-function siblingIndexObjectId(store: CasStore, objectId: string, siblingId: string): string {
-  return store.kind === 's3' ? siblingId : resolve(dirname(objectId), siblingId);
+function resolveDeliveryManifestId(store: CasStore, versionId: string): string {
+  const name = deliveryManifestObjectId(versionId);
+  return store.kind === 's3' ? name : resolve(store.storePath, name);
 }
 
 async function writePipelineMetadata(input: {
@@ -287,6 +287,49 @@ async function readPipelineMetadata(input: {
   });
 }
 
+/**
+ * The delivery manifest keeps a fixed, versionId-derived name because the delivery and
+ * materialization workers resolve it by convention without consulting the catalog. Its content
+ * changes when a replacing upload re-promotes the version, so it is written through the
+ * replaceable versioned path instead of immutable exact storage; the content-scoped idempotency
+ * key keeps identical re-promotions (the scheduler redrive) from writing twice.
+ */
+async function writeReplaceablePipelineMetadata(input: {
+  body: string;
+  indexId: string;
+  ownerId: string;
+  store: CasStore;
+}): Promise<string> {
+  const sha256 = createHash('sha256').update(input.body, 'utf8').digest('hex');
+  if (input.store.kind === 's3' && (input.store.durableStorage || input.store.storageRole)) {
+    if (!input.store.durableStorage || input.store.storageRole !== 'metadata') {
+      throw new Error('Durable pipeline metadata requires the metadata storage role');
+    }
+    await input.store.durableStorage.putVersioned({
+      body: input.body,
+      contentType: 'application/json',
+      idempotencyKey: `package-version:${input.ownerId}:metadata-replaceable:${input.indexId}:${sha256}`,
+      objectKey: `${input.store.config.indexPrefix}${input.indexId}`,
+      ownerId: input.ownerId,
+      ownerKind: 'package-version',
+      releaseLink: {
+        logicalDigest: sha256,
+        logicalKind: 'manifest',
+      },
+      storageRole: 'metadata',
+    });
+    return sha256;
+  }
+  await writeCasIndexObject({
+    body: input.body,
+    contentType: 'application/json',
+    indexId: input.indexId,
+    replaceExisting: true,
+    store: input.store,
+  });
+  return sha256;
+}
+
 async function cleanupPipelineMetadata(input: { indexId: string; store: CasStore }): Promise<void> {
   if (input.store.kind === 's3' && input.store.durableStorage) {
     return;
@@ -364,6 +407,7 @@ async function reconstructManifestTree(input: {
 }
 
 type PreparedLogicalAssembly = {
+  assemblyId: string;
   manifest: DeliveryManifest;
   manifestSha256: string;
   normalizationExcludedFiles: number;
@@ -372,7 +416,6 @@ type PreparedLogicalAssembly = {
 
 async function prepareLogicalAssembly(
   input: PipelineStorage & {
-    assemblyStorage: ResolvedAssemblyStorage;
     creatorId: string;
     inputPath: string;
     protectionPolicyId: ProtectionPolicyId;
@@ -459,13 +502,19 @@ async function prepareLogicalAssembly(
     vpmRepositories: bootstrapMetadata.vpmRepositories,
   });
   signal?.throwIfAborted();
+  // The manifest name carries its content digest, so it is only known once the body exists. A
+  // versionId-only name collided with previous attempts of the same version in immutable storage.
+  const body = manifestBody(manifest);
+  const bodySha256 = createHash('sha256').update(body, 'utf8').digest('hex');
+  const assemblyStorage = resolveAssemblyStorage(input.metadataStore, input.version.id, bodySha256);
   const manifestSha256 = await writePipelineMetadata({
-    body: manifestBody(manifest),
-    indexId: input.assemblyStorage.assemblyId,
+    body,
+    indexId: assemblyStorage.assemblyId,
     ownerId: input.version.id,
-    store: input.assemblyStorage.store,
+    store: assemblyStorage.store,
   });
   return {
+    assemblyId: assemblyStorage.assemblyId,
     manifest,
     manifestSha256,
     normalizationExcludedFiles: prepared.excludedFiles.length,
@@ -509,7 +558,7 @@ export async function assembleVersion(
   signal?: AbortSignal
 ): Promise<PackageVersion> {
   let scratchPath: string | undefined;
-  let storage: ResolvedAssemblyStorage | undefined;
+  let assemblyId: string | undefined;
 
   try {
     signal?.throwIfAborted();
@@ -522,16 +571,15 @@ export async function assembleVersion(
       prefix: 'ingest-',
       root: input.scratchRoot,
     });
-    storage = resolveAssemblyStorage(input.metadataStore, version.id);
     const prepared = await prepareLogicalAssembly(
       {
         ...input,
-        assemblyStorage: storage,
         scratchTreeRoot: join(scratchPath, 'tree'),
         version,
       },
       signal
     );
+    assemblyId = prepared.assemblyId;
     const { manifest } = prepared;
     const logicalBytes = manifest.files.reduce((total, file) => total + file.bytes, 0);
 
@@ -540,7 +588,7 @@ export async function assembleVersion(
       fields: {
         sourceFormat: prepared.normalizedFormat,
         releaseRoot: manifest.releaseRoot,
-        assemblyObjectId: tagPipelineCasIndexId(storage.store, storage.assemblyId),
+        assemblyObjectId: tagPipelineCasIndexId(input.metadataStore, prepared.assemblyId),
         manifestSha256: prepared.manifestSha256,
       },
       event: {
@@ -566,11 +614,11 @@ export async function assembleVersion(
   } catch (error) {
     signal?.throwIfAborted();
     let failure = error;
-    if (storage) {
+    if (assemblyId) {
       try {
         await cleanupPipelineMetadata({
-          indexId: storage.assemblyId,
-          store: storage.store,
+          indexId: assemblyId,
+          store: input.metadataStore,
         });
       } catch (cleanupError) {
         failure = new AggregateError(
@@ -630,12 +678,7 @@ export async function migrateLegacyReadyVersion(
     prefix: 'migrate-legacy-ready-',
     root: input.scratchRoot,
   });
-  const assemblyStorage = resolveAssemblyStorage(input.metadataStore, version.id);
-  const manifestId = siblingIndexObjectId(
-    input.metadataStore,
-    assemblyStorage.assemblyId,
-    deliveryManifestObjectId(version.id)
-  );
+  const manifestId = resolveDeliveryManifestId(input.metadataStore, version.id);
   let manifestWritten = false;
   let migrationCommitted = false;
   try {
@@ -651,7 +694,6 @@ export async function migrateLegacyReadyVersion(
 
     const prepared = await prepareLogicalAssembly({
       ...input,
-      assemblyStorage,
       inputPath: sourcePath,
       scratchTreeRoot: join(scratchPath, 'tree'),
       version,
@@ -670,7 +712,7 @@ export async function migrateLegacyReadyVersion(
       outputRoot: join(scratchPath, 'verified-tree'),
       protectedStore: input.protectedStore,
     });
-    const manifestSha256 = await writePipelineMetadata({
+    const manifestSha256 = await writeReplaceablePipelineMetadata({
       body,
       indexId: manifestId,
       ownerId: version.id,
@@ -690,7 +732,7 @@ export async function migrateLegacyReadyVersion(
       fields: {
         activeContentDigest: prepared.manifest.activeContentDigest,
         activePolicyVersion: prepared.manifest.activePolicyVersion,
-        assemblyObjectId: tagPipelineCasIndexId(assemblyStorage.store, assemblyStorage.assemblyId),
+        assemblyObjectId: tagPipelineCasIndexId(input.metadataStore, prepared.assemblyId),
         bindingRoot: publication.bindingRoot,
         commonRoot: prepared.manifest.commonRoot,
         logicalBytes,
@@ -733,7 +775,7 @@ export async function migrateLegacyReadyVersion(
     migrationCommitted = true;
     try {
       await cleanupPipelineMetadata({
-        indexId: assemblyStorage.assemblyId,
+        indexId: prepared.assemblyId,
         store: input.metadataStore,
       });
     } catch (error) {
@@ -786,11 +828,7 @@ async function finishPromotion(
       throw new Error(`Package version ${promoting.id} has incomplete logical assembly metadata`);
     }
     assemblyId = resolvePipelineCasIndexId(input.metadataStore, promoting.assemblyObjectId);
-    manifestId = siblingIndexObjectId(
-      input.metadataStore,
-      assemblyId,
-      deliveryManifestObjectId(promoting.id)
-    );
+    manifestId = resolveDeliveryManifestId(input.metadataStore, promoting.id);
     const assemblyBody = await readPipelineMetadata({
       indexId: assemblyId,
       logicalDigest: promoting.manifestSha256,
@@ -828,7 +866,7 @@ async function finishPromotion(
     const protectedFiles = protectedMaterializationFiles(manifest);
 
     signal.throwIfAborted();
-    const publishedManifestSha256 = await writePipelineMetadata({
+    const publishedManifestSha256 = await writeReplaceablePipelineMetadata({
       body,
       indexId: manifestId,
       ownerId: promoting.id,
@@ -943,7 +981,7 @@ export async function retrieveVersion(input: RetrieveVersionInput): Promise<stri
   const assemblyId = resolvePipelineCasIndexId(input.metadataStore, version.assemblyObjectId);
   const objectId =
     version.state === 'READY'
-      ? siblingIndexObjectId(input.metadataStore, assemblyId, deliveryManifestObjectId(version.id))
+      ? resolveDeliveryManifestId(input.metadataStore, version.id)
       : assemblyId;
   const manifest = parseDeliveryManifest(
     JSON.parse(

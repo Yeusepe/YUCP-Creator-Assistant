@@ -61,6 +61,7 @@ let minioContainerStarted = false;
 let scratchPath: string | undefined;
 let fixturePath: string | undefined;
 let corruptFixturePath: string | undefined;
+let altFixturePath: string | undefined;
 let httpServer: HttpServer | undefined;
 let serverOrigin: string | undefined;
 let s3HttpServer: HttpServer | undefined;
@@ -666,7 +667,13 @@ beforeAll(async () => {
     });
     corruptFixturePath = join(scratchPath, 'corrupt.unitypackage');
     await writeFile(corruptFixturePath, 'not a gzip-compressed unitypackage');
-    maxBytes = (await stat(fixturePath)).size + 1024;
+    altFixturePath = join(scratchPath, 'fixture-alt.unitypackage');
+    await createUnityPackageRecordFixture({
+      outputPath: altFixturePath,
+      timestamp: new Date('2025-02-01T00:00:00Z'),
+      versionSeed: 'tus-replace-payload',
+    });
+    maxBytes = Math.max((await stat(fixturePath)).size, (await stat(altFixturePath)).size) + 1024;
 
     const handler = createIngestTusServer({
       allowedOrigin: browserOrigin,
@@ -804,7 +811,7 @@ describe.serial('tus ingest end to end', () => {
     });
     expect(assembledRow.release_root).toMatch(/^[0-9a-f]{64}$/);
     expect(assembledRow.assembly_object_id).toMatch(
-      new RegExp(`^local:.*${assembledRow.id}\\.logical-tree-assembly-v4\\.json$`)
+      new RegExp(`^local:.*${assembledRow.id}\\.[0-9a-f]{16}\\.logical-tree-assembly-v4\\.json$`)
     );
     expect(await outboxEventTypes(assembledRow.id)).toEqual([
       'catalog.version.created',
@@ -894,9 +901,10 @@ describe.serial('tus ingest end to end', () => {
       error: null,
     });
     expect(assembledRow.release_root).toMatch(/^[0-9a-f]{64}$/);
-    expect(assembledRow.assembly_object_id).toBe(
-      `s3:${assembledRow.id}.logical-tree-assembly-v4.json`
+    expect(assembledRow.assembly_object_id).toMatch(
+      new RegExp(`^s3:${assembledRow.id}\\.[0-9a-f]{16}\\.logical-tree-assembly-v4\\.json$`)
     );
+    const assemblyIndexId = assembledRow.assembly_object_id?.slice('s3:'.length) ?? '';
     expect(await outboxEventTypes(assembledRow.id)).toEqual([
       'catalog.version.created',
       'catalog.version.uploading',
@@ -906,7 +914,7 @@ describe.serial('tus ingest end to end', () => {
     const manifest = parseDeliveryManifest(
       JSON.parse(
         await readCasIndexObject({
-          indexId: `${assembledRow.id}.logical-tree-assembly-v4.json`,
+          indexId: assemblyIndexId,
           store: stores.metadata,
         })
       )
@@ -949,15 +957,13 @@ describe.serial('tus ingest end to end', () => {
     expect(commonChunkObjects).toHaveLength(commonChunks.size);
     expect(protectedChunkObjects).toHaveLength(protectedChunks.size);
     const metadataObjectKeys = new Set([
-      `${stores.metadata.config.indexPrefix}${assembledRow.id}.logical-tree-assembly-v4.json`,
+      `${stores.metadata.config.indexPrefix}${assemblyIndexId}`,
       ...(manifest.bootstrapMedia ?? []).map((media) => media.objectKey),
     ]);
     expect(new Set(metadataObjects.map((object) => object.key))).toEqual(metadataObjectKeys);
     expect(
       metadataObjects.some(
-        (object) =>
-          object.key ===
-          `${stores.metadata.config.indexPrefix}${assembledRow.id}.logical-tree-assembly-v4.json`
+        (object) => object.key === `${stores.metadata.config.indexPrefix}${assemblyIndexId}`
       )
     ).toBeTrue();
 
@@ -1314,6 +1320,39 @@ describe.serial('tus ingest end to end', () => {
       WHERE package_id = ${oversizedValue} OR version = ${oversizedValue}
     `;
     expect(rows[0]?.count).toBe(0);
+  });
+
+  it('re-assembles a replacing upload with different bytes into durable S3 storage', async () => {
+    // The write intent of the first attempt's assembly manifest pinned that attempt's exact
+    // content. With a versionId-only manifest name, a replacing upload with different bytes died
+    // with "Storage write intent idempotency conflict" — poisoning the version number for good.
+    const activeCatalog = requireCatalog();
+    const endpoint = `${requireS3ServerOrigin()}${INGEST_TUS_PATH}`;
+    await uploadToCompletion({
+      endpoint,
+      filePath: requireFixturePath(fixturePath, 'valid unitypackage'),
+      packageId: 'com.yucp.tus-replace',
+      version: '1.0.0',
+    });
+    const firstRow = await versionRow('com.yucp.tus-replace', '1.0.0');
+    expect(firstRow.state).toBe('ASSEMBLED');
+    await activeCatalog.markFailed(firstRow.id, 'promotion failed after assembly');
+
+    await uploadToCompletion({
+      endpoint,
+      filePath: requireFixturePath(altFixturePath, 'replacement unitypackage'),
+      packageId: 'com.yucp.tus-replace',
+      version: '1.0.0',
+    });
+
+    const replacedRow = await versionRow('com.yucp.tus-replace', '1.0.0');
+    expect(replacedRow.id).toBe(firstRow.id);
+    expect(replacedRow.state).toBe('ASSEMBLED');
+    expect(replacedRow.error).toBeNull();
+    expect(replacedRow.assembly_object_id).toMatch(
+      new RegExp(`^s3:${firstRow.id}\\.[0-9a-f]{16}\\.logical-tree-assembly-v4\\.json$`)
+    );
+    expect(replacedRow.assembly_object_id).not.toBe(firstRow.assembly_object_id);
   });
 
   it('marks a version failed when detached assembly rejects the completed upload', async () => {
