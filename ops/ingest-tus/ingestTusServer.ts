@@ -367,7 +367,7 @@ async function removeUploadBestEffort(
         event: 'ingest_tus.upload_cleanup_failed',
         uploadId,
         versionId,
-        reason: cleanupError instanceof Error ? cleanupError.name : 'unknown_error',
+        ...loggedErrorDetail(cleanupError),
       })
     );
   }
@@ -382,6 +382,18 @@ function sendCapabilityError(response: ServerResponse, status: 401 | 403): void 
   response.end(status === 401 ? 'Upload capability required\n' : 'Invalid upload capability\n');
 }
 
+/**
+ * Failure detail for structured logs. `reason` alone was just the error class
+ * name — a plain Error logged as reason:"Error", which made a two-minute
+ * assembly failure undiagnosable from the deployment logs. The message is
+ * bounded so a pathological error cannot flood the log stream.
+ */
+function loggedErrorDetail(error: unknown): { reason: string; errorMessage: string } {
+  return error instanceof Error
+    ? { reason: error.name, errorMessage: error.message.slice(0, 500) }
+    : { reason: 'unknown_error', errorMessage: String(error).slice(0, 500) };
+}
+
 function handleUnexpectedServerError(
   response: ServerResponse,
   error: unknown,
@@ -390,7 +402,7 @@ function handleUnexpectedServerError(
   console.error(
     JSON.stringify({
       event: 'ingest_tus.request_failed',
-      reason: error instanceof Error ? error.name : 'unknown_error',
+      ...loggedErrorDetail(error),
       durationMs: Math.round(performance.now() - startedAt),
     })
   );
@@ -579,7 +591,7 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
             event: 'ingest_tus.quarantine_failed',
             uploadId: upload.id,
             versionId,
-            reason: error instanceof Error ? error.name : 'unknown_error',
+            ...loggedErrorDetail(error),
             durationMs: Math.round(performance.now() - startedAt),
           })
         );
@@ -613,7 +625,7 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
             event: 'ingest_tus.assembly_failed',
             uploadId: upload.id,
             versionId,
-            reason: error instanceof Error ? error.name : 'unknown_error',
+            ...loggedErrorDetail(error),
             durationMs: Math.round(performance.now() - startedAt),
           })
         );
@@ -691,7 +703,7 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
                 event: 'ingest_tus.upload_heartbeat_failed',
                 uploadId,
                 versionId: authorization.versionId,
-                reason: error instanceof Error ? error.name : 'unknown_error',
+                ...loggedErrorDetail(error),
               })
             );
           },
