@@ -1,11 +1,11 @@
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { MAX_PACKAGE_INSTALLER_HELPER_BYTES } from '@yucp/shared/packageInstallerLimits';
+import { parseTufRepositoryRoutePath } from '../../../../ops/storage-core/tufRepositoryPath';
 
-const ROUTE_PATTERN = /^\/api\/v2\/package-installer\/tuf\/(metadata|targets)\/(.+)$/;
+const ROUTE_PREFIX = '/api/v2/package-installer/tuf/';
 const MAX_METADATA_BYTES = 4 * 1024 * 1024;
 const MAX_TARGET_BYTES = MAX_PACKAGE_INSTALLER_HELPER_BYTES;
-const SAFE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/;
 
 function response(body: BodyInit | null, status: number, headers?: HeadersInit): Response {
   return new Response(body, {
@@ -18,35 +18,20 @@ function response(body: BodyInit | null, status: number, headers?: HeadersInit):
   });
 }
 
-function decodeSafePath(value: string): string[] | null {
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(value);
-  } catch {
-    return null;
-  }
-  if (decoded.includes('\\') || decoded.startsWith('/') || decoded.includes('\0')) {
-    return null;
-  }
-  const segments = decoded.split('/');
-  if (
-    segments.length === 0 ||
-    segments.some((segment) => !SAFE_SEGMENT.test(segment) || segment === '.' || segment === '..')
-  ) {
-    return null;
-  }
-  return segments;
-}
-
 export type PackageInstallerTufRepositoryObject = {
   body: Uint8Array;
   contentType: string;
 };
 
+export type PackageInstallerTufReadContext = {
+  traceparent?: string | null;
+};
+
 export interface PackageInstallerTufRepository {
   read(
     role: 'metadata' | 'targets',
-    repositoryPath: string
+    repositoryPath: string,
+    context?: PackageInstallerTufReadContext
   ): Promise<PackageInstallerTufRepositoryObject | null>;
 }
 
@@ -101,34 +86,36 @@ export function createPackageInstallerTufRoute(
         'content-type': 'text/plain; charset=utf-8',
       });
     }
-    const match = ROUTE_PATTERN.exec(new URL(request.url).pathname);
-    const role = match?.[1];
-    const segments = match?.[2] ? decodeSafePath(match[2]) : null;
-    if ((role !== 'metadata' && role !== 'targets') || !segments) {
+    const routePath = parseTufRepositoryRoutePath(new URL(request.url).pathname, ROUTE_PREFIX);
+    if (!routePath) {
       return response('Not found', 404, {
         'content-type': 'text/plain; charset=utf-8',
       });
     }
     try {
-      const object = await repository.read(role, segments.join('/'));
-      const limit = role === 'metadata' ? MAX_METADATA_BYTES : MAX_TARGET_BYTES;
+      const object = await repository.read(routePath.role, routePath.repositoryPath, {
+        traceparent: request.headers.get('traceparent'),
+      });
+      const limit = routePath.role === 'metadata' ? MAX_METADATA_BYTES : MAX_TARGET_BYTES;
       if (!object || object.body.byteLength < 1 || object.body.byteLength > limit) {
         return response('Not found', 404, {
           'content-type': 'text/plain; charset=utf-8',
         });
       }
-      const isTimestamp = role === 'metadata' && segments.at(-1) === 'timestamp.json';
+      const isTimestamp =
+        routePath.role === 'metadata' &&
+        routePath.repositoryPath.split('/').at(-1) === 'timestamp.json';
       return response(Buffer.from(object.body), 200, {
         'cache-control': isTimestamp
           ? 'public, max-age=0, must-revalidate'
-          : role === 'metadata'
+          : routePath.role === 'metadata'
             ? 'public, max-age=60, must-revalidate'
             : 'public, max-age=31536000, immutable',
         'content-length': String(object.body.byteLength),
         'content-type': object.contentType,
       });
     } catch {
-      return response('Not found', 404, {
+      return response('Package installer trust repository unavailable', 503, {
         'content-type': 'text/plain; charset=utf-8',
       });
     }

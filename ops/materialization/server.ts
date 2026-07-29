@@ -1,8 +1,17 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { openCatalogDatabase, runCatalogMigrations } from '../catalog';
-import { hydrateEnvFromInfisical, loadCasConfig } from '../storage-core/config';
+import { MAX_PACKAGE_INSTALLER_HELPER_BYTES } from '@yucp/shared/packageInstallerLimits';
+import { openCatalogDatabase, runCatalogMigrations, TufRepositoryCatalog } from '../catalog';
+import {
+  hydrateEnvFromInfisical,
+  loadCasConfig,
+  loadStorageRoleConfig,
+  STORAGE_ROLE_PREFIXES,
+} from '../storage-core/config';
 import { verifyDpopProof } from '../storage-core/dpop';
+import { S3ExactStoragePort } from '../storage-core/exactStorage';
 import { packageContractKeyId } from '../storage-core/packageContractsV2';
+import { parseTufRepositoryRoutePath } from '../storage-core/tufRepositoryPath';
+import { ExactTufRepositoryReader } from '../storage-core/tufRepositoryReader';
 import { createMaterializationKeyBrokerClient } from './keyBrokerClient';
 import {
   type CompletedRendition,
@@ -22,6 +31,7 @@ const RENEW_JOB_PATH = '/v2/internal/materialization-jobs/renew';
 const STATUS_JOB_PATH = '/v2/internal/materialization-jobs/status';
 const FAIL_JOB_PATH = '/v2/internal/materialization-jobs/fail';
 const ATTRIBUTION_CANDIDATES_PATH = '/v2/internal/materialization-attribution/candidates';
+const PACKAGE_INSTALLER_TUF_PREFIX = '/v2/internal/package-installer/tuf/';
 const ATTRIBUTION_CANDIDATE_PAGE_LIMIT = 512;
 const REQUEST_BODY_LIMIT = 64 * 1_024;
 const CAPABILITY_REQUEST_BODY_LIMIT = 2 * 1_024 * 1_024;
@@ -66,7 +76,8 @@ type MaterializationControlPlaneEvent = {
     | 'materialization.job.renew'
     | 'materialization.job.status'
     | 'materialization.rendition.complete'
-    | 'materialization.rendition.upload_ticket';
+    | 'materialization.rendition.upload_ticket'
+    | 'package_installer.tuf.read';
   status: 'accepted' | 'rejected';
   traceId: string;
 };
@@ -83,6 +94,12 @@ export type MaterializationControlPlaneConfig = {
   materializerSharedSecret: string;
   now?: () => Date;
   onEvent?: (event: MaterializationControlPlaneEvent) => void;
+  packageInstallerTufRepository?: {
+    read(
+      role: 'metadata' | 'targets',
+      repositoryPath: string
+    ): Promise<{ body: Uint8Array; contentType: string } | null>;
+  };
   pluginVersion: string;
   publicBaseUrl: string;
 };
@@ -362,9 +379,15 @@ export function createMaterializationControlPlaneHandler(
     const traceId = createTraceId(request);
     const startedAt = performance.now();
     const url = new URL(request.url);
-    const routeUrl = routeUrls.get(url.pathname);
-    const event: MaterializationControlPlaneEvent['event'] =
-      url.pathname === CREATE_JOB_PATH
+    const tufRoute = config.packageInstallerTufRepository
+      ? parseTufRepositoryRoutePath(url.pathname, PACKAGE_INSTALLER_TUF_PREFIX)
+      : null;
+    const routeUrl = tufRoute
+      ? publicRouteUrl(config.publicBaseUrl, url.pathname)
+      : routeUrls.get(url.pathname);
+    const event: MaterializationControlPlaneEvent['event'] = tufRoute
+      ? 'package_installer.tuf.read'
+      : url.pathname === CREATE_JOB_PATH
         ? 'materialization.job.create'
         : url.pathname === ATTRIBUTION_CANDIDATES_PATH
           ? 'materialization.attribution.candidates'
@@ -393,17 +416,41 @@ export function createMaterializationControlPlaneHandler(
     if (!routeUrl) {
       return noStoreJson({ error: 'not_found' }, 404, traceId);
     }
-    if (request.method !== 'POST') {
+    if (request.method !== (tufRoute ? 'GET' : 'POST')) {
       return noStoreJson({ error: 'method_not_allowed' }, 405, traceId);
     }
-    const requiredSecret = apiPaths.has(url.pathname)
-      ? config.apiSharedSecret
-      : config.materializerSharedSecret;
+    const requiredSecret =
+      tufRoute || apiPaths.has(url.pathname)
+        ? config.apiSharedSecret
+        : config.materializerSharedSecret;
     if (!constantTimeAuthorizationMatches(request.headers.get('authorization'), requiredSecret)) {
       emit('rejected', 'service_auth_invalid');
       return noStoreJson({ error: 'unauthorized' }, 401, traceId);
     }
     try {
+      if (tufRoute) {
+        const object = await config.packageInstallerTufRepository?.read(
+          tufRoute.role,
+          tufRoute.repositoryPath
+        );
+        const limit =
+          tufRoute.role === 'metadata' ? 4 * 1_024 * 1_024 : MAX_PACKAGE_INSTALLER_HELPER_BYTES;
+        if (!object || object.body.byteLength < 1 || object.body.byteLength > limit) {
+          emit('rejected', 'package_installer_tuf_object_not_found');
+          return noStoreJson({ error: 'not_found' }, 404, traceId);
+        }
+        emit('accepted');
+        return new Response(Buffer.from(object.body), {
+          headers: {
+            'Cache-Control': 'private, no-store',
+            'Content-Length': String(object.body.byteLength),
+            'Content-Type': object.contentType,
+            'X-Content-Type-Options': 'nosniff',
+            'X-Trace-Id': traceId,
+          },
+          status: 200,
+        });
+      }
       const requestNow = now();
       const carriesCapability =
         url.pathname === CONSUME_PATH ||
@@ -692,6 +739,10 @@ export function createMaterializationControlPlaneHandler(
         emit('rejected', error.code);
         return noStoreJson({ error: error.code }, error.status, traceId);
       }
+      if (tufRoute) {
+        emit('rejected', 'package_installer_tuf_read_failed');
+        return noStoreJson({ error: 'package_installer_tuf_read_failed' }, 503, traceId);
+      }
       const errorCode =
         classifyMaterializationControlError(url.pathname, error) ??
         (url.pathname === CREATE_JOB_PATH
@@ -738,6 +789,12 @@ function envBase64Url(name: string, expectedLength: number): Buffer {
 }
 
 export const MATERIALIZATION_CONTROL_PLANE_INFISICAL_KEYS = [
+  'METADATA_S3_ACCESS_KEY_ID',
+  'METADATA_S3_BUCKET',
+  'METADATA_S3_ENDPOINT',
+  'METADATA_S3_REGION',
+  'METADATA_S3_SECRET_ACCESS_KEY',
+  'PACKAGE_INSTALLER_TUF_REPOSITORY_ID',
   'PACKAGE_CATALOG_DATABASE_URL',
   'RENDITION_S3_ACCESS_KEY_ID',
   'RENDITION_S3_BUCKET',
@@ -836,6 +893,13 @@ async function main(): Promise<void> {
     onEvent: (event) => {
       console.log(JSON.stringify(event));
     },
+    packageInstallerTufRepository: new ExactTufRepositoryReader({
+      catalog: new TufRepositoryCatalog(sql),
+      repositoryId: requiredEnv('PACKAGE_INSTALLER_TUF_REPOSITORY_ID'),
+      storage: new S3ExactStoragePort({
+        metadata: loadStorageRoleConfig(process.env, STORAGE_ROLE_PREFIXES.metadata),
+      }),
+    }),
     pluginVersion: requiredEnv('MATERIALIZATION_PLUGIN_VERSION'),
     publicBaseUrl: requiredEnv('MATERIALIZATION_CONTROL_PLANE_PUBLIC_BASE_URL'),
   });

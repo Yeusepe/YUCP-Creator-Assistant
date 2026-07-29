@@ -88,6 +88,22 @@ describe('package installer TUF route', () => {
     expect(response.headers.get('content-length')).toBe(String(helper.byteLength));
   });
 
+  test('reports repository failures as unavailable instead of not found', async () => {
+    const route = createPackageInstallerTufRoute({
+      async read() {
+        throw new Error('catalog network unavailable');
+      },
+    });
+
+    const response = await route(
+      new Request('https://api.example.test/api/v2/package-installer/tuf/metadata/timestamp.json')
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(await response.text()).toBe('Package installer trust repository unavailable');
+  });
+
   test('rejects traversal and methods before any repository read', async () => {
     const { route } = await fixture();
     expect(

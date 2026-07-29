@@ -32,6 +32,89 @@ function createProof(target = endpoint, jti = 'proof-1', accessToken = capabilit
 }
 
 describe('materialization control-plane HTTP boundary', () => {
+  it('serves authenticated package-installer TUF objects beside the catalog', async () => {
+    const reads: string[] = [];
+    const events: Array<{ event: string; status: string; traceId: string }> = [];
+    const handler = createMaterializationControlPlaneHandler({
+      broker: {
+        claimNextJob: async () => {
+          throw new Error('must not run');
+        },
+        completeRendition: async () => {
+          throw new Error('must not run');
+        },
+        createInstallJob: async () => {
+          throw new Error('must not run');
+        },
+        consumeCapability: async () => {
+          throw new Error('must not run');
+        },
+        prepareRenditionUpload: async () => {
+          throw new Error('must not run');
+        },
+        renewClaimLease: async () => {
+          throw new Error('must not run');
+        },
+        failCapabilityJob: async () => {
+          throw new Error('must not run');
+        },
+        getJobStatus: async () => {
+          throw new Error('must not run');
+        },
+        issueCapability: async () => {
+          throw new Error('must not run');
+        },
+      },
+      apiSharedSecret: apiSecret,
+      capabilityKeyId: new Uint8Array([1]),
+      capabilityLifetimeSeconds: 300,
+      capabilityPrivateKey: signingPrivateKey,
+      capabilityPublicKey: new Uint8Array(32).fill(0x22),
+      keyEpoch: 1,
+      materializationAlgorithm: 'png-dct-qim-v2',
+      materializerSharedSecret: materializerSecret,
+      onEvent: (event) => events.push(event),
+      packageInstallerTufRepository: {
+        async read(role, repositoryPath) {
+          reads.push(`${role}/${repositoryPath}`);
+          return {
+            body: new TextEncoder().encode('{"signed":"timestamp"}'),
+            contentType: 'application/json',
+          };
+        },
+      },
+      pluginVersion: 'png-plugin-2',
+      publicBaseUrl: 'https://control.example.test',
+    });
+    const url =
+      'https://control.example.test/v2/internal/package-installer/tuf/metadata/timestamp.json';
+    const unauthorized = await handler(new Request(url));
+    expect(unauthorized.status).toBe(401);
+    expect(reads).toEqual([]);
+
+    const accepted = await handler(
+      new Request(url, {
+        headers: {
+          Authorization: `Bearer ${apiSecret}`,
+          traceparent: `00-${'a'.repeat(32)}-${'b'.repeat(16)}-01`,
+        },
+      })
+    );
+    expect(accepted.status).toBe(200);
+    expect(accepted.headers.get('cache-control')).toBe('private, no-store');
+    expect(accepted.headers.get('content-type')).toBe('application/json');
+    expect(accepted.headers.get('x-trace-id')).toBe('a'.repeat(32));
+    expect(await accepted.text()).toBe('{"signed":"timestamp"}');
+    expect(reads).toEqual(['metadata/timestamp.json']);
+    expect(events.at(-1)).toEqual(
+      expect.objectContaining({
+        event: 'package_installer.tuf.read',
+        status: 'accepted',
+        traceId: 'a'.repeat(32),
+      })
+    );
+  });
+
   it('authenticates the Linux materializer before it consumes work', async () => {
     let calls = 0;
     const handler = createMaterializationControlPlaneHandler({

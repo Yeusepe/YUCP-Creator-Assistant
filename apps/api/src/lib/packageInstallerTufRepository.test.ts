@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test';
-import { loadPackageInstallerTufRepositoryConfig } from './packageInstallerTufRepository';
+import {
+  createControlPlanePackageInstallerTufRepository,
+  loadPackageInstallerTufRepositoryConfig,
+} from './packageInstallerTufRepository';
 
 const production = {
+  MATERIALIZATION_API_SHARED_SECRET: 'test-api-shared-secret-that-is-long',
+  MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL: 'https://materialization.example.test',
   NODE_ENV: 'production' as const,
   PACKAGE_INSTALLER_TUF_CATALOG_DATABASE_URL: 'postgres://reader:secret@catalog.example.test/yucp',
   PACKAGE_INSTALLER_TUF_REPOSITORY_ID: 'package-installer',
@@ -13,10 +18,10 @@ const production = {
 };
 
 describe('package installer TUF repository configuration', () => {
-  test('requires the exact storage-backed repository in production', () => {
+  test('routes production reads through the storage-side control plane', () => {
     expect(loadPackageInstallerTufRepositoryConfig(production)).toMatchObject({
-      kind: 'exact-storage',
-      repositoryId: 'package-installer',
+      baseUrl: 'https://materialization.example.test',
+      kind: 'control-plane',
     });
   });
 
@@ -29,11 +34,11 @@ describe('package installer TUF repository configuration', () => {
     ).toThrow('filesystem TUF repository cannot run in production');
   });
 
-  test('rejects partial exact-storage production configuration', () => {
+  test('rejects partial control-plane production configuration', () => {
     expect(() =>
       loadPackageInstallerTufRepositoryConfig({
         NODE_ENV: 'production',
-        PACKAGE_INSTALLER_TUF_REPOSITORY_ID: 'package-installer',
+        MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL: 'https://materialization.example.test',
       })
     ).toThrow('must be configured together');
   });
@@ -48,5 +53,56 @@ describe('package installer TUF repository configuration', () => {
       kind: 'filesystem',
       root: 'C:\\local\\tuf',
     });
+  });
+
+  test('authenticates bounded reads and propagates trace context', async () => {
+    const requests: Request[] = [];
+    const repository = createControlPlanePackageInstallerTufRepository({
+      baseUrl: 'https://materialization.example.test/',
+      fetch: async (request) => {
+        requests.push(request);
+        return new Response('{"signed":"timestamp"}', {
+          headers: {
+            'content-length': '22',
+            'content-type': 'application/json',
+          },
+        });
+      },
+      sharedSecret: 'test-api-shared-secret-that-is-long',
+    });
+
+    const object = await repository.read('metadata', 'timestamp.json', {
+      traceparent: `00-${'a'.repeat(32)}-${'b'.repeat(16)}-01`,
+    });
+
+    expect(new TextDecoder().decode(object?.body)).toBe('{"signed":"timestamp"}');
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe(
+      'https://materialization.example.test/v2/internal/package-installer/tuf/metadata/timestamp.json'
+    );
+    expect(requests[0]?.headers.get('authorization')).toBe(
+      'Bearer test-api-shared-secret-that-is-long'
+    );
+    expect(requests[0]?.headers.get('traceparent')).toBe(
+      `00-${'a'.repeat(32)}-${'b'.repeat(16)}-01`
+    );
+  });
+
+  test('distinguishes missing objects from control-plane failures', async () => {
+    const missing = createControlPlanePackageInstallerTufRepository({
+      baseUrl: 'https://materialization.example.test',
+      fetch: async () => new Response('Not found', { status: 404 }),
+      sharedSecret: 'test-api-shared-secret-that-is-long',
+    });
+    expect(await missing.read('metadata', 'timestamp.json')).toBeNull();
+
+    const unavailable = createControlPlanePackageInstallerTufRepository({
+      baseUrl: 'https://materialization.example.test',
+      fetch: async () => new Response('Unavailable', { status: 503 }),
+      sharedSecret: 'test-api-shared-secret-that-is-long',
+    });
+    await expect(unavailable.read('metadata', 'timestamp.json')).rejects.toThrow(
+      'control plane returned 503'
+    );
   });
 });
