@@ -157,6 +157,32 @@ describe('verifyBetterAuthAccessToken', () => {
     });
   });
 
+  it('reports a DPoP verifier dependency outage separately from invalid credentials', async () => {
+    verifyAccessTokenRequestImpl = async () => {
+      throw Object.assign(new Error('connect ECONNREFUSED database:5432'), {
+        code: 'ECONNREFUSED',
+      });
+    };
+
+    const result = await verifyBetterAuthAccessRequest(
+      new Request('https://api.example.test/api/v2/package-installs/authorizations', {
+        method: 'POST',
+        headers: {
+          Authorization: 'DPoP access-token',
+          DPoP: 'proof-jwt',
+        },
+      }),
+      {
+        ...options,
+        audience: 'https://api.example.test',
+        dpopReplayStore: { reserve: async () => true },
+      }
+    );
+
+    expect(result).toEqual({ ok: false, reason: 'unavailable' });
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects a request token without a DPoP confirmation key', async () => {
     verifyAccessTokenRequestImpl = async () => ({
       scope: 'package:operate',

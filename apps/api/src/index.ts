@@ -469,7 +469,12 @@ function initializeAuth(webhookBaseUrl?: string) {
                 }
               : {
                   ok: false as const,
-                  status: result.reason === 'insufficient_scope' ? (403 as const) : (401 as const),
+                  status:
+                    result.reason === 'insufficient_scope'
+                      ? (403 as const)
+                      : result.reason === 'unavailable'
+                        ? (503 as const)
+                        : (401 as const),
                 };
           },
         }

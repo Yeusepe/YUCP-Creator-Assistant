@@ -36,7 +36,7 @@ export type VerifyOAuthAccessTokenResult =
 
 export type VerifyOAuthAccessRequestResult =
   | { ok: true; token: VerifiedOAuthAccessRequest }
-  | { ok: false; reason: 'invalid' | 'insufficient_scope' };
+  | { ok: false; reason: 'invalid' | 'insufficient_scope' | 'unavailable' };
 
 const EXPECTED_VERIFICATION_ERROR_NAMES = new Set([
   'JWTInvalid',
@@ -53,6 +53,25 @@ const EXPECTED_VERIFICATION_ERROR_MESSAGES = [
   'invalid jwt',
 ];
 
+const VERIFICATION_DEPENDENCY_ERROR_CODES = new Set([
+  'EAI_AGAIN',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ENETUNREACH',
+  'ENOTFOUND',
+  'ETIMEDOUT',
+  '08000',
+  '08001',
+  '08003',
+  '08004',
+  '08006',
+  '08007',
+  '08P01',
+  '57P01',
+  '57P02',
+  '57P03',
+]);
+
 function isExpectedVerificationFailure(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
@@ -66,6 +85,17 @@ function isExpectedVerificationFailure(error: unknown): boolean {
   return EXPECTED_VERIFICATION_ERROR_MESSAGES.some((fragment) =>
     normalizedMessage.includes(fragment)
   );
+}
+
+function isVerificationDependencyFailure(error: unknown, depth = 0): boolean {
+  if (!(error instanceof Error) || depth > 3) {
+    return false;
+  }
+  const code = (error as Error & { code?: unknown }).code;
+  if (typeof code === 'string' && VERIFICATION_DEPENDENCY_ERROR_CODES.has(code.toUpperCase())) {
+    return true;
+  }
+  return isVerificationDependencyFailure((error as Error & { cause?: unknown }).cause, depth + 1);
 }
 
 export async function verifyBetterAuthAccessToken(
@@ -224,7 +254,10 @@ export async function verifyBetterAuthAccessRequest(
     // Request-bound broker verification has exactly one legitimate caller, so even
     // "expected" rejections are actionable and must be visible in production logs.
     options.logger?.warn(logMessage, metadata);
-    return { ok: false, reason: 'invalid' };
+    return {
+      ok: false,
+      reason: isVerificationDependencyFailure(error) ? 'unavailable' : 'invalid',
+    };
   }
 }
 

@@ -75,7 +75,7 @@ export interface PackageInstallAccessPort {
 
 type AccessRequestResult =
   | { buyerId: string; deviceKeyThumbprint: string; ok: true }
-  | { ok: false; status: 401 | 403 };
+  | { ok: false; status: 401 | 403 | 503 };
 
 export interface PackageOperationAuthorizationPort {
   beginExchange(input: {
@@ -529,6 +529,18 @@ async function requireDpopAccess(
   return options.verifyAccessRequest(request);
 }
 
+function accessRequestFailureResponse(
+  authentication: Extract<AccessRequestResult, { ok: false }>
+): Response {
+  if (authentication.status === 403) {
+    return jsonNoStore({ error: 'Token missing required scope' }, 403);
+  }
+  if (authentication.status === 503) {
+    return jsonNoStore({ error: 'Package authorization service unavailable' }, 503);
+  }
+  return jsonNoStore({ error: 'Invalid or expired DPoP authorization' }, 401);
+}
+
 async function resolveAuthorizedPublication(input: {
   accessPort: PackageInstallAccessPort;
   buyerId: string;
@@ -666,15 +678,7 @@ export function createPackageOperationAuthorizationRoute(
     }
     const authentication = await requireDpopAccess(request, options);
     if (!authentication.ok) {
-      return jsonNoStore(
-        {
-          error:
-            authentication.status === 403
-              ? 'Token missing required scope'
-              : 'Invalid or expired DPoP authorization',
-        },
-        authentication.status
-      );
+      return accessRequestFailureResponse(authentication);
     }
     let operation: PackageOperationRequest;
     try {
@@ -771,15 +775,7 @@ export function createPackageInstallSessionRoute(
     }
     const authentication = await requireDpopAccess(request, options);
     if (!authentication.ok) {
-      return jsonNoStore(
-        {
-          error:
-            authentication.status === 403
-              ? 'Token missing required scope'
-              : 'Invalid or expired DPoP authorization',
-        },
-        authentication.status
-      );
+      return accessRequestFailureResponse(authentication);
     }
 
     let input: PackageInstallSessionRequest;
@@ -1074,15 +1070,7 @@ export function createPackageInstallSessionRenewalRoute(
     }
     const authentication = await requireDpopAccess(request, options);
     if (!authentication.ok) {
-      return jsonNoStore(
-        {
-          error:
-            authentication.status === 403
-              ? 'Token missing required scope'
-              : 'Invalid or expired DPoP authorization',
-        },
-        authentication.status
-      );
+      return accessRequestFailureResponse(authentication);
     }
     let input: PackageInstallRenewalRequest;
     try {

@@ -673,6 +673,39 @@ describe('package install session route', () => {
     expect(port.resolveProductGroup).not.toHaveBeenCalled();
   });
 
+  test('reports DPoP verifier dependency outages as unavailable, not authentication failures', async () => {
+    const port = accessPort();
+    const handler = createPackageOperationAuthorizationRoute({
+      accessPort: port,
+      authorizationPort: defaultAuthorizationPort,
+      audience,
+      issuer,
+      keyId,
+      privateKey,
+      verificationBaseUrl,
+      verifyAccessRequest: async () => ({ ok: false, status: 503 }),
+    });
+    const { operationCapability: _unused, ...operation } = await requestBody();
+
+    const response = await handler(
+      new Request(`${issuer}/api/v2/package-installs/authorizations`, {
+        method: 'POST',
+        headers: {
+          Authorization: 'DPoP valid-dpop-bound-token',
+          'Content-Type': 'application/json',
+          DPoP: 'signed-proof',
+        },
+        body: JSON.stringify(operation),
+      })
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: 'Package authorization service unavailable',
+    });
+    expect(port.resolveProductGroup).not.toHaveBeenCalled();
+  });
+
   test('rejects changed device, root, project, operation, or approval before consume', async () => {
     const original = await requestBody();
     const attempts = [
