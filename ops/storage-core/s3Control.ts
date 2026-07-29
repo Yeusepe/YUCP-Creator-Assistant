@@ -161,9 +161,7 @@ async function signedRequest(input: SignedRequestInput): Promise<Response> {
       return response;
     }
     if (!response.ok) {
-      const failure = new Error(
-        `S3 ${input.operation} failed with HTTP status ${response.status}`
-      );
+      const failure = new Error(`S3 ${input.operation} failed with HTTP status ${response.status}`);
       if (isThrottleStatus(response.status)) {
         lastFailure = failure;
         throttleFailures += 1;
