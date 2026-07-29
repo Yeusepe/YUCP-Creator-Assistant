@@ -1022,7 +1022,14 @@ export class Catalog {
         options.replacesUpload === true
       );
       const enteringFailed = targetState === 'FAILED';
-      const nextAttempts = current.attempts + (enteringFailed ? 1 : 0);
+      // A replacing upload is a fresh creator-initiated submission: it must not inherit the retry
+      // budget burned by earlier uploads of the same version. Automatic redrives never replace.
+      const freshUpload = targetState === 'UPLOADING' && options.replacesUpload === true;
+      const nextAttempts = enteringFailed
+        ? current.attempts + 1
+        : freshUpload
+          ? 0
+          : current.attempts;
       const backoffMs = enteringFailed ? retryBackoffMs(nextAttempts, this.retryPolicy) : 0;
       const updatedRows = await transaction<PackageVersionRow[]>`
         UPDATE package_versions

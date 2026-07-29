@@ -177,7 +177,9 @@ async function claimRedrive(
     }
 
     const attempts = candidate.state === 'FAILED' ? candidate.attempts : candidate.attempts + 1;
-    const backoffMs = retryBackoffMs(attempts, retryPolicy);
+    // A FAILED row can legitimately carry attempts = 0 after a fresh replacing upload reset the
+    // budget; clamp so backoff math never rejects a claimable row.
+    const backoffMs = retryBackoffMs(Math.max(attempts, 1), retryPolicy);
     let updated: ReconcileVersionRow | undefined;
 
     if (candidate.state === 'FAILED') {
@@ -323,14 +325,20 @@ export async function reconcileCatalog(
 
   let versionsClaimed = 0;
   let versionsRedriven = 0;
+  const redriveFailures: unknown[] = [];
   for (const candidate of candidates) {
-    const claim = await claimRedrive(sql, candidate.id, options.stuckThresholdMs, retryPolicy);
-    if (!claim) {
-      continue;
+    // One failing version must not starve the remaining candidates or outbox publishing.
+    try {
+      const claim = await claimRedrive(sql, candidate.id, options.stuckThresholdMs, retryPolicy);
+      if (!claim) {
+        continue;
+      }
+      versionsClaimed += 1;
+      await options.redrive(claim);
+      versionsRedriven += 1;
+    } catch (error) {
+      redriveFailures.push(error);
     }
-    versionsClaimed += 1;
-    await options.redrive(claim);
-    versionsRedriven += 1;
   }
 
   const remainingBatchCapacity = batchLimit - versionsClaimed;
@@ -389,5 +397,8 @@ export async function reconcileCatalog(
     }
   }
 
+  if (redriveFailures.length > 0) {
+    throw new AggregateError(redriveFailures, 'Catalog redrive failed for one or more versions');
+  }
   return { versionsRedriven, outboxEventsPublished };
 }

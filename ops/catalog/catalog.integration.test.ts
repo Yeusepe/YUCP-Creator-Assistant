@@ -2371,6 +2371,98 @@ describe.serial('PostgreSQL catalog integration', () => {
     );
   });
 
+  it('a replacing upload starts with a fresh retry budget', async () => {
+    const activeCatalog = requireCatalog();
+    const versionId = await createUploadingVersion('fresh-budget');
+    await activeCatalog.markFailed(versionId, 'first failure');
+    await activeCatalog.advanceVersion(versionId, 'UPLOADING', {
+      event: { type: 'catalog.version.retrying' },
+    });
+    const retried = await activeCatalog.markFailed(versionId, 'second failure');
+    expect(retried.attempts).toBe(2);
+
+    const replaced = await activeCatalog.transition(versionId, 'UPLOADING', {
+      event: { type: 'catalog.version.uploading' },
+      replacesUpload: true,
+    });
+    expect(replaced.attempts).toBe(0);
+
+    const failedAfterReplacement = await activeCatalog.markFailed(versionId, 'later failure');
+    expect(failedAfterReplacement.attempts).toBe(1);
+  });
+
+  it('claims a failed row whose replacing upload reset its attempts to zero', async () => {
+    const activeCatalog = requireCatalog();
+    const database = requireSql();
+    const versionId = await createUploadingVersion('zero-attempt-redrive');
+    await activeCatalog.markFailed(versionId, 'transient storage failure');
+    await database`
+      UPDATE package_versions
+      SET
+        attempts = 0,
+        assembly_object_id = 's3-index:zero-attempt-redrive',
+        release_root = ${'e'.repeat(64)},
+        source_format = 'CANONICAL_ZIP_V1',
+        next_attempt_at = clock_timestamp() - interval '1 millisecond'
+      WHERE id = ${versionId}
+    `;
+
+    const redriven: string[] = [];
+    const result = await reconcileCatalog(database, {
+      stuckThresholdMs: 60 * 60 * 1000,
+      redrive: async ({ version }) => {
+        redriven.push(version.id);
+      },
+      publish: async () => {},
+    });
+
+    expect(redriven).toEqual([versionId]);
+    expect(result.versionsRedriven).toBe(1);
+  });
+
+  it('a failing redrive does not starve other candidates or outbox publishing', async () => {
+    const activeCatalog = requireCatalog();
+    const database = requireSql();
+    const poisonedId = await createUploadingVersion('poisoned-redrive');
+    const healthyId = await createUploadingVersion('healthy-redrive');
+    for (const versionId of [poisonedId, healthyId]) {
+      await activeCatalog.markFailed(versionId, 'transient storage failure');
+      await database`
+        UPDATE package_versions
+        SET
+          assembly_object_id = ${`s3-index:${versionId}`},
+          release_root = ${'d'.repeat(64)},
+          source_format = 'CANONICAL_ZIP_V1',
+          next_attempt_at = clock_timestamp() - interval '1 millisecond'
+        WHERE id = ${versionId}
+      `;
+    }
+
+    const redriven: string[] = [];
+    const published: string[] = [];
+    let thrown: unknown;
+    try {
+      await reconcileCatalog(database, {
+        stuckThresholdMs: 60 * 60 * 1000,
+        redrive: async ({ version }) => {
+          if (version.id === poisonedId) {
+            throw new Error('redrive dispatch failed');
+          }
+          redriven.push(version.id);
+        },
+        publish: async (event) => {
+          published.push(event.eventType);
+        },
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(AggregateError);
+
+    expect(redriven).toEqual([healthyId]);
+    expect(published.length).toBeGreaterThan(0);
+  });
+
   it('expires only retained failures that exhausted their retry policy', async () => {
     const database = requireSql();
     const maxAttempts = 5;
