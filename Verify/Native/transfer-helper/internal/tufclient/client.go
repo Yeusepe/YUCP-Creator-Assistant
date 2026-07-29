@@ -5,12 +5,14 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,6 +24,11 @@ const (
 	defaultHTTPTimeout = 30 * time.Second
 	maxHelperBytes     = 256 * 1024 * 1024
 	maxRootBytes       = 512 * 1024
+	repositoryAttempts = 3
+)
+
+var traceparentPattern = regexp.MustCompile(
+	`^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$`,
 )
 
 type Config struct {
@@ -29,6 +36,7 @@ type Config struct {
 	LocalMetadataDir  string
 	RemoteMetadataURL string
 	RemoteTargetsURL  string
+	Traceparent       string
 	TrustedRoot       []byte
 }
 
@@ -75,6 +83,10 @@ func InstallTarget(cfg Config, targetName string, destination string) (InstallRe
 		Timeout: normalized.HTTPTimeout,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
+		},
+		Transport: &repositoryTransport{
+			base:        http.DefaultTransport,
+			traceparent: normalized.Traceparent,
 		},
 	}
 	if err := tufConfig.SetDefaultFetcherHTTPClient(httpClient); err != nil {
@@ -176,13 +188,84 @@ func normalizeConfig(cfg Config) (Config, error) {
 	if timeout > 5*time.Minute {
 		return Config{}, fmt.Errorf("TUF HTTP timeout must not exceed five minutes")
 	}
+	traceparent := strings.TrimSpace(cfg.Traceparent)
+	if traceparent != "" && !traceparentPattern.MatchString(traceparent) {
+		return Config{}, fmt.Errorf("TUF traceparent is invalid")
+	}
 	return Config{
 		HTTPTimeout:       timeout,
 		LocalMetadataDir:  metadataDir,
 		RemoteMetadataURL: metadataURL,
 		RemoteTargetsURL:  targetsURL,
+		Traceparent:       traceparent,
 		TrustedRoot:       append([]byte(nil), cfg.TrustedRoot...),
 	}, nil
+}
+
+type repositoryTransport struct {
+	base        http.RoundTripper
+	traceparent string
+}
+
+func (transport *repositoryTransport) RoundTrip(
+	request *http.Request,
+) (*http.Response, error) {
+	base := transport.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	var lastResponse *http.Response
+	var lastError error
+	for attempt := 0; attempt < repositoryAttempts; attempt++ {
+		next := request.Clone(request.Context())
+		if transport.traceparent != "" {
+			next.Header.Set("traceparent", transport.traceparent)
+		}
+		response, err := base.RoundTrip(next)
+		if !shouldRetryRepositoryResponse(response, err) ||
+			attempt == repositoryAttempts-1 {
+			return response, err
+		}
+		lastResponse = response
+		lastError = err
+		if response != nil {
+			_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64*1024))
+			_ = response.Body.Close()
+		}
+		delay := time.Duration(attempt+1) * 250 * time.Millisecond
+		timer := time.NewTimer(delay)
+		select {
+		case <-request.Context().Done():
+			timer.Stop()
+			return lastResponse, request.Context().Err()
+		case <-timer.C:
+		}
+	}
+	return lastResponse, lastError
+}
+
+func shouldRetryRepositoryResponse(
+	response *http.Response,
+	err error,
+) bool {
+	if err != nil {
+		return true
+	}
+	if response == nil {
+		return false
+	}
+	switch response.StatusCode {
+	case http.StatusRequestTimeout,
+		http.StatusTooEarly,
+		http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeRemoteURL(raw string) (string, error) {

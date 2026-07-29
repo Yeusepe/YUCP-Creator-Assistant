@@ -9,11 +9,28 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/yucp/transfer-helper/internal/packagecontract"
 	"github.com/yucp/transfer-helper/internal/reconstructor"
 )
+
+func TestRuntimeEnsureBuildsTraceparentFromInstallerTrace(t *testing.T) {
+	traceID := "0123456789abcdef0123456789abcdef"
+	traceparent, err := runtimeTraceparent(traceID)
+	if err != nil {
+		t.Fatalf("runtimeTraceparent() error = %v", err)
+	}
+	if len(traceparent) != 55 ||
+		!strings.HasPrefix(traceparent, "00-"+traceID+"-") ||
+		!strings.HasSuffix(traceparent, "-01") {
+		t.Fatalf("runtimeTraceparent() = %q", traceparent)
+	}
+	if traceparent == "00-"+traceID+"-0000000000000000-01" {
+		t.Fatal("runtimeTraceparent() used an invalid zero span")
+	}
+}
 
 func TestDeviceInfoCommandReturnsStableProtectedIdentity(t *testing.T) {
 	stateRoot := filepath.Join(t.TempDir(), "state")

@@ -51,6 +51,7 @@ type Config struct {
 	RuntimeTarget     string
 	StartupTimeout    time.Duration
 	StateRoot         string
+	Traceparent       string
 	TrustedRoot       []byte
 }
 
@@ -88,6 +89,7 @@ type normalizedConfig struct {
 	RemoteTargetsURL  string
 	StartupTimeout    time.Duration
 	StateRoot         string
+	Traceparent       string
 	TrustedRoot       []byte
 }
 
@@ -231,6 +233,7 @@ func normalizeConfig(config Config) (normalizedConfig, error) {
 		RemoteTargetsURL:  targetsURL,
 		StartupTimeout:    startupTimeout,
 		StateRoot:         stateRoot,
+		Traceparent:       strings.TrimSpace(config.Traceparent),
 		TrustedRoot:       append([]byte(nil), config.TrustedRoot...),
 	}, nil
 }
@@ -244,6 +247,7 @@ func installSignedRuntime(config normalizedConfig) (activeRecord, error) {
 		LocalMetadataDir:  filepath.Join(tufState, "metadata"),
 		RemoteMetadataURL: config.RemoteMetadataURL,
 		RemoteTargetsURL:  config.RemoteTargetsURL,
+		Traceparent:       config.Traceparent,
 		TrustedRoot:       config.TrustedRoot,
 	}, RuntimeTargetName, descriptorPath)
 	if err != nil {
@@ -270,6 +274,7 @@ func installSignedRuntime(config normalizedConfig) (activeRecord, error) {
 		LocalMetadataDir:  filepath.Join(tufState, "metadata"),
 		RemoteMetadataURL: config.RemoteMetadataURL,
 		RemoteTargetsURL:  config.RemoteTargetsURL,
+		Traceparent:       config.Traceparent,
 		TrustedRoot:       config.TrustedRoot,
 	}, runtimeDescriptor.HelperTarget, helperDownload)
 	if err != nil {
@@ -281,6 +286,7 @@ func installSignedRuntime(config normalizedConfig) (activeRecord, error) {
 		LocalMetadataDir:  filepath.Join(tufState, "metadata"),
 		RemoteMetadataURL: config.RemoteMetadataURL,
 		RemoteTargetsURL:  config.RemoteTargetsURL,
+		Traceparent:       config.Traceparent,
 		TrustedRoot:       config.TrustedRoot,
 	}, runtimeDescriptor.BrokerTarget, brokerDownload)
 	if err != nil {

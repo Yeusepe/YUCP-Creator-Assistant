@@ -33,6 +33,10 @@ func runRuntimeEnsure(ctx context.Context, args []string) int {
 		})
 		return 2
 	}
+	traceparent, err := runtimeTraceparent(*traceID)
+	if err != nil {
+		return writeFailure(*traceID, runtimeInstallErrorCode, err)
+	}
 	root, err := readBoundedFile(*rootPath, maxTrustedRootBytes)
 	if err != nil {
 		return writeFailure(
@@ -49,6 +53,7 @@ func runRuntimeEnsure(ctx context.Context, args []string) int {
 		RuntimeTarget:     runtimeinstaller.RuntimeTargetName,
 		StartupTimeout:    *startupTimeout,
 		StateRoot:         *stateRoot,
+		Traceparent:       traceparent,
 		TrustedRoot:       root,
 	})
 	if err != nil {

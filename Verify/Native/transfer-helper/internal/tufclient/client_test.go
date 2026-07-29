@@ -41,6 +41,33 @@ type repositoryServer struct {
 	targetReads atomic.Int64
 }
 
+type transientRepositoryServer struct {
+	delegate  http.Handler
+	failures  atomic.Int64
+	requests  atomic.Int64
+	traceSeen atomic.Bool
+}
+
+func (server *transientRepositoryServer) ServeHTTP(
+	response http.ResponseWriter,
+	request *http.Request,
+) {
+	server.requests.Add(1)
+	if request.Header.Get("traceparent") ==
+		"00-0123456789abcdef0123456789abcdef-0123456789abcdef-01" {
+		server.traceSeen.Store(true)
+	}
+	if server.failures.Add(-1) >= 0 {
+		http.Error(
+			response,
+			"repository is temporarily unavailable",
+			http.StatusServiceUnavailable,
+		)
+		return
+	}
+	server.delegate.ServeHTTP(response, request)
+}
+
 func TestInstallTargetDownloadsAndReusesVerifiedTarget(t *testing.T) {
 	fixture := buildRepositoryFixture(t, repositoryVersions{1, 1, 1}, time.Now().Add(time.Hour))
 	serverState := &repositoryServer{}
@@ -91,6 +118,50 @@ func TestInstallTargetDownloadsAndReusesVerifiedTarget(t *testing.T) {
 	}
 	if got := serverState.targetReads.Load(); got != 1 {
 		t.Fatalf("target downloads = %d, want 1", got)
+	}
+}
+
+func TestInstallTargetRetriesTransientRepositoryFailuresWithTraceContext(
+	t *testing.T,
+) {
+	fixture := buildRepositoryFixture(
+		t,
+		repositoryVersions{1, 1, 1},
+		time.Now().Add(time.Hour),
+	)
+	repository := &repositoryServer{}
+	repository.setFiles(fixture.Files)
+	transient := &transientRepositoryServer{
+		delegate: repository,
+	}
+	transient.failures.Store(1)
+	server := httptest.NewServer(transient)
+	defer server.Close()
+
+	root := t.TempDir()
+	destination := filepath.Join(root, "versions", "retry", "helper.exe")
+	result, err := InstallTarget(Config{
+		LocalMetadataDir:  filepath.Join(root, "metadata"),
+		RemoteMetadataURL: server.URL + "/metadata",
+		RemoteTargetsURL:  server.URL + "/targets",
+		Traceparent: "00-0123456789abcdef0123456789abcdef-" +
+			"0123456789abcdef-01",
+		TrustedRoot: fixture.Root,
+	}, testTargetName, destination)
+	if err != nil {
+		t.Fatalf("InstallTarget() error = %v", err)
+	}
+	if result.Target != testTargetName {
+		t.Fatalf("InstallTarget() target = %q, want %q", result.Target, testTargetName)
+	}
+	if transient.requests.Load() < 2 {
+		t.Fatalf(
+			"repository requests = %d, want a retry",
+			transient.requests.Load(),
+		)
+	}
+	if !transient.traceSeen.Load() {
+		t.Fatal("repository request did not preserve traceparent")
 	}
 }
 
