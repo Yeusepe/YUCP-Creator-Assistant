@@ -306,7 +306,7 @@ describe.serial('logical-tree ingest pipeline end to end', () => {
     ).toBeNull();
   }, 60_000);
 
-  it('rejects a corrupt canonical chunk before READY publication', async () => {
+  it('promotes without rereading chunks verified during durable writes', async () => {
     const root = join(requireScratchPath(), randomUUID());
     const stores = localPipelineStores(root);
     await mkdir(stores.metadataStore.storePath, { recursive: true });
@@ -336,19 +336,24 @@ describe.serial('logical-tree ingest pipeline end to end', () => {
       Buffer.alloc(chunk.size, 0x7f)
     );
 
-    await expect(
-      promoteVersion({
-        catalog: requireCatalog(),
-        ...stores,
-        versionId: assembled.id,
-      })
-    ).rejects.toThrow('verification');
+    const ready = await promoteVersion({
+      catalog: requireCatalog(),
+      ...stores,
+      versionId: assembled.id,
+    });
+    expect(ready.state).toBe('READY');
+    const readyEvents = await requireSql()<
+      { payload: { verification?: string } }[]
+    >`SELECT payload FROM catalog_outbox WHERE aggregate_id = ${assembled.id} AND event_type = 'catalog.version.ready'`;
+    expect(readyEvents).toHaveLength(1);
+    expect(readyEvents[0]?.payload.verification).toBe('write-time-durable-verification');
+
     expect(
       await stat(
         join(stores.metadataStore.storePath, deliveryManifestObjectId(assembled.id))
       ).catch(() => null)
-    ).toBeNull();
-    expect((await requireCatalog().getVersion(assembled.id))?.state).toBe('FAILED');
+    ).not.toBeNull();
+    expect((await requireCatalog().getVersion(assembled.id))?.state).toBe('READY');
   }, 60_000);
 
   it('keeps the normalized tree lossless for the first version', async () => {

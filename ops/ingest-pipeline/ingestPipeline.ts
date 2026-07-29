@@ -779,7 +779,7 @@ export async function migrateLegacyReadyVersion(
           protectionPolicyDigest: prepared.manifest.protectionPolicyDigest,
           protectionPolicyId: prepared.manifest.protectionPolicyId,
           releaseRoot: publication.releaseRoot,
-          verification: 'logical-tree-full-reassembly',
+          verification: 'write-time-durable-verification',
           vpmDependencies: prepared.manifest.vpmDependencies,
           vpmRepositories: prepared.manifest.vpmRepositories,
         },
@@ -831,7 +831,6 @@ async function finishPromotion(
   promoting: PackageVersion,
   signal: AbortSignal
 ): Promise<PackageVersion> {
-  let scratchPath: string | undefined;
   let manifestId: string | undefined;
   let assemblyId: string | undefined;
 
@@ -850,19 +849,6 @@ async function finishPromotion(
     });
     const manifest = parseDeliveryManifest(JSON.parse(assemblyBody));
     assertManifestIdentity(manifest, promoting);
-
-    signal.throwIfAborted();
-    scratchPath = await createPipelineScratchDirectory({
-      prefix: 'promote-',
-      root: input.scratchRoot,
-    });
-    await reconstructManifestTree({
-      manifest,
-      outputRoot: join(scratchPath, 'tree'),
-      signal,
-      commonStore: input.commonStore,
-      protectedStore: input.protectedStore,
-    });
 
     const body = manifestBody(manifest);
     const publication = createLogicalReleasePublicationV4({
@@ -922,7 +908,7 @@ async function finishPromotion(
           protectionPolicyDigest: manifest.protectionPolicyDigest,
           protectionPolicyId: manifest.protectionPolicyId,
           releaseRoot: publication.releaseRoot,
-          verification: 'logical-tree-full-reassembly',
+          verification: 'write-time-durable-verification',
           vpmDependencies: manifest.vpmDependencies,
           vpmRepositories: manifest.vpmRepositories,
         },
@@ -952,10 +938,6 @@ async function finishPromotion(
     signal.throwIfAborted();
     await input.catalog.markFailed(promoting.id, errorMessage(failure));
     throw failure;
-  } finally {
-    if (scratchPath) {
-      await rm(scratchPath, { force: true, recursive: true });
-    }
   }
 }
 
