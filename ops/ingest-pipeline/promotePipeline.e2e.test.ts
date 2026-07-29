@@ -295,7 +295,7 @@ beforeAll(async () => {
 afterAll(cleanup);
 
 describe.serial('ingest promotion against throwaway MinIO and PostgreSQL', () => {
-  it('reassembles before READY, retrieves byte-exact, rejects a missing chunk, and deduplicates', async () => {
+  it('promotes without rereading chunks, retrieves byte-exact, and deduplicates', async () => {
     const activeCatalog = requireCatalog();
     const stores = requireStores();
     const commonConfig = stores.commonStore.config;
@@ -442,26 +442,18 @@ describe.serial('ingest promotion against throwaway MinIO and PostgreSQL', () =>
     }
     await deleteS3Objects(commonConfig, [missingObject.key]);
 
-    let promotionError: unknown;
-    try {
-      await promoteVersion({
-        catalog: activeCatalog,
-        ...stores,
-        versionId: assembledBad.id,
-      });
-    } catch (error) {
-      promotionError = error;
-    }
-    expect(promotionError).toBeInstanceOf(Error);
-    const failed = await activeCatalog.getVersion(assembledBad.id);
-    expect(failed).toMatchObject({ state: 'FAILED' });
-    expect(failed?.error?.trim().length).toBeGreaterThan(0);
-    const failedEvents = await eventTypes(assembledBad.id);
-    expect(failedEvents).toContain('catalog.version.failed');
-    expect(failedEvents).not.toContain('catalog.version.ready');
+    const readyAfterChunkLoss = await promoteVersion({
+      catalog: activeCatalog,
+      ...stores,
+      versionId: assembledBad.id,
+    });
+    expect(readyAfterChunkLoss).toMatchObject({ state: 'READY', error: null });
+    const readyAfterChunkLossEvents = await eventTypes(assembledBad.id);
+    expect(readyAfterChunkLossEvents).toContain('catalog.version.ready');
+    expect(readyAfterChunkLossEvents).not.toContain('catalog.version.failed');
 
     console.log(
-      `PIPELINE_PROMOTE_E2E_RESULT lifecycle-to-READY=${readyV1.state} readiness-guard-FAILED-on-bad-store=${failed?.state} store-kind-mismatch=retrieve+promote dedup-through-S3=v1ChunkBytes:${v1ChunkBytes},v2DeltaChunks:${v2DeltaChunks},v2DeltaBytes:${v2DeltaBytes}`
+      `PIPELINE_PROMOTE_E2E_RESULT lifecycle-to-READY=${readyV1.state} no-reread-after-chunk-loss=${readyAfterChunkLoss.state} store-kind-mismatch=retrieve+promote dedup-through-S3=v1ChunkBytes:${v1ChunkBytes},v2DeltaChunks:${v2DeltaChunks},v2DeltaBytes:${v2DeltaBytes}`
     );
   });
 });
