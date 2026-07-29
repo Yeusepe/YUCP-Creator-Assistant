@@ -477,9 +477,7 @@ describe('package install session route', () => {
         }),
       sessionId: 'session-renewable',
     });
-    const renewalClaimIssuedAt = new Date(
-      Math.floor(Date.now() / 1_000) * 1_000 + 731
-    );
+    const renewalClaimIssuedAt = new Date(Math.floor(Date.now() / 1_000) * 1_000 + 731);
     const beginRenewal = mock(async () => ({
       capabilityId: `operation-${'77'.repeat(24)}`,
       generation: 1,
