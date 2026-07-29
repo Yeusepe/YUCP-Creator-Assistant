@@ -12,6 +12,65 @@ import (
 	"time"
 )
 
+type testAuthenticationHandler struct {
+	action   string
+	identity ClientIdentity
+}
+
+func (*testAuthenticationHandler) Handle(
+	_ context.Context,
+	_ ClientIdentity,
+	request OperationRequest,
+	_ ProgressReporter,
+) (OperationResult, error) {
+	return succeededResult(request), nil
+}
+
+func (handler *testAuthenticationHandler) HandleAuthentication(
+	_ context.Context,
+	identity ClientIdentity,
+	action string,
+) (AuthenticationResult, error) {
+	handler.action = action
+	handler.identity = identity
+	return AuthenticationResult{SignedIn: action != "sign-out"}, nil
+}
+
+func TestNamedPipeExposesBrokerOwnedAuthenticationWithoutCredentials(t *testing.T) {
+	pipeName := `\\.\pipe\yucp-package-broker-test-` + strings.ReplaceAll(
+		t.Name(),
+		"/",
+		"-",
+	)
+	handler := &testAuthenticationHandler{}
+	server, err := Listen(pipeName, handler)
+	if err != nil {
+		t.Fatalf("Listen() error = %v", err)
+	}
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	go func() {
+		_ = server.Serve(ctx)
+	}()
+
+	result, err := InvokeAuthentication(ctx, pipeName, "status")
+	if err != nil {
+		t.Fatalf("InvokeAuthentication() error = %v", err)
+	}
+	if !result.SignedIn ||
+		handler.action != "status" ||
+		handler.identity.ProcessID != uint32(os.Getpid()) ||
+		handler.identity.UserSID == "" {
+		t.Fatalf(
+			"authentication result = %#v, action = %q, identity = %#v",
+			result,
+			handler.action,
+			handler.identity,
+		)
+	}
+}
+
 func TestNamedPipeInvokesOneHighLevelOperationForAuthenticatedClient(t *testing.T) {
 	pipeName := `\\.\pipe\yucp-package-broker-test-` + strings.ReplaceAll(
 		t.Name(),

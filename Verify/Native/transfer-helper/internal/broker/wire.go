@@ -62,6 +62,20 @@ type Handler interface {
 	) (OperationResult, error)
 }
 
+type AuthenticationResult struct {
+	ErrorCode    string `json:"errorCode,omitempty"`
+	ErrorMessage string `json:"errorMessage,omitempty"`
+	SignedIn     bool   `json:"signedIn"`
+}
+
+type AuthenticationHandler interface {
+	HandleAuthentication(
+		ctx context.Context,
+		identity ClientIdentity,
+		action string,
+	) (AuthenticationResult, error)
+}
+
 type HandlerFunc func(
 	ctx context.Context,
 	identity ClientIdentity,
@@ -99,6 +113,13 @@ type operateFrame struct {
 	SchemaVersion  int              `json:"schemaVersion"`
 }
 
+type authenticationFrame struct {
+	Action         string `json:"action"`
+	Kind           string `json:"kind"`
+	OperationToken string `json:"operationToken"`
+	SchemaVersion  int    `json:"schemaVersion"`
+}
+
 type progressFrame struct {
 	Kind          string   `json:"kind"`
 	Progress      Progress `json:"progress"`
@@ -109,6 +130,12 @@ type resultFrame struct {
 	Kind          string          `json:"kind"`
 	Result        OperationResult `json:"result"`
 	SchemaVersion int             `json:"schemaVersion"`
+}
+
+type authenticationResultFrame struct {
+	Authentication AuthenticationResult `json:"authentication"`
+	Kind           string               `json:"kind"`
+	SchemaVersion  int                  `json:"schemaVersion"`
 }
 
 type frameHeader struct {
@@ -169,4 +196,28 @@ func validateProgress(event Progress) error {
 	default:
 		return fmt.Errorf("broker progress phase is invalid")
 	}
+}
+
+func validateAuthenticationAction(action string) error {
+	switch action {
+	case "sign-in", "sign-out", "status":
+		return nil
+	default:
+		return fmt.Errorf("broker authentication action is invalid")
+	}
+}
+
+func validateAuthenticationResult(result AuthenticationResult) error {
+	if result.ErrorCode == "" {
+		if result.ErrorMessage != "" {
+			return fmt.Errorf("broker authentication result is invalid")
+		}
+		return nil
+	}
+	if !stableErrorCodePattern.MatchString(result.ErrorCode) ||
+		result.ErrorMessage == "" ||
+		result.SignedIn {
+		return fmt.Errorf("broker authentication result is invalid")
+	}
+	return nil
 }

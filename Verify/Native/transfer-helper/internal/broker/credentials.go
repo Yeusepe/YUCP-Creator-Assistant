@@ -25,6 +25,11 @@ type OAuthFlow interface {
 		privateKey *ecdsa.PrivateKey,
 		refreshToken string,
 	) (OAuthTokens, error)
+	Revoke(
+		ctx context.Context,
+		privateKey *ecdsa.PrivateKey,
+		refreshToken string,
+	) error
 }
 
 type ManagedCredentials struct {
@@ -36,6 +41,107 @@ type ManagedCredentials struct {
 
 	deviceMu  sync.Mutex
 	userLocks credentialUserLocks
+}
+
+func (credentials *ManagedCredentials) Status(
+	ctx context.Context,
+	clientIdentity ClientIdentity,
+) (bool, error) {
+	if credentials == nil ||
+		credentials.Store == nil ||
+		credentials.StateRoot == "" ||
+		clientIdentity.UserSID == "" {
+		return false, fmt.Errorf("package broker credentials are not configured")
+	}
+	releaseUser, err := credentials.userLocks.acquire(ctx, clientIdentity.UserSID)
+	if err != nil {
+		return false, err
+	}
+	defer releaseUser()
+	stored, found, err := credentials.Store.Load(clientIdentity.UserSID)
+	if err != nil || !found {
+		return false, err
+	}
+	now := time.Now()
+	if credentials.Now != nil {
+		now = credentials.Now()
+	}
+	if now.Add(accessTokenRefreshMargin).Before(stored.ExpiresAt) {
+		return true, nil
+	}
+	if stored.RefreshToken == "" {
+		return false, nil
+	}
+	oauth := credentials.oauthForClient(clientIdentity)
+	if oauth == nil {
+		return false, fmt.Errorf("package broker OAuth flow is not configured")
+	}
+	credentials.deviceMu.Lock()
+	identity, err := deviceidentity.LoadOrCreate(credentials.StateRoot)
+	credentials.deviceMu.Unlock()
+	if err != nil {
+		return false, err
+	}
+	refreshed, err := oauth.Refresh(ctx, identity.PrivateKey, stored.RefreshToken)
+	if err != nil {
+		return false, err
+	}
+	if err := credentials.Store.Save(clientIdentity.UserSID, refreshed); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (credentials *ManagedCredentials) SignOut(
+	ctx context.Context,
+	clientIdentity ClientIdentity,
+) error {
+	if credentials == nil ||
+		credentials.Store == nil ||
+		credentials.StateRoot == "" ||
+		clientIdentity.UserSID == "" {
+		return fmt.Errorf("package broker credentials are not configured")
+	}
+	releaseUser, err := credentials.userLocks.acquire(ctx, clientIdentity.UserSID)
+	if err != nil {
+		return err
+	}
+	defer releaseUser()
+	stored, found, err := credentials.Store.Load(clientIdentity.UserSID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return nil
+	}
+	oauth := credentials.oauthForClient(clientIdentity)
+	if oauth == nil {
+		return fmt.Errorf("package broker OAuth flow is not configured")
+	}
+	credentials.deviceMu.Lock()
+	identity, identityErr := deviceidentity.LoadOrCreate(credentials.StateRoot)
+	credentials.deviceMu.Unlock()
+	var revokeErr error
+	if identityErr != nil {
+		revokeErr = identityErr
+	} else if stored.RefreshToken != "" {
+		revokeErr = oauth.Revoke(ctx, identity.PrivateKey, stored.RefreshToken)
+	}
+	clearErr := credentials.Store.Clear(clientIdentity.UserSID)
+	if revokeErr != nil {
+		return revokeErr
+	}
+	return clearErr
+}
+
+func (credentials *ManagedCredentials) oauthForClient(
+	clientIdentity ClientIdentity,
+) OAuthFlow {
+	oauth := credentials.OAuth
+	if credentials.OAuthForClient != nil {
+		oauth = credentials.OAuthForClient(clientIdentity)
+	}
+	return oauth
 }
 
 func (credentials *ManagedCredentials) Access(
@@ -52,10 +158,7 @@ func (credentials *ManagedCredentials) Access(
 			"package broker credentials are not configured",
 		)
 	}
-	oauth := credentials.OAuth
-	if credentials.OAuthForClient != nil {
-		oauth = credentials.OAuthForClient(clientIdentity)
-	}
+	oauth := credentials.oauthForClient(clientIdentity)
 	if oauth == nil {
 		return OAuthTokens{}, deviceidentity.Identity{}, fmt.Errorf(
 			"package broker OAuth flow is not configured",

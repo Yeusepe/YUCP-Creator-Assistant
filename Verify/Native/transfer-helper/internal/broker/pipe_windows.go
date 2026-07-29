@@ -121,10 +121,39 @@ func (server *Server) handleConnection(ctx context.Context, connection net.Conn)
 	}); err != nil {
 		return
 	}
+	requestLine, err := reader.ReadBytes('\n')
+	if err != nil || len(requestLine) > maxBrokerFrameBytes {
+		return
+	}
+	var requestHeader frameHeader
+	if err := json.Unmarshal(requestLine, &requestHeader); err != nil ||
+		requestHeader.SchemaVersion != BrokerProtocolSchemaVersion {
+		return
+	}
+	if requestHeader.Kind == "authenticate" {
+		var authentication authenticationFrame
+		if err := jsonUnmarshalStrict(requestLine, &authentication); err != nil ||
+			authorization.Consume(
+				authentication.OperationToken,
+				identity.UserSID,
+				identity.ProcessID,
+				time.Now(),
+			) != nil ||
+			validateAuthenticationAction(authentication.Action) != nil {
+			return
+		}
+		server.handleAuthentication(
+			ctx,
+			connection,
+			reader,
+			identity,
+			authentication.Action,
+		)
+		return
+	}
 	var operation operateFrame
-	if err := readFrame(reader, &operation); err != nil ||
-		operation.SchemaVersion != BrokerProtocolSchemaVersion ||
-		operation.Kind != "operate" ||
+	if requestHeader.Kind != "operate" ||
+		jsonUnmarshalStrict(requestLine, &operation) != nil ||
 		authorization.Consume(
 			operation.OperationToken,
 			identity.UserSID,
@@ -205,6 +234,63 @@ func (server *Server) handleConnection(ctx context.Context, connection net.Conn)
 		Kind:          "result",
 		Result:        result,
 		SchemaVersion: BrokerProtocolSchemaVersion,
+	})
+}
+
+func (server *Server) handleAuthentication(
+	ctx context.Context,
+	connection net.Conn,
+	reader *bufio.Reader,
+	identity ClientIdentity,
+	action string,
+) {
+	handler, ok := server.handler.(AuthenticationHandler)
+	if !ok {
+		return
+	}
+	_ = connection.SetDeadline(time.Time{})
+	select {
+	case server.slots <- struct{}{}:
+		defer func() { <-server.slots }()
+	default:
+		_ = writeFrame(connection, authenticationResultFrame{
+			Authentication: AuthenticationResult{
+				ErrorCode:    "BROKER_BUSY",
+				ErrorMessage: "Package authentication is busy. Try again shortly.",
+			},
+			Kind:          "authentication",
+			SchemaVersion: BrokerProtocolSchemaVersion,
+		})
+		return
+	}
+	authenticationContext, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		var unexpected [1]byte
+		_, _ = reader.Read(unexpected[:])
+		cancel()
+	}()
+	result, handleErr := handler.HandleAuthentication(
+		authenticationContext,
+		identity,
+		action,
+	)
+	if handleErr != nil {
+		result = AuthenticationResult{
+			ErrorCode:    "AUTHENTICATION_FAILED",
+			ErrorMessage: "YUCP authentication could not finish. Try again.",
+		}
+	}
+	if validateAuthenticationResult(result) != nil {
+		result = AuthenticationResult{
+			ErrorCode:    "BROKER_PROTOCOL_INVALID",
+			ErrorMessage: "YUCP authentication returned an invalid response.",
+		}
+	}
+	_ = writeFrame(connection, authenticationResultFrame{
+		Authentication: result,
+		Kind:           "authentication",
+		SchemaVersion:  BrokerProtocolSchemaVersion,
 	})
 }
 
@@ -344,6 +430,68 @@ func Invoke(
 			return OperationResult{}, fmt.Errorf("package broker response kind is invalid")
 		}
 	}
+}
+
+func InvokeAuthentication(
+	ctx context.Context,
+	pipeName string,
+	action string,
+) (AuthenticationResult, error) {
+	if err := validateAuthenticationAction(action); err != nil {
+		return AuthenticationResult{}, err
+	}
+	connection, err := winio.DialPipeAccessImpLevel(
+		ctx,
+		pipeName,
+		uint32(windows.GENERIC_READ|windows.GENERIC_WRITE),
+		winio.PipeImpLevelImpersonation,
+	)
+	if err != nil {
+		return AuthenticationResult{}, fmt.Errorf("connect to package broker: %w", err)
+	}
+	defer connection.Close()
+	reader := bufio.NewReaderSize(connection, maxBrokerFrameBytes)
+	clientNonceBytes := make([]byte, 32)
+	if _, err := rand.Read(clientNonceBytes); err != nil {
+		return AuthenticationResult{}, fmt.Errorf("create package broker nonce: %w", err)
+	}
+	clientNonce := base64.RawURLEncoding.EncodeToString(clientNonceBytes)
+	if err := writeFrame(connection, beginFrame{
+		ClientNonce:   clientNonce,
+		Kind:          "begin",
+		SchemaVersion: BrokerProtocolSchemaVersion,
+	}); err != nil {
+		return AuthenticationResult{}, err
+	}
+	var challenge challengeFrame
+	if err := readFrame(reader, &challenge); err != nil {
+		return AuthenticationResult{}, err
+	}
+	expiresAt, err := time.Parse(time.RFC3339Nano, challenge.ExpiresAt)
+	if err != nil ||
+		challenge.SchemaVersion != BrokerProtocolSchemaVersion ||
+		challenge.Kind != "challenge" ||
+		challenge.ClientNonce != clientNonce ||
+		!isCanonicalNonce(challenge.OperationToken) ||
+		!time.Now().Before(expiresAt) {
+		return AuthenticationResult{}, fmt.Errorf("package broker challenge is invalid")
+	}
+	if err := writeFrame(connection, authenticationFrame{
+		Action:         action,
+		Kind:           "authenticate",
+		OperationToken: challenge.OperationToken,
+		SchemaVersion:  BrokerProtocolSchemaVersion,
+	}); err != nil {
+		return AuthenticationResult{}, err
+	}
+	var response authenticationResultFrame
+	if err := readFrame(reader, &response); err != nil ||
+		response.Kind != "authentication" ||
+		response.SchemaVersion != BrokerProtocolSchemaVersion ||
+		validateAuthenticationResult(response.Authentication) != nil {
+		return AuthenticationResult{}, fmt.Errorf("package broker authentication response is invalid")
+	}
+	return response.Authentication, nil
 }
 
 func jsonUnmarshalStrict(raw []byte, destination any) error {

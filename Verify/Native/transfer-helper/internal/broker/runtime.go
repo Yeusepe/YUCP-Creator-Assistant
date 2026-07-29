@@ -25,6 +25,12 @@ type CredentialProvider interface {
 	) (OAuthTokens, deviceidentity.Identity, error)
 }
 
+type AuthenticationCredentialProvider interface {
+	CredentialProvider
+	Status(ctx context.Context, identity ClientIdentity) (bool, error)
+	SignOut(ctx context.Context, identity ClientIdentity) error
+}
+
 type RemoteExchange interface {
 	AuthorizeAndExchange(
 		ctx context.Context,
@@ -59,6 +65,39 @@ type Runtime struct {
 	StateRoot                string
 	TrustDocument            trust.Document
 	VerificationPollInterval time.Duration
+}
+
+func (runtime Runtime) HandleAuthentication(
+	ctx context.Context,
+	clientIdentity ClientIdentity,
+	action string,
+) (AuthenticationResult, error) {
+	credentials, ok := runtime.Credentials.(AuthenticationCredentialProvider)
+	if !ok {
+		return AuthenticationResult{}, fmt.Errorf(
+			"package broker authentication is not configured",
+		)
+	}
+	switch action {
+	case "status":
+		signedIn, err := credentials.Status(ctx, clientIdentity)
+		return AuthenticationResult{SignedIn: signedIn}, err
+	case "sign-in":
+		_, _, err := credentials.Access(
+			ctx,
+			clientIdentity,
+			true,
+			func(string, int64, int64) error { return nil },
+		)
+		return AuthenticationResult{SignedIn: err == nil}, err
+	case "sign-out":
+		err := credentials.SignOut(ctx, clientIdentity)
+		return AuthenticationResult{SignedIn: false}, err
+	default:
+		return AuthenticationResult{}, fmt.Errorf(
+			"package broker authentication action is invalid",
+		)
+	}
 }
 
 func (runtime Runtime) Handle(

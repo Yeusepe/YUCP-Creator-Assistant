@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -22,6 +23,7 @@ func TestOAuthAuthorizationUsesRFC8252PKCEResourceAndDPoP(t *testing.T) {
 		t.Fatalf("GenerateKey() error = %v", err)
 	}
 	var authorizationQuery url.Values
+	var callbackHTML string
 	var tokenForm url.Values
 	server := httptest.NewServer(http.HandlerFunc(func(
 		writer http.ResponseWriter,
@@ -74,7 +76,13 @@ func TestOAuthAuthorizationUsesRFC8252PKCEResourceAndDPoP(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			return response.Body.Close()
+			defer response.Body.Close()
+			callbackBody, err := io.ReadAll(response.Body)
+			if err != nil {
+				return err
+			}
+			callbackHTML = string(callbackBody)
+			return nil
 		},
 	}
 	thumbprint := make([]byte, 32)
@@ -106,6 +114,18 @@ func TestOAuthAuthorizationUsesRFC8252PKCEResourceAndDPoP(t *testing.T) {
 		tokenForm.Get("resource") != PackageBrokerOAuthResource ||
 		tokenForm.Get("code_verifier") == "" {
 		t.Fatalf("token form = %#v", tokenForm)
+	}
+	for _, expected := range []string{
+		"Creator Identity is ready",
+		"Return to Unity. Your purchase verification controls are now available in the YUCP Package Manager.",
+		"You can close this tab and continue in Unity.",
+		"class=\"detail-card detail-card-success\"",
+		"font-family: 'Plus Jakarta Sans'",
+		"apps/web/public/Icons/MainLogo.png",
+	} {
+		if !strings.Contains(callbackHTML, expected) {
+			t.Fatalf("OAuth callback page omitted %q", expected)
+		}
 	}
 }
 

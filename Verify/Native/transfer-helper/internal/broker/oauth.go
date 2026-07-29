@@ -85,7 +85,9 @@ func (client OAuthClient) Authorize(
 		writer.Header().Set("Cache-Control", "no-store")
 		writer.Header().Set(
 			"Content-Security-Policy",
-			"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+			"default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; "+
+				"font-src https://fonts.gstatic.com; img-src https://raw.githubusercontent.com; "+
+				"base-uri 'none'; frame-ancestors 'none'",
 		)
 		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if request.Method != http.MethodGet ||
@@ -99,7 +101,7 @@ func (client OAuthClient) Authorize(
 			writer.WriteHeader(http.StatusBadRequest)
 			_, _ = io.WriteString(
 				writer,
-				"<!doctype html><title>YUCP sign-in failed</title><p>Return to Unity and try again.</p>",
+				buildOAuthErrorPage("The authorization response was invalid or expired."),
 			)
 			return
 		}
@@ -109,7 +111,7 @@ func (client OAuthClient) Authorize(
 		}
 		_, _ = io.WriteString(
 			writer,
-			"<!doctype html><title>YUCP sign-in complete</title><p>You can close this page and return to Unity.</p>",
+			buildOAuthSuccessPage(),
 		)
 	})
 	server := &http.Server{

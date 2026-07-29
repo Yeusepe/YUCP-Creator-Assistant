@@ -14,6 +14,7 @@ import (
 type controlledOAuthFlow struct {
 	authorizeStarted chan struct{}
 	releaseAuthorize chan struct{}
+	revoked          chan string
 	startOnce        sync.Once
 	tokens           OAuthTokens
 }
@@ -40,6 +41,75 @@ func (*controlledOAuthFlow) Refresh(
 	_ string,
 ) (OAuthTokens, error) {
 	return OAuthTokens{}, errors.New("refresh was not expected")
+}
+
+func (flow *controlledOAuthFlow) Revoke(
+	_ context.Context,
+	_ *ecdsa.PrivateKey,
+	refreshToken string,
+) error {
+	flow.revoked <- refreshToken
+	return nil
+}
+
+func TestManagedCredentialsStatusReusesWindowsProtectedSessionWithoutBrowser(
+	t *testing.T,
+) {
+	const userSID = "S-1-5-21-saved"
+	flow := newControlledOAuthFlow("saved")
+	credentials := newTestManagedCredentials(t, map[string]OAuthFlow{
+		userSID: flow,
+	})
+	if err := credentials.Store.Save(userSID, flow.tokens); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	signedIn, err := credentials.Status(
+		context.Background(),
+		ClientIdentity{UserSID: userSID},
+	)
+	if err != nil {
+		t.Fatalf("Status() error = %v", err)
+	}
+	if !signedIn {
+		t.Fatal("Status() = signed out, want saved session")
+	}
+	select {
+	case <-flow.authorizeStarted:
+		t.Fatal("Status() opened browser authorization for a saved session")
+	default:
+	}
+}
+
+func TestManagedCredentialsSignOutRevokesAndClearsWindowsProtectedSession(
+	t *testing.T,
+) {
+	const userSID = "S-1-5-21-sign-out"
+	flow := newControlledOAuthFlow("sign-out")
+	credentials := newTestManagedCredentials(t, map[string]OAuthFlow{
+		userSID: flow,
+	})
+	if err := credentials.Store.Save(userSID, flow.tokens); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	if err := credentials.SignOut(
+		context.Background(),
+		ClientIdentity{UserSID: userSID},
+	); err != nil {
+		t.Fatalf("SignOut() error = %v", err)
+	}
+	select {
+	case revoked := <-flow.revoked:
+		if revoked != flow.tokens.RefreshToken {
+			t.Fatalf("Revoke() token = %q", revoked)
+		}
+	default:
+		t.Fatal("SignOut() did not revoke the refresh token")
+	}
+	if _, found, err := credentials.Store.Load(userSID); err != nil || found {
+		t.Fatalf("Load() after SignOut() found = %t, error = %v", found, err)
+	}
 }
 
 func TestManagedCredentialsDoNotBlockAnotherUserDuringAuthorization(t *testing.T) {
@@ -139,6 +209,7 @@ func newControlledOAuthFlow(label string) *controlledOAuthFlow {
 	return &controlledOAuthFlow{
 		authorizeStarted: make(chan struct{}),
 		releaseAuthorize: make(chan struct{}),
+		revoked:          make(chan string, 1),
 		tokens: OAuthTokens{
 			AccessToken:  label + "-access",
 			ExpiresAt:    time.Now().Add(5 * time.Minute),
