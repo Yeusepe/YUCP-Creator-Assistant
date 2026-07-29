@@ -2,9 +2,8 @@ import { fetchInfisicalSecrets } from '@yucp/shared/infisical/fetchSecrets';
 import { readFlag } from './cli-utils';
 import {
   DELIVERY_WORKER_BINDING_KEYS,
-  DELIVERY_WORKER_WRANGLER_CONFIG_PATH,
   getDeliveryWorkerBindingValues,
-  runWranglerSecretBulk,
+  runWranglerDeployWithSecrets,
 } from './cloudflare-web-config';
 
 const isProd = process.argv.includes('--prod');
@@ -24,9 +23,9 @@ async function main(): Promise<void> {
     throw new Error(`Missing required delivery Worker Infisical secrets: ${missing.join(', ')}`);
   }
 
-  await runWranglerSecretBulk(bindingValues, DELIVERY_WORKER_WRANGLER_CONFIG_PATH, workerEnvName);
+  await runWranglerDeployWithSecrets(bindingValues, workerEnvName);
   console.log(
-    `sync-delivery-worker-secrets: synced ${Object.keys(bindingValues).length} bindings to Cloudflare${workerEnvName ? ` env ${workerEnvName}` : ''}`
+    `sync-delivery-worker-secrets: deployed with ${Object.keys(bindingValues).length} encrypted bindings to Cloudflare${workerEnvName ? ` env ${workerEnvName}` : ''}`
   );
 }
 

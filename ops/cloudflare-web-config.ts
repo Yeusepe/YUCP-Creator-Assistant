@@ -273,23 +273,27 @@ export async function fetchWebEnvFromInfisical({
   return parseJsonMap(stdout);
 }
 
-function loadWranglerConfig(): Record<string, unknown> {
-  const text = readFileSync(WEB_WRANGLER_CONFIG_PATH, 'utf8');
+function loadWranglerConfigFromPath(configPath: string): Record<string, unknown> {
+  const text = readFileSync(configPath, 'utf8');
   const errors: ParseError[] = [];
   const value = parse(text, errors, { allowTrailingComma: true }) as unknown;
   if (errors.length > 0) {
     const [first] = errors;
     if (!first) {
-      throw new Error(`Failed to parse ${WEB_WRANGLER_CONFIG_PATH}: unknown parse error`);
+      throw new Error(`Failed to parse ${configPath}: unknown parse error`);
     }
     throw new Error(
-      `Failed to parse ${WEB_WRANGLER_CONFIG_PATH}: ${printParseErrorCode(first.error)} at offset ${first.offset}`
+      `Failed to parse ${configPath}: ${printParseErrorCode(first.error)} at offset ${first.offset}`
     );
   }
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`Expected a JSON object in ${WEB_WRANGLER_CONFIG_PATH}`);
+    throw new Error(`Expected a JSON object in ${configPath}`);
   }
   return value as Record<string, unknown>;
+}
+
+function loadWranglerConfig(): Record<string, unknown> {
+  return loadWranglerConfigFromPath(WEB_WRANGLER_CONFIG_PATH);
 }
 
 export function createTemporaryWranglerConfig(
@@ -362,6 +366,106 @@ export async function runWranglerSecretBulk(
     }
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+}
+
+export interface TemporaryDeliveryWorkerDeployArtifacts {
+  configPath: string;
+  secretsPath: string;
+  cleanup: () => void;
+}
+
+export function createTemporaryDeliveryWorkerDeployArtifacts(
+  secretValues: Record<string, string>,
+  workerEnvName?: string,
+  sourceConfigPath = DELIVERY_WORKER_WRANGLER_CONFIG_PATH
+): TemporaryDeliveryWorkerDeployArtifacts {
+  const temporaryDirectory = mkdtempSync(join(tmpdir(), 'yucp-delivery-worker-deploy-'));
+  const configPath = join(temporaryDirectory, 'wrangler.json');
+  const secretsPath = join(temporaryDirectory, 'secrets.json');
+
+  try {
+    const config = loadWranglerConfigFromPath(sourceConfigPath);
+    const configuredMain = normalizeOptional(
+      typeof config.main === 'string' ? config.main : undefined
+    );
+    if (!configuredMain) {
+      throw new Error(`Delivery Worker config ${sourceConfigPath} is missing main`);
+    }
+
+    config.main = resolve(dirname(sourceConfigPath), configuredMain);
+    const required = Object.keys(secretValues);
+
+    if (workerEnvName) {
+      const environments =
+        typeof config.env === 'object' && config.env && !Array.isArray(config.env)
+          ? (config.env as Record<string, Record<string, unknown>>)
+          : {};
+      const targetEnvironment = { ...(environments[workerEnvName] ?? {}) };
+      delete targetEnvironment.vars;
+      targetEnvironment.secrets = { required };
+      config.env = {
+        ...environments,
+        [workerEnvName]: targetEnvironment,
+      };
+    } else {
+      delete config.vars;
+      config.secrets = { required };
+    }
+
+    writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+    writeFileSync(secretsPath, JSON.stringify(secretValues), 'utf8');
+
+    return {
+      configPath,
+      secretsPath,
+      cleanup: () => {
+        rmSync(temporaryDirectory, { recursive: true, force: true });
+      },
+    };
+  } catch (error) {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+export function buildWranglerDeployWithSecretsArgs(
+  configPath: string,
+  secretsPath: string,
+  workerEnvName?: string
+): string[] {
+  const args = ['deploy', '--config', configPath, '--secrets-file', secretsPath];
+  if (workerEnvName) {
+    args.push('--env', workerEnvName);
+  }
+  return args;
+}
+
+export async function runWranglerDeployWithSecrets(
+  secretValues: Record<string, string>,
+  workerEnvName?: string
+): Promise<void> {
+  const artifacts = createTemporaryDeliveryWorkerDeployArtifacts(secretValues, workerEnvName);
+
+  try {
+    const proc = Bun.spawn({
+      cmd: buildWranglerCommand(
+        buildWranglerDeployWithSecretsArgs(
+          artifacts.configPath,
+          artifacts.secretsPath,
+          workerEnvName
+        )
+      ),
+      stdout: 'inherit',
+      stderr: 'inherit',
+      stdin: 'inherit',
+    });
+    const exitCode = await proc.exited;
+    if (exitCode !== 0) {
+      throw new Error(`wrangler deploy with secrets failed with exit code ${exitCode}`);
+    }
+  } finally {
+    artifacts.cleanup();
   }
 }
 
