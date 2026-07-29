@@ -783,6 +783,90 @@ describe.serial('PostgreSQL materialization capability broker', () => {
     expect((replayError as Error).message).toContain('already consumed');
   }, 30_000);
 
+  it('authorizes rendition upload through the active lease after one-time capability expiry', async () => {
+    const broker = createBroker();
+    await broker.createInstallJob({
+      bindingRoot: new Uint8Array(32).fill(0x23),
+      buyerId: 'buyer-lease-session',
+      creatorId: 'creator-1',
+      grantJti: 'grant-lease-session',
+      id: 'job-lease-session',
+      keyEpoch: 7,
+      materializationAlgorithm: 'png-dct-qim-v2',
+      outputFormat: 'zip',
+      pluginVersion: 'png-plugin-2',
+      productId: 'com.yucp.materialization-test',
+      protectedSourceRoot: new Uint8Array(32).fill(0x22),
+      releaseRoot: new Uint8Array(32).fill(0x11),
+      sourceLogicalBytes: 4_096,
+      sourceLogicalFiles: 2,
+      sourceManifestSha256: new Uint8Array(32).fill(0x88),
+      sourceVersionId,
+      traceId: 'trace-lease-session',
+    });
+    const claim = await broker.claimNextJob({
+      leaseDurationMs: 600_000,
+      leaseOwner: 'data-node-lease-session',
+      now: new Date(nowSeconds * 1_000),
+    });
+    if (claim.status !== 'claimed') {
+      throw new Error('Expected the lease-session job to be claimed');
+    }
+    const signed = await broker.issueCapability({
+      jobId: claim.jobId,
+      keyId: capabilityKeyId,
+      leaseGeneration: claim.leaseGeneration,
+      leaseOwner: 'data-node-lease-session',
+      lifetimeSeconds: 300,
+      now: new Date(nowSeconds * 1_000),
+      privateKey: capabilityPrivateKey,
+      proofKeyThumbprint: new Uint8Array(32).fill(0x55),
+    });
+    const capabilityPublicKey = await ed25519.getPublicKeyAsync(capabilityPrivateKey);
+    await broker.consumeCapability({
+      coseSign1: signed.coseSign1,
+      expectedKeyId: capabilityKeyId,
+      materializerId: 'data-node-lease-session',
+      now: new Date((nowSeconds + 1) * 1_000),
+      publicKey: capabilityPublicKey,
+      proofJti: 'proof-lease-session-consume',
+      traceId: 'trace-lease-session',
+      verifiedProofKeyThumbprint: new Uint8Array(32).fill(0x55),
+    });
+    await broker.renewClaimLease({
+      jobId: claim.jobId,
+      leaseDurationMs: 600_000,
+      leaseGeneration: claim.leaseGeneration,
+      leaseOwner: 'data-node-lease-session',
+      now: new Date((nowSeconds + 240) * 1_000),
+    });
+    const archive = zipSync({
+      'Assets/Product/a.png': new Uint8Array([1, 2, 3, 4]),
+    });
+
+    const upload = await broker.prepareRenditionUpload({
+      bytes: archive.byteLength,
+      capabilityId: signed.capability.capabilityId,
+      coseSign1: signed.coseSign1,
+      jobId: claim.jobId,
+      leaseGeneration: claim.leaseGeneration,
+      materializerId: 'data-node-lease-session',
+      now: new Date((nowSeconds + 360) * 1_000),
+      proofJti: 'proof-lease-session-upload',
+      sha256: createHash('sha256').update(archive).digest('hex'),
+      traceId: 'trace-lease-session',
+      verifiedProofKeyThumbprint: new Uint8Array(32).fill(0x55),
+    });
+
+    expect(upload).toMatchObject({
+      upload: {
+        bucketName: 'renditions-test',
+        storageRole: 'renditions',
+      },
+      writeIntentId: expect.any(String),
+    });
+  }, 20_000);
+
   it('keeps a second large job queued while the fixed node lane is occupied', async () => {
     const broker = new MaterializationBroker({
       keyBroker,

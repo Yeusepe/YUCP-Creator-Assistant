@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { CatalogDatabase } from '../catalog';
+import { PACKAGE_INSTALL_DPOP_MAX_REPLAY_RESERVATION_LIFETIME_MS } from '../storage-core/dpopReplayPolicy';
 import {
   type DeliveryGrantV2,
   encodeDeliveryGrantV2,
@@ -1267,6 +1268,9 @@ export class MaterializationBroker {
     await this.consumeMaterializerProof({
       capabilityId: requireText(input.capabilityId, 'capabilityId', 128),
       coseSign1: input.coseSign1,
+      jobStates: ['MATERIALIZING', 'VERIFYING'],
+      jobId: requireText(input.jobId, 'jobId', 128),
+      leaseGeneration: input.leaseGeneration,
       materializerId: requireText(input.materializerId, 'materializerId', 512),
       now,
       proofJti: input.proofJti,
@@ -1803,6 +1807,9 @@ export class MaterializationBroker {
   private async consumeMaterializerProof(input: {
     capabilityId: string;
     coseSign1: Uint8Array;
+    jobStates: readonly ('MATERIALIZING' | 'SUCCEEDED' | 'VERIFYING')[];
+    jobId: string;
+    leaseGeneration: number;
     materializerId: string;
     now: Date;
     proofJti: string;
@@ -1816,30 +1823,57 @@ export class MaterializationBroker {
     await this.sql.begin(async (transaction) => {
       const rows = await transaction<
         {
+          capabilityLeaseGeneration: number;
           consumedBy: string | null;
-          expiresAt: Date;
+          jobLeaseGeneration: number;
+          jobState: string;
+          leaseExpiresAt: Date | null;
+          leaseOwner: string | null;
           proofKeyThumbprint: Buffer;
           signedSha256: Buffer;
         }[]
       >`
         SELECT
-          consumed_by AS "consumedBy",
-          expires_at AS "expiresAt",
-          proof_key_thumbprint AS "proofKeyThumbprint",
-          signed_capability_sha256 AS "signedSha256"
-        FROM materialization_capabilities
-        WHERE capability_id = ${input.capabilityId}
-        FOR UPDATE
+          c.consumed_by AS "consumedBy",
+          c.lease_generation AS "capabilityLeaseGeneration",
+          c.proof_key_thumbprint AS "proofKeyThumbprint",
+          c.signed_capability_sha256 AS "signedSha256",
+          j.state AS "jobState",
+          j.lease_owner AS "leaseOwner",
+          j.lease_generation AS "jobLeaseGeneration",
+          j.lease_expires_at AS "leaseExpiresAt"
+        FROM materialization_capabilities c
+        JOIN materialization_jobs j ON j.id = c.job_id
+        WHERE c.capability_id = ${input.capabilityId}
+          AND c.job_id = ${input.jobId}
+        FOR UPDATE OF c, j
       `;
       const row = rows[0];
+      // Capability expiry fences its one-time consumption. After consumption,
+      // the durable job lease and bound proof key fence the materializer session.
+      const hasActiveLease = row?.jobState === 'MATERIALIZING' || row?.jobState === 'VERIFYING';
       if (
         !row ||
         row.consumedBy !== input.materializerId ||
-        new Date(row.expiresAt).getTime() <= input.now.getTime() ||
+        !input.jobStates.some((jobState) => jobState === row.jobState) ||
+        row.capabilityLeaseGeneration !== input.leaseGeneration ||
+        row.jobLeaseGeneration !== input.leaseGeneration ||
+        (hasActiveLease &&
+          (row.leaseOwner !== input.materializerId ||
+            !row.leaseExpiresAt ||
+            new Date(row.leaseExpiresAt).getTime() <= input.now.getTime())) ||
         !bytesEqual(row.proofKeyThumbprint, proofKeyThumbprint) ||
         !bytesEqual(row.signedSha256, signedDigest)
       ) {
         throw new Error('Materializer proof does not match its durable capability');
+      }
+      const proofExpiresAt = hasActiveLease
+        ? row.leaseExpiresAt
+        : // A successful job has released its lease. Keep replay protection for
+          // the accepted proof window so completion retries remain idempotent.
+          new Date(input.now.getTime() + PACKAGE_INSTALL_DPOP_MAX_REPLAY_RESERVATION_LIFETIME_MS);
+      if (!proofExpiresAt) {
+        throw new Error('Materializer proof does not have a durable replay fence');
       }
       await transaction`
         INSERT INTO materialization_dpop_proofs (
@@ -1853,7 +1887,7 @@ export class MaterializationBroker {
           ${proofKeyThumbprint},
           ${requireText(input.proofJti, 'proofJti', 128)},
           ${input.capabilityId},
-          ${row.expiresAt},
+          ${proofExpiresAt},
           ${input.now}
         )
       `;
@@ -2060,6 +2094,9 @@ export class MaterializationBroker {
     await this.consumeMaterializerProof({
       capabilityId,
       coseSign1: input.coseSign1,
+      jobStates: ['MATERIALIZING', 'VERIFYING'],
+      jobId,
+      leaseGeneration: input.leaseGeneration,
       materializerId,
       now,
       proofJti: input.proofJti,
@@ -2268,6 +2305,9 @@ export class MaterializationBroker {
     await this.consumeMaterializerProof({
       capabilityId,
       coseSign1: input.coseSign1,
+      jobStates: ['VERIFYING', 'SUCCEEDED'],
+      jobId,
+      leaseGeneration: input.leaseGeneration,
       materializerId,
       now,
       proofJti: input.proofJti,
