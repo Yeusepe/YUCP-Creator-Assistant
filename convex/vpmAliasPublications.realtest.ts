@@ -171,6 +171,47 @@ describe('VPM alias publication ledger', () => {
     expect(retry).toEqual({ ...first, created: false });
   });
 
+  it('writes a presentation whose media includes payload-less product links', async () => {
+    const t = makeTestConvex();
+    await seedOwnedPackage(t);
+    const presentation = await t.mutation(
+      api.vpmAliasPublications.seedPresentationIfMissingForCreator,
+      {
+        ...presentationArgs({
+          media: [
+            {
+              bucketName: 'metadata',
+              byteSize: 54_041,
+              contentType: 'image/png',
+              kind: 'icon',
+              localPath: 'Documentation~/YUCP/icon.png',
+              objectKey: 'indexes/bootstrap-media/icon.png',
+              providerVersion: 'exact-icon-1',
+              sha256: '28'.repeat(32),
+            },
+            {
+              kind: 'product-link',
+              label: 'Gumroad',
+              ordinal: 0,
+              url: 'https://example.gumroad.com/l/product',
+            },
+          ] as never,
+        }),
+        actor: await creatorActor(),
+      }
+    );
+
+    expect(presentation.presentationFingerprintSha256).toMatch(/^[0-9a-f]{64}$/);
+    const stored = await t.query(api.vpmAliasPublications.getPresentationForService, {
+      apiSecret: 'test-secret',
+      actor: await repositoryActor(),
+      packageId: PACKAGE_ID,
+      channel: 'stable',
+    });
+    expect(stored?.media).toHaveLength(2);
+    expect(stored?.media.map((entry) => entry.kind).sort()).toEqual(['icon', 'product-link']);
+  });
+
   it('publishes exact immutable artifact metadata and keeps prior revisions', async () => {
     const t = makeTestConvex();
     await seedOwnedPackage(t);

@@ -400,12 +400,14 @@ async function normalizePresentation(input: PresentationInput): Promise<Normaliz
     description: normalized.description,
     importerPackage: normalized.importerPackage,
     media: normalized.media.map((entry) => ({
-      byteSize: entry.byteSize,
-      contentType: entry.contentType,
+      // Payload-less product links carry no image fields; a key explicitly set to
+      // undefined would make the canonical fingerprint serializer reject the write.
+      ...(entry.byteSize === undefined ? {} : { byteSize: entry.byteSize }),
+      ...(entry.contentType === undefined ? {} : { contentType: entry.contentType }),
       kind: entry.kind,
-      localPath: entry.localPath,
+      ...(entry.localPath === undefined ? {} : { localPath: entry.localPath }),
       ...(entry.ordinal === undefined ? {} : { ordinal: entry.ordinal }),
-      sha256: entry.sha256,
+      ...(entry.sha256 === undefined ? {} : { sha256: entry.sha256 }),
       ...(entry.label ? { label: entry.label } : {}),
       ...(entry.url ? { url: entry.url } : {}),
     })),

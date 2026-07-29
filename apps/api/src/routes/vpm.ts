@@ -1247,6 +1247,7 @@ export function createVpmRoutes({
   async function buildCurrentCreatorBootstrap(input: {
     authUserId: string;
     product: CreatorVpmProduct;
+    refreshPublication?: () => Promise<void>;
   }): Promise<{
     bootstrap: BuiltYucpAliasVpmPackage;
     publication: PublishedVpmAlias;
@@ -1260,29 +1261,46 @@ export function createVpmRoutes({
       scopes: ['downloads:service'],
     });
     const convex = getConvexClientFromUrl(config.convexUrl, actor);
-    const publication = (await convex.query(api.vpmAliasPublications.getLatestPublishedForPackage, {
-      apiSecret: config.convexApiSecret,
-      actor,
-      packageId: input.product.packageId,
-      channel: 'stable',
-      artifactBucketName: aliasArtifactStore.bucketName,
-    })) as PublishedVpmAlias | null;
-    if (!publication) {
-      return null;
-    }
-    const [presentation, releasePresentation] = await Promise.all([
-      convex.query(api.vpmAliasPublications.getPresentationForService, {
+    const readPublication = async () =>
+      (await convex.query(api.vpmAliasPublications.getLatestPublishedForPackage, {
         apiSecret: config.convexApiSecret,
         actor,
-        packageId: input.product.packageId,
+        packageId: input.product.packageId as string,
         channel: 'stable',
-      }) as Promise<VpmAliasPresentation | null>,
+        artifactBucketName: aliasArtifactStore.bucketName,
+      })) as PublishedVpmAlias | null;
+    const readPresentation = async () =>
+      (await convex.query(api.vpmAliasPublications.getPresentationForService, {
+        apiSecret: config.convexApiSecret,
+        actor,
+        packageId: input.product.packageId as string,
+        channel: 'stable',
+      })) as VpmAliasPresentation | null;
+    let publication = await readPublication();
+    let [presentation, releasePresentation] = await Promise.all([
+      readPresentation(),
       convex.query(api.packageVersions.resolvePublicBootstrapPresentation, {
         apiSecret: config.convexApiSecret,
         actor,
         packageId: input.product.packageId,
       }) as Promise<PublicBootstrapPresentation | null>,
     ]);
+    // Publications only refresh on explicit link actions, so a legacy-scheme or
+    // release-stale record can outlive the release that superseded it. Repair it
+    // here instead of failing the download.
+    const releaseVersion = releasePresentation?.packageMetadata?.version;
+    const publicationNeedsRepair = publication
+      ? publication.aliasPackageId !== publication.packageId ||
+        (typeof releaseVersion === 'string' && publication.packageVersion !== releaseVersion)
+      : typeof releaseVersion === 'string';
+    if (publicationNeedsRepair && input.refreshPublication) {
+      await input.refreshPublication();
+      publication = await readPublication();
+      presentation = await readPresentation();
+    }
+    if (!publication) {
+      return null;
+    }
     const publishedPackages = buildPublishedAliasPackages([publication]);
     const publishedVersions = publishedPackages[publication.aliasPackageId]?.versions;
     const publishedPackageVersion =
@@ -1336,6 +1354,34 @@ export function createVpmRoutes({
     return { bootstrap, publication };
   }
 
+  function creatorPublicationRepair(authorized: {
+    actor: Awaited<ReturnType<typeof createAuthUserActorBinding>>;
+    authUserId: string;
+    convex: ReturnType<typeof getConvexClientFromUrl>;
+    product: CreatorVpmProduct;
+  }): (() => Promise<void>) | undefined {
+    const vpmRepository = getConfiguredVpmRepository(config);
+    if (!vpmRepository) {
+      return undefined;
+    }
+    return async () => {
+      const creatorRepository = await resolveCreatorVpmRepository({
+        actor: authorized.actor,
+        authUserId: authorized.authUserId,
+        convex: authorized.convex,
+        provisionDomain: true,
+        vpmRepository,
+      });
+      await ensurePackagePublication({
+        authUserId: authorized.authUserId,
+        creatorActor: authorized.actor,
+        creatorConvex: authorized.convex,
+        product: authorized.product,
+        vpmRepository: creatorRepository.vpmRepository,
+      });
+    };
+  }
+
   function creatorBootstrapFilenameSeed(product: CreatorVpmProduct): string {
     return (
       product.aliasId
@@ -1367,6 +1413,7 @@ export function createVpmRoutes({
       const current = await buildCurrentCreatorBootstrap({
         authUserId: authorized.authUserId,
         product: authorized.product,
+        refreshPublication: creatorPublicationRepair(authorized),
       });
       if (!current) {
         return jsonNoStore({ error: 'Package has no published bootstrap' }, { status: 404 });
@@ -1388,7 +1435,11 @@ export function createVpmRoutes({
       logger.error('Creator bootstrap download failed', {
         phase,
         errorName: error instanceof Error ? error.name : 'UnknownError',
+        errorMessage: error instanceof Error ? error.message : String(error),
       });
+      if (error instanceof PublicAliasPublicationUnavailableError) {
+        return jsonNoStore({ error: 'VPM delivery is temporarily unavailable' }, { status: 503 });
+      }
       return jsonNoStore({ error: 'Failed to read the published bootstrap' }, { status: 500 });
     }
   }
@@ -1413,6 +1464,7 @@ export function createVpmRoutes({
       const current = await buildCurrentCreatorBootstrap({
         authUserId: authorized.authUserId,
         product: authorized.product,
+        refreshPublication: creatorPublicationRepair(authorized),
       });
       if (!current) {
         return jsonNoStore({ error: 'Package has no published bootstrap' }, { status: 404 });
@@ -1443,7 +1495,11 @@ export function createVpmRoutes({
       logger.error('Creator Unity package download failed', {
         phase,
         errorName: error instanceof Error ? error.name : 'UnknownError',
+        errorMessage: error instanceof Error ? error.message : String(error),
       });
+      if (error instanceof PublicAliasPublicationUnavailableError) {
+        return jsonNoStore({ error: 'VPM delivery is temporarily unavailable' }, { status: 503 });
+      }
       return jsonNoStore({ error: 'Failed to build the Unity bootstrap package' }, { status: 500 });
     }
   }
