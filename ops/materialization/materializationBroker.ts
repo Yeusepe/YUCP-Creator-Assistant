@@ -165,6 +165,7 @@ export type ConsumedMaterializationCapability = {
   protectedSourceRoot: string;
   releaseRoot: string;
   sourceTree: {
+    expiresAt: string;
     grant: string;
     logicalBytes: number;
     logicalFiles: number;
@@ -173,6 +174,11 @@ export type ConsumedMaterializationCapability = {
     versionId: string;
   };
   success: true;
+};
+
+export type MaterializationSourceAuthorization = {
+  expiresAt: Date;
+  grant: string;
 };
 
 export type MaterializationSourceGrantConfig = {
@@ -548,6 +554,81 @@ export class MaterializationBroker {
     }
     this.storageGcPinRetentionSeconds = storageGcPinRetentionSeconds;
     this.sql = input.sql;
+  }
+
+  private async issueSourceAuthorization(input: {
+    bindingRoot: Buffer;
+    buyerId: string;
+    creatorId: string;
+    jobId: string;
+    leaseGeneration: number;
+    maximumExpiresAt: Date;
+    now: Date;
+    productId: string;
+    proofKeyThumbprint: Uint8Array;
+    releaseRoot: Buffer;
+    sourceVersionId: string;
+    traceId: string;
+  }): Promise<MaterializationSourceAuthorization> {
+    const issuedAt = toEpochSeconds(input.now);
+    const expiresAt = Math.min(
+      toEpochSeconds(input.maximumExpiresAt),
+      issuedAt + this.sourceGrant.lifetimeSeconds
+    );
+    if (expiresAt <= issuedAt) {
+      throw new Error('Materialization source authorization lease is stale');
+    }
+    const grantId = randomUUID();
+    const grant: DeliveryGrantV2 = {
+      audience: this.sourceGrant.audience,
+      bindingRoot: input.bindingRoot,
+      buyerId: input.buyerId,
+      creatorId: input.creatorId,
+      deviceKeyThumbprint: input.proofKeyThumbprint,
+      expiresAt,
+      grantId,
+      installSessionId: input.jobId,
+      issuedAt,
+      issuer: this.sourceGrant.issuer,
+      notBefore: issuedAt,
+      productId: input.productId,
+      releaseRoot: input.releaseRoot,
+      scopes: [`materialization-source:${input.sourceVersionId}`],
+    };
+    const signed = await signPackageContract({
+      keyId: this.sourceGrant.keyId,
+      payload: encodeDeliveryGrantV2(grant),
+      privateKey: this.sourceGrant.privateKey,
+      purpose: PACKAGE_CONTRACT_PURPOSES.deliveryGrant,
+    });
+    await this.sql`
+      INSERT INTO materialization_source_grants (
+        grant_id,
+        job_id,
+        lease_generation,
+        source_version_id,
+        proof_key_thumbprint,
+        signed_grant_sha256,
+        issued_at,
+        expires_at,
+        trace_id
+      )
+      VALUES (
+        ${grantId},
+        ${input.jobId},
+        ${input.leaseGeneration},
+        ${input.sourceVersionId},
+        ${input.proofKeyThumbprint},
+        ${createHash('sha256').update(signed.coseSign1).digest()},
+        ${new Date(issuedAt * 1_000)},
+        ${new Date(expiresAt * 1_000)},
+        ${input.traceId}
+      )
+    `;
+    return {
+      expiresAt: new Date(expiresAt * 1_000),
+      grant: Buffer.from(signed.coseSign1).toString('base64url'),
+    };
   }
 
   private async createJob(input: CreateMaterializationJobInput): Promise<void> {
@@ -1388,6 +1469,7 @@ export class MaterializationBroker {
     jobId: string;
     leaseExpiresAt: Date;
     leaseGeneration: number;
+    sourceAuthorization?: MaterializationSourceAuthorization | undefined;
     status: 'renewed';
   }> {
     const jobId = requireText(input.jobId, 'jobId', 128);
@@ -1404,14 +1486,19 @@ export class MaterializationBroker {
     }
     const leaseExpiresAt = new Date(now.getTime() + input.leaseDurationMs);
     const pinExpiresAt = new Date(now.getTime() + this.storageGcPinRetentionSeconds * 1_000);
-    return this.sql.begin(async (transaction) => {
+    const renewedJob = await this.sql.begin(async (transaction) => {
       const renewed = await transaction<
         {
+          bindingRoot: Buffer;
+          creatorId: string;
           id: string;
           leaseExpiresAt: Date;
           leaseGeneration: number;
+          productId: string;
+          releaseRoot: Buffer;
           sourceVersionId: string;
           storageGcPinId: string;
+          traceId: string;
         }[]
       >`
         UPDATE materialization_jobs
@@ -1426,11 +1513,16 @@ export class MaterializationBroker {
           AND lease_expires_at > ${now}
           AND state IN ('MATERIALIZING', 'VERIFYING')
         RETURNING
+          delivery_binding_root AS "bindingRoot",
+          creator_id AS "creatorId",
           id,
           lease_expires_at AS "leaseExpiresAt",
           lease_generation AS "leaseGeneration",
+          product_id AS "productId",
+          release_root AS "releaseRoot",
           source_version_id::text AS "sourceVersionId",
-          storage_gc_pin_id::text AS "storageGcPinId"
+          storage_gc_pin_id::text AS "storageGcPinId",
+          trace_id AS "traceId"
       `;
       const row = renewed[0];
       if (!row) {
@@ -1448,13 +1540,40 @@ export class MaterializationBroker {
       if (pinned[0]?.pinId !== row.storageGcPinId) {
         throw new Error('Materialization lease renewal lost its storage GC pin');
       }
-      return {
-        jobId: row.id,
-        leaseExpiresAt: new Date(row.leaseExpiresAt),
-        leaseGeneration: row.leaseGeneration,
-        status: 'renewed' as const,
-      };
+      const sourceProof = await transaction<{ proofKeyThumbprint: Buffer }[]>`
+        SELECT proof_key_thumbprint AS "proofKeyThumbprint"
+        FROM materialization_source_grants
+        WHERE
+          job_id = ${row.id}
+          AND lease_generation = ${row.leaseGeneration}
+        ORDER BY created_at DESC
+        LIMIT 1
+      `;
+      return { proofKeyThumbprint: sourceProof[0]?.proofKeyThumbprint, row };
     });
+    const sourceAuthorization = renewedJob.proofKeyThumbprint
+      ? await this.issueSourceAuthorization({
+          bindingRoot: renewedJob.row.bindingRoot,
+          buyerId: leaseOwner,
+          creatorId: renewedJob.row.creatorId,
+          jobId: renewedJob.row.id,
+          leaseGeneration: renewedJob.row.leaseGeneration,
+          maximumExpiresAt: renewedJob.row.leaseExpiresAt,
+          now,
+          productId: renewedJob.row.productId,
+          proofKeyThumbprint: renewedJob.proofKeyThumbprint,
+          releaseRoot: renewedJob.row.releaseRoot,
+          sourceVersionId: renewedJob.row.sourceVersionId,
+          traceId: renewedJob.row.traceId,
+        })
+      : undefined;
+    return {
+      jobId: renewedJob.row.id,
+      leaseExpiresAt: new Date(renewedJob.row.leaseExpiresAt),
+      leaseGeneration: renewedJob.row.leaseGeneration,
+      ...(sourceAuthorization ? { sourceAuthorization } : {}),
+      status: 'renewed',
+    };
   }
 
   async issueCapability(input: {
@@ -1765,59 +1884,20 @@ export class MaterializationBroker {
       return row;
     });
 
-    const sourceGrantId = randomUUID();
-    const sourceGrantIssuedAt = nowSeconds;
-    const sourceGrantExpiresAt = Math.min(
-      capability.expiresAt,
-      sourceGrantIssuedAt + this.sourceGrant.lifetimeSeconds
-    );
-    const sourceScope = `materialization-source:${durableJob.sourceVersionId}`;
-    const sourceGrant: DeliveryGrantV2 = {
-      audience: this.sourceGrant.audience,
+    const sourceAuthorization = await this.issueSourceAuthorization({
       bindingRoot: durableJob.bindingRoot,
       buyerId: materializerId,
-      creatorId: capability.creatorId,
-      deviceKeyThumbprint: capability.proofKeyThumbprint,
-      expiresAt: sourceGrantExpiresAt,
-      grantId: sourceGrantId,
-      installSessionId: capability.jobId,
-      issuedAt: sourceGrantIssuedAt,
-      issuer: this.sourceGrant.issuer,
-      notBefore: sourceGrantIssuedAt,
-      productId: capability.productId,
-      releaseRoot: capability.releaseRoot,
-      scopes: [sourceScope],
-    };
-    const signedSourceGrant = await signPackageContract({
-      keyId: this.sourceGrant.keyId,
-      payload: encodeDeliveryGrantV2(sourceGrant),
-      privateKey: this.sourceGrant.privateKey,
-      purpose: PACKAGE_CONTRACT_PURPOSES.deliveryGrant,
+      creatorId: durableJob.creatorId,
+      jobId: durableJob.id,
+      leaseGeneration: durableJob.leaseGeneration,
+      maximumExpiresAt: durableJob.leaseExpiresAt,
+      now,
+      productId: durableJob.productId,
+      proofKeyThumbprint: capability.proofKeyThumbprint,
+      releaseRoot: durableJob.releaseRoot,
+      sourceVersionId: durableJob.sourceVersionId,
+      traceId: durableJob.traceId,
     });
-    await this.sql`
-      INSERT INTO materialization_source_grants (
-        grant_id,
-        job_id,
-        lease_generation,
-        source_version_id,
-        proof_key_thumbprint,
-        signed_grant_sha256,
-        issued_at,
-        expires_at,
-        trace_id
-      )
-      VALUES (
-        ${sourceGrantId},
-        ${capability.jobId},
-        ${capability.leaseGeneration},
-        ${durableJob.sourceVersionId},
-        ${capability.proofKeyThumbprint},
-        ${createHash('sha256').update(signedSourceGrant.coseSign1).digest()},
-        ${new Date(sourceGrantIssuedAt * 1_000)},
-        ${new Date(sourceGrantExpiresAt * 1_000)},
-        ${durableJob.traceId}
-      )
-    `;
     const sourceManifestUrl = new URL(
       `/v2/internal/materialization-sources/${encodeURIComponent(durableJob.sourceVersionId)}/manifest`,
       this.sourceGrant.baseUrl
@@ -1836,7 +1916,8 @@ export class MaterializationBroker {
       protectedSourceRoot: Buffer.from(capability.protectedSourceRoot).toString('hex'),
       releaseRoot: Buffer.from(capability.releaseRoot).toString('hex'),
       sourceTree: {
-        grant: Buffer.from(signedSourceGrant.coseSign1).toString('base64url'),
+        expiresAt: sourceAuthorization.expiresAt.toISOString(),
+        grant: sourceAuthorization.grant,
         logicalBytes: durableJob.sourceLogicalBytes,
         logicalFiles: durableJob.sourceLogicalFiles,
         manifestSha256: Buffer.from(durableJob.sourceManifestSha256).toString('hex'),
