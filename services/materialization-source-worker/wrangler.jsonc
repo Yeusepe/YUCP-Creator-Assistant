@@ -17,6 +17,10 @@
     }
   },
   "vars": {
+    "COMMON_CHUNK_PREFIX": "chunks/",
+    "COMMON_S3_BUCKET": "configure-through-deployment",
+    "COMMON_S3_ENDPOINT": "https://s3.us-west-004.backblazeb2.com",
+    "COMMON_S3_REGION": "us-west-004",
     "DELIVERY_GRANT_ISSUER": "https://api.example.invalid",
     "DELIVERY_GRANT_KEY_ID": "configure-through-deployment",
     "DELIVERY_GRANT_PUBLIC_KEY": "configure-through-deployment",

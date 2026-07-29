@@ -20,6 +20,12 @@ import { buildS3ObjectUrl } from '../../../ops/storage-core/s3ObjectUrl';
 // https://www.backblaze.com/docs/cloud-storage-s3-compatible-api
 
 const REQUIRED_BINDINGS = [
+  'COMMON_S3_ENDPOINT',
+  'COMMON_S3_REGION',
+  'COMMON_S3_BUCKET',
+  'COMMON_S3_READONLY_ACCESS_KEY_ID',
+  'COMMON_S3_READONLY_SECRET_ACCESS_KEY',
+  'COMMON_CHUNK_PREFIX',
   'METADATA_S3_ENDPOINT',
   'METADATA_S3_REGION',
   'METADATA_S3_BUCKET',
@@ -65,6 +71,7 @@ type S3ReadRole = {
   secretAccessKey: string;
 };
 type SourceConfig = {
+  common: S3ReadRole & { chunkPrefix: string };
   deliveryGrantIssuer: string;
   deliveryGrantKeyId: string;
   deliveryGrantPublicKey: string;
@@ -142,6 +149,17 @@ function loadEnv(env: Env): SourceConfig {
     REQUIRED_BINDINGS.map((name) => [name, requireBinding(env, name)])
   ) as Record<BindingName, string>;
   return {
+    common: {
+      ...loadRole({
+        accessKeyId: values.COMMON_S3_READONLY_ACCESS_KEY_ID,
+        bucket: values.COMMON_S3_BUCKET,
+        endpoint: values.COMMON_S3_ENDPOINT,
+        name: 'Common',
+        region: values.COMMON_S3_REGION,
+        secretAccessKey: values.COMMON_S3_READONLY_SECRET_ACCESS_KEY,
+      }),
+      chunkPrefix: normalizePrefix(values.COMMON_CHUNK_PREFIX, 'COMMON_CHUNK_PREFIX'),
+    },
     deliveryGrantIssuer: values.DELIVERY_GRANT_ISSUER,
     deliveryGrantKeyId: values.DELIVERY_GRANT_KEY_ID,
     deliveryGrantPublicKey: values.DELIVERY_GRANT_PUBLIC_KEY,
@@ -252,6 +270,30 @@ function logManifestValidationFailure(input: {
   );
 }
 
+function logMissingManifestChunk(input: {
+  chunkId: string;
+  jobId: string;
+  manifest: DeliveryManifest;
+  versionId: string;
+}): void {
+  console.error(
+    JSON.stringify({
+      chunkCount: input.manifest.files.reduce((total, file) => total + file.chunks.length, 0),
+      errorCode: 'MATERIALIZATION_SOURCE_CHUNK_NOT_IN_MANIFEST',
+      event: 'materialization.source_chunk.not_in_manifest',
+      fileCount: input.manifest.files.length,
+      jobId: input.jobId,
+      requestedIdMatchesChunkSha256: input.manifest.files.some((file) =>
+        file.chunks.some((chunk) => chunk.sha256 === input.chunkId)
+      ),
+      requestedIdMatchesFileSha256: input.manifest.files.some(
+        (file) => file.sha256 === input.chunkId
+      ),
+      versionId: input.versionId,
+    })
+  );
+}
+
 async function loadManifest(
   aws: AwsClient,
   config: SourceConfig,
@@ -331,12 +373,18 @@ async function loadManifest(
 function findManifestChunk(
   manifest: DeliveryManifest,
   chunkId: string
-): { id: string; sha256: string; size: number } | undefined {
-  let matched: { id: string; sha256: string; size: number } | undefined;
+):
+  | { classification: 'common' | 'protected'; id: string; sha256: string; size: number }
+  | undefined {
+  let matched:
+    | {
+        classification: 'common' | 'protected';
+        id: string;
+        sha256: string;
+        size: number;
+      }
+    | undefined;
   for (const file of manifest.files) {
-    if (file.classification !== 'protected') {
-      continue;
-    }
     for (const chunk of file.chunks) {
       if (chunk.id !== chunkId) {
         continue;
@@ -344,7 +392,13 @@ function findManifestChunk(
       if (matched && (matched.size !== chunk.size || matched.sha256 !== chunk.sha256)) {
         throw new HttpError(502, 'Materialization manifest has conflicting chunk recipes');
       }
-      matched = chunk;
+      matched = {
+        classification:
+          matched?.classification === 'protected' || file.classification === 'protected'
+            ? 'protected'
+            : 'common',
+        ...chunk,
+      };
     }
   }
   return matched;
@@ -416,8 +470,8 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
   ).join('');
 }
 
-function chunkObjectKey(config: SourceConfig, chunkId: string): string {
-  return `${config.protected.chunkPrefix}${chunkId.slice(0, 4)}/${chunkId}`;
+function chunkObjectKey(role: S3ReadRole & { chunkPrefix: string }, chunkId: string): string {
+  return `${role.chunkPrefix}${chunkId.slice(0, 4)}/${chunkId}`;
 }
 
 function noStoreResponse(
@@ -469,12 +523,19 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     }
     const chunk = findManifestChunk(loaded.manifest, chunkId);
     if (!chunk) {
+      logMissingManifestChunk({
+        chunkId,
+        jobId: grant.installSessionId,
+        manifest: loaded.manifest,
+        versionId,
+      });
       throw new HttpError(403, 'Forbidden', loaded.storageFetches);
     }
+    const sourceRole = chunk.classification === 'protected' ? config.protected : config.common;
     const response = await getStorageObject(
-      createStorageClient(config.protected),
-      config.protected,
-      chunkObjectKey(config, chunkId)
+      createStorageClient(sourceRole),
+      sourceRole,
+      chunkObjectKey(sourceRole, chunkId)
     );
     const storageFetches = loaded.storageFetches + 1;
     if (!response.ok) {

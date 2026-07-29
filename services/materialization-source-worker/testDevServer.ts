@@ -2,6 +2,12 @@ import { resolve } from 'node:path';
 import { startLocalWranglerWorker } from '../../ops/testing/localWranglerWorker';
 
 const VARIABLE_NAMES = [
+  'COMMON_CHUNK_PREFIX',
+  'COMMON_S3_BUCKET',
+  'COMMON_S3_ENDPOINT',
+  'COMMON_S3_READONLY_ACCESS_KEY_ID',
+  'COMMON_S3_READONLY_SECRET_ACCESS_KEY',
+  'COMMON_S3_REGION',
   'DELIVERY_GRANT_ISSUER',
   'DELIVERY_GRANT_KEY_ID',
   'DELIVERY_GRANT_PUBLIC_KEY',

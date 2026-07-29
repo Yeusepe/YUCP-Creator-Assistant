@@ -82,7 +82,22 @@ function protectedManifest(
   manifest: DeliveryManifest;
 } {
   const chunkSha256 = createHash('sha256').update(chunkBytes).digest('hex');
+  const commonBytes = new TextEncoder().encode('verified common chunk');
+  const commonSha256 = createHash('sha256').update(commonBytes).digest('hex');
   const files = [
+    {
+      bytes: commonBytes.byteLength,
+      chunks: [
+        {
+          id: commonSha256,
+          sha256: commonSha256,
+          size: commonBytes.byteLength,
+        },
+      ],
+      classification: 'common' as const,
+      normalizedPath: 'Assets/common.txt',
+      sha256: commonSha256,
+    },
     {
       bytes: chunkBytes.byteLength,
       chunks: [
@@ -179,6 +194,12 @@ async function createAuthorization(input: {
 
 async function testEnv() {
   return {
+    COMMON_CHUNK_PREFIX: 'chunks/',
+    COMMON_S3_BUCKET: 'common-test',
+    COMMON_S3_ENDPOINT: 'http://127.0.0.1:9000',
+    COMMON_S3_READONLY_ACCESS_KEY_ID: 'common-read-access',
+    COMMON_S3_READONLY_SECRET_ACCESS_KEY: 'common-read-secret',
+    COMMON_S3_REGION: 'us-east-1',
     DELIVERY_GRANT_ISSUER: 'https://api.example.test',
     DELIVERY_GRANT_KEY_ID: 'source-grant-test-2026-01',
     DELIVERY_GRANT_PUBLIC_KEY: Buffer.from(
@@ -221,7 +242,7 @@ describe('materialization source Worker', () => {
     expect(storageFetches).toBe(0);
   });
 
-  it('uses isolated metadata and protected credentials for source members', async () => {
+  it('uses isolated metadata, common, and protected credentials for source members', async () => {
     const versionId = randomUUID();
     const chunkBytes = new TextEncoder().encode('verified protected chunk');
     const fixture = protectedManifest(versionId, chunkBytes);
@@ -238,6 +259,11 @@ describe('materialization source Worker', () => {
             'Content-Type': 'application/json',
           },
         });
+      }
+      if (origin.pathname.startsWith('/common-test/')) {
+        storageRoles.push('common');
+        expect(request.headers.get('authorization')).toContain('Credential=common-read-access/');
+        return new Response(new TextEncoder().encode('verified common chunk'));
       }
       if (origin.pathname.startsWith('/protected-test/')) {
         storageRoles.push('protected');
@@ -262,14 +288,35 @@ describe('materialization source Worker', () => {
     expect(manifestResponse.status).toBe(200);
     expect(await manifestResponse.text()).toBe(fixture.body);
 
-    const chunkId = fixture.manifest.files[0]?.chunks[0]?.id as string;
-    const chunkUrl = `https://source.example.test/v2/internal/materialization-sources/${versionId}/chunks/${chunkId}`;
-    const chunkResponse = await worker.fetch(
-      new Request(chunkUrl, {
+    const commonChunkId = fixture.manifest.files.find((file) => file.classification === 'common')
+      ?.chunks[0]?.id as string;
+    const commonChunkUrl = `https://source.example.test/v2/internal/materialization-sources/${versionId}/chunks/${commonChunkId}`;
+    const commonChunkResponse = await worker.fetch(
+      new Request(commonChunkUrl, {
         headers: await createAuthorization({
           bindingRoot: fixture.bindingRoot,
           releaseRoot: fixture.manifest.releaseRoot,
-          url: chunkUrl,
+          url: commonChunkUrl,
+          versionId,
+        }),
+      }),
+      await testEnv()
+    );
+    expect(commonChunkResponse.status).toBe(200);
+    expect(new TextDecoder().decode(await commonChunkResponse.arrayBuffer())).toBe(
+      'verified common chunk'
+    );
+
+    const protectedChunkId = fixture.manifest.files.find(
+      (file) => file.classification === 'protected'
+    )?.chunks[0]?.id as string;
+    const protectedChunkUrl = `https://source.example.test/v2/internal/materialization-sources/${versionId}/chunks/${protectedChunkId}`;
+    const chunkResponse = await worker.fetch(
+      new Request(protectedChunkUrl, {
+        headers: await createAuthorization({
+          bindingRoot: fixture.bindingRoot,
+          releaseRoot: fixture.manifest.releaseRoot,
+          url: protectedChunkUrl,
           versionId,
         }),
       }),
@@ -277,7 +324,7 @@ describe('materialization source Worker', () => {
     );
     expect(chunkResponse.status).toBe(200);
     expect(new Uint8Array(await chunkResponse.arrayBuffer())).toEqual(chunkBytes);
-    expect(storageRoles).toEqual(['metadata', 'metadata', 'protected']);
+    expect(storageRoles).toEqual(['metadata', 'metadata', 'common', 'metadata', 'protected']);
   });
 
   it('logs a safe validation diagnostic without exposing the manifest body', async () => {
@@ -320,6 +367,48 @@ describe('materialization source Worker', () => {
       versionId,
     });
     expect(diagnostics[0]).not.toContain(privateMarker);
+  });
+
+  it('logs safe manifest-membership facts when a requested chunk is absent', async () => {
+    const versionId = randomUUID();
+    const chunkBytes = new TextEncoder().encode('protected source chunk');
+    const fixture = protectedManifest(versionId, chunkBytes);
+    const diagnostics: string[] = [];
+    console.error = mock((message: string) => {
+      diagnostics.push(message);
+    });
+    globalThis.fetch = mock(async () => new Response(fixture.body)) as unknown as typeof fetch;
+    const missingChunkId = 'f'.repeat(64);
+    const url =
+      `https://source.example.test/v2/internal/materialization-sources/${versionId}/chunks/` +
+      missingChunkId;
+
+    const response = await worker.fetch(
+      new Request(url, {
+        headers: await createAuthorization({
+          bindingRoot: fixture.bindingRoot,
+          releaseRoot: fixture.manifest.releaseRoot,
+          url,
+          versionId,
+        }),
+      }),
+      await testEnv()
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get('x-delivery-storage-fetches')).toBe('1');
+    expect(diagnostics).toHaveLength(1);
+    expect(JSON.parse(diagnostics[0] ?? '')).toEqual({
+      chunkCount: 2,
+      errorCode: 'MATERIALIZATION_SOURCE_CHUNK_NOT_IN_MANIFEST',
+      event: 'materialization.source_chunk.not_in_manifest',
+      fileCount: 2,
+      jobId: 'job-1',
+      requestedIdMatchesChunkSha256: false,
+      requestedIdMatchesFileSha256: false,
+      versionId,
+    });
+    expect(diagnostics[0]).not.toContain(missingChunkId);
   });
 
   it('rejects a source grant for a different version before storage', async () => {
