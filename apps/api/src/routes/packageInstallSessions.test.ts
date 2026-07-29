@@ -1559,7 +1559,7 @@ describe('package install session route', () => {
       privateKey,
     });
     const response = await handler(
-      new Request(endpoint, {
+      new Request('http://internal-api:3001/api/v2/package-installs/materialization-status', {
         body: JSON.stringify({
           deliveryGrant,
           jobId: 'job-protected-1',

@@ -28,6 +28,8 @@ const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/;
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
 const DELIVERY_PIN_SAFETY_MARGIN_SECONDS = 60;
+export const PACKAGE_MATERIALIZATION_STATUS_PATH =
+  '/api/v2/package-installs/materialization-status';
 const PACKAGE_OPERATION_FIELDS = new Set([
   'aliasId',
   'approvedActiveContentDigest',
@@ -1345,6 +1347,7 @@ export function createPackageMaterializationStatusRoute(options: {
 }): (request: Request) => Promise<Response> {
   const publicKey = ed25519.getPublicKeyAsync(options.privateKey);
   const expectedKeyId = packageContractKeyId(options.keyId);
+  const publicEndpoint = new URL(PACKAGE_MATERIALIZATION_STATUS_PATH, options.issuer).toString();
   return async (request) => {
     if (request.method !== 'POST') {
       return jsonNoStore({ error: 'Method not allowed' }, 405);
@@ -1389,7 +1392,7 @@ export function createPackageMaterializationStatusRoute(options: {
         method: 'POST',
         now: new Date(),
         proof,
-        url: request.url,
+        url: publicEndpoint,
       });
       const grant = await verifyDeliveryGrantV2({
         context: {

@@ -75,6 +75,7 @@ import {
   createPackageInstallSessionRoute,
   createPackageMaterializationStatusRoute,
   createPackageOperationAuthorizationRoute,
+  PACKAGE_MATERIALIZATION_STATUS_PATH,
 } from './routes/packageInstallSessions';
 import { createPublicRoutes } from './routes/public';
 import { createPublicV2Routes } from './routes/publicV2';
@@ -1139,7 +1140,7 @@ async function routeRequest(request: Request): Promise<Response> {
     }
     return packageOperationAuthorizationRoute(request);
   }
-  if (pathname === '/api/v2/package-installs/materialization-status') {
+  if (pathname === PACKAGE_MATERIALIZATION_STATUS_PATH) {
     if (!packageMaterializationStatusRoute) {
       return Response.json(
         { error: 'Protected materialization is not configured' },
