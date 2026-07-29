@@ -6,6 +6,7 @@ import {
   getS3ObjectRetention,
   putS3ObjectVersioned,
   resolveSignedRequestTimeoutMs,
+  throttleRetryDelayMs,
 } from './s3Control';
 
 const originalFetch = globalThis.fetch;
@@ -137,7 +138,7 @@ describe('signed request retries', () => {
     let calls = 0;
     globalThis.fetch = mock(async () => {
       calls += 1;
-      return new Response(null, { status: 503 });
+      return new Response(null, { headers: { 'retry-after': '0' }, status: 503 });
     }) as unknown as typeof fetch;
 
     await expect(
@@ -148,7 +149,28 @@ describe('signed request retries', () => {
         key: 'v2/metadata/throttled.json',
       })
     ).rejects.toThrow('HTTP status 503');
-    expect(calls).toBe(3);
+    expect(calls).toBe(6);
+  });
+
+  it('waits out a throttle window and succeeds once the provider recovers', async () => {
+    let calls = 0;
+    globalThis.fetch = mock(async () => {
+      calls += 1;
+      if (calls <= 4) {
+        return new Response(null, { headers: { 'retry-after': '0' }, status: 503 });
+      }
+      return new Response(null, { headers: { 'x-amz-version-id': 'after-throttle' } });
+    }) as unknown as typeof fetch;
+
+    const result = await putS3ObjectVersioned({
+      body: Uint8Array.from([1]),
+      config: config('metadata'),
+      contentType: 'application/json',
+      key: 'v2/metadata/throttle-recovery.json',
+    });
+
+    expect(calls).toBe(5);
+    expect(result.versionId).toBe('after-throttle');
   });
 
   it('does not retry a client error', async () => {
@@ -167,5 +189,22 @@ describe('signed request retries', () => {
       })
     ).rejects.toThrow('HTTP status 403');
     expect(calls).toBe(1);
+  });
+});
+
+describe('throttle retry delays', () => {
+  it('honors the provider Retry-After window instead of its own backoff', () => {
+    expect(throttleRetryDelayMs(1, 5_000, () => 0)).toBe(5_000);
+    expect(throttleRetryDelayMs(4, 5_000, () => 0)).toBe(5_000);
+  });
+
+  it('starts exponential backoff at one second when Retry-After is absent', () => {
+    expect(throttleRetryDelayMs(1, undefined, () => 1)).toBe(1_000);
+    expect(throttleRetryDelayMs(3, undefined, () => 1)).toBe(4_000);
+  });
+
+  it('caps the delay so retries cannot stall a request indefinitely', () => {
+    expect(throttleRetryDelayMs(10, undefined, () => 1)).toBe(30_000);
+    expect(throttleRetryDelayMs(1, 600_000, () => 0)).toBe(30_000);
   });
 });

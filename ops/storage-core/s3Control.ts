@@ -56,6 +56,41 @@ function xmlDecode(value: string): string {
 
 const S3_MIN_UPLOAD_BYTES_PER_MS = 64; // 64 KB/s floor
 const S3_MAX_REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
+// Backblaze B2 throttles the S3-compatible API with "503 SlowDown" (429 on the native API) and
+// documents honoring Retry-After, else exponential backoff starting at 1 second:
+// https://www.backblaze.com/docs/cloud-storage-rate-limits
+const S3_THROTTLE_RETRIES = 5;
+const S3_THROTTLE_BASE_DELAY_MS = 1_000;
+const S3_MAX_RETRY_DELAY_MS = 30_000;
+
+function isThrottleStatus(status: number): boolean {
+  return status === 429 || status === 503;
+}
+
+function retryAfterMs(response: Response): number | undefined {
+  const header = response.headers.get('retry-after');
+  if (!header) return undefined;
+  const seconds = Number(header.trim());
+  if (!Number.isFinite(seconds) || seconds < 0) return undefined;
+  return seconds * 1_000;
+}
+
+export function throttleRetryDelayMs(
+  throttleFailures: number,
+  serverRetryAfterMs: number | undefined,
+  random: () => number = Math.random
+): number {
+  if (serverRetryAfterMs !== undefined) {
+    // The provider knows its own throttle window; wait what it asked plus a small spread so
+    // concurrent callers do not re-stampede it in lockstep.
+    return Math.min(serverRetryAfterMs, S3_MAX_RETRY_DELAY_MS) + random() * 250;
+  }
+  const backoff = Math.min(
+    S3_THROTTLE_BASE_DELAY_MS * 2 ** (throttleFailures - 1),
+    S3_MAX_RETRY_DELAY_MS
+  );
+  return backoff / 2 + random() * (backoff / 2);
+}
 
 function signedRequestBodyBytes(body: BodyInit | undefined): number {
   if (!body) return 0;
@@ -100,12 +135,13 @@ async function signedRequest(input: SignedRequestInput): Promise<Response> {
     retries: 0,
   });
   const timeoutMs = resolveSignedRequestTimeoutMs(input.config.requestTimeoutMs, input.body);
-  const attempts = isReplayableBody(input.body) ? (input.retries ?? 2) + 1 : 1;
+  const replayable = isReplayableBody(input.body);
+  const transientAttempts = replayable ? (input.retries ?? 2) + 1 : 1;
+  const throttleAttempts = replayable ? S3_THROTTLE_RETRIES + 1 : 1;
+  let transientFailures = 0;
+  let throttleFailures = 0;
   let lastFailure: unknown;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    if (attempt > 0) {
-      await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** (attempt - 1)));
-    }
+  for (;;) {
     let response: Response;
     try {
       response = await client.fetch(url, {
@@ -116,23 +152,41 @@ async function signedRequest(input: SignedRequestInput): Promise<Response> {
       });
     } catch (error) {
       lastFailure = error;
+      transientFailures += 1;
+      if (transientFailures >= transientAttempts) break;
+      await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** (transientFailures - 1)));
       continue;
     }
     if (input.allowedStatuses?.includes(response.status)) {
       return response;
     }
     if (!response.ok) {
-      if (response.status === 429 || response.status >= 500) {
-        lastFailure = new Error(`S3 ${input.operation} failed with HTTP status ${response.status}`);
+      const failure = new Error(
+        `S3 ${input.operation} failed with HTTP status ${response.status}`
+      );
+      if (isThrottleStatus(response.status)) {
+        lastFailure = failure;
+        throttleFailures += 1;
+        if (throttleFailures >= throttleAttempts) break;
+        await new Promise((resolve) =>
+          setTimeout(resolve, throttleRetryDelayMs(throttleFailures, retryAfterMs(response)))
+        );
         continue;
       }
-      throw new Error(`S3 ${input.operation} failed with HTTP status ${response.status}`);
+      if (response.status >= 500) {
+        lastFailure = failure;
+        transientFailures += 1;
+        if (transientFailures >= transientAttempts) break;
+        await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** (transientFailures - 1)));
+        continue;
+      }
+      throw failure;
     }
     return response;
   }
   throw lastFailure instanceof Error
     ? lastFailure
-    : new Error(`S3 ${input.operation} failed after ${attempts} attempts`);
+    : new Error(`S3 ${input.operation} failed after retries were exhausted`);
 }
 
 function isReplayableBody(body: BodyInit | undefined): boolean {
