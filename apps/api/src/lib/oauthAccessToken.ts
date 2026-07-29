@@ -219,10 +219,40 @@ export async function verifyBetterAuthAccessRequest(
       message: error instanceof Error ? error.message : String(error),
       ...(error instanceof Error && error.name ? { name: error.name } : {}),
       expected: isExpectedVerificationFailure(error),
+      ...describeRejectedTokenTiming(request),
     };
     // Request-bound broker verification has exactly one legitimate caller, so even
     // "expected" rejections are actionable and must be visible in production logs.
     options.logger?.warn(logMessage, metadata);
     return { ok: false, reason: 'invalid' };
+  }
+}
+
+/**
+ * Unverified claim timing for a rejected token: enough to distinguish issuer
+ * clock skew from lifetime exhaustion without logging the token itself.
+ */
+function describeRejectedTokenTiming(request: Request): Record<string, number | string> {
+  try {
+    const authorization = request.headers.get('authorization') ?? '';
+    const token = authorization.replace(/^(DPoP|Bearer)\s+/i, '').trim();
+    const payloadSegment = token.split('.')[1];
+    if (!payloadSegment) return {};
+    const claims = JSON.parse(Buffer.from(payloadSegment, 'base64url').toString('utf8')) as {
+      azp?: string;
+      exp?: number;
+      iat?: number;
+    };
+    const now = Math.floor(Date.now() / 1_000);
+    return {
+      ...(typeof claims.iat === 'number' ? { tokenIssuedSecondsAgo: now - claims.iat } : {}),
+      ...(typeof claims.exp === 'number' ? { tokenExpiresInSeconds: claims.exp - now } : {}),
+      ...(typeof claims.exp === 'number' && typeof claims.iat === 'number'
+        ? { tokenLifetimeSeconds: claims.exp - claims.iat }
+        : {}),
+      ...(typeof claims.azp === 'string' ? { tokenAuthorizedParty: claims.azp } : {}),
+    };
+  } catch {
+    return {};
   }
 }
