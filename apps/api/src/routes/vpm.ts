@@ -142,6 +142,78 @@ type VpmAliasPresentation = {
   unityVersion: string;
 };
 
+function bootstrapMediaReferenceKey(
+  entries: readonly YucpAliasPackageMediaReference[]
+): string {
+  return JSON.stringify(
+    entries.map((entry) => [
+      entry.kind,
+      entry.ordinal ?? 0,
+      entry.sha256 ?? '',
+      entry.label ?? '',
+      entry.url ?? '',
+      entry.localPath ?? '',
+      entry.byteSize ?? 0,
+      entry.contentType ?? '',
+      entry.bucketName ?? '',
+      entry.objectKey ?? '',
+      entry.providerVersion ?? '',
+    ])
+  );
+}
+
+/**
+ * The latest release is the source of truth for presentation values; the
+ * stored presentation only fills gaps for releases without embedded metadata.
+ */
+function releaseDrivenPresentationValues(input: {
+  packageName: string;
+  presentation: VpmAliasPresentation | null;
+  releasePresentation: PublicBootstrapPresentation;
+}): {
+  authorName?: string;
+  description: string;
+  media: YucpAliasPackageMediaReference[];
+  tagline?: string;
+} {
+  const releaseMetadata = input.releasePresentation.packageMetadata;
+  return {
+    ...(releaseMetadata?.author?.trim() || input.presentation?.authorName
+      ? { authorName: releaseMetadata?.author?.trim() || input.presentation?.authorName }
+      : {}),
+    description:
+      releaseMetadata?.description?.trim() ||
+      input.presentation?.description ||
+      `Adds ${input.packageName} to this Unity project after purchase verification.`,
+    media: input.releasePresentation.bootstrapMedia ?? [],
+    ...(releaseMetadata?.tagline?.trim() ? { tagline: releaseMetadata.tagline.trim() } : {}),
+  };
+}
+
+function presentationMatches(
+  presentation: VpmAliasPresentation | null,
+  desired: {
+    artifactBaseUrl: string;
+    artifactBucketName: string;
+    authorName: string;
+    description: string;
+    media: readonly YucpAliasPackageMediaReference[];
+    packageName: string;
+    tagline?: string;
+  }
+): boolean {
+  return (
+    presentation !== null &&
+    presentation.packageName === desired.packageName &&
+    presentation.authorName === desired.authorName &&
+    presentation.description === desired.description &&
+    (presentation.tagline ?? undefined) === desired.tagline &&
+    presentation.artifactBaseUrl === desired.artifactBaseUrl &&
+    presentation.artifactBucketName === desired.artifactBucketName &&
+    bootstrapMediaReferenceKey(presentation.media) === bootstrapMediaReferenceKey(desired.media)
+  );
+}
+
 type VpmAliasPublicationReservation = {
   bootstrapVersion: string;
   channel: string;
@@ -320,10 +392,11 @@ export function createVpmRoutes({
     }
     try {
       return await Promise.all(
-        references.map(async (reference) => ({
-          ...reference,
-          bytes: await bootstrapMediaReader.readExact(reference),
-        }))
+        references.map(async (reference) =>
+          reference.objectKey === undefined
+            ? { ...reference }
+            : { ...reference, bytes: await bootstrapMediaReader.readExact(reference) }
+        )
       );
     } catch (error) {
       throw new PublicBootstrapMediaUnavailableError({ cause: error });
@@ -565,79 +638,61 @@ export function createVpmRoutes({
       }
     )) as VpmAliasPresentation | null;
 
-    if (!presentation) {
+    // The presentation mirrors the latest release: every publish re-derives its
+    // values (name, author, description, tagline, media) instead of freezing
+    // whatever was seeded first.
+    const packageName =
+      input.packageNameOverride ||
+      releasePresentation.packageMetadata?.packageName?.trim() ||
+      presentation?.packageName ||
+      input.product.packageName?.trim() ||
+      input.product.displayName?.trim() ||
+      input.product.aliasId?.trim() ||
+      packageId;
+    const derived = releaseDrivenPresentationValues({
+      packageName,
+      presentation,
+      releasePresentation,
+    });
+    let authorName = derived.authorName;
+    if (!authorName) {
       const creatorProfile = (await serviceConvex.query(api.creatorProfiles.getCreatorProfile, {
         apiSecret: config.convexApiSecret,
         authUserId: input.authUserId,
       })) as { name?: string } | null;
-      const packageName =
-        input.packageNameOverride ||
-        releasePresentation.packageMetadata?.packageName?.trim() ||
-        input.product.packageName?.trim() ||
-        input.product.displayName?.trim() ||
-        input.product.aliasId?.trim() ||
-        packageId;
-      await input.creatorConvex.mutation(
-        api.vpmAliasPublications.seedPresentationIfMissingForCreator,
-        {
-          apiSecret: config.convexApiSecret,
-          actor: input.creatorActor,
-          authUserId: input.authUserId,
-          packageId,
-          channel: 'stable',
-          artifactBaseUrl: input.vpmRepository.vpmBaseUrl,
-          artifactBucketName: aliasArtifactStore.bucketName,
-          artifactFormat: 'vpm-alias-zip-v1',
-          contractVersion: 1,
-          packageName,
-          authorName:
-            releasePresentation.packageMetadata?.author?.trim() ||
-            creatorProfile?.name?.trim() ||
-            'YUCP Club',
-          description:
-            releasePresentation.packageMetadata?.description?.trim() ||
-            `Adds ${packageName} to this Unity project after purchase verification.`,
-          ...(releasePresentation.packageMetadata?.tagline?.trim()
-            ? { tagline: releasePresentation.packageMetadata.tagline.trim() }
-            : {}),
-          unityVersion: '2022.3',
-          importerPackage: 'com.yucp.importer',
-          minImporterVersion: '0.1.55',
-          media: releasePresentation.bootstrapMedia ?? [],
-        }
-      );
-      presentation = (await serviceConvex.query(
-        api.vpmAliasPublications.getPresentationForService,
-        {
-          apiSecret: config.convexApiSecret,
-          actor: serviceActor,
-          packageId,
-          channel: 'stable',
-        }
-      )) as VpmAliasPresentation | null;
-    } else if (
-      (input.packageNameOverride && presentation.packageName !== input.packageNameOverride) ||
-      presentation.artifactBucketName !== aliasArtifactStore.bucketName ||
-      presentation.artifactBaseUrl !== input.vpmRepository.vpmBaseUrl
-    ) {
-      await input.creatorConvex.mutation(api.vpmAliasPublications.updatePresentationForCreator, {
+      authorName = creatorProfile?.name?.trim() || 'YUCP Club';
+    }
+    const desired = {
+      artifactBaseUrl: input.vpmRepository.vpmBaseUrl,
+      artifactBucketName: aliasArtifactStore.bucketName,
+      authorName,
+      description: derived.description,
+      media: derived.media,
+      packageName,
+      ...(derived.tagline ? { tagline: derived.tagline } : {}),
+    };
+    if (!presentationMatches(presentation, desired)) {
+      const write = presentation
+        ? api.vpmAliasPublications.updatePresentationForCreator
+        : api.vpmAliasPublications.seedPresentationIfMissingForCreator;
+      await input.creatorConvex.mutation(write, {
         apiSecret: config.convexApiSecret,
         actor: input.creatorActor,
         authUserId: input.authUserId,
         packageId,
-        channel: presentation.channel,
+        channel: 'stable',
         artifactBaseUrl: input.vpmRepository.vpmBaseUrl,
         artifactBucketName: aliasArtifactStore.bucketName,
         artifactFormat: 'vpm-alias-zip-v1',
         contractVersion: 1,
-        packageName: input.packageNameOverride ?? presentation.packageName,
-        authorName: presentation.authorName,
-        description: presentation.description,
-        ...(presentation.tagline ? { tagline: presentation.tagline } : {}),
-        unityVersion: presentation.unityVersion,
+        packageName,
+        authorName,
+        description: desired.description,
+        ...(desired.tagline ? { tagline: desired.tagline } : {}),
+        unityVersion: presentation?.unityVersion ?? '2022.3',
         importerPackage: 'com.yucp.importer',
-        minImporterVersion: presentation.minImporterVersion,
-        media: presentation.media,
+        minImporterVersion: presentation?.minImporterVersion ?? '0.1.55',
+        media: desired.media,
       });
       presentation = (await serviceConvex.query(
         api.vpmAliasPublications.getPresentationForService,
@@ -685,7 +740,10 @@ export function createVpmRoutes({
     serviceActor: Awaited<ReturnType<typeof createApiServiceActorBinding>>;
     serviceConvex: ReturnType<typeof getConvexClientFromUrl>;
   }): Promise<void> {
-    const presentation = (await input.serviceConvex.query(
+    if (!aliasArtifactStore) {
+      throw new PublicAliasPublicationUnavailableError();
+    }
+    let presentation = (await input.serviceConvex.query(
       api.vpmAliasPublications.getPresentationForService,
       {
         apiSecret: config.convexApiSecret,
@@ -694,6 +752,65 @@ export function createVpmRoutes({
         channel: 'stable',
       }
     )) as VpmAliasPresentation | null;
+    // Publications triggered without a creator session must still serve the
+    // latest release values, so sync the presentation before publishing.
+    const releasePresentation = (await input.serviceConvex.query(
+      api.packageVersions.resolvePublicBootstrapPresentation,
+      {
+        apiSecret: config.convexApiSecret,
+        actor: input.serviceActor,
+        packageId: input.packageId,
+      }
+    )) as PublicBootstrapPresentation | null;
+    if (releasePresentation?.packageMetadata?.version) {
+      const packageName =
+        releasePresentation.packageMetadata?.packageName?.trim() ||
+        presentation?.packageName ||
+        input.packageId;
+      const derived = releaseDrivenPresentationValues({
+        packageName,
+        presentation,
+        releasePresentation,
+      });
+      const desired = {
+        artifactBaseUrl: input.artifactBaseUrl,
+        artifactBucketName: aliasArtifactStore.bucketName,
+        authorName: derived.authorName ?? 'YUCP Club',
+        description: derived.description,
+        media: derived.media,
+        packageName,
+        ...(derived.tagline ? { tagline: derived.tagline } : {}),
+      };
+      if (!presentationMatches(presentation, desired)) {
+        await input.serviceConvex.mutation(api.vpmAliasPublications.syncPresentationForService, {
+          apiSecret: config.convexApiSecret,
+          actor: input.serviceActor,
+          packageId: input.packageId,
+          channel: 'stable',
+          artifactBaseUrl: desired.artifactBaseUrl,
+          artifactBucketName: desired.artifactBucketName,
+          artifactFormat: 'vpm-alias-zip-v1',
+          contractVersion: 1,
+          packageName: desired.packageName,
+          authorName: desired.authorName,
+          description: desired.description,
+          ...(desired.tagline ? { tagline: desired.tagline } : {}),
+          unityVersion: presentation?.unityVersion ?? '2022.3',
+          importerPackage: 'com.yucp.importer',
+          minImporterVersion: presentation?.minImporterVersion ?? '0.1.55',
+          media: desired.media,
+        });
+        presentation = (await input.serviceConvex.query(
+          api.vpmAliasPublications.getPresentationForService,
+          {
+            apiSecret: config.convexApiSecret,
+            actor: input.serviceActor,
+            packageId: input.packageId,
+            channel: 'stable',
+          }
+        )) as VpmAliasPresentation | null;
+      }
+    }
     if (!presentation) {
       throw new PublicAliasPublicationUnavailableError(
         'Package public bootstrap presentation is unavailable'
@@ -1185,9 +1302,11 @@ export function createVpmRoutes({
       );
     }
     const releaseMetadata = releasePresentation?.packageMetadata;
+    // The latest release is the source of truth; the stored presentation only
+    // fills gaps (and covers packages whose release rows are gone).
     const packageName =
-      presentation?.packageName ||
       releaseMetadata?.packageName?.trim() ||
+      presentation?.packageName ||
       input.product.packageName?.trim() ||
       input.product.displayName?.trim() ||
       input.product.aliasId?.trim() ||
@@ -1203,13 +1322,13 @@ export function createVpmRoutes({
       vpmDependencies: {},
       packageMetadata: {
         packageName,
-        author: presentation?.authorName || releaseMetadata?.author?.trim() || 'YUCP Club',
+        author: releaseMetadata?.author?.trim() || presentation?.authorName || 'YUCP Club',
         description:
-          presentation?.description ||
           releaseMetadata?.description?.trim() ||
+          presentation?.description ||
           `Adds ${packageName} to this Unity project after purchase verification.`,
-        ...(presentation?.tagline || releaseMetadata?.tagline?.trim()
-          ? { tagline: presentation?.tagline || releaseMetadata?.tagline?.trim() }
+        ...(releaseMetadata?.tagline?.trim() || presentation?.tagline
+          ? { tagline: releaseMetadata?.tagline?.trim() || presentation?.tagline }
           : {}),
       },
       ...(mediaReferences.length > 0

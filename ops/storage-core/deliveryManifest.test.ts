@@ -51,6 +51,56 @@ describe('logical tree delivery manifest', () => {
     });
   });
 
+  test('carries payload-less product-link bootstrap media', () => {
+    const manifest = createDeliveryManifest({
+      activeContentDigest: '44'.repeat(32),
+      activePolicyVersion: 'active-content-policy-v1',
+      bootstrapMedia: [
+        {
+          kind: 'product-link',
+          label: 'Gumroad',
+          ordinal: 0,
+          url: 'https://creator.gumroad.com/l/jammr',
+        },
+      ],
+      chunkAvgKib: 256,
+      commonRoot: '55'.repeat(32),
+      normalizationPolicyVersion: 'package-normalization-policy-v2',
+      files: [
+        {
+          bytes: 4096,
+          chunks: [{ id: '22'.repeat(32), sha256: '11'.repeat(32), size: 4096 }],
+          classification: 'common',
+          normalizedPath: 'Assets/Jammr/shader.shader',
+          sha256: '11'.repeat(32),
+        },
+      ],
+      packageId: 'com.yucp.example',
+      protectedSourceRoot: '66'.repeat(32),
+      protectionPolicyDigest: '77'.repeat(32),
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
+      releaseRoot: '33'.repeat(32),
+      schemaVersion: 4,
+      storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
+      version: '1.2.3',
+      versionId: 'version-1',
+      vpmDependencies: {},
+      vpmRepositories: {},
+    });
+
+    expect(manifest.bootstrapMedia).toEqual([
+      {
+        kind: 'product-link',
+        label: 'Gumroad',
+        ordinal: 0,
+        url: 'https://creator.gumroad.com/l/jammr',
+      },
+    ]);
+    expect(parseDeliveryManifest(JSON.parse(JSON.stringify(manifest))).bootstrapMedia).toEqual(
+      manifest.bootstrapMedia
+    );
+  });
+
   test('rejects unsorted or escaping logical files', () => {
     expect(() =>
       parseDeliveryManifest({

@@ -2732,9 +2732,10 @@ const package_vpm_presentations = defineTable({
   minImporterVersion: v.string(),
   media: v.array(
     v.object({
-      bucketName: v.string(),
-      byteSize: v.number(),
-      contentType: v.union(v.literal('image/png'), v.literal('image/jpeg')),
+      // Storage/payload fields are absent for product links that ship no image.
+      bucketName: v.optional(v.string()),
+      byteSize: v.optional(v.number()),
+      contentType: v.optional(v.union(v.literal('image/png'), v.literal('image/jpeg'))),
       kind: v.union(
         v.literal('icon'),
         v.literal('banner'),
@@ -2742,11 +2743,11 @@ const package_vpm_presentations = defineTable({
         v.literal('product-link')
       ),
       label: v.optional(v.string()),
-      localPath: v.string(),
-      objectKey: v.string(),
+      localPath: v.optional(v.string()),
+      objectKey: v.optional(v.string()),
       ordinal: v.optional(v.number()),
-      providerVersion: v.string(),
-      sha256: v.string(),
+      providerVersion: v.optional(v.string()),
+      sha256: v.optional(v.string()),
       url: v.optional(v.string()),
     })
   ),
@@ -2860,9 +2861,10 @@ const package_versions_ref = defineTable({
   bootstrapMedia: v.optional(
     v.array(
       v.object({
-        bucketName: v.string(),
-        byteSize: v.number(),
-        contentType: v.union(v.literal('image/png'), v.literal('image/jpeg')),
+        // Storage/payload fields are absent for product links that ship no image.
+        bucketName: v.optional(v.string()),
+        byteSize: v.optional(v.number()),
+        contentType: v.optional(v.union(v.literal('image/png'), v.literal('image/jpeg'))),
         kind: v.union(
           v.literal('icon'),
           v.literal('banner'),
@@ -2870,11 +2872,11 @@ const package_versions_ref = defineTable({
           v.literal('product-link')
         ),
         label: v.optional(v.string()),
-        localPath: v.string(),
-        objectKey: v.string(),
+        localPath: v.optional(v.string()),
+        objectKey: v.optional(v.string()),
         ordinal: v.optional(v.number()),
-        providerVersion: v.string(),
-        sha256: v.string(),
+        providerVersion: v.optional(v.string()),
+        sha256: v.optional(v.string()),
         url: v.optional(v.string()),
       })
     )

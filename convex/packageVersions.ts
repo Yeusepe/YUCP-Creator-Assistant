@@ -13,31 +13,18 @@ function editionOf(version: Pick<Doc<'package_versions_ref'>, 'editionId'>): str
   return version.editionId ?? DEFAULT_EDITION;
 }
 
-function sharedText(values: ReadonlyArray<string | undefined>): string | undefined {
-  const first = values[0];
-  if (first === undefined || !values.every((value) => value === first)) {
-    return undefined;
-  }
-  return first;
-}
-
 function canonicalBootstrapMedia(
   media: NonNullable<Doc<'package_versions_ref'>['bootstrapMedia']>
 ): NonNullable<Doc<'package_versions_ref'>['bootstrapMedia']> {
   return [...media].sort(
     (left, right) =>
       left.kind.localeCompare(right.kind) ||
-      left.localPath.localeCompare(right.localPath) ||
-      left.sha256.localeCompare(right.sha256) ||
-      left.objectKey.localeCompare(right.objectKey) ||
-      left.providerVersion.localeCompare(right.providerVersion)
+      (left.ordinal ?? 0) - (right.ordinal ?? 0) ||
+      (left.localPath ?? '').localeCompare(right.localPath ?? '') ||
+      (left.sha256 ?? '').localeCompare(right.sha256 ?? '') ||
+      (left.objectKey ?? '').localeCompare(right.objectKey ?? '') ||
+      (left.providerVersion ?? '').localeCompare(right.providerVersion ?? '')
   );
-}
-
-function bootstrapMediaKey(
-  media: NonNullable<Doc<'package_versions_ref'>['bootstrapMedia']>
-): string {
-  return JSON.stringify(canonicalBootstrapMedia(media));
 }
 
 function canonicalJson(value: unknown): string {
@@ -270,9 +257,10 @@ export const upsertReadyVersion = mutation({
     bootstrapMedia: v.optional(
       v.array(
         v.object({
-          bucketName: v.string(),
-          byteSize: v.number(),
-          contentType: v.union(v.literal('image/png'), v.literal('image/jpeg')),
+          // Storage/payload fields are absent for product links that ship no image.
+          bucketName: v.optional(v.string()),
+          byteSize: v.optional(v.number()),
+          contentType: v.optional(v.union(v.literal('image/png'), v.literal('image/jpeg'))),
           kind: v.union(
             v.literal('icon'),
             v.literal('banner'),
@@ -280,11 +268,11 @@ export const upsertReadyVersion = mutation({
             v.literal('product-link')
           ),
           label: v.optional(v.string()),
-          localPath: v.string(),
-          objectKey: v.string(),
+          localPath: v.optional(v.string()),
+          objectKey: v.optional(v.string()),
           ordinal: v.optional(v.number()),
-          providerVersion: v.string(),
-          sha256: v.string(),
+          providerVersion: v.optional(v.string()),
+          sha256: v.optional(v.string()),
           url: v.optional(v.string()),
         })
       )
@@ -719,35 +707,25 @@ export const resolvePublicBootstrapPresentation = query({
       return null;
     }
 
-    const metadata = candidates.map((candidate) => candidate.packageMetadata);
-    const author = sharedText(metadata.map((value) => value?.author));
-    const description = sharedText(metadata.map((value) => value?.description));
-    const packageName = sharedText(metadata.map((value) => value?.packageName));
-    const tagline = sharedText(metadata.map((value) => value?.tagline));
+    // The bootstrap presents the latest release, so its metadata and media win —
+    // older still-READY versions must not starve the presentation.
     const latestCandidate = candidates.reduce((latest, candidate) =>
       candidate.createdAt > latest.createdAt ? candidate : latest
     );
-    const version = latestCandidate.packageMetadata?.version ?? latestCandidate.version;
+    const metadata = latestCandidate.packageMetadata;
+    const version = metadata?.version ?? latestCandidate.version;
     const packageMetadata = {
-      ...(author ? { author } : {}),
-      ...(description ? { description } : {}),
-      ...(packageName ? { packageName } : {}),
-      ...(tagline ? { tagline } : {}),
+      ...(metadata?.author ? { author: metadata.author } : {}),
+      ...(metadata?.description ? { description: metadata.description } : {}),
+      ...(metadata?.packageName ? { packageName: metadata.packageName } : {}),
+      ...(metadata?.tagline ? { tagline: metadata.tagline } : {}),
       version,
     };
-    const hasMetadata = Object.keys(packageMetadata).length > 0;
-    const firstMedia = canonicalBootstrapMedia(candidates[0]?.bootstrapMedia ?? []);
-    const sharedMediaKey = bootstrapMediaKey(firstMedia);
-    const bootstrapMedia = candidates.every(
-      (candidate) => bootstrapMediaKey(candidate.bootstrapMedia ?? []) === sharedMediaKey
-    )
-      ? firstMedia
-      : [];
 
     return {
-      bootstrapMedia,
+      bootstrapMedia: canonicalBootstrapMedia(latestCandidate.bootstrapMedia ?? []),
       createdAt: Math.max(...candidates.map((candidate) => candidate.createdAt)),
-      ...(hasMetadata ? { packageMetadata } : {}),
+      packageMetadata,
     };
   },
 });

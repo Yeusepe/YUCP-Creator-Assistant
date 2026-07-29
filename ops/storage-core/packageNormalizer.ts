@@ -54,15 +54,16 @@ export type NormalizedPackage = {
 };
 
 export type NormalizedPackageEnvelopeMetadata = {
-  body: Uint8Array;
-  bytes: number;
-  contentType: VpmBootstrapMediaContentType;
+  // Payload fields are absent for product links that ship no image.
+  body?: Uint8Array;
+  bytes?: number;
+  contentType?: VpmBootstrapMediaContentType;
   kind: VpmBootstrapMediaKind;
   label?: string;
-  localPath: string;
-  name: string;
+  localPath?: string;
+  name?: string;
   ordinal?: number;
-  sha256: string;
+  sha256?: string;
   url?: string;
 };
 
@@ -315,17 +316,20 @@ async function extractPackagePresentationMedia(input: {
         throw new Error(`YUCP package product link ${ordinal} is invalid`);
       }
       const link = candidate as Record<string, unknown>;
+      const label = presentationText(link.label, `product link ${ordinal} label`, 120);
+      const url = presentationUrl(link.url, `product link ${ordinal} URL`);
       if (link.icon === undefined || link.icon === null || link.icon === '') {
+        media.push({ kind: 'product-link', label, ordinal, url });
         continue;
       }
       media.push(
         await readPresentationImage({
           fileByPath,
           kind: 'product-link',
-          label: presentationText(link.label, `product link ${ordinal} label`, 120),
+          label,
           ordinal,
           sourcePath: link.icon,
-          url: presentationUrl(link.url, `product link ${ordinal} URL`),
+          url,
         })
       );
     }
@@ -334,7 +338,7 @@ async function extractPackagePresentationMedia(input: {
     (left, right) =>
       left.kind.localeCompare(right.kind) ||
       (left.ordinal ?? 0) - (right.ordinal ?? 0) ||
-      left.localPath.localeCompare(right.localPath)
+      (left.localPath ?? '').localeCompare(right.localPath ?? '')
   );
 }
 

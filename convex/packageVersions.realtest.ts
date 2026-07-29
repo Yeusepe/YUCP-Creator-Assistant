@@ -339,7 +339,7 @@ describe('packageVersions', () => {
     ).rejects.toThrow('Package edition does not contain the catalog product');
   });
 
-  it('builds public bootstrap presentation only from values shared by all ready editions', async () => {
+  it('builds public bootstrap presentation from the latest ready version', async () => {
     const t = makeTestConvex();
     await seedActivePackageEditions(t, 'com.yucp.public-bootstrap', ['standard', 'commercial']);
     const sharedIcon = {
@@ -400,6 +400,7 @@ describe('packageVersions', () => {
       createdAt: 2_000,
       packageMetadata: {
         author: 'YUCP Studio',
+        description: 'Commercial edition description.',
         packageName: 'Public Bootstrap',
         tagline: 'Shared tagline',
         version: '9.0.0',
@@ -458,43 +459,60 @@ describe('packageVersions', () => {
     });
   });
 
-  it('omits public bootstrap media when ready editions do not share the exact media set', async () => {
+  it('serves the latest ready version media even when older versions differ', async () => {
     const t = makeTestConvex();
     await seedActivePackageEditions(t, 'com.yucp.public-bootstrap-media', [
       'standard',
       'commercial',
     ]);
+    const latestMedia = [
+      {
+        bucketName: 'metadata',
+        byteSize: 9,
+        contentType: 'image/png' as const,
+        kind: 'banner' as const,
+        localPath: 'Documentation~/YUCP/banner.png',
+        objectKey: 'indexes/bootstrap-media/banner.png',
+        providerVersion: 'standard-version',
+        sha256: 'ab'.repeat(32),
+      },
+      {
+        bucketName: 'metadata',
+        byteSize: 9,
+        contentType: 'image/png' as const,
+        kind: 'icon' as const,
+        localPath: 'Documentation~/YUCP/icon.png',
+        objectKey: 'indexes/bootstrap-media/standard.png',
+        providerVersion: 'standard-version',
+        sha256: 'aa'.repeat(32),
+      },
+      {
+        kind: 'product-link' as const,
+        label: 'Gumroad',
+        ordinal: 0,
+        url: 'https://creator.gumroad.com/l/product',
+      },
+    ];
     await t.mutation(
       api.packageVersions.upsertReadyVersion,
       await authenticatedReadyVersionArgs({
-        bootstrapMedia: [
-          {
-            bucketName: 'metadata',
-            byteSize: 9,
-            contentType: 'image/png',
-            kind: 'icon',
-            localPath: 'Documentation~/YUCP/icon.png',
-            objectKey: 'indexes/bootstrap-media/standard.png',
-            providerVersion: 'standard-version',
-            sha256: 'aa'.repeat(32),
-          },
-        ],
+        bootstrapMedia: [],
         createdAt: 1_000,
-        editionId: 'standard',
+        editionId: 'commercial',
         packageId: 'com.yucp.public-bootstrap-media',
         version: '1.0.0',
-        versionId: '00000000-0000-4000-8000-000000000023',
+        versionId: '00000000-0000-4000-8000-000000000024',
       })
     );
     await t.mutation(
       api.packageVersions.upsertReadyVersion,
       await authenticatedReadyVersionArgs({
-        bootstrapMedia: [],
+        bootstrapMedia: latestMedia,
         createdAt: 2_000,
-        editionId: 'commercial',
+        editionId: 'standard',
         packageId: 'com.yucp.public-bootstrap-media',
-        version: '1.0.0',
-        versionId: '00000000-0000-4000-8000-000000000024',
+        version: '1.1.0',
+        versionId: '00000000-0000-4000-8000-000000000023',
       })
     );
 
@@ -505,10 +523,10 @@ describe('packageVersions', () => {
     });
 
     expect(presentation).toEqual({
-      bootstrapMedia: [],
+      bootstrapMedia: latestMedia,
       createdAt: 2_000,
       packageMetadata: {
-        version: '1.0.0',
+        version: '1.1.0',
       },
     });
   });

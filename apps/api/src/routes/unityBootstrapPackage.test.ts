@@ -99,6 +99,12 @@ describe('YUCP bootstrap Unity package', () => {
           sha256: createHash('sha256').update(productLink).digest('hex'),
           url: 'https://creator.gumroad.com/l/jammr',
         },
+        {
+          kind: 'product-link',
+          label: 'Patreon',
+          ordinal: 1,
+          url: 'https://www.patreon.com/creator',
+        },
       ],
       vpmDependencies: {},
     });
@@ -122,6 +128,16 @@ describe('YUCP bootstrap Unity package', () => {
     expect(assets.get(`${aliasRoot}/Documentation~/YUCP/product-links/000.png`)).toEqual(
       productLink
     );
+    expect(assets.has(`${aliasRoot}/Documentation~/YUCP/product-links/001.png`)).toBe(false);
+    const aliasManifest = JSON.parse(
+      new TextDecoder().decode(assets.get(`${aliasRoot}/package.json`))
+    ) as { yucp: { media: Array<Record<string, unknown>> } };
+    expect(aliasManifest.yucp.media).toContainEqual({
+      kind: 'product-link',
+      label: 'Patreon',
+      ordinal: 1,
+      url: 'https://www.patreon.com/creator',
+    });
     expect(
       assets.get('Packages/yucp.installed-packages/Editor/YUCP.DirectVpmInstaller.Runtime.dll')
     ).toEqual(installerRuntime);

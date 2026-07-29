@@ -107,6 +107,43 @@ describe('normalizeYucpAliasPackageContract', () => {
     });
   });
 
+  it('normalizes product links without image payloads and rejects payload-less images', () => {
+    expect(
+      normalizeYucpAliasPackageContract({
+        kind: 'alias-v1',
+        aliasId: 'jammr',
+        installStrategy: 'server-authorized',
+        importerPackage: 'com.yucp.importer',
+        media: [
+          {
+            kind: 'product-link',
+            ordinal: 0,
+            label: ' Gumroad ',
+            url: 'https://creator.gumroad.com/l/jammr',
+          },
+        ],
+      })
+    ).toMatchObject({
+      media: [
+        {
+          kind: 'product-link',
+          ordinal: 0,
+          label: 'Gumroad',
+          url: 'https://creator.gumroad.com/l/jammr',
+        },
+      ],
+    });
+    expect(() =>
+      normalizeYucpAliasPackageContract({
+        kind: 'alias-v1',
+        aliasId: 'jammr',
+        installStrategy: 'server-authorized',
+        importerPackage: 'com.yucp.importer',
+        media: [{ kind: 'icon' }],
+      })
+    ).toThrow('requires an image payload');
+  });
+
   it('rejects removed install-plan and resolved artifact fields', () => {
     expect(() =>
       normalizeYucpAliasPackageContract({

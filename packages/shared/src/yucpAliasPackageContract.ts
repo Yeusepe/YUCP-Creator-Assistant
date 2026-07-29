@@ -50,11 +50,12 @@ export type YucpAliasPackageMetadata = {
 export type YucpAliasPackageMedia = {
   kind: 'banner' | 'gallery' | 'icon' | 'product-link';
   label?: string;
-  localPath: string;
+  // Payload fields are absent for product links that ship no image.
+  localPath?: string;
   ordinal?: number;
-  contentType: 'image/jpeg' | 'image/png';
-  byteSize: number;
-  sha256: string;
+  contentType?: 'image/jpeg' | 'image/png';
+  byteSize?: number;
+  sha256?: string;
   url?: string;
 };
 
@@ -134,6 +135,23 @@ function normalizePackageMetadata(value: unknown): YucpAliasPackageMetadata | un
   return normalized;
 }
 
+function normalizeProductLinkMetadata(
+  entry: Record<string, unknown>,
+  fieldName: string
+): Pick<YucpAliasPackageMedia, 'label' | 'url'> {
+  const label = normalizeBoundedString(entry.label, `${fieldName}.label`, 120);
+  let url: URL;
+  try {
+    url = new URL(trimRequiredString(entry.url, `${fieldName}.url`));
+  } catch {
+    throw new Error(`${fieldName}.url must be an absolute HTTPS URL`);
+  }
+  if (url.protocol !== 'https:' || url.username || url.password) {
+    throw new Error(`${fieldName}.url must be an absolute HTTPS URL`);
+  }
+  return { label, url: url.toString() };
+}
+
 function normalizeMedia(value: unknown): YucpAliasPackageMedia[] | undefined {
   if (value === undefined) {
     return undefined;
@@ -164,6 +182,26 @@ function normalizeMedia(value: unknown): YucpAliasPackageMedia[] | undefined {
     }
     if (!requiresOrdinal && entry.ordinal !== undefined) {
       throw new Error(`${fieldName}.ordinal is invalid`);
+    }
+    const hasPayload =
+      entry.localPath !== undefined ||
+      entry.contentType !== undefined ||
+      entry.byteSize !== undefined ||
+      entry.sha256 !== undefined;
+    if (!hasPayload) {
+      if (kind !== 'product-link') {
+        throw new Error(`${fieldName} requires an image payload`);
+      }
+      const role = `${kind}:${ordinal ?? 0}`;
+      if (roles.has(role)) {
+        throw new Error(`${YUCP_METADATA_ALIAS_PATH}.media contains a duplicate role`);
+      }
+      roles.add(role);
+      return {
+        kind,
+        ordinal: ordinal as number,
+        ...normalizeProductLinkMetadata(entry, fieldName),
+      };
     }
     if (entry.contentType !== 'image/png' && entry.contentType !== 'image/jpeg') {
       throw new Error(`${fieldName}.contentType is not supported`);
@@ -199,17 +237,7 @@ function normalizeMedia(value: unknown): YucpAliasPackageMedia[] | undefined {
     roles.add(role);
     let productLinkMetadata: Pick<YucpAliasPackageMedia, 'label' | 'url'> = {};
     if (kind === 'product-link') {
-      const label = normalizeBoundedString(entry.label, `${fieldName}.label`, 120);
-      let url: URL;
-      try {
-        url = new URL(trimRequiredString(entry.url, `${fieldName}.url`));
-      } catch {
-        throw new Error(`${fieldName}.url must be an absolute HTTPS URL`);
-      }
-      if (url.protocol !== 'https:' || url.username || url.password) {
-        throw new Error(`${fieldName}.url must be an absolute HTTPS URL`);
-      }
-      productLinkMetadata = { label, url: url.toString() };
+      productLinkMetadata = normalizeProductLinkMetadata(entry, fieldName);
     } else if (entry.label !== undefined || entry.url !== undefined) {
       throw new Error(`${fieldName} has unexpected product link metadata`);
     }

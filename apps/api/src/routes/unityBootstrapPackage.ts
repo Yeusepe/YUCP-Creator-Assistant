@@ -188,7 +188,12 @@ function bootstrapAssets(
     if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
       throw new Error('Unity bootstrap VPM media descriptor is invalid');
     }
-    const localPath = (candidate as Record<string, unknown>).localPath;
+    const descriptor = candidate as Record<string, unknown>;
+    const localPath = descriptor.localPath;
+    if (localPath === undefined && descriptor.kind === 'product-link') {
+      // Product links without an image ship no file.
+      continue;
+    }
     if (
       typeof localPath !== 'string' ||
       !/^Documentation~\/YUCP\/(?:(?:icon|banner)\.(?:png|jpg)|(?:gallery|product-links)\/\d{3}\.(?:png|jpg))$/.test(

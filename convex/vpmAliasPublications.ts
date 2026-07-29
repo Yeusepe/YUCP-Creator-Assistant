@@ -19,9 +19,10 @@ const REVISION_MINOR_SPAN = 1_000_000;
 const REVISION_MAJOR_SPAN = 1_000_000_000_000;
 
 const MediaV = v.object({
-  bucketName: v.string(),
-  byteSize: v.number(),
-  contentType: v.union(v.literal('image/png'), v.literal('image/jpeg')),
+  // Storage/payload fields are absent for product links that ship no image.
+  bucketName: v.optional(v.string()),
+  byteSize: v.optional(v.number()),
+  contentType: v.optional(v.union(v.literal('image/png'), v.literal('image/jpeg'))),
   kind: v.union(
     v.literal('icon'),
     v.literal('banner'),
@@ -29,11 +30,11 @@ const MediaV = v.object({
     v.literal('product-link')
   ),
   label: v.optional(v.string()),
-  localPath: v.string(),
-  objectKey: v.string(),
+  localPath: v.optional(v.string()),
+  objectKey: v.optional(v.string()),
   ordinal: v.optional(v.number()),
-  providerVersion: v.string(),
-  sha256: v.string(),
+  providerVersion: v.optional(v.string()),
+  sha256: v.optional(v.string()),
   url: v.optional(v.string()),
 });
 
@@ -125,16 +126,17 @@ type PresentationInput = {
   importerPackage: 'com.yucp.importer';
   minImporterVersion: string;
   media: Array<{
-    bucketName: string;
-    byteSize: number;
-    contentType: 'image/jpeg' | 'image/png';
+    // Storage/payload fields are absent for product links that ship no image.
+    bucketName?: string;
+    byteSize?: number;
+    contentType?: 'image/jpeg' | 'image/png';
     kind: 'banner' | 'gallery' | 'icon' | 'product-link';
     label?: string;
-    localPath: string;
-    objectKey: string;
+    localPath?: string;
+    objectKey?: string;
     ordinal?: number;
-    providerVersion: string;
-    sha256: string;
+    providerVersion?: string;
+    sha256?: string;
     url?: string;
   }>;
 };
@@ -274,7 +276,7 @@ function normalizeMedia(media: PresentationInput['media']): PresentationInput['m
   }
   const roles = new Set<string>();
   return media
-    .map((entry) => {
+    .map((entry): PresentationInput['media'][number] => {
       const requiresOrdinal = entry.kind === 'gallery' || entry.kind === 'product-link';
       const maximumOrdinal = entry.kind === 'gallery' ? 8 : 32;
       if (
@@ -293,21 +295,6 @@ function normalizeMedia(media: PresentationInput['media']): PresentationInput['m
         throw new ConvexError(`VPM presentation contains a duplicate ${entry.kind} role`);
       }
       roles.add(role);
-      const extension = entry.contentType === 'image/png' ? 'png' : 'jpg';
-      const expectedPath =
-        entry.kind === 'icon' || entry.kind === 'banner'
-          ? `Documentation~/YUCP/${entry.kind}.${extension}`
-          : `Documentation~/YUCP/${
-              entry.kind === 'gallery' ? 'gallery' : 'product-links'
-            }/${String(entry.ordinal).padStart(3, '0')}.${extension}`;
-      if (
-        entry.localPath !== expectedPath ||
-        !Number.isSafeInteger(entry.byteSize) ||
-        entry.byteSize < 8 ||
-        entry.byteSize > 16 * 1024 * 1024
-      ) {
-        throw new ConvexError('VPM presentation media is invalid');
-      }
       let productLinkMetadata: Pick<PresentationInput['media'][number], 'label' | 'url'> = {};
       if (entry.kind === 'product-link') {
         const label = requiredText(entry.label ?? '', 'VPM product link label', 120);
@@ -325,16 +312,54 @@ function normalizeMedia(media: PresentationInput['media']): PresentationInput['m
       } else if (entry.label !== undefined || entry.url !== undefined) {
         throw new ConvexError('VPM presentation media product link metadata is invalid');
       }
+      const hasPayload =
+        entry.bucketName !== undefined ||
+        entry.byteSize !== undefined ||
+        entry.contentType !== undefined ||
+        entry.localPath !== undefined ||
+        entry.objectKey !== undefined ||
+        entry.providerVersion !== undefined ||
+        entry.sha256 !== undefined;
+      if (!hasPayload) {
+        if (entry.kind !== 'product-link') {
+          throw new ConvexError('VPM presentation media requires an image payload');
+        }
+        return {
+          kind: entry.kind,
+          ordinal: entry.ordinal as number,
+          ...productLinkMetadata,
+        };
+      }
+      const extension = entry.contentType === 'image/png' ? 'png' : 'jpg';
+      const expectedPath =
+        entry.kind === 'icon' || entry.kind === 'banner'
+          ? `Documentation~/YUCP/${entry.kind}.${extension}`
+          : `Documentation~/YUCP/${
+              entry.kind === 'gallery' ? 'gallery' : 'product-links'
+            }/${String(entry.ordinal).padStart(3, '0')}.${extension}`;
+      if (
+        (entry.contentType !== 'image/png' && entry.contentType !== 'image/jpeg') ||
+        entry.localPath !== expectedPath ||
+        !Number.isSafeInteger(entry.byteSize) ||
+        (entry.byteSize as number) < 8 ||
+        (entry.byteSize as number) > 16 * 1024 * 1024
+      ) {
+        throw new ConvexError('VPM presentation media is invalid');
+      }
       return {
-        bucketName: requiredText(entry.bucketName, 'VPM media bucket', 1_024),
+        bucketName: requiredText(entry.bucketName ?? '', 'VPM media bucket', 1_024),
         byteSize: entry.byteSize,
         contentType: entry.contentType,
         kind: entry.kind,
         localPath: entry.localPath,
-        objectKey: requiredText(entry.objectKey, 'VPM media object key', 1_024),
+        objectKey: requiredText(entry.objectKey ?? '', 'VPM media object key', 1_024),
         ...(entry.ordinal === undefined ? {} : { ordinal: entry.ordinal }),
-        providerVersion: requiredText(entry.providerVersion, 'VPM media provider version', 1_024),
-        sha256: validateSha256(entry.sha256, 'VPM media SHA-256'),
+        providerVersion: requiredText(
+          entry.providerVersion ?? '',
+          'VPM media provider version',
+          1_024
+        ),
+        sha256: validateSha256(entry.sha256 ?? '', 'VPM media SHA-256'),
         ...productLinkMetadata,
       };
     })
@@ -342,7 +367,7 @@ function normalizeMedia(media: PresentationInput['media']): PresentationInput['m
       (left, right) =>
         left.kind.localeCompare(right.kind) ||
         (left.ordinal ?? 0) - (right.ordinal ?? 0) ||
-        left.localPath.localeCompare(right.localPath)
+        (left.localPath ?? '').localeCompare(right.localPath ?? '')
     );
 }
 
@@ -601,6 +626,35 @@ export const updatePresentationForCreator = mutation({
     requireApiSecret(args.apiSecret);
     await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
     return await writePresentation(ctx, args, 'update');
+  },
+});
+
+const { authUserId: _serviceAuthUserId, ...ServicePresentationInputV } = PresentationInputV;
+
+/**
+ * Upsert a package presentation from release-derived values on behalf of the
+ * publishing service, so publications triggered without a creator session
+ * (e.g. buyer repository refresh after a new release) still serve the latest
+ * release metadata. The owning creator is resolved from the package registry.
+ */
+export const syncPresentationForService = mutation({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    ...ServicePresentationInputV,
+  },
+  returns: PresentationResultV,
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['downloads:service']);
+    const registration = await ctx.db
+      .query('package_registry')
+      .withIndex('by_package_id', (q) => q.eq('packageId', validatePackageId(args.packageId)))
+      .first();
+    if (!registration?.yucpUserId || registration.status === 'archived') {
+      throw new ConvexError('Package is not available');
+    }
+    return await writePresentation(ctx, { ...args, authUserId: registration.yucpUserId }, 'update');
   },
 });
 

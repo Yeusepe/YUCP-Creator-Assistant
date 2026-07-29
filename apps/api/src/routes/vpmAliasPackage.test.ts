@@ -251,6 +251,66 @@ describe('YUCP public VPM alias package', () => {
     expect(built.manifest.url).not.toContain(Buffer.from(icon).toString('base64url'));
   });
 
+  it('ships product links without icons as metadata-only media entries', () => {
+    const built = buildYucpAliasVpmPackage({
+      aliasId,
+      bootstrapVersion: '1.20660.12345',
+      vpmDependencies: {},
+      artifactUrl: immutableArtifactUrl('1.20660.12345'),
+      packageMetadata: {
+        packageName: 'JAMMR',
+        author: 'Mapache',
+      },
+      media: [
+        {
+          kind: 'product-link',
+          label: 'Gumroad',
+          ordinal: 0,
+          url: 'https://creator.gumroad.com/l/jammr',
+        },
+        {
+          kind: 'product-link',
+          label: 'Patreon',
+          ordinal: 1,
+          url: 'https://www.patreon.com/creator',
+        },
+      ],
+    });
+
+    expect(Object.keys(unzipSync(built.bytes))).toEqual(['package.json']);
+    expect(built.manifest.yucp).toMatchObject({
+      media: [
+        {
+          kind: 'product-link',
+          label: 'Gumroad',
+          ordinal: 0,
+          url: 'https://creator.gumroad.com/l/jammr',
+        },
+        {
+          kind: 'product-link',
+          label: 'Patreon',
+          ordinal: 1,
+          url: 'https://www.patreon.com/creator',
+        },
+      ],
+    });
+    const manifestMedia = (built.manifest.yucp as { media: Record<string, unknown>[] }).media;
+    for (const entry of manifestMedia) {
+      expect(entry.localPath).toBeUndefined();
+      expect(entry.byteSize).toBeUndefined();
+      expect(entry.sha256).toBeUndefined();
+    }
+    expect(() =>
+      buildYucpAliasVpmPackage({
+        aliasId,
+        bootstrapVersion: '1.20660.12345',
+        vpmDependencies: {},
+        artifactUrl: immutableArtifactUrl('1.20660.12345'),
+        media: [{ kind: 'icon' }],
+      })
+    ).toThrow('image payload');
+  });
+
   it('rejects unsafe, oversized, unsupported, and digest-mismatched media', () => {
     const icon = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
     const media = {

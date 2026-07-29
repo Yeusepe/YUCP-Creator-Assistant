@@ -52,21 +52,22 @@ export type YucpAliasPackageMetadataInput = {
 };
 
 export type YucpAliasPackageMediaInput = {
+  // Storage/payload fields are absent for product links that ship no image.
   bucketName?: string;
   kind: 'banner' | 'gallery' | 'icon' | 'product-link';
   label?: string;
-  localPath: string;
+  localPath?: string;
   objectKey?: string;
   ordinal?: number;
   providerVersion?: string;
-  contentType: 'image/jpeg' | 'image/png';
-  bytes: Uint8Array;
-  sha256: string;
+  contentType?: 'image/jpeg' | 'image/png';
+  bytes?: Uint8Array;
+  sha256?: string;
   url?: string;
 };
 
 export type YucpAliasPackageMediaReference = Omit<YucpAliasPackageMediaInput, 'bytes'> & {
-  byteSize: number;
+  byteSize?: number;
 };
 
 function normalizeArtifactUrl(value: string, bootstrapVersion: string): string {
@@ -183,6 +184,25 @@ function normalizeVpmDependencies(value: Readonly<Record<string, string>>): Reco
   return dependencies;
 }
 
+function normalizeProductLinkMetadata(
+  media: Pick<YucpAliasPackageMediaInput, 'label' | 'url'>
+): Pick<YucpAliasPackageMediaInput, 'label' | 'url'> {
+  const label = media.label?.trim() ?? '';
+  if (!label || new TextEncoder().encode(label).byteLength > 120) {
+    throw new Error('YUCP alias product link label is invalid');
+  }
+  let url: URL;
+  try {
+    url = new URL(media.url ?? '');
+  } catch {
+    throw new Error('YUCP alias product link URL is invalid');
+  }
+  if (url.protocol !== 'https:' || url.username || url.password) {
+    throw new Error('YUCP alias product link URL is invalid');
+  }
+  return { label, url: url.toString() };
+}
+
 function normalizeMedia(
   value: ReadonlyArray<YucpAliasPackageMediaInput> | undefined
 ): YucpAliasPackageMediaInput[] {
@@ -194,7 +214,7 @@ function normalizeMedia(
   }
   const seen = new Set<string>();
   return [...value]
-    .map((media) => {
+    .map((media): YucpAliasPackageMediaInput => {
       if (
         media.kind !== 'icon' &&
         media.kind !== 'banner' &&
@@ -217,6 +237,29 @@ function normalizeMedia(
       if (!requiresOrdinal && media.ordinal !== undefined) {
         throw new Error('YUCP alias media ordinal is invalid');
       }
+      const hasPayload =
+        media.bytes !== undefined ||
+        media.sha256 !== undefined ||
+        media.contentType !== undefined ||
+        media.localPath !== undefined ||
+        media.bucketName !== undefined ||
+        media.objectKey !== undefined ||
+        media.providerVersion !== undefined;
+      if (!hasPayload) {
+        if (media.kind !== 'product-link') {
+          throw new Error('YUCP alias media requires an image payload');
+        }
+        const role = `product-link:${media.ordinal ?? 0}`;
+        if (seen.has(role)) {
+          throw new Error('YUCP alias media contains a duplicate product-link role');
+        }
+        seen.add(role);
+        return {
+          kind: media.kind,
+          ordinal: media.ordinal as number,
+          ...normalizeProductLinkMetadata(media),
+        };
+      }
       if (media.contentType !== 'image/png' && media.contentType !== 'image/jpeg') {
         throw new Error('YUCP alias media content type is not supported');
       }
@@ -229,6 +272,9 @@ function normalizeMedia(
             }/${String(media.ordinal).padStart(3, '0')}.${extension}`;
       if (media.localPath !== expectedPath) {
         throw new Error('YUCP alias media local path is invalid');
+      }
+      if (media.bytes === undefined) {
+        throw new Error('YUCP alias media requires an image payload');
       }
       const bytes = Uint8Array.from(media.bytes);
       if (bytes.byteLength < 8 || bytes.byteLength > MAX_BOOTSTRAP_MEDIA_BYTES) {
@@ -260,20 +306,7 @@ function normalizeMedia(
       }
       let productLinkMetadata: Pick<YucpAliasPackageMediaInput, 'label' | 'url'> = {};
       if (media.kind === 'product-link') {
-        const label = media.label?.trim() ?? '';
-        if (!label || new TextEncoder().encode(label).byteLength > 120) {
-          throw new Error('YUCP alias product link label is invalid');
-        }
-        let url: URL;
-        try {
-          url = new URL(media.url ?? '');
-        } catch {
-          throw new Error('YUCP alias product link URL is invalid');
-        }
-        if (url.protocol !== 'https:' || url.username || url.password) {
-          throw new Error('YUCP alias product link URL is invalid');
-        }
-        productLinkMetadata = { label, url: url.toString() };
+        productLinkMetadata = normalizeProductLinkMetadata(media);
       } else if (media.label !== undefined || media.url !== undefined) {
         throw new Error('YUCP alias product link metadata is invalid');
       }
@@ -284,7 +317,7 @@ function normalizeMedia(
       (left, right) =>
         left.kind.localeCompare(right.kind) ||
         (left.ordinal ?? 0) - (right.ordinal ?? 0) ||
-        left.localPath.localeCompare(right.localPath)
+        (left.localPath ?? '').localeCompare(right.localPath ?? '')
     );
 }
 
@@ -368,10 +401,14 @@ export function buildYucpAliasVpmPackage(input: {
             ? {
                 media: media.map((item) => ({
                   kind: item.kind,
-                  byteSize: item.bytes.byteLength,
-                  contentType: item.contentType,
-                  localPath: item.localPath,
-                  sha256: item.sha256,
+                  ...(item.bytes
+                    ? {
+                        byteSize: item.bytes.byteLength,
+                        contentType: item.contentType,
+                        localPath: item.localPath,
+                        sha256: item.sha256,
+                      }
+                    : {}),
                   ...(item.ordinal === undefined ? {} : { ordinal: item.ordinal }),
                   ...(item.label ? { label: item.label } : {}),
                   ...(item.url ? { url: item.url } : {}),
@@ -391,7 +428,9 @@ export function buildYucpAliasVpmPackage(input: {
     ],
   };
   for (const item of media) {
-    archiveEntries[item.localPath] = [item.bytes, { level: 9, mtime: ZIP_TIMESTAMP }];
+    if (item.bytes && item.localPath) {
+      archiveEntries[item.localPath] = [item.bytes, { level: 9, mtime: ZIP_TIMESTAMP }];
+    }
   }
   const bytes = zipSync(archiveEntries, { level: 9 });
   const zipSha256 = createHash('sha256').update(bytes).digest('hex');

@@ -219,6 +219,72 @@ describe('package normalizer', () => {
     }
   });
 
+  test('keeps product links without icons as metadata-only presentation media', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'yucp-normalizer-iconless-links-'));
+    try {
+      const records = join(root, 'records');
+      const packageRoot = 'Packages/yucp.installed-packages/Product';
+      const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
+      const iconGuid = '1'.repeat(32);
+      await mkdir(join(records, iconGuid), { recursive: true });
+      await writeFile(join(records, iconGuid, 'asset'), png);
+      await writeFile(join(records, iconGuid, 'pathname'), `${packageRoot}/Embedded/icon.png`);
+      const metadataGuid = '5'.repeat(32);
+      await mkdir(join(records, metadataGuid), { recursive: true });
+      await writeFile(
+        join(records, metadataGuid, 'asset'),
+        JSON.stringify({
+          packageName: 'Product',
+          version: '1.0.0',
+          author: 'Creator',
+          icon: `${packageRoot}/Embedded/icon.png`,
+          productLinks: [
+            { label: 'Gumroad', url: 'https://creator.gumroad.com/l/product', icon: '' },
+            { label: 'Patreon', url: 'https://www.patreon.com/creator' },
+          ],
+        })
+      );
+      await writeFile(
+        join(records, metadataGuid, 'pathname'),
+        `${packageRoot}/YUCP_PackageInfo.json`
+      );
+      const archive = join(root, 'iconless-links.unitypackage');
+      const tools = await resolveGnuArchiveTools();
+      await runCommand(
+        tools.tarCommand,
+        ['--force-local', '--create', '--gzip', '--file', archive, '--directory', records, '.'],
+        { env: tools.env }
+      );
+
+      const normalized = await normalizePackageArtifact({
+        inputPath: archive,
+        outputRoot: join(root, 'tree'),
+        packageId: 'com.yucp.product',
+      });
+
+      expect(normalized.envelopeMetadata).toEqual([
+        expect.objectContaining({
+          kind: 'icon',
+          localPath: 'Documentation~/YUCP/icon.png',
+        }),
+        {
+          kind: 'product-link',
+          label: 'Gumroad',
+          ordinal: 0,
+          url: 'https://creator.gumroad.com/l/product',
+        },
+        {
+          kind: 'product-link',
+          label: 'Patreon',
+          ordinal: 1,
+          url: 'https://www.patreon.com/creator',
+        },
+      ]);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
   test('rejects unsupported Unity package icon media', async () => {
     const root = await mkdtemp(join(tmpdir(), 'yucp-normalizer-invalid-icon-'));
     try {

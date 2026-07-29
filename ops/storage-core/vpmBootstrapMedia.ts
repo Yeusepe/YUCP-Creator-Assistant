@@ -10,18 +10,39 @@ export type VpmBootstrapMediaContentType = 'image/jpeg' | 'image/png';
 export type VpmBootstrapMediaKind = 'banner' | 'gallery' | 'icon' | 'product-link';
 
 export type VpmBootstrapMediaObject = {
-  bucketName: string;
-  byteSize: number;
-  contentType: VpmBootstrapMediaContentType;
+  // Storage/payload fields are absent for product links that ship no image.
+  bucketName?: string;
+  byteSize?: number;
+  contentType?: VpmBootstrapMediaContentType;
   kind: VpmBootstrapMediaKind;
   label?: string;
-  localPath: string;
-  objectKey: string;
+  localPath?: string;
+  objectKey?: string;
   ordinal?: number;
-  providerVersion: string;
-  sha256: string;
+  providerVersion?: string;
+  sha256?: string;
   url?: string;
 };
+
+export function vpmBootstrapMediaHasPayload(value: {
+  bucketName?: unknown;
+  byteSize?: unknown;
+  contentType?: unknown;
+  localPath?: unknown;
+  objectKey?: unknown;
+  providerVersion?: unknown;
+  sha256?: unknown;
+}): boolean {
+  return (
+    value.bucketName !== undefined ||
+    value.byteSize !== undefined ||
+    value.contentType !== undefined ||
+    value.localPath !== undefined ||
+    value.objectKey !== undefined ||
+    value.providerVersion !== undefined ||
+    value.sha256 !== undefined
+  );
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -114,6 +135,17 @@ export function normalizeVpmBootstrapMedia(value: unknown): VpmBootstrapMediaObj
       throw new Error(`VPM bootstrap media contains duplicate ${kind} role`);
     }
     roles.add(role);
+    if (!vpmBootstrapMediaHasPayload(candidate)) {
+      if (kind !== 'product-link') {
+        throw new Error(`VPM bootstrap media ${index} requires an image payload`);
+      }
+      return {
+        kind,
+        label: safeStorageText(candidate.label, `${index} label`, 120),
+        ordinal: ordinal as number,
+        url: normalizePublicUrl(candidate.url, index),
+      };
+    }
     if (candidate.contentType !== 'image/png' && candidate.contentType !== 'image/jpeg') {
       throw new Error(`VPM bootstrap media ${index} contentType is invalid`);
     }
@@ -176,6 +208,6 @@ export function normalizeVpmBootstrapMedia(value: unknown): VpmBootstrapMediaObj
     (left, right) =>
       left.kind.localeCompare(right.kind) ||
       (left.ordinal ?? 0) - (right.ordinal ?? 0) ||
-      left.localPath.localeCompare(right.localPath)
+      (left.localPath ?? '').localeCompare(right.localPath ?? '')
   );
 }
