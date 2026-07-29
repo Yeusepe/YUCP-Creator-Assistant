@@ -140,6 +140,52 @@ func TestStageCommonTreeDownloadsVerifiesAndReusesChunkCache(t *testing.T) {
 	}
 }
 
+func TestStageCommonTreeRetriesTransientChunkFailures(t *testing.T) {
+	content := []byte("rate limited common file\n")
+	digest := sha256.Sum256(content)
+	chunkID := hex.EncodeToString(digest[:])
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v2/delivery/version-1/chunks/"+chunkID {
+			http.Error(response, "forbidden", http.StatusForbidden)
+			return
+		}
+		if requests.Add(1) == 1 {
+			http.Error(response, "slow down", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = response.Write(content)
+	}))
+	defer server.Close()
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	manifest := Manifest{
+		Files: []File{{
+			Bytes:          int64(len(content)),
+			Chunks:         []Chunk{{ID: chunkID, SHA256: chunkID, Size: int64(len(content))}},
+			Classification: "common",
+			NormalizedPath: "Assets/Product/file.txt",
+			SHA256:         chunkID,
+		}},
+		VersionID: "version-1",
+	}
+	if _, err := StageCommonTree(context.Background(), StageCommonConfig{
+		CacheRoot:   filepath.Join(t.TempDir(), "cache"),
+		Destination: filepath.Join(t.TempDir(), "staged"),
+		GrantSource: &testGrantSource{current: "grant-1"},
+		Manifest:    manifest,
+		ManifestURL: server.URL + "/v2/delivery/version-1/manifest",
+		PrivateKey:  privateKey,
+	}); err != nil {
+		t.Fatalf("StageCommonTree() transient retry error = %v", err)
+	}
+	if requests.Load() != 2 {
+		t.Fatalf("chunk requests = %d, want 2", requests.Load())
+	}
+}
+
 func TestStageCommonTreeRenewsWithoutDiscardingVerifiedChunkCache(t *testing.T) {
 	firstContent := []byte("first cached chunk\n")
 	secondContent := []byte("second renewed chunk\n")

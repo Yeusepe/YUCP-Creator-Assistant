@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"os"
@@ -21,7 +22,9 @@ import (
 	"github.com/yucp/transfer-helper/internal/packagecontract"
 )
 
-const parallelChunkDownloads = 4
+// Chunk fetches are latency-bound round trips (~256 KiB average chunks), so wall
+// clock scales almost linearly with parallelism until bandwidth saturates.
+const parallelChunkDownloads = 16
 
 type GrantSource interface {
 	Current(ctx context.Context) (string, error)
@@ -289,7 +292,8 @@ func ensureCachedChunk(
 		return fmt.Errorf("read chunk delivery authorization: %w", err)
 	}
 	var response *http.Response
-	for attempt := 0; attempt < 2; attempt++ {
+	authorizationRenewed := false
+	for attempt := 0; ; attempt++ {
 		proof, proofErr := dpop.CreateProof(
 			cfg.PrivateKey,
 			http.MethodGet,
@@ -308,16 +312,31 @@ func ensureCachedChunk(
 		request.Header.Set("DPoP", proof)
 		response, err = client.Do(request)
 		if err != nil {
-			return fmt.Errorf("download common chunk %s: %w", chunk.ID, err)
+			if attempt+1 >= maxTransientChunkAttempts {
+				return fmt.Errorf("download common chunk %s: %w", chunk.ID, err)
+			}
+			if sleepErr := sleepWithContext(ctx, transientChunkDelay(attempt)); sleepErr != nil {
+				return fmt.Errorf("download common chunk %s: %w", chunk.ID, sleepErr)
+			}
+			continue
 		}
-		if !renewableAuthorizationStatus(response.StatusCode) || attempt == 1 {
-			break
+		if renewableAuthorizationStatus(response.StatusCode) && !authorizationRenewed {
+			authorizationRenewed = true
+			_ = response.Body.Close()
+			grant, err = cfg.GrantSource.Renew(ctx, grant)
+			if err != nil {
+				return fmt.Errorf("renew chunk delivery authorization: %w", err)
+			}
+			continue
 		}
-		_ = response.Body.Close()
-		grant, err = cfg.GrantSource.Renew(ctx, grant)
-		if err != nil {
-			return fmt.Errorf("renew chunk delivery authorization: %w", err)
+		if transientChunkStatus(response.StatusCode) && attempt+1 < maxTransientChunkAttempts {
+			_ = response.Body.Close()
+			if sleepErr := sleepWithContext(ctx, transientChunkDelay(attempt)); sleepErr != nil {
+				return fmt.Errorf("download common chunk %s: %w", chunk.ID, sleepErr)
+			}
+			continue
 		}
+		break
 	}
 	if response == nil {
 		return fmt.Errorf("download common chunk %s returned no response", chunk.ID)
@@ -349,6 +368,42 @@ func ensureCachedChunk(
 
 func renewableAuthorizationStatus(status int) bool {
 	return status == http.StatusUnauthorized || status == http.StatusForbidden
+}
+
+// Storage rate limiting and overload surface as transient 5xx/429 responses;
+// retrying with backoff turns a burst of concurrent installs into a slower
+// download instead of a failed one.
+const maxTransientChunkAttempts = 4
+
+func transientChunkStatus(status int) bool {
+	switch status {
+	case http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+func transientChunkDelay(attempt int) time.Duration {
+	base := 500 << attempt
+	// Equal jitter keeps sixteen parallel workers from waking in synchronized
+	// bursts while guaranteeing at least half the scheduled backoff.
+	return time.Duration(base/2+rand.IntN(base/2+1)) * time.Millisecond
+}
+
+func sleepWithContext(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func reconstructCommonTree(
