@@ -81,6 +81,7 @@ export type CreateInstallMaterializationJobInput = Omit<
 
 export type MaterializationJobStatus =
   | {
+      progress?: MaterializationJobProgress;
       queuePosition: number;
       state: 'MATERIALIZING' | 'QUEUED' | 'VERIFYING';
       status: 'pending';
@@ -94,6 +95,34 @@ export type MaterializationJobStatus =
       receiptId: string;
       status: 'succeeded';
     };
+
+export type MaterializationJobProgress = {
+  batchChunks?: number;
+  batchIndex?: number;
+  completedBatches?: number;
+  completedFiles?: number;
+  completedLogicalBytes?: number;
+  outputBytes?: number;
+  outputFiles?: number;
+  sequence: number;
+  stage:
+    | 'archive_build'
+    | 'capability_consume'
+    | 'codec'
+    | 'completion'
+    | 'key_derivation'
+    | 'rendition_upload'
+    | 'rendition_upload_ticket'
+    | 'rendition_verify'
+    | 'source_assembly'
+    | 'source_manifest'
+    | 'tree_extraction';
+  status: 'completed' | 'progress' | 'started';
+  totalFiles?: number;
+  totalLogicalBytes?: number;
+  totalUniqueChunks?: number;
+  updatedAt: string;
+};
 
 type StoredProtectedFile = {
   materializerType: string;
@@ -949,6 +978,9 @@ export class MaterializationBroker {
     const rows = await this.sql<
       {
         lastErrorCode: string | null;
+        progress: Omit<MaterializationJobProgress, 'updatedAt'> | null;
+        progressSequence: number | string;
+        progressUpdatedAt: Date | null;
         receiptId: string | null;
         signedReceipt: Buffer | null;
         state: string;
@@ -957,6 +989,9 @@ export class MaterializationBroker {
       SELECT
         j.state,
         j.last_error_code AS "lastErrorCode",
+        j.progress,
+        j.progress_sequence AS "progressSequence",
+        j.progress_updated_at AS "progressUpdatedAt",
         r.receipt_id AS "receiptId",
         r.signed_receipt AS "signedReceipt"
       FROM materialization_jobs j
@@ -999,6 +1034,15 @@ export class MaterializationBroker {
         )
     `;
     return {
+      ...(job.progress && Number(job.progressSequence) > 0 && job.progressUpdatedAt
+        ? {
+            progress: {
+              ...job.progress,
+              sequence: Number(job.progressSequence),
+              updatedAt: new Date(job.progressUpdatedAt).toISOString(),
+            },
+          }
+        : {}),
       queuePosition: job.state === 'QUEUED' ? Math.max(1, positions[0]?.position ?? 1) : 0,
       state: job.state as 'MATERIALIZING' | 'QUEUED' | 'VERIFYING',
       status: 'pending',
@@ -1425,6 +1469,9 @@ export class MaterializationBroker {
               lease_expires_at = ${leaseExpiresAt},
               heartbeat_at = ${now},
               attempts = attempts + 1,
+              progress_sequence = 0,
+              progress = NULL,
+              progress_updated_at = NULL,
               updated_at = ${now}
             WHERE id = ${candidate.id} AND state = 'QUEUED'
             RETURNING id, lease_generation, lease_expires_at
@@ -1573,6 +1620,50 @@ export class MaterializationBroker {
       leaseGeneration: renewedJob.row.leaseGeneration,
       ...(sourceAuthorization ? { sourceAuthorization } : {}),
       status: 'renewed',
+    };
+  }
+
+  async reportJobProgress(input: {
+    jobId: string;
+    leaseGeneration: number;
+    leaseOwner: string;
+    now?: Date;
+    progress: Omit<MaterializationJobProgress, 'updatedAt'>;
+  }): Promise<{ sequence: number; status: 'accepted' }> {
+    const jobId = requireText(input.jobId, 'jobId', 128);
+    const leaseOwner = requireText(input.leaseOwner, 'leaseOwner', 512);
+    const now = input.now ?? new Date();
+    const progress = input.progress;
+    if (
+      !Number.isSafeInteger(input.leaseGeneration) ||
+      input.leaseGeneration < 1 ||
+      !Number.isSafeInteger(progress.sequence) ||
+      progress.sequence < 1
+    ) {
+      throw new Error('Materialization progress fence is invalid');
+    }
+    const updated = await this.sql<{ id: string }[]>`
+      UPDATE materialization_jobs
+      SET
+        progress_sequence = ${progress.sequence},
+        progress = ${this.sql.json(progress)},
+        progress_updated_at = ${now},
+        updated_at = ${now}
+      WHERE
+        id = ${jobId}
+        AND lease_owner = ${leaseOwner}
+        AND lease_generation = ${input.leaseGeneration}
+        AND lease_expires_at > ${now}
+        AND state IN ('MATERIALIZING', 'VERIFYING')
+        AND progress_sequence < ${progress.sequence}
+      RETURNING id
+    `;
+    if (!updated[0]) {
+      throw new Error('Materialization progress fence is stale');
+    }
+    return {
+      sequence: progress.sequence,
+      status: 'accepted',
     };
   }
 

@@ -22,6 +22,28 @@ import (
 	"github.com/yucp/transfer-helper/internal/trust"
 )
 
+func TestProtectedMaterializationProgressAdvancesRemainingProtectedBytes(t *testing.T) {
+	progress := delivery.ProtectedRenditionProgress{
+		CompletedLogicalBytes: 1_024,
+		Stage:                 "source_assembly",
+		Status:                "progress",
+		TotalLogicalBytes:     4_096,
+	}
+	completed := protectedMaterializationCompletedBytes(90, 100, 90, progress)
+	if completed != 93 {
+		t.Fatalf("completed bytes = %d; want 93", completed)
+	}
+	progress.CompletedLogicalBytes = 512
+	if regressed := protectedMaterializationCompletedBytes(90, 100, completed, progress); regressed != 93 {
+		t.Fatalf("regressed bytes = %d; want 93", regressed)
+	}
+	progress.Stage = "tree_extraction"
+	progress.Status = "started"
+	if finished := protectedMaterializationCompletedBytes(90, 100, completed, progress); finished != 100 {
+		t.Fatalf("post-assembly bytes = %d; want 100", finished)
+	}
+}
+
 func TestValidateUnityProjectPathsRejectsTheWindowsLimit(t *testing.T) {
 	normalizedPath := "Packages/com.example.product/Resources/long-file-name.png"
 	projectPath := `C:\` + strings.Repeat(

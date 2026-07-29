@@ -236,6 +236,7 @@ export interface PackageInstallMaterializationJobControl {
 export interface PackageInstallMaterializationStatusControl {
   getStatus(input: { grantJti: string; jobId: string }): Promise<
     | {
+        progress?: PackageMaterializationProgress;
         queuePosition: number;
         state: 'MATERIALIZING' | 'QUEUED' | 'VERIFYING';
         status: 'pending';
@@ -244,6 +245,34 @@ export interface PackageInstallMaterializationStatusControl {
     | { receipt: string; receiptId: string; status: 'succeeded' }
   >;
 }
+
+export type PackageMaterializationProgress = {
+  batchChunks?: number;
+  batchIndex?: number;
+  completedBatches?: number;
+  completedFiles?: number;
+  completedLogicalBytes?: number;
+  outputBytes?: number;
+  outputFiles?: number;
+  sequence: number;
+  stage:
+    | 'archive_build'
+    | 'capability_consume'
+    | 'codec'
+    | 'completion'
+    | 'key_derivation'
+    | 'rendition_upload'
+    | 'rendition_upload_ticket'
+    | 'rendition_verify'
+    | 'source_assembly'
+    | 'source_manifest'
+    | 'tree_extraction';
+  status: 'completed' | 'progress' | 'started';
+  totalFiles?: number;
+  totalLogicalBytes?: number;
+  totalUniqueChunks?: number;
+  updatedAt: string;
+};
 
 export interface PackageInstallMaterializationControl
   extends PackageInstallMaterializationJobControl,

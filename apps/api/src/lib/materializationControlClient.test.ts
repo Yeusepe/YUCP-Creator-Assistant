@@ -17,8 +17,18 @@ describe('materialization control client', () => {
         return Response.json({ jobId: 'job-1', status: 'queued' }, { status: 202 });
       }
       return Response.json({
-        queuePosition: 1,
-        state: 'QUEUED',
+        progress: {
+          completedFiles: 25,
+          completedLogicalBytes: 1_024,
+          sequence: 7,
+          stage: 'source_assembly',
+          status: 'progress',
+          totalFiles: 100,
+          totalLogicalBytes: 4_096,
+          updatedAt: '2033-05-18T03:33:20.000Z',
+        },
+        queuePosition: 0,
+        state: 'MATERIALIZING',
         status: 'pending',
       });
     });
@@ -44,8 +54,18 @@ describe('materialization control client', () => {
       traceparent: '00-11111111111111111111111111111111-2222222222222222-01',
     });
     await expect(client.getStatus({ grantJti: 'grant-1', jobId: 'job-1' })).resolves.toEqual({
-      queuePosition: 1,
-      state: 'QUEUED',
+      progress: {
+        completedFiles: 25,
+        completedLogicalBytes: 1_024,
+        sequence: 7,
+        stage: 'source_assembly',
+        status: 'progress',
+        totalFiles: 100,
+        totalLogicalBytes: 4_096,
+        updatedAt: '2033-05-18T03:33:20.000Z',
+      },
+      queuePosition: 0,
+      state: 'MATERIALIZING',
       status: 'pending',
     });
     expect(requests.map((request) => new URL(request.url).pathname)).toEqual([

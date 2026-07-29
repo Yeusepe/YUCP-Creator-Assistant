@@ -33,8 +33,22 @@ type ProtectedRenditionConfig struct {
 	GrantSource         GrantSource
 	PollInterval        time.Duration
 	PrivateKey          *ecdsa.PrivateKey
+	Progress            func(ProtectedRenditionProgress) error
 	ReceiptAuthority    trust.Authority
 	Session             packagecontract.InstallSession
+}
+
+type ProtectedRenditionProgress struct {
+	CompletedFiles        int64
+	CompletedLogicalBytes int64
+	QueuePosition         int
+	Sequence              int64
+	Stage                 string
+	State                 string
+	Status                string
+	TotalFiles            int64
+	TotalLogicalBytes     int64
+	UpdatedAt             time.Time
 }
 
 type DownloadedRendition struct {
@@ -45,7 +59,23 @@ type DownloadedRendition struct {
 }
 
 type materializationStatus struct {
-	ErrorCode     string `json:"errorCode"`
+	ErrorCode string `json:"errorCode"`
+	Progress  *struct {
+		BatchChunks           int64  `json:"batchChunks"`
+		BatchIndex            int64  `json:"batchIndex"`
+		CompletedBatches      int64  `json:"completedBatches"`
+		CompletedFiles        int64  `json:"completedFiles"`
+		CompletedLogicalBytes int64  `json:"completedLogicalBytes"`
+		OutputBytes           int64  `json:"outputBytes"`
+		OutputFiles           int64  `json:"outputFiles"`
+		Sequence              int64  `json:"sequence"`
+		Stage                 string `json:"stage"`
+		Status                string `json:"status"`
+		TotalFiles            int64  `json:"totalFiles"`
+		TotalLogicalBytes     int64  `json:"totalLogicalBytes"`
+		TotalUniqueChunks     int64  `json:"totalUniqueChunks"`
+		UpdatedAt             string `json:"updatedAt"`
+	} `json:"progress"`
 	QueuePosition int    `json:"queuePosition"`
 	Receipt       string `json:"receipt"`
 	ReceiptID     string `json:"receiptId"`
@@ -140,6 +170,42 @@ func FetchProtectedRendition(
 				return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
 					fmt.Errorf("materialization pending status is invalid")
 			}
+			progress := ProtectedRenditionProgress{
+				QueuePosition: status.QueuePosition,
+				State:         status.State,
+			}
+			if status.Progress != nil {
+				updatedAt, parseErr := time.Parse(time.RFC3339Nano, status.Progress.UpdatedAt)
+				if parseErr != nil ||
+					status.Progress.Sequence < 1 ||
+					status.Progress.CompletedFiles < 0 ||
+					status.Progress.CompletedLogicalBytes < 0 ||
+					status.Progress.TotalFiles < 0 ||
+					status.Progress.TotalLogicalBytes < 0 ||
+					(status.Progress.TotalFiles > 0 &&
+						status.Progress.CompletedFiles > status.Progress.TotalFiles) ||
+					(status.Progress.TotalLogicalBytes > 0 &&
+						status.Progress.CompletedLogicalBytes > status.Progress.TotalLogicalBytes) ||
+					!validMaterializationProgressStage(status.Progress.Stage) ||
+					!validMaterializationProgressStatus(status.Progress.Status) {
+					return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
+						fmt.Errorf("materialization progress is invalid")
+				}
+				progress.CompletedFiles = status.Progress.CompletedFiles
+				progress.CompletedLogicalBytes = status.Progress.CompletedLogicalBytes
+				progress.Sequence = status.Progress.Sequence
+				progress.Stage = status.Progress.Stage
+				progress.Status = status.Progress.Status
+				progress.TotalFiles = status.Progress.TotalFiles
+				progress.TotalLogicalBytes = status.Progress.TotalLogicalBytes
+				progress.UpdatedAt = updatedAt
+			}
+			if cfg.Progress != nil {
+				if progressErr := cfg.Progress(progress); progressErr != nil {
+					return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
+						fmt.Errorf("publish materialization progress: %w", progressErr)
+				}
+			}
 		default:
 			return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
 				fmt.Errorf("materialization status is invalid")
@@ -212,6 +278,26 @@ func FetchProtectedRendition(
 		return DownloadedRendition{}, packagecontract.MaterializationReceipt{}, err
 	}
 	return downloaded, receipt, nil
+}
+
+func validMaterializationProgressStage(value string) bool {
+	switch value {
+	case "archive_build", "capability_consume", "codec", "completion",
+		"key_derivation", "rendition_upload", "rendition_upload_ticket",
+		"rendition_verify", "source_assembly", "source_manifest", "tree_extraction":
+		return true
+	default:
+		return false
+	}
+}
+
+func validMaterializationProgressStatus(value string) bool {
+	switch value {
+	case "completed", "progress", "started":
+		return true
+	default:
+		return false
+	}
 }
 
 func readMaterializationStatus(

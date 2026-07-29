@@ -147,6 +147,7 @@ func TestFetchAndMergeProtectedRenditionVerifiesReceiptAndZip(t *testing.T) {
 	)
 	encodedReceipt := base64.RawURLEncoding.EncodeToString(receiptEnvelope)
 	var statusReads int
+	var materializationProgress []ProtectedRenditionProgress
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("DPoP") == "" {
 			http.Error(response, "missing proof", http.StatusForbidden)
@@ -157,7 +158,21 @@ func TestFetchAndMergeProtectedRenditionVerifiesReceiptAndZip(t *testing.T) {
 			statusReads++
 			response.Header().Set("Content-Type", "application/json")
 			if statusReads == 1 {
-				_, _ = response.Write([]byte(`{"queuePosition":1,"state":"VERIFYING","status":"pending"}`))
+				_, _ = response.Write([]byte(`{
+					"progress":{
+						"completedFiles":25,
+						"completedLogicalBytes":1024,
+						"sequence":7,
+						"stage":"source_assembly",
+						"status":"progress",
+						"totalFiles":100,
+						"totalLogicalBytes":4096,
+						"updatedAt":"2033-05-18T03:33:20.000Z"
+					},
+					"queuePosition":0,
+					"state":"MATERIALIZING",
+					"status":"pending"
+				}`))
 				return
 			}
 			_ = json.NewEncoder(response).Encode(map[string]any{
@@ -201,7 +216,11 @@ func TestFetchAndMergeProtectedRenditionVerifiesReceiptAndZip(t *testing.T) {
 				KeyID:     receiptKeyID,
 				PublicKey: receiptPrivateKey.Public().(ed25519.PublicKey),
 			},
-			Session:      session,
+			Session: session,
+			Progress: func(progress ProtectedRenditionProgress) error {
+				materializationProgress = append(materializationProgress, progress)
+				return nil
+			},
 			PollInterval: time.Millisecond,
 		},
 	)
@@ -216,6 +235,15 @@ func TestFetchAndMergeProtectedRenditionVerifiesReceiptAndZip(t *testing.T) {
 		!bytes.Equal(downloadedArchive, archive) ||
 		receipt.ReceiptID != "receipt-1" {
 		t.Fatalf("rendition result is invalid")
+	}
+	if len(materializationProgress) != 1 ||
+		materializationProgress[0].CompletedLogicalBytes != 1024 ||
+		materializationProgress[0].TotalLogicalBytes != 4096 ||
+		materializationProgress[0].Stage != "source_assembly" {
+		t.Fatalf(
+			"materialization progress = %#v; want source assembly byte progress",
+			materializationProgress,
+		)
 	}
 	stagingTree := filepath.Join(t.TempDir(), "staging")
 	if err := os.MkdirAll(stagingTree, 0o700); err != nil {

@@ -18,6 +18,7 @@ import {
   type ConsumedMaterializationCapability,
   DEFAULT_MATERIALIZATION_STORAGE_GC_PIN_RETENTION_SECONDS,
   MaterializationBroker,
+  type MaterializationJobProgress,
   type PreparedRenditionUpload,
 } from './materializationBroker';
 import { S3RenditionStoragePort } from './renditionStorage';
@@ -28,6 +29,7 @@ const COMPLETE_PATH = '/v2/internal/materialization-renditions/complete';
 const CREATE_JOB_PATH = '/v2/internal/materialization-jobs/create';
 const CLAIM_JOB_PATH = '/v2/internal/materialization-jobs/claim';
 const RENEW_JOB_PATH = '/v2/internal/materialization-jobs/renew';
+const PROGRESS_JOB_PATH = '/v2/internal/materialization-jobs/progress';
 const STATUS_JOB_PATH = '/v2/internal/materialization-jobs/status';
 const FAIL_JOB_PATH = '/v2/internal/materialization-jobs/fail';
 const ATTRIBUTION_CANDIDATES_PATH = '/v2/internal/materialization-attribution/candidates';
@@ -43,6 +45,7 @@ type CompleteRenditionInput = Parameters<MaterializationBroker['completeRenditio
 type CreateInstallJobInput = Parameters<MaterializationBroker['createInstallJob']>[0];
 type ClaimJobInput = Parameters<MaterializationBroker['claimNextJob']>[0];
 type RenewJobInput = Parameters<MaterializationBroker['renewClaimLease']>[0];
+type ReportJobProgressInput = Parameters<MaterializationBroker['reportJobProgress']>[0];
 type IssueCapabilityInput = Parameters<MaterializationBroker['issueCapability']>[0];
 type FailCapabilityJobInput = Parameters<MaterializationBroker['failCapabilityJob']>[0];
 type GetJobStatusInput = Parameters<MaterializationBroker['getJobStatus']>[0];
@@ -61,6 +64,9 @@ type MaterializationControlBroker = {
     input: Parameters<MaterializationBroker['listAttributionCandidates']>[0]
   ) => ReturnType<MaterializationBroker['listAttributionCandidates']>;
   prepareRenditionUpload(input: PrepareRenditionInput): Promise<PreparedRenditionUpload>;
+  reportJobProgress?: (
+    input: ReportJobProgressInput
+  ) => ReturnType<MaterializationBroker['reportJobProgress']>;
   renewClaimLease(input: RenewJobInput): ReturnType<MaterializationBroker['renewClaimLease']>;
 };
 
@@ -73,6 +79,7 @@ type MaterializationControlPlaneEvent = {
     | 'materialization.job.claim'
     | 'materialization.job.create'
     | 'materialization.job.fail'
+    | 'materialization.job.progress'
     | 'materialization.job.renew'
     | 'materialization.job.status'
     | 'materialization.rendition.complete'
@@ -297,6 +304,108 @@ function parseAttributionRecords(value: unknown): CompleteRenditionInput['attrib
   });
 }
 
+function parseMaterializationProgress(
+  value: unknown
+): Omit<MaterializationJobProgress, 'updatedAt'> {
+  const progress = requireObject(value, 'progress');
+  requireExactKeys(progress, [
+    ...(progress.batchChunks === undefined ? [] : ['batchChunks']),
+    ...(progress.batchIndex === undefined ? [] : ['batchIndex']),
+    ...(progress.completedBatches === undefined ? [] : ['completedBatches']),
+    ...(progress.completedFiles === undefined ? [] : ['completedFiles']),
+    ...(progress.completedLogicalBytes === undefined ? [] : ['completedLogicalBytes']),
+    ...(progress.outputBytes === undefined ? [] : ['outputBytes']),
+    ...(progress.outputFiles === undefined ? [] : ['outputFiles']),
+    'sequence',
+    'stage',
+    'status',
+    ...(progress.totalFiles === undefined ? [] : ['totalFiles']),
+    ...(progress.totalLogicalBytes === undefined ? [] : ['totalLogicalBytes']),
+    ...(progress.totalUniqueChunks === undefined ? [] : ['totalUniqueChunks']),
+  ]);
+  const stage = requireString(progress.stage, 'progress_stage', 64);
+  const stages = new Set<MaterializationJobProgress['stage']>([
+    'archive_build',
+    'capability_consume',
+    'codec',
+    'completion',
+    'key_derivation',
+    'rendition_upload',
+    'rendition_upload_ticket',
+    'rendition_verify',
+    'source_assembly',
+    'source_manifest',
+    'tree_extraction',
+  ]);
+  const status = requireString(progress.status, 'progress_status', 32);
+  if (!stages.has(stage as MaterializationJobProgress['stage'])) {
+    throw new RequestBoundaryError(400, 'progress_stage_invalid', 'progress_stage is invalid');
+  }
+  if (status !== 'completed' && status !== 'progress' && status !== 'started') {
+    throw new RequestBoundaryError(400, 'progress_status_invalid', 'progress_status is invalid');
+  }
+  const optionalInteger = (field: keyof typeof progress): number | undefined =>
+    progress[field] === undefined
+      ? undefined
+      : requireInteger(progress[field], `progress_${String(field)}`);
+  const parsed = {
+    ...(progress.batchChunks === undefined
+      ? {}
+      : { batchChunks: optionalInteger('batchChunks') as number }),
+    ...(progress.batchIndex === undefined
+      ? {}
+      : { batchIndex: optionalInteger('batchIndex') as number }),
+    ...(progress.completedBatches === undefined
+      ? {}
+      : { completedBatches: optionalInteger('completedBatches') as number }),
+    ...(progress.completedFiles === undefined
+      ? {}
+      : { completedFiles: optionalInteger('completedFiles') as number }),
+    ...(progress.completedLogicalBytes === undefined
+      ? {}
+      : {
+          completedLogicalBytes: optionalInteger('completedLogicalBytes') as number,
+        }),
+    ...(progress.outputBytes === undefined
+      ? {}
+      : { outputBytes: optionalInteger('outputBytes') as number }),
+    ...(progress.outputFiles === undefined
+      ? {}
+      : { outputFiles: optionalInteger('outputFiles') as number }),
+    sequence: requireInteger(progress.sequence, 'progress_sequence', 1),
+    stage: stage as MaterializationJobProgress['stage'],
+    status: status as MaterializationJobProgress['status'],
+    ...(progress.totalFiles === undefined
+      ? {}
+      : { totalFiles: optionalInteger('totalFiles') as number }),
+    ...(progress.totalLogicalBytes === undefined
+      ? {}
+      : { totalLogicalBytes: optionalInteger('totalLogicalBytes') as number }),
+    ...(progress.totalUniqueChunks === undefined
+      ? {}
+      : { totalUniqueChunks: optionalInteger('totalUniqueChunks') as number }),
+  };
+  if (
+    parsed.completedLogicalBytes !== undefined &&
+    parsed.totalLogicalBytes !== undefined &&
+    parsed.completedLogicalBytes > parsed.totalLogicalBytes
+  ) {
+    throw new RequestBoundaryError(
+      400,
+      'progress_logical_bytes_invalid',
+      'progress logical bytes are invalid'
+    );
+  }
+  if (
+    parsed.completedFiles !== undefined &&
+    parsed.totalFiles !== undefined &&
+    parsed.completedFiles > parsed.totalFiles
+  ) {
+    throw new RequestBoundaryError(400, 'progress_files_invalid', 'progress files are invalid');
+  }
+  return parsed;
+}
+
 function publicRouteUrl(publicBaseUrl: string, path: string): string {
   const base = new URL(publicBaseUrl);
   if (
@@ -365,6 +474,7 @@ export function createMaterializationControlPlaneHandler(
     [CREATE_JOB_PATH, publicRouteUrl(config.publicBaseUrl, CREATE_JOB_PATH)],
     [CLAIM_JOB_PATH, publicRouteUrl(config.publicBaseUrl, CLAIM_JOB_PATH)],
     [RENEW_JOB_PATH, publicRouteUrl(config.publicBaseUrl, RENEW_JOB_PATH)],
+    [PROGRESS_JOB_PATH, publicRouteUrl(config.publicBaseUrl, PROGRESS_JOB_PATH)],
     [STATUS_JOB_PATH, publicRouteUrl(config.publicBaseUrl, STATUS_JOB_PATH)],
     [FAIL_JOB_PATH, publicRouteUrl(config.publicBaseUrl, FAIL_JOB_PATH)],
     [
@@ -395,15 +505,17 @@ export function createMaterializationControlPlaneHandler(
             ? 'materialization.job.claim'
             : url.pathname === RENEW_JOB_PATH
               ? 'materialization.job.renew'
-              : url.pathname === STATUS_JOB_PATH
-                ? 'materialization.job.status'
-                : url.pathname === FAIL_JOB_PATH
-                  ? 'materialization.job.fail'
-                  : url.pathname === UPLOAD_TICKET_PATH
-                    ? 'materialization.rendition.upload_ticket'
-                    : url.pathname === COMPLETE_PATH
-                      ? 'materialization.rendition.complete'
-                      : 'materialization.capability.consume';
+              : url.pathname === PROGRESS_JOB_PATH
+                ? 'materialization.job.progress'
+                : url.pathname === STATUS_JOB_PATH
+                  ? 'materialization.job.status'
+                  : url.pathname === FAIL_JOB_PATH
+                    ? 'materialization.job.fail'
+                    : url.pathname === UPLOAD_TICKET_PATH
+                      ? 'materialization.rendition.upload_ticket'
+                      : url.pathname === COMPLETE_PATH
+                        ? 'materialization.rendition.complete'
+                        : 'materialization.capability.consume';
     const emit = (status: 'accepted' | 'rejected', errorCode?: string) => {
       config.onEvent?.({
         durationMs: performance.now() - startedAt,
@@ -622,6 +734,21 @@ export function createMaterializationControlPlaneHandler(
           traceId
         );
       }
+      if (url.pathname === PROGRESS_JOB_PATH) {
+        requireExactKeys(body, ['jobId', 'leaseGeneration', 'materializerId', 'progress']);
+        if (!config.broker.reportJobProgress) {
+          throw new Error('Materialization progress reporting is unavailable');
+        }
+        const accepted = await config.broker.reportJobProgress({
+          jobId: requireString(body.jobId, 'job_id', 128),
+          leaseGeneration: requireInteger(body.leaseGeneration, 'lease_generation', 1),
+          leaseOwner: requireString(body.materializerId, 'materializer_id'),
+          now: requestNow,
+          progress: parseMaterializationProgress(body.progress),
+        });
+        emit('accepted');
+        return noStoreJson(accepted, 200, traceId);
+      }
 
       const capability = requireBase64Url(
         body.capability,
@@ -761,15 +888,17 @@ export function createMaterializationControlPlaneHandler(
               ? 'materialization_claim_rejected'
               : url.pathname === RENEW_JOB_PATH
                 ? 'materialization_renewal_rejected'
-                : url.pathname === STATUS_JOB_PATH
-                  ? 'materialization_status_rejected'
-                  : url.pathname === FAIL_JOB_PATH
-                    ? 'materialization_failure_rejected'
-                    : url.pathname === CONSUME_PATH
-                      ? 'capability_rejected'
-                      : url.pathname === UPLOAD_TICKET_PATH
-                        ? 'rendition_upload_rejected'
-                        : 'rendition_completion_rejected');
+                : url.pathname === PROGRESS_JOB_PATH
+                  ? 'materialization_progress_rejected'
+                  : url.pathname === STATUS_JOB_PATH
+                    ? 'materialization_status_rejected'
+                    : url.pathname === FAIL_JOB_PATH
+                      ? 'materialization_failure_rejected'
+                      : url.pathname === CONSUME_PATH
+                        ? 'capability_rejected'
+                        : url.pathname === UPLOAD_TICKET_PATH
+                          ? 'rendition_upload_rejected'
+                          : 'rendition_completion_rejected');
       emit('rejected', errorCode);
       return noStoreJson({ error: errorCode }, 403, traceId);
     }

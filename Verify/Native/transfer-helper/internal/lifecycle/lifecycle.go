@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -393,13 +394,28 @@ func Execute(
 		}
 	}
 	if protectedCount > 0 {
+		materializationCompletedBytes := staged.LogicalBytes
 		rendition, receipt, renditionErr := delivery.FetchProtectedRendition(
 			ctx,
 			delivery.ProtectedRenditionConfig{
-				DownloadRoot:     request.StateRoot,
-				Grant:            grant,
-				GrantSource:      source,
-				PrivateKey:       identity.PrivateKey,
+				DownloadRoot: request.StateRoot,
+				Grant:        grant,
+				GrantSource:  source,
+				PrivateKey:   identity.PrivateKey,
+				Progress: func(progress delivery.ProtectedRenditionProgress) error {
+					materializationCompletedBytes = protectedMaterializationCompletedBytes(
+						staged.LogicalBytes,
+						totalBytes,
+						materializationCompletedBytes,
+						progress,
+					)
+					return report(
+						reportProgress,
+						"downloading",
+						materializationCompletedBytes,
+						totalBytes,
+					)
+				},
 				ReceiptAuthority: trustDocument.MaterializationReceipt,
 				Session:          session,
 			},
@@ -477,6 +493,48 @@ func Execute(
 		return Result{}, err
 	}
 	return baseResult, nil
+}
+
+func protectedMaterializationCompletedBytes(
+	stagedBytes int64,
+	totalBytes int64,
+	currentBytes int64,
+	progress delivery.ProtectedRenditionProgress,
+) int64 {
+	if totalBytes <= stagedBytes {
+		return totalBytes
+	}
+	if materializationSourceAssemblyCompleted(progress) {
+		return totalBytes
+	}
+	candidate := stagedBytes
+	if progress.TotalLogicalBytes > 0 {
+		ratio := math.Min(
+			1,
+			float64(progress.CompletedLogicalBytes)/float64(progress.TotalLogicalBytes),
+		)
+		candidate += int64(math.Round(float64(totalBytes-stagedBytes) * ratio))
+	}
+	if candidate < currentBytes {
+		return currentBytes
+	}
+	if candidate > totalBytes {
+		return totalBytes
+	}
+	return candidate
+}
+
+func materializationSourceAssemblyCompleted(progress delivery.ProtectedRenditionProgress) bool {
+	if progress.Stage == "source_assembly" && progress.Status == "completed" {
+		return true
+	}
+	switch progress.Stage {
+	case "tree_extraction", "key_derivation", "codec", "archive_build",
+		"rendition_verify", "rendition_upload_ticket", "rendition_upload", "completion":
+		return true
+	default:
+		return false
+	}
 }
 
 func report(

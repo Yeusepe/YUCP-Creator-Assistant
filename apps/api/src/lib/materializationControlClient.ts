@@ -1,4 +1,7 @@
-import type { PackageInstallMaterializationControl } from '../routes/packageInstallSessions';
+import type {
+  PackageInstallMaterializationControl,
+  PackageMaterializationProgress,
+} from '../routes/packageInstallSessions';
 import type { CouplingAttributionCandidate } from './couplingForensicsService';
 
 const CREATE_PATH = '/v2/internal/materialization-jobs/create';
@@ -19,6 +22,7 @@ type CreateJobInput = Parameters<PackageInstallMaterializationControl['createJob
 
 export type MaterializationStatus =
   | {
+      progress?: PackageMaterializationProgress;
       queuePosition: number;
       state: 'MATERIALIZING' | 'QUEUED' | 'VERIFYING';
       status: 'pending';
@@ -119,6 +123,7 @@ function validateStatus(value: unknown): MaterializationStatus {
       throw new Error('Materialization control-plane returned an invalid response');
     }
     return {
+      ...(body.progress === undefined ? {} : { progress: validateProgress(body.progress) }),
       queuePosition: body.queuePosition as number,
       state: body.state,
       status: 'pending',
@@ -138,6 +143,78 @@ function validateStatus(value: unknown): MaterializationStatus {
     };
   }
   throw new Error('Materialization control-plane returned an invalid response');
+}
+
+function validateProgress(value: unknown): PackageMaterializationProgress {
+  const body = requireObject(value);
+  const stages = new Set<PackageMaterializationProgress['stage']>([
+    'archive_build',
+    'capability_consume',
+    'codec',
+    'completion',
+    'key_derivation',
+    'rendition_upload',
+    'rendition_upload_ticket',
+    'rendition_verify',
+    'source_assembly',
+    'source_manifest',
+    'tree_extraction',
+  ]);
+  if (
+    !Number.isSafeInteger(body.sequence) ||
+    (body.sequence as number) < 1 ||
+    typeof body.stage !== 'string' ||
+    !stages.has(body.stage as PackageMaterializationProgress['stage']) ||
+    (body.status !== 'completed' && body.status !== 'progress' && body.status !== 'started') ||
+    typeof body.updatedAt !== 'string' ||
+    !Number.isFinite(Date.parse(body.updatedAt))
+  ) {
+    throw new Error('Materialization control-plane returned invalid progress');
+  }
+  const optionalFields = [
+    'batchChunks',
+    'batchIndex',
+    'completedBatches',
+    'completedFiles',
+    'completedLogicalBytes',
+    'outputBytes',
+    'outputFiles',
+    'totalFiles',
+    'totalLogicalBytes',
+    'totalUniqueChunks',
+  ] as const;
+  const counters: Partial<Record<(typeof optionalFields)[number], number>> = {};
+  for (const field of optionalFields) {
+    const counter = body[field];
+    if (counter === undefined) {
+      continue;
+    }
+    if (!Number.isSafeInteger(counter) || (counter as number) < 0) {
+      throw new Error('Materialization control-plane returned invalid progress');
+    }
+    counters[field] = counter as number;
+  }
+  if (
+    counters.completedLogicalBytes !== undefined &&
+    counters.totalLogicalBytes !== undefined &&
+    counters.completedLogicalBytes > counters.totalLogicalBytes
+  ) {
+    throw new Error('Materialization control-plane returned invalid progress');
+  }
+  if (
+    counters.completedFiles !== undefined &&
+    counters.totalFiles !== undefined &&
+    counters.completedFiles > counters.totalFiles
+  ) {
+    throw new Error('Materialization control-plane returned invalid progress');
+  }
+  return {
+    ...counters,
+    sequence: body.sequence as number,
+    stage: body.stage as PackageMaterializationProgress['stage'],
+    status: body.status,
+    updatedAt: body.updatedAt,
+  };
 }
 
 function requireSha256(value: unknown, name: string): string {

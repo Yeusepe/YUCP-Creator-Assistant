@@ -450,6 +450,8 @@ describe('materialization control-plane HTTP boundary', () => {
     const createEndpoint = 'https://control.example.test/v2/internal/materialization-jobs/create';
     const claimEndpoint = 'https://control.example.test/v2/internal/materialization-jobs/claim';
     const renewEndpoint = 'https://control.example.test/v2/internal/materialization-jobs/renew';
+    const progressEndpoint =
+      'https://control.example.test/v2/internal/materialization-jobs/progress';
     const statusEndpoint = 'https://control.example.test/v2/internal/materialization-jobs/status';
     const attributionEndpoint =
       'https://control.example.test/v2/internal/materialization-attribution/candidates';
@@ -502,6 +504,15 @@ describe('materialization control-plane HTTP boundary', () => {
         },
         prepareRenditionUpload: async () => {
           throw new Error('must not run');
+        },
+        reportJobProgress: async (input) => {
+          calls.push(
+            `progress:${input.leaseOwner}:${input.leaseGeneration}:${input.progress.sequence}:${input.progress.completedLogicalBytes}`
+          );
+          return {
+            sequence: input.progress.sequence,
+            status: 'accepted',
+          };
         },
         renewClaimLease: async (input) => {
           calls.push(`renew:${input.leaseOwner}:${input.leaseGeneration}`);
@@ -649,6 +660,32 @@ describe('materialization control-plane HTTP boundary', () => {
       },
       status: 'renewed',
     });
+    const progress = await handler(
+      new Request(progressEndpoint, {
+        body: JSON.stringify({
+          jobId: 'job-1',
+          leaseGeneration: 3,
+          materializerId: 'data-node-1',
+          progress: {
+            completedFiles: 25,
+            completedLogicalBytes: 1_024,
+            sequence: 7,
+            stage: 'source_assembly',
+            status: 'progress',
+            totalFiles: 100,
+            totalLogicalBytes: 4_096,
+          },
+        }),
+        headers: {
+          Authorization: `Bearer ${materializerSecret}`,
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      })
+    );
+    expect(progress.status).toBe(200);
+    expect(await progress.json()).toEqual({ sequence: 7, status: 'accepted' });
+    expect(calls).toContain('progress:data-node-1:3:7:1024');
 
     const status = await handler(
       new Request(statusEndpoint, {
@@ -726,6 +763,7 @@ describe('materialization control-plane HTTP boundary', () => {
       'claim:data-node-1',
       'issue:data-node-1:3',
       'renew:data-node-1:3',
+      'progress:data-node-1:3:7:1024',
       'attribution:creator-1:product-1:128:cursor-1',
       'fail:data-node-1:proof-fail-1',
     ]);

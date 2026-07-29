@@ -1490,8 +1490,18 @@ describe('package install session route', () => {
   test('authorizes materialization status with the signed grant and device DPoP key', async () => {
     const endpoint = `${issuer}/api/v2/package-installs/materialization-status`;
     const pending = {
-      queuePosition: 1,
-      state: 'QUEUED' as const,
+      progress: {
+        completedFiles: 25,
+        completedLogicalBytes: 1_024,
+        sequence: 7,
+        stage: 'source_assembly' as const,
+        status: 'progress' as const,
+        totalFiles: 100,
+        totalLogicalBytes: 4_096,
+        updatedAt: '2033-05-18T03:33:20.000Z',
+      },
+      queuePosition: 0,
+      state: 'MATERIALIZING' as const,
       status: 'pending' as const,
     };
     const getStatus = mock(async (_input: unknown) => pending);
