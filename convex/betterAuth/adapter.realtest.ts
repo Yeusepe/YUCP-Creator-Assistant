@@ -1,7 +1,35 @@
 import { convexTest } from 'convex-test';
+import type { FunctionReference } from 'convex/server';
 import { describe, expect, it } from 'vitest';
 import { internal } from './_generated/api';
+import type { Doc, Id } from './_generated/dataModel';
 import schema from './schema';
+
+type IncrementRefreshTokenArgs = {
+  input: {
+    model: 'oauthRefreshToken';
+    where: Array<{
+      field: '_id' | 'revoked';
+      operator: 'eq';
+      value: Id<'oauthRefreshToken'> | null;
+    }>;
+    increment: Record<string, number>;
+    set: Record<string, unknown>;
+  };
+};
+
+const incrementRefreshToken = (
+  internal as unknown as {
+    adapter: {
+      incrementOne: FunctionReference<
+        'mutation',
+        'internal',
+        IncrementRefreshTokenArgs,
+        Doc<'oauthRefreshToken'> | null
+      >;
+    };
+  }
+).adapter.incrementOne;
 
 describe('Better Auth Convex adapter atomic updates', () => {
   it('treats an omitted optional field as null for Better Auth equality predicates', async () => {
@@ -16,7 +44,7 @@ describe('Better Auth Convex adapter atomic updates', () => {
     });
     const rotatedAt = Date.now();
 
-    const rotated = await t.mutation(internal.adapter.incrementOne, {
+    const rotated = await t.mutation(incrementRefreshToken, {
       input: {
         model: 'oauthRefreshToken',
         where: [
@@ -35,7 +63,7 @@ describe('Better Auth Convex adapter atomic updates', () => {
     expect(rotated?.revoked).toBe(rotatedAt);
     expect(rotated?.rotatedAt).toBe(rotatedAt);
 
-    const replayedRotation = await t.mutation(internal.adapter.incrementOne, {
+    const replayedRotation = await t.mutation(incrementRefreshToken, {
       input: {
         model: 'oauthRefreshToken',
         where: [
