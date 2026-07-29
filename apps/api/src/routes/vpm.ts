@@ -1,5 +1,9 @@
 import { createHash } from 'node:crypto';
-import { parseTraceparent, timingSafeStringEqual } from '@yucp/shared';
+import {
+  parseTraceparent,
+  timingSafeStringEqual,
+  YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION,
+} from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { Auth } from '../auth';
@@ -689,7 +693,8 @@ export function createVpmRoutes({
         ...(desired.tagline ? { tagline: desired.tagline } : {}),
         unityVersion: presentation?.unityVersion ?? '2022.3',
         importerPackage: 'com.yucp.importer',
-        minImporterVersion: presentation?.minImporterVersion ?? '0.1.55',
+        minImporterVersion:
+          presentation?.minImporterVersion ?? YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION,
         media: desired.media,
       });
       presentation = (await serviceConvex.query(
@@ -795,7 +800,8 @@ export function createVpmRoutes({
           ...(desired.tagline ? { tagline: desired.tagline } : {}),
           unityVersion: presentation?.unityVersion ?? '2022.3',
           importerPackage: 'com.yucp.importer',
-          minImporterVersion: presentation?.minImporterVersion ?? '0.1.55',
+          minImporterVersion:
+            presentation?.minImporterVersion ?? YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION,
           media: desired.media,
         });
         presentation = (await input.serviceConvex.query(

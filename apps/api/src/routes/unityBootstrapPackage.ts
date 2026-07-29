@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_VERSION } from '@yucp/shared';
 import { gzipSync, unzipSync } from 'fflate';
 import type { BuiltYucpAliasVpmPackage } from './vpmAliasPackage';
 
@@ -250,7 +251,7 @@ function installerDescriptor(input: {
         displayName: input.manifest.displayName,
         version: input.bootstrap.manifest.version,
         vpmDependencies: {
-          'com.yucp.importer': '>=0.1.55',
+          'com.yucp.importer': YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_VERSION,
         },
         vpmRepositories: {
           YUCP: input.importerRepositoryUrl,

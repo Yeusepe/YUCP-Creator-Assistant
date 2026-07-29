@@ -1048,7 +1048,7 @@ describe.serial('official VPM CLI bootstrap', () => {
         name: alias.packageId,
         version: alias.manifest.version,
         vpmDependencies: {
-          [IMPORTER_PACKAGE_ID]: '>=0.1.55',
+          [IMPORTER_PACKAGE_ID]: '>=0.1.64',
         },
         yucp: {
           aliasId: PACKAGE_ID,
