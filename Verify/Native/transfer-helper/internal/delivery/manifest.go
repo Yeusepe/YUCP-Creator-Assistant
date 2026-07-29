@@ -373,7 +373,6 @@ func validateVPMBootstrapMetadata(manifest Manifest) error {
 			repositoryURL.Scheme != "https" ||
 			repositoryURL.Hostname() == "" ||
 			repositoryURL.User != nil ||
-			repositoryURL.RawQuery != "" ||
 			repositoryURL.ForceQuery ||
 			repositoryURL.Fragment != "" ||
 			repositoryURL.Opaque != "" {

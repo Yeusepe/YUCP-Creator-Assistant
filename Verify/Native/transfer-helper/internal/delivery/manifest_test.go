@@ -144,6 +144,17 @@ func TestParseManifestRejectsPathEscape(t *testing.T) {
 	}
 }
 
+func TestValidateVPMBootstrapMetadataAcceptsHTTPSRepositoryQuery(t *testing.T) {
+	manifest := Manifest{
+		VPMRepositories: map[string]string{
+			"VRChat Curated Packages": "https://packages.vrchat.com/curated?download",
+		},
+	}
+	if err := validateVPMBootstrapMetadata(manifest); err != nil {
+		t.Fatalf("validateVPMBootstrapMetadata() error = %v", err)
+	}
+}
+
 func TestValidateVPMBootstrapMetadataRejectsInvalidValues(t *testing.T) {
 	tooManyDependencies := make(map[string]string, maxVPMDependencies+1)
 	for index := 0; index <= maxVPMDependencies; index++ {
@@ -169,14 +180,6 @@ func TestValidateVPMBootstrapMetadataRejectsInvalidValues(t *testing.T) {
 			name: "dependency control character",
 			manifest: Manifest{
 				VPMDependencies: map[string]string{"com.yucp.package": ">=0.0.0\n"},
-			},
-		},
-		{
-			name: "repository query",
-			manifest: Manifest{
-				VPMRepositories: map[string]string{
-					"YUCP": "https://vpm.yucp.club/index.json?token=secret",
-				},
 			},
 		},
 		{
