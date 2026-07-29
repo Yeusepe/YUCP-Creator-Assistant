@@ -30,22 +30,17 @@ describe('package installer offline publication environment', () => {
       YUCP_TUF_TIMESTAMP_PRIVATE_KEY: 'timestamp-private-key',
     };
     let requestedKeys: readonly string[] = [];
-    const resolved = await resolvePackageInstallerPublicationEnv(
-      source,
-      async (env, keys) => {
-        requestedKeys = keys;
-        return {
-          ...env,
-          CATALOG_DATABASE_URL: 'postgresql://catalog.internal/yucp',
-        };
-      }
-    );
+    const resolved = await resolvePackageInstallerPublicationEnv(source, async (env, keys) => {
+      requestedKeys = keys;
+      return {
+        ...env,
+        CATALOG_DATABASE_URL: 'postgresql://catalog.internal/yucp',
+      };
+    });
 
     expect(requestedKeys).not.toContain('YUCP_TUF_TARGETS_PRIVATE_KEY');
     expect(requestedKeys).not.toContain('MATERIALIZATION_RECEIPT_PUBLIC_KEY');
-    expect(resolved.CATALOG_DATABASE_URL).toBe(
-      'postgresql://catalog.example.test:30400/yucp'
-    );
+    expect(resolved.CATALOG_DATABASE_URL).toBe('postgresql://catalog.example.test:30400/yucp');
     expect(resolved.YUCP_TUF_TARGETS_PRIVATE_KEY).toBe('targets-private-key');
     expect(resolved.YUCP_TUF_SNAPSHOT_PRIVATE_KEY).toBe('snapshot-private-key');
     expect(resolved.YUCP_TUF_TIMESTAMP_PRIVATE_KEY).toBe('timestamp-private-key');

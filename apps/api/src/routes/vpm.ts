@@ -142,9 +142,7 @@ type VpmAliasPresentation = {
   unityVersion: string;
 };
 
-function bootstrapMediaReferenceKey(
-  entries: readonly YucpAliasPackageMediaReference[]
-): string {
+function bootstrapMediaReferenceKey(entries: readonly YucpAliasPackageMediaReference[]): string {
   return JSON.stringify(
     entries.map((entry) => [
       entry.kind,
