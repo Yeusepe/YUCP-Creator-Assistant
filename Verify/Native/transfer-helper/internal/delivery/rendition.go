@@ -87,9 +87,18 @@ const (
 	defaultRenditionIdleTimeout  = 30 * time.Second
 	maxRenditionDownloadAttempts = 8
 	maxRenditionIdleTimeout      = 5 * time.Minute
+	maxMaterializationRetryDelay = 5 * time.Second
 )
 
 var errRenditionIdleTimeout = errors.New("protected rendition download became idle")
+
+type materializationStatusHTTPError struct {
+	statusCode int
+}
+
+func (failure materializationStatusHTTPError) Error() string {
+	return fmt.Sprintf("materialization status returned HTTP %d", failure.statusCode)
+}
 
 func FetchProtectedRendition(
 	ctx context.Context,
@@ -140,6 +149,7 @@ func FetchProtectedRendition(
 			fmt.Errorf("rendition idle timeout exceeds its limit")
 	}
 	var encodedReceipt string
+	consecutiveStatusFailures := 0
 	for {
 		status, statusErr := readMaterializationStatus(
 			ctx,
@@ -150,8 +160,19 @@ func FetchProtectedRendition(
 			cfg.PrivateKey,
 		)
 		if statusErr != nil {
-			return DownloadedRendition{}, packagecontract.MaterializationReceipt{}, statusErr
+			if !isRetryableMaterializationStatusError(statusErr) {
+				return DownloadedRendition{}, packagecontract.MaterializationReceipt{}, statusErr
+			}
+			consecutiveStatusFailures++
+			if waitErr := waitForMaterializationPoll(
+				ctx,
+				materializationStatusRetryDelay(interval, consecutiveStatusFailures),
+			); waitErr != nil {
+				return DownloadedRendition{}, packagecontract.MaterializationReceipt{}, waitErr
+			}
+			continue
 		}
+		consecutiveStatusFailures = 0
 		switch status.Status {
 		case "succeeded":
 			if status.Receipt == "" || status.ReceiptID == "" {
@@ -213,13 +234,8 @@ func FetchProtectedRendition(
 		if encodedReceipt != "" {
 			break
 		}
-		timer := time.NewTimer(interval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
-				fmt.Errorf("wait for materialization: %w", ctx.Err())
-		case <-timer.C:
+		if waitErr := waitForMaterializationPoll(ctx, interval); waitErr != nil {
+			return DownloadedRendition{}, packagecontract.MaterializationReceipt{}, waitErr
 		}
 	}
 	receiptEnvelope, err := base64.RawURLEncoding.DecodeString(encodedReceipt)
@@ -278,6 +294,51 @@ func FetchProtectedRendition(
 		return DownloadedRendition{}, packagecontract.MaterializationReceipt{}, err
 	}
 	return downloaded, receipt, nil
+}
+
+func isRetryableMaterializationStatusError(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var statusError materializationStatusHTTPError
+	if errors.As(err, &statusError) {
+		switch statusError.statusCode {
+		case http.StatusRequestTimeout,
+			http.StatusTooEarly,
+			http.StatusTooManyRequests,
+			http.StatusInternalServerError,
+			http.StatusBadGateway,
+			http.StatusServiceUnavailable,
+			http.StatusGatewayTimeout:
+			return true
+		default:
+			return false
+		}
+	}
+	var networkError net.Error
+	return errors.As(err, &networkError)
+}
+
+func materializationStatusRetryDelay(interval time.Duration, consecutiveFailures int) time.Duration {
+	delay := interval
+	for attempt := 1; attempt < consecutiveFailures && delay < maxMaterializationRetryDelay; attempt++ {
+		delay *= 2
+	}
+	if delay > maxMaterializationRetryDelay {
+		return maxMaterializationRetryDelay
+	}
+	return delay
+}
+
+func waitForMaterializationPoll(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("wait for materialization: %w", ctx.Err())
+	case <-timer.C:
+		return nil
+	}
 }
 
 func validMaterializationProgressStage(value string) bool {
@@ -373,10 +434,9 @@ func readMaterializationStatus(
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return materializationStatus{}, fmt.Errorf(
-			"materialization status returned HTTP %d",
-			response.StatusCode,
-		)
+		return materializationStatus{}, materializationStatusHTTPError{
+			statusCode: response.StatusCode,
+		}
 	}
 	decoder := json.NewDecoder(io.LimitReader(response.Body, 2*1024*1024+1))
 	decoder.DisallowUnknownFields()

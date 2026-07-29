@@ -14,6 +14,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -26,6 +27,47 @@ import (
 	"github.com/yucp/transfer-helper/internal/packagecontract"
 	"github.com/yucp/transfer-helper/internal/trust"
 )
+
+func TestMaterializationStatusRetriesOnlyTransientFailures(t *testing.T) {
+	tests := []struct {
+		err  error
+		name string
+		want bool
+	}{
+		{
+			err:  materializationStatusHTTPError{statusCode: http.StatusServiceUnavailable},
+			name: "service unavailable",
+			want: true,
+		},
+		{
+			err:  &net.DNSError{IsTimeout: true},
+			name: "network timeout",
+			want: true,
+		},
+		{
+			err:  materializationStatusHTTPError{statusCode: http.StatusForbidden},
+			name: "forbidden after renewal",
+			want: false,
+		},
+		{
+			err:  context.DeadlineExceeded,
+			name: "operation deadline",
+			want: false,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := isRetryableMaterializationStatusError(test.err); got != test.want {
+				t.Fatalf(
+					"isRetryableMaterializationStatusError(%v) = %t; want %t",
+					test.err,
+					got,
+					test.want,
+				)
+			}
+		})
+	}
+}
 
 func TestMaterializationPollingRenewsAnExpiredGrant(t *testing.T) {
 	var requests atomic.Int64
@@ -83,7 +125,7 @@ func TestMaterializationPollingRenewsAnExpiredGrant(t *testing.T) {
 	}
 }
 
-func TestFetchAndMergeProtectedRenditionVerifiesReceiptAndZip(t *testing.T) {
+func TestFetchAndMergeProtectedRenditionRetriesTransientStatusFailure(t *testing.T) {
 	protected := []byte("personalized protected file\n")
 	protectedDigest := sha256.Sum256(protected)
 	archive := protectedArchive(t, "Assets/Product/protected.png", protected)
@@ -175,6 +217,14 @@ func TestFetchAndMergeProtectedRenditionVerifiesReceiptAndZip(t *testing.T) {
 				}`))
 				return
 			}
+			if statusReads == 2 {
+				http.Error(
+					response,
+					"materialization status is temporarily unavailable",
+					http.StatusServiceUnavailable,
+				)
+				return
+			}
 			_ = json.NewEncoder(response).Encode(map[string]any{
 				"receipt":   encodedReceipt,
 				"receiptId": "receipt-1",
@@ -231,7 +281,7 @@ func TestFetchAndMergeProtectedRenditionVerifiesReceiptAndZip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read downloaded rendition: %v", err)
 	}
-	if statusReads != 2 ||
+	if statusReads != 3 ||
 		!bytes.Equal(downloadedArchive, archive) ||
 		receipt.ReceiptID != "receipt-1" {
 		t.Fatalf("rendition result is invalid")
