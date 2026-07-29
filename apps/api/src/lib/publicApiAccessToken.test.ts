@@ -67,6 +67,7 @@ describe('verifyPublicApiAccessToken', () => {
     await verifyPublicApiAccessRequest(request, {
       convexSiteUrl: 'https://auth.example.test',
       dpopReplayStore: { reserve: async () => true },
+      publicResourceBaseUrl: 'https://api.example.test',
       requiredScopes: ['products:read'],
     });
 
