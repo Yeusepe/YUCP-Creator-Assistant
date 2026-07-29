@@ -813,17 +813,149 @@ index db4cce2..be61f28 100644
          }
        ),
        getJwks: createAuthEndpoint(
-warning: in the working copy of 'dist/client/adapter.d.ts', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'dist/client/adapter.js', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'dist/client/create-api.d.ts', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'dist/client/create-api.js', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'dist/client/create-client.d.ts', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'dist/client/create-client.js', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'dist/plugins/convex/index.d.ts', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'dist/plugins/convex/index.js', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'package.json', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'src/client/adapter.ts', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'src/client/create-api.ts', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'src/client/create-client.ts', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'src/plugins/convex/index.ts', LF will be replaced by CRLF the next time Git touches it
-
+--- a/src/client/adapter-utils.ts
++++ b/src/client/adapter-utils.ts
+@@ -129,7 +129,8 @@ const findIndex = (
+         ["lt", "lte", "gt", "gte", "eq", "in", "not_in"].includes(
+           w.operator
+         )) &&
+-      w.field !== "_id"
++      w.field !== "_id" &&
++      !((!w.operator || w.operator === "eq") && w.value === null)
+     );
+   });
+   if (!where?.length && !args.sortBy) {
+@@ -314,6 +315,12 @@ const filterByWhere = <
+   if (!doc) {
+     return false;
+   }
++  const valuesEqual = (
++    left: Infer<typeof adapterWhereValidator>["value"] | undefined,
++    right: Infer<typeof adapterWhereValidator>["value"] | undefined
++  ) => {
++    return left === right || (left == null && right == null);
++  };
+   for (const w of where ?? []) {
+     if (filterWhere && !filterWhere(w)) {
+       continue;
+@@ -343,30 +350,38 @@ const filterByWhere = <
+       switch (w.operator) {
+         case undefined:
+         case "eq": {
+-          return value === w.value;
++          return valuesEqual(value, w.value);
+         }
+         case "in": {
+-          return Array.isArray(w.value) && (w.value as any[]).includes(value);
++          return (
++            Array.isArray(w.value) &&
++            (w.value as any[]).some((candidate) =>
++              valuesEqual(value, candidate)
++            )
++          );
+         }
+         case "not_in": {
+           const result =
+-            Array.isArray(w.value) && !(w.value as any[]).includes(value);
++            Array.isArray(w.value) &&
++            !(w.value as any[]).some((candidate) =>
++              valuesEqual(value, candidate)
++            );
+           return result;
+         }
+         case "lt": {
+           return isLessThan(value, w.value);
+         }
+         case "lte": {
+-          return value === w.value || isLessThan(value, w.value);
++          return valuesEqual(value, w.value) || isLessThan(value, w.value);
+         }
+         case "gt": {
+           return isGreaterThan(value, w.value);
+         }
+         case "gte": {
+-          return value === w.value || isGreaterThan(value, w.value);
++          return valuesEqual(value, w.value) || isGreaterThan(value, w.value);
+         }
+         case "ne": {
+-          return value !== w.value;
++          return !valuesEqual(value, w.value);
+         }
+         case "contains": {
+           return typeof value === "string" && value.includes(w.value as string);
+@@ -508,6 +523,7 @@ export const paginate = async <
+   const uniqueWhere = args.where?.find(
+     (w) =>
+       (!w.operator || w.operator === "eq") &&
++      w.value !== null &&
+       (isUniqueField(betterAuthSchema, args.model, w.field) ||
+         w.field === "_id")
+   );
+--- a/dist/client/adapter-utils.js
++++ b/dist/client/adapter-utils.js
+@@ -47,7 +47,8 @@ const findIndex = (schema, args) => {
+     const where = args.where?.filter((w) => {
+         return ((!w.operator ||
+             ["lt", "lte", "gt", "gte", "eq", "in", "not_in"].includes(w.operator)) &&
+-            w.field !== "_id");
++            w.field !== "_id" &&
++            !((!w.operator || w.operator === "eq") && w.value === null));
+     });
+     if (!where?.length && !args.sortBy) {
+         return;
+@@ -183,6 +184,9 @@ filterWhere) => {
+     if (!doc) {
+         return false;
+     }
++    const valuesEqual = (left, right) => {
++        return left === right || (left == null && right == null);
++    };
+     for (const w of where ?? []) {
+         if (filterWhere && !filterWhere(w)) {
+             continue;
+@@ -210,29 +214,31 @@ filterWhere) => {
+             switch (w.operator) {
+                 case undefined:
+                 case "eq": {
+-                    return value === w.value;
++                    return valuesEqual(value, w.value);
+                 }
+                 case "in": {
+-                    return Array.isArray(w.value) && w.value.includes(value);
++                    return (Array.isArray(w.value) &&
++                        w.value.some((candidate) => valuesEqual(value, candidate)));
+                 }
+                 case "not_in": {
+-                    const result = Array.isArray(w.value) && !w.value.includes(value);
++                    const result = Array.isArray(w.value) &&
++                        !w.value.some((candidate) => valuesEqual(value, candidate));
+                     return result;
+                 }
+                 case "lt": {
+                     return isLessThan(value, w.value);
+                 }
+                 case "lte": {
+-                    return value === w.value || isLessThan(value, w.value);
++                    return valuesEqual(value, w.value) || isLessThan(value, w.value);
+                 }
+                 case "gt": {
+                     return isGreaterThan(value, w.value);
+                 }
+                 case "gte": {
+-                    return value === w.value || isGreaterThan(value, w.value);
++                    return valuesEqual(value, w.value) || isGreaterThan(value, w.value);
+                 }
+                 case "ne": {
+-                    return value !== w.value;
++                    return !valuesEqual(value, w.value);
+                 }
+                 case "contains": {
+                     return typeof value === "string" && value.includes(w.value);
+@@ -329,6 +335,7 @@ export const paginate = async (ctx, schema, betterAuthSchema, args) => {
+     // we can only return a single document, so we get it and use any other
+     // where clauses as static filters.
+     const uniqueWhere = args.where?.find((w) => (!w.operator || w.operator === "eq") &&
++        w.value !== null &&
+         (isUniqueField(betterAuthSchema, args.model, w.field) ||
+             w.field === "_id"));
+     if (uniqueWhere) {

@@ -71,7 +71,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'identity',
     label: 'Identity and ownership boundaries',
     invariant:
-      'Buyer and creator identities must stay explicit at every helper, route, and persistence boundary so one actor can never materialize or mutate another actor’s state. Public API-key verification must authenticate only managed public-api records whose stored Better Auth owner matches the metadata auth user, so key metadata can never impersonate another tenant. Better Auth and its Convex adapter must use a mutually supported database contract so social sign-in never sends fields that the persisted account validator rejects. The versioned compatibility bridge must stay narrow, atomic, and replaceable through official adapter interfaces. Package broker OAuth must use the provider RFC 8252 loopback implementation without an application-owned redirect proxy, and protected resource verification behind a reverse proxy must bind DPoP htu to the required canonical API origin instead of the browser frontend, an internal service origin, a localhost fallback, or an untrusted forwarded header.',
+      'Buyer and creator identities must stay explicit at every helper, route, and persistence boundary so one actor can never materialize or mutate another actor’s state. Public API-key verification must authenticate only managed public-api records whose stored Better Auth owner matches the metadata auth user, so key metadata can never impersonate another tenant. Better Auth and its Convex adapter must use a mutually supported database contract so social sign-in never sends fields that the persisted account validator rejects, and atomic refresh-token rotation must treat an omitted optional Convex field as the nullable Better Auth field it represents without allowing a second rotation. The versioned compatibility bridge must stay narrow, atomic, and replaceable through official adapter interfaces. Package broker OAuth must use the provider RFC 8252 loopback implementation without an application-owned redirect proxy, and protected resource verification behind a reverse proxy must bind DPoP htu to the required canonical API origin instead of the browser frontend, an internal service origin, a localhost fallback, or an untrusted forwarded header.',
     primaryRegressionHomes: [
       'ops/better-auth-package-broker-loopback.contract.test.ts',
       'apps/api/src/lib/oauthAccessToken.test.ts',
@@ -80,6 +80,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
       'apps/api/src/routes/providerPlatform.test.ts',
       'convex/identitySync.realtest.ts',
       'convex/betterAuthApiKeys.realtest.ts',
+      'convex/betterAuth/adapter.realtest.ts',
       'ops/convex-better-auth-compat.test.ts',
     ],
     secondaryRegressionHomes: [
@@ -202,6 +203,7 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       './convex/identitySync.realtest.ts',
       './convex/attestation.realtest.ts',
       './convex/betterAuthApiKeys.realtest.ts',
+      './convex/betterAuth/adapter.realtest.ts',
     ],
     covers: ['identity', 'attestation'],
   },

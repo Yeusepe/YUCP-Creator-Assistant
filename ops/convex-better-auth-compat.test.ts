@@ -41,9 +41,7 @@ describe('@convex-dev/better-auth compatibility bridge', () => {
     );
     expect(rootPackage.dependencies?.['better-auth']).toBe('1.7.0-rc.2');
     expect(rootPackage.overrides?.['better-auth']).toBe('1.7.0-rc.2');
-    expect(installedPackage.peerDependencies?.['better-auth']).toBe(
-      '>=1.7.0-rc.2 <1.8.0'
-    );
+    expect(installedPackage.peerDependencies?.['better-auth']).toBe('>=1.7.0-rc.2 <1.8.0');
 
     expect(runtimeAuthSource).toContain(
       "import { createClient, type GenericCtx } from '@convex-dev/better-auth';"
@@ -78,12 +76,8 @@ describe('@convex-dev/better-auth compatibility bridge', () => {
     expect(generatedSchemaSource).toContain('issuer: v.string()');
     expect(generatedSchemaSource).toContain('providerAccountId: v.string()');
     expect(schemaSource).toContain(".index('credentialID', ['credentialID'])");
-    expect(schemaSource).toContain(
-      ".index('counter_credentialID', ['counter', 'credentialID'])"
-    );
-    expect(schemaSource).toContain(
-      ".index('clientId_resourceId', ['clientId', 'resourceId'])"
-    );
+    expect(schemaSource).toContain(".index('counter_credentialID', ['counter', 'credentialID'])");
+    expect(schemaSource).toContain(".index('clientId_resourceId', ['clientId', 'resourceId'])");
     expect(schemaSource).not.toContain('accountId: v.optional');
     expect(schemaSource).not.toContain('Transitional Better Auth');
   });
@@ -111,6 +105,8 @@ describe('@convex-dev/better-auth compatibility bridge', () => {
       adapterDist,
       createApiSource,
       createApiDist,
+      adapterUtilsSource,
+      adapterUtilsDist,
       pluginSource,
       pluginDist,
       clientSource,
@@ -120,6 +116,8 @@ describe('@convex-dev/better-auth compatibility bridge', () => {
       readRepoFile('node_modules/@convex-dev/better-auth/dist/client/adapter.js'),
       readRepoFile('node_modules/@convex-dev/better-auth/src/client/create-api.ts'),
       readRepoFile('node_modules/@convex-dev/better-auth/dist/client/create-api.js'),
+      readRepoFile('node_modules/@convex-dev/better-auth/src/client/adapter-utils.ts'),
+      readRepoFile('node_modules/@convex-dev/better-auth/dist/client/adapter-utils.js'),
       readRepoFile('node_modules/@convex-dev/better-auth/src/plugins/convex/index.ts'),
       readRepoFile('node_modules/@convex-dev/better-auth/dist/plugins/convex/index.js'),
       readRepoFile('node_modules/@convex-dev/better-auth/src/client/create-client.ts'),
@@ -129,6 +127,10 @@ describe('@convex-dev/better-auth compatibility bridge', () => {
     for (const source of [adapterSource, adapterDist, createApiSource, createApiDist]) {
       expect(source).toContain('consumeOne');
       expect(source).toContain('incrementOne');
+    }
+    for (const source of [adapterUtilsSource, adapterUtilsDist]) {
+      expect(source).toContain('left == null && right == null');
+      expect(source).toContain('w.value !== null');
     }
     for (const source of [pluginSource, pluginDist]) {
       expect(source).toContain('getConvexOpenIdConfig');
