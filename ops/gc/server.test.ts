@@ -138,7 +138,7 @@ describe('storage GC production runtime', () => {
         expireTerminalFailedVersions,
       },
       logger: { error: mock(() => undefined), info: mock(() => undefined) },
-      storage: unusedStorage,
+      deletionStorage: unusedStorage,
     });
 
     const result = await janitor.runOnce(now);
@@ -178,7 +178,7 @@ describe('storage GC production runtime', () => {
       intervalMs: 60_000,
       lifecycleCatalog: idleLifecycleCatalog(),
       logger: { error: mock(() => undefined), info: mock(() => undefined) },
-      storage: unusedStorage,
+      deletionStorage: unusedStorage,
     });
 
     await janitor.runOnce();
@@ -216,7 +216,7 @@ describe('storage GC production runtime', () => {
       lifecycleCatalog: idleLifecycleCatalog(),
       logger: { error: mock(() => undefined), info: mock(() => undefined) },
       onCycleSucceeded,
-      storage: unusedStorage,
+      deletionStorage: unusedStorage,
     });
 
     janitor.start();

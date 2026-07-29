@@ -103,8 +103,10 @@ export interface PackageQuarantineObject {
   bytes: number;
   contentType: string;
   createdAt: Date;
+  creatorId: string;
   fileIdentifier: string | null;
   objectKey: string;
+  protectionPolicyId: string;
   providerVersion: string | null;
   sha256: string;
   state: 'COMMITTED' | 'PENDING' | 'UNCERTAIN';
@@ -116,8 +118,10 @@ interface PackageQuarantineObjectRow {
   bytes: number | string;
   content_type: string;
   created_at: Date;
+  creator_id: string;
   file_identifier: string | null;
   object_key: string;
+  protection_policy_id: string;
   provider_version: string | null;
   sha256: string;
   state: PackageQuarantineObject['state'];
@@ -310,8 +314,10 @@ function toPackageQuarantineObject(row: PackageQuarantineObjectRow): PackageQuar
     bytes,
     contentType: row.content_type,
     createdAt: row.created_at,
+    creatorId: row.creator_id,
     fileIdentifier: row.file_identifier,
     objectKey: row.object_key,
+    protectionPolicyId: row.protection_policy_id,
     providerVersion: row.provider_version,
     sha256: row.sha256,
     state: row.state,
@@ -528,10 +534,20 @@ export class Catalog {
   async beginQuarantineObject(input: {
     bytes: number;
     contentType: string;
+    creatorId: string;
     objectKey: string;
+    protectionPolicyId: string;
     sha256: string;
     versionId: string;
   }): Promise<PackageQuarantineObject> {
+    const creatorId = input.creatorId.trim();
+    const protectionPolicyId = input.protectionPolicyId.trim();
+    if (!creatorId || Buffer.byteLength(creatorId, 'utf8') > 512) {
+      throw new CatalogInvariantError('Quarantine creator identity is invalid');
+    }
+    if (!protectionPolicyId || Buffer.byteLength(protectionPolicyId, 'utf8') > 128) {
+      throw new CatalogInvariantError('Quarantine protection policy identity is invalid');
+    }
     const inserted = await this.sql<PackageQuarantineObjectRow[]>`
       INSERT INTO package_quarantine_objects (
         version_id,
@@ -539,6 +555,8 @@ export class Catalog {
         sha256,
         bytes,
         content_type,
+        creator_id,
+        protection_policy_id,
         state
       )
       SELECT
@@ -547,6 +565,8 @@ export class Catalog {
         ${input.sha256},
         ${input.bytes},
         ${input.contentType},
+        ${creatorId},
+        ${protectionPolicyId},
         'PENDING'
       FROM package_versions
       WHERE id = ${input.versionId}
@@ -570,7 +590,9 @@ export class Catalog {
       row.objectKey !== input.objectKey ||
       row.sha256 !== input.sha256 ||
       row.bytes !== input.bytes ||
-      row.contentType !== input.contentType
+      row.contentType !== input.contentType ||
+      row.creatorId !== creatorId ||
+      row.protectionPolicyId !== protectionPolicyId
     ) {
       throw new CatalogInvariantError('Quarantine write intent does not match the accepted upload');
     }

@@ -1334,13 +1334,17 @@ describe.serial('PostgreSQL catalog integration', () => {
     const pending = await activeCatalog.beginQuarantineObject({
       bytes: 6_291_456,
       contentType: 'application/zip',
+      creatorId: 'creator-quarantine-checkpoint',
       objectKey: `raw/${versionId}/package.zip`,
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       sha256: '7'.repeat(64),
       versionId,
     });
     expect(pending).toMatchObject({
       bytes: 6_291_456,
+      creatorId: 'creator-quarantine-checkpoint',
       fileIdentifier: null,
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       providerVersion: null,
       state: 'PENDING',
       versionId,
@@ -1932,7 +1936,9 @@ describe.serial('PostgreSQL catalog integration', () => {
     await activeCatalog.beginQuarantineObject({
       bytes: 1024,
       contentType: 'application/zip',
+      creatorId: 'creator-quarantine-replace',
       objectKey: `raw/${versionId}/${'8'.repeat(64)}.zip`,
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       sha256: '8'.repeat(64),
       versionId,
     });
@@ -1957,7 +1963,9 @@ describe.serial('PostgreSQL catalog integration', () => {
     const replacement = await activeCatalog.beginQuarantineObject({
       bytes: 2048,
       contentType: 'application/zip',
+      creatorId: 'creator-quarantine-replace',
       objectKey: `raw/${versionId}/${'9'.repeat(64)}.zip`,
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       sha256: '9'.repeat(64),
       versionId,
     });
@@ -2239,6 +2247,44 @@ describe.serial('PostgreSQL catalog integration', () => {
 
     expect(result.versionsRedriven).toBe(0);
     expect(redriveCalls).toBe(0);
+  });
+
+  it('redrives a failed upload from a committed quarantine checkpoint', async () => {
+    const activeCatalog = requireCatalog();
+    const database = requireSql();
+    const versionId = await createUploadingVersion('quarantine-redrive');
+    await activeCatalog.beginQuarantineObject({
+      bytes: 42,
+      contentType: 'application/zip',
+      creatorId: 'creator-quarantine-redrive',
+      objectKey: `raw/${versionId}/${'a'.repeat(64)}.zip`,
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
+      sha256: 'a'.repeat(64),
+      versionId,
+    });
+    await activeCatalog.commitQuarantineObject({
+      fileIdentifier: 'quarantine-file-redrive',
+      providerVersion: 'quarantine-provider-redrive',
+      versionId,
+    });
+    await activeCatalog.markFailed(versionId, 'assembly process stopped');
+    await database`
+      UPDATE package_versions
+      SET next_attempt_at = clock_timestamp() - interval '1 millisecond'
+      WHERE id = ${versionId}
+    `;
+
+    const redriven: string[] = [];
+    const result = await reconcileCatalog(database, {
+      stuckThresholdMs: 60 * 60 * 1000,
+      redrive: async ({ version }) => {
+        redriven.push(version.id);
+      },
+      publish: async () => {},
+    });
+
+    expect(result.versionsRedriven).toBe(1);
+    expect(redriven).toEqual([versionId]);
   });
 
   it('no-infinite-retry: a perpetually failing row is never re-driven after the attempt cap', async () => {

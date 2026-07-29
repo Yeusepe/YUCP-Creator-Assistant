@@ -14,8 +14,10 @@ import {
   loadConvexCatalogPublishConfig,
   openCatalogDatabase,
   runCatalogMigrations,
+  withCatalogHeartbeat,
 } from '../catalog';
-import { promoteVersion } from '../ingest-pipeline';
+import { assembleVersion, promoteVersion } from '../ingest-pipeline';
+import { createS3QuarantineStorage, withRestoredCompletedUpload } from '../ingest-tus/quarantine';
 import {
   type CasConfig,
   type FetchInfisicalSecrets,
@@ -28,6 +30,7 @@ import {
 import { s3CasStore } from '../storage-core/desyncCas';
 import { DurableExactStorage } from '../storage-core/durableExactStorage';
 import { S3ExactStoragePort } from '../storage-core/exactStorage';
+import { isProtectionPolicyId } from '../storage-core/protectionPolicyId';
 import { createIngestScheduler, type IngestScheduler } from './scheduler';
 
 const DEFAULT_SCHEDULER_INTERVAL_MS = 5_000;
@@ -54,6 +57,11 @@ export const SCHEDULER_INFISICAL_KEYS = [
   'PROTECTED_S3_BUCKET',
   'PROTECTED_S3_ACCESS_KEY_ID',
   'PROTECTED_S3_SECRET_ACCESS_KEY',
+  'QUARANTINE_S3_ENDPOINT',
+  'QUARANTINE_S3_REGION',
+  'QUARANTINE_S3_BUCKET',
+  'QUARANTINE_S3_ACCESS_KEY_ID',
+  'QUARANTINE_S3_SECRET_ACCESS_KEY',
   'SCHEDULER_STATUS_HEARTBEAT_URL',
 ] as const;
 
@@ -61,6 +69,7 @@ export interface SchedulerRuntimeEnv {
   common: CasConfig;
   metadata: CasConfig;
   protected: CasConfig;
+  quarantine: CasConfig;
   catalogMaxAttempts: number;
   catalogDatabaseUrl: string;
   publish: ConvexCatalogPublishConfig;
@@ -110,6 +119,7 @@ export async function loadSchedulerRuntimeEnv(
     catalogMaxAttempts: positiveInteger(runtimeEnv, 'CATALOG_MAX_ATTEMPTS', DEFAULT_MAX_ATTEMPTS),
     metadata: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.metadata),
     protected: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.protected),
+    quarantine: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.quarantine),
     catalogDatabaseUrl: requiredValue(runtimeEnv, 'CATALOG_DATABASE_URL'),
     publish: loadConvexCatalogPublishConfig(runtimeEnv),
     scratchRoot: requiredValue(runtimeEnv, 'INGEST_SCRATCH_DIR'),
@@ -178,6 +188,7 @@ export async function buildSchedulerRuntime(
       durableStorage,
       storageRole: 'protected',
     });
+    const quarantineStorage = createS3QuarantineStorage(runtimeEnv.quarantine);
     const scheduler = createIngestScheduler({
       batchLimit: positiveInteger(env, 'SCHEDULER_BATCH_LIMIT', DEFAULT_RECONCILE_BATCH_LIMIT),
       catalog,
@@ -206,7 +217,99 @@ export async function buildSchedulerRuntime(
       redrive: async ({ version }) => {
         const { releaseRoot, assemblyObjectId, sourceFormat } = version;
         if (!assemblyObjectId || !releaseRoot) {
-          throw new Error(`Automatic redrive requires re-uploading catalog version ${version.id}`);
+          const checkpoint = await catalog.getQuarantineObject(version.id);
+          if (
+            !checkpoint ||
+            checkpoint.state !== 'COMMITTED' ||
+            !checkpoint.fileIdentifier ||
+            !checkpoint.providerVersion
+          ) {
+            throw new Error(
+              `Automatic redrive found no committed quarantine checkpoint for catalog version ${version.id}`
+            );
+          }
+          const protectionPolicyId = checkpoint.protectionPolicyId;
+          if (!isProtectionPolicyId(protectionPolicyId)) {
+            throw new Error(
+              `Catalog version ${version.id} has an invalid checkpoint protection policy`
+            );
+          }
+          const creatorId = checkpoint.creatorId.trim();
+          if (!creatorId) {
+            throw new Error(`Catalog version ${version.id} has no checkpoint creator identity`);
+          }
+          const current = await catalog.getVersion(version.id);
+          if (!current) {
+            throw new Error(`Catalog version ${version.id} was not found during automatic redrive`);
+          }
+          if (current.state === 'READY' || current.state === 'ASSEMBLED') {
+            return;
+          }
+          if (current.state !== 'FAILED') {
+            throw new Error(
+              `Automatic quarantine redrive cannot resume catalog version ${version.id} from ${current.state}`
+            );
+          }
+          await catalog.advanceVersion(version.id, 'UPLOADING', {
+            event: { type: 'catalog.version.retrying' },
+          });
+          console.info(
+            JSON.stringify({
+              event: 'ingest_scheduler.quarantine_redrive_started',
+              versionId: version.id,
+            })
+          );
+          try {
+            await withCatalogHeartbeat({
+              catalog,
+              state: 'UPLOADING',
+              versionId: version.id,
+              onHeartbeatError(error) {
+                console.error(
+                  JSON.stringify({
+                    event: 'ingest_scheduler.quarantine_redrive_heartbeat_failed',
+                    versionId: version.id,
+                    ...schedulerErrorDiagnostic(error),
+                  })
+                );
+              },
+              operation: (signal) =>
+                withRestoredCompletedUpload({
+                  checkpoint,
+                  scratchRoot: runtimeEnv.scratchRoot,
+                  signal,
+                  storage: quarantineStorage,
+                  operation: (inputPath) =>
+                    assembleVersion(
+                      {
+                        catalog,
+                        commonStore,
+                        creatorId,
+                        inputPath,
+                        metadataStore,
+                        protectedStore,
+                        protectionPolicyId,
+                        scratchRoot: runtimeEnv.scratchRoot,
+                        versionId: version.id,
+                      },
+                      signal
+                    ),
+                }),
+            });
+          } catch (error) {
+            const failed = await catalog.getVersion(version.id);
+            if (failed?.state === 'UPLOADING') {
+              await catalog.markFailed(version.id, schedulerErrorDiagnostic(error).errorMessage);
+            }
+            throw error;
+          }
+          console.info(
+            JSON.stringify({
+              event: 'ingest_scheduler.quarantine_redrive_completed',
+              versionId: version.id,
+            })
+          );
+          return;
         }
         if (!sourceFormat) {
           throw new Error(`Catalog version ${version.id} has incomplete CAS assembly metadata`);

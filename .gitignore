@@ -68,3 +68,4 @@ convex/tsconfig.tsbuildinfo
 /apps/web/src/icons/generated.tsx*
 /ops/icons/.cache/
 /test-results
+/.codex

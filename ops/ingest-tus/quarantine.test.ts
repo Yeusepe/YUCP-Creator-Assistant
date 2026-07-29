@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { PackageQuarantineObject } from '../catalog';
+import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId';
 import {
   persistCompletedUpload,
   type QuarantineCatalogPort,
@@ -15,8 +16,10 @@ function pending(versionId: string, objectKey: string, sha256: string, bytes: nu
     bytes,
     contentType: 'application/zip',
     createdAt: new Date(0),
+    creatorId: 'creator-checkpoint',
     fileIdentifier: null,
     objectKey,
+    protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
     providerVersion: null,
     sha256,
     state: 'PENDING' as const,
@@ -34,10 +37,12 @@ describe('completed upload quarantine', () => {
       const sha256 = createHash('sha256').update(bytes).digest('hex');
       await writeFile(path, bytes);
       const calls: string[] = [];
+      const checkpointInputs: unknown[] = [];
       let record: PackageQuarantineObject | null = null;
       const catalog: QuarantineCatalogPort = {
         async beginQuarantineObject(input) {
           calls.push('intent');
+          checkpointInputs.push(input);
           record = pending(input.versionId, input.objectKey, input.sha256, input.bytes);
           return record;
         },
@@ -56,6 +61,9 @@ describe('completed upload quarantine', () => {
         },
       };
       const storage: QuarantineStoragePort = {
+        async getExactVersion() {
+          throw new Error('must not restore during persistence');
+        },
         async headExactVersion() {
           calls.push('head');
           return {
@@ -82,7 +90,9 @@ describe('completed upload quarantine', () => {
       const result = await persistCompletedUpload({
         catalog,
         contentType: 'application/zip',
+        creatorId: 'creator-checkpoint',
         path,
+        protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
         storage,
         versionId: '018f8c03-3880-7d40-a8d5-b190a64141cc',
       });
@@ -93,6 +103,12 @@ describe('completed upload quarantine', () => {
         sha256,
         state: 'COMMITTED',
       });
+      expect(checkpointInputs).toEqual([
+        expect.objectContaining({
+          creatorId: 'creator-checkpoint',
+          protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
+        }),
+      ]);
       expect(calls).toEqual(['intent', 'list', 'put', 'head', 'commit']);
     } finally {
       await rm(root, { force: true, recursive: true });
@@ -128,6 +144,9 @@ describe('completed upload quarantine', () => {
         },
       };
       const storage: QuarantineStoragePort = {
+        async getExactVersion() {
+          throw new Error('must not restore during persistence');
+        },
         async headExactVersion() {
           calls.push('head');
           return {
@@ -155,7 +174,9 @@ describe('completed upload quarantine', () => {
       const result = await persistCompletedUpload({
         catalog,
         contentType: 'application/zip',
+        creatorId: 'creator-checkpoint',
         path,
+        protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
         storage,
         versionId,
       });

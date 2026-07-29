@@ -20,7 +20,10 @@ import {
   requireInfisicalBootstrap,
   STORAGE_ROLE_PREFIXES,
 } from '../storage-core/config';
-import { type ExactStoragePort, S3ExactStoragePort } from '../storage-core/exactStorage';
+import {
+  createExactVersionDeletionPort,
+  type ExactVersionDeletionPort,
+} from '../storage-core/exactVersionDeletion';
 import {
   type ExactVersionGarbageCollectionResult,
   runExactVersionGarbageCollection,
@@ -145,19 +148,20 @@ function waitForNextCycle(milliseconds: number, signal: AbortSignal): Promise<vo
 
 class FixedCapacityStorageGcJanitor implements StorageGcJanitor {
   readonly #catalog: StorageGcCatalog;
+  readonly #deletionStorage: ExactVersionDeletionPort;
   readonly #deletionLimit: number;
   readonly #failedRetentionMs: number;
   readonly #intervalMs: number;
   readonly #lifecycleCatalog: Pick<Catalog, 'expireTerminalFailedVersions'>;
   readonly #logger: StorageGcLogger;
   readonly #onCycleSucceeded: (() => Promise<void> | void) | undefined;
-  readonly #storage: ExactStoragePort;
   readonly #quarantine: { config: CasConfig; database: CatalogDatabase } | undefined;
   #controller: AbortController | undefined;
   #loop: Promise<void> | undefined;
 
   constructor(input: {
     catalog: StorageGcCatalog;
+    deletionStorage: ExactVersionDeletionPort;
     deletionLimit: number;
     failedRetentionMs: number;
     intervalMs: number;
@@ -165,9 +169,9 @@ class FixedCapacityStorageGcJanitor implements StorageGcJanitor {
     logger: StorageGcLogger;
     onCycleSucceeded?: () => Promise<void> | void;
     quarantine?: { config: CasConfig; database: CatalogDatabase };
-    storage: ExactStoragePort;
   }) {
     this.#catalog = input.catalog;
+    this.#deletionStorage = input.deletionStorage;
     this.#deletionLimit = input.deletionLimit;
     this.#failedRetentionMs = input.failedRetentionMs;
     this.#intervalMs = input.intervalMs;
@@ -175,7 +179,6 @@ class FixedCapacityStorageGcJanitor implements StorageGcJanitor {
     this.#logger = input.logger;
     this.#onCycleSucceeded = input.onCycleSucceeded;
     this.#quarantine = input.quarantine;
-    this.#storage = input.storage;
   }
 
   async runOnce(now?: Date): Promise<ExactVersionGarbageCollectionResult> {
@@ -202,9 +205,9 @@ class FixedCapacityStorageGcJanitor implements StorageGcJanitor {
         }
         const result = await runExactVersionGarbageCollection({
           catalog: this.#catalog,
+          deletionStorage: this.#deletionStorage,
           deletionLimit: this.#deletionLimit,
           now,
-          storage: this.#storage,
         });
         if (this.#quarantine) {
           const quarantine = await runQuarantineGarbageCollection({
@@ -343,6 +346,7 @@ export async function loadStorageGcRuntimeEnv(
 
 export function createStorageGcJanitor(input: {
   catalog: StorageGcCatalog;
+  deletionStorage: ExactVersionDeletionPort;
   deletionLimit: number;
   failedRetentionMs: number;
   intervalMs: number;
@@ -350,7 +354,6 @@ export function createStorageGcJanitor(input: {
   logger?: StorageGcLogger;
   onCycleSucceeded?: () => Promise<void> | void;
   quarantine?: { config: CasConfig; database: CatalogDatabase };
-  storage: ExactStoragePort;
 }): StorageGcJanitor {
   return new FixedCapacityStorageGcJanitor({
     ...input,
@@ -374,6 +377,11 @@ export async function buildStorageGcRuntime(
       database,
       janitor: createStorageGcJanitor({
         catalog: new StorageGcCatalog(database),
+        deletionStorage: createExactVersionDeletionPort({
+          common: runtimeEnv.common,
+          metadata: runtimeEnv.metadata,
+          protected: runtimeEnv.protected,
+        }),
         deletionLimit: runtimeEnv.deletionLimit,
         failedRetentionMs: runtimeEnv.failedRetentionMs,
         intervalMs: runtimeEnv.intervalMs,
@@ -388,11 +396,6 @@ export async function buildStorageGcRuntime(
             }
           : {}),
         quarantine: { config: runtimeEnv.quarantine, database },
-        storage: new S3ExactStoragePort({
-          common: runtimeEnv.common,
-          metadata: runtimeEnv.metadata,
-          protected: runtimeEnv.protected,
-        }),
       }),
     };
   } catch (error) {

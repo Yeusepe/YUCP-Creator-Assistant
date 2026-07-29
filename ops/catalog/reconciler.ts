@@ -149,9 +149,19 @@ async function claimRedrive(
           (
             state = 'FAILED'
             AND next_attempt_at IS NOT NULL
-            AND assembly_object_id IS NOT NULL
-            AND release_root IS NOT NULL
-            AND source_format IS NOT NULL
+            AND (
+              (
+                assembly_object_id IS NOT NULL
+                AND release_root IS NOT NULL
+                AND source_format IS NOT NULL
+              )
+              OR EXISTS (
+                SELECT 1
+                FROM package_quarantine_objects quarantine
+                WHERE quarantine.version_id = package_versions.id
+                  AND quarantine.state = 'COMMITTED'
+              )
+            )
           )
           OR (
             state IN ${transaction(transientStates)}
@@ -281,9 +291,19 @@ export async function reconcileCatalog(
         (
           state = 'FAILED'
           AND next_attempt_at IS NOT NULL
-          AND assembly_object_id IS NOT NULL
-          AND release_root IS NOT NULL
-          AND source_format IS NOT NULL
+          AND (
+            (
+              assembly_object_id IS NOT NULL
+              AND release_root IS NOT NULL
+              AND source_format IS NOT NULL
+            )
+            OR EXISTS (
+              SELECT 1
+              FROM package_quarantine_objects quarantine
+              WHERE quarantine.version_id = package_versions.id
+                AND quarantine.state = 'COMMITTED'
+            )
+          )
         )
         OR (
           state IN ${sql(transientStates)}

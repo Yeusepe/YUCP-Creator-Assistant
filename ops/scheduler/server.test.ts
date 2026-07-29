@@ -30,6 +30,11 @@ const COMPLETE_RAW_ENV = {
   PROTECTED_S3_BUCKET: 'raw-protected',
   PROTECTED_S3_ACCESS_KEY_ID: 'placeholder-raw-protected-key-id',
   PROTECTED_S3_SECRET_ACCESS_KEY: 'placeholder-raw-protected-key-secret',
+  QUARANTINE_S3_ENDPOINT: 'https://raw-quarantine.invalid',
+  QUARANTINE_S3_REGION: 'raw-region',
+  QUARANTINE_S3_BUCKET: 'raw-quarantine',
+  QUARANTINE_S3_ACCESS_KEY_ID: 'placeholder-raw-quarantine-key-id',
+  QUARANTINE_S3_SECRET_ACCESS_KEY: 'placeholder-raw-quarantine-key-secret',
   SCHEDULER_STATUS_HEARTBEAT_URL: 'https://status.example.test/ext/heartbeat/scheduler/raw-secret',
 } satisfies NodeJS.ProcessEnv;
 
@@ -54,6 +59,11 @@ const FETCHED_SCHEDULER_SECRETS = {
   PROTECTED_S3_BUCKET: 'fetched-protected',
   PROTECTED_S3_ACCESS_KEY_ID: 'placeholder-fetched-protected-key-id',
   PROTECTED_S3_SECRET_ACCESS_KEY: 'placeholder-fetched-protected-key-secret',
+  QUARANTINE_S3_ENDPOINT: 'https://fetched-quarantine.invalid',
+  QUARANTINE_S3_REGION: 'fetched-region',
+  QUARANTINE_S3_BUCKET: 'fetched-quarantine',
+  QUARANTINE_S3_ACCESS_KEY_ID: 'placeholder-fetched-quarantine-key-id',
+  QUARANTINE_S3_SECRET_ACCESS_KEY: 'placeholder-fetched-quarantine-key-secret',
   SCHEDULER_STATUS_HEARTBEAT_URL:
     'https://status.example.test/ext/heartbeat/scheduler/fetched-secret',
 } as const;
@@ -102,6 +112,11 @@ describe('scheduler production runtime environment', () => {
       'PROTECTED_S3_BUCKET',
       'PROTECTED_S3_ACCESS_KEY_ID',
       'PROTECTED_S3_SECRET_ACCESS_KEY',
+      'QUARANTINE_S3_ENDPOINT',
+      'QUARANTINE_S3_REGION',
+      'QUARANTINE_S3_BUCKET',
+      'QUARANTINE_S3_ACCESS_KEY_ID',
+      'QUARANTINE_S3_SECRET_ACCESS_KEY',
       'SCHEDULER_STATUS_HEARTBEAT_URL',
     ]);
 
@@ -121,6 +136,7 @@ describe('scheduler production runtime environment', () => {
     expect(runtime.common.accessKeyId).toBe(FETCHED_SCHEDULER_SECRETS.COMMON_S3_ACCESS_KEY_ID);
     expect(runtime.metadata.bucket).toBe(FETCHED_SCHEDULER_SECRETS.METADATA_S3_BUCKET);
     expect(runtime.protected.bucket).toBe(FETCHED_SCHEDULER_SECRETS.PROTECTED_S3_BUCKET);
+    expect(runtime.quarantine.bucket).toBe(FETCHED_SCHEDULER_SECRETS.QUARANTINE_S3_BUCKET);
     expect(runtime.statusHeartbeatUrl).toBe(
       FETCHED_SCHEDULER_SECRETS.SCHEDULER_STATUS_HEARTBEAT_URL
     );
@@ -166,6 +182,7 @@ describe('scheduler production runtime environment', () => {
     expect(runtime.common.accessKeyId).toBe(COMPLETE_RAW_ENV.COMMON_S3_ACCESS_KEY_ID);
     expect(runtime.metadata.endpoint).toBe(COMPLETE_RAW_ENV.METADATA_S3_ENDPOINT);
     expect(runtime.protected.endpoint).toBe(COMPLETE_RAW_ENV.PROTECTED_S3_ENDPOINT);
+    expect(runtime.quarantine.endpoint).toBe(COMPLETE_RAW_ENV.QUARANTINE_S3_ENDPOINT);
     expect(runtime.publish).toEqual({
       convexApiSecret: FETCHED_SCHEDULER_SECRETS.CONVEX_API_SECRET,
       convexUrl: FETCHED_SCHEDULER_SECRETS.CONVEX_URL,
@@ -190,6 +207,7 @@ describe('scheduler production runtime environment', () => {
     expect(runtime.common.endpoint).toBe(COMPLETE_RAW_ENV.COMMON_S3_ENDPOINT);
     expect(runtime.metadata.endpoint).toBe(COMPLETE_RAW_ENV.METADATA_S3_ENDPOINT);
     expect(runtime.protected.endpoint).toBe(COMPLETE_RAW_ENV.PROTECTED_S3_ENDPOINT);
+    expect(runtime.quarantine.endpoint).toBe(COMPLETE_RAW_ENV.QUARANTINE_S3_ENDPOINT);
     expect(runtime.publish).toEqual({
       convexApiSecret: FETCHED_SCHEDULER_SECRETS.CONVEX_API_SECRET,
       convexUrl: FETCHED_SCHEDULER_SECRETS.CONVEX_URL,

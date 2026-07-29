@@ -300,11 +300,11 @@ describe.serial('package installer TUF production publisher', () => {
       const gcCatalog = new StorageGcCatalog(database);
       const firstGeneration = await runExactVersionGarbageCollection({
         catalog: gcCatalog,
-        storage,
+        deletionStorage: storage,
       });
       const secondGeneration = await runExactVersionGarbageCollection({
         catalog: gcCatalog,
-        storage,
+        deletionStorage: storage,
       });
       expect(firstGeneration.deletedObjects).toBe(0);
       expect(secondGeneration.deletedObjects).toBe(1);

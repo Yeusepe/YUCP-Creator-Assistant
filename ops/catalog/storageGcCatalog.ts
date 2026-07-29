@@ -31,6 +31,7 @@ export type StorageGcReleasePin = {
 export type StorageGcDeletion = {
   bucketName: string;
   bytes: number;
+  fileIdentifier: string;
   generationId: number;
   journalId: string;
   objectKey: string;
@@ -62,6 +63,7 @@ type PinRow = {
 type DeletionRow = {
   bucket_name: string;
   bytes: number | string;
+  file_identifier: string;
   generation_id: number | string;
   journal_id: string;
   object_key: string;
@@ -107,6 +109,7 @@ function toDeletion(row: DeletionRow): StorageGcDeletion {
   return {
     bucketName: row.bucket_name,
     bytes: toSafeInteger(row.bytes, 'Storage GC object bytes'),
+    fileIdentifier: requiredText(row.file_identifier, 'Storage GC file identifier', 512),
     generationId: toSafeInteger(row.generation_id, 'Storage GC deletion generation'),
     journalId: row.journal_id,
     objectKey: row.object_key,
@@ -366,6 +369,7 @@ export class StorageGcCatalog {
         object.storage_role,
         object.bucket_name,
         object.object_key,
+        object.file_identifier,
         object.provider_version,
         object.bytes
       FROM storage_gc_deletion_journal journal
@@ -584,6 +588,7 @@ export class StorageGcCatalog {
           object.storage_role,
           object.bucket_name,
           object.object_key,
+          object.file_identifier,
           object.provider_version,
           object.bytes
         FROM storage_gc_candidates candidate
@@ -594,6 +599,7 @@ export class StorageGcCatalog {
             object.storage_role,
             object.bucket_name,
             object.object_key,
+            object.file_identifier,
             object.provider_version,
             object.bytes
           FROM storage_object_versions object

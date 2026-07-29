@@ -286,6 +286,9 @@ function createMemoryCatalog(
 function createMemoryQuarantineStorage(): QuarantineStoragePort {
   const versions = new Map<string, QuarantineExactHead>();
   return {
+    async getExactVersion() {
+      throw new Error('Memory quarantine recovery is not used by this test');
+    },
     async headExactVersion(objectKey, providerVersion) {
       const exact = versions.get(objectKey);
       if (!exact || exact.providerVersion !== providerVersion) {

@@ -213,7 +213,7 @@ async function writePipelineMetadata(input: {
 
 export async function storeBootstrapMediaObject(input: {
   body: Uint8Array;
-  contentType: VpmBootstrapMediaObject['contentType'];
+  contentType: NonNullable<VpmBootstrapMediaObject['contentType']>;
   kind: VpmBootstrapMediaObject['kind'];
   label?: string;
   localPath: string;
@@ -437,20 +437,33 @@ async function prepareLogicalAssembly(
   });
   const bootstrapMetadata = prepared.bootstrapMetadata;
   const bootstrapMedia = await Promise.all(
-    normalized.envelopeMetadata.map((media) =>
-      storeBootstrapMediaObject({
+    normalized.envelopeMetadata.map((media) => {
+      if (!media.body || media.contentType === undefined) {
+        // Product links without an image carry no payload to store.
+        return Promise.resolve(
+          normalizeVpmBootstrapMedia([
+            {
+              kind: media.kind,
+              ...(media.ordinal === undefined ? {} : { ordinal: media.ordinal }),
+              ...(media.label === undefined ? {} : { label: media.label }),
+              ...(media.url === undefined ? {} : { url: media.url }),
+            },
+          ])[0] as VpmBootstrapMediaObject
+        );
+      }
+      return storeBootstrapMediaObject({
         body: media.body,
         contentType: media.contentType,
         kind: media.kind,
-        localPath: media.localPath,
+        localPath: media.localPath as string,
         ...(media.ordinal === undefined ? {} : { ordinal: media.ordinal }),
         ownerId: input.version.id,
-        sha256: media.sha256,
+        sha256: media.sha256 as string,
         store: input.metadataStore,
         ...(media.label === undefined ? {} : { label: media.label }),
         ...(media.url === undefined ? {} : { url: media.url }),
-      })
-    )
+      });
+    })
   );
   const release = createLogicalReleaseRootV4({
     files: classified.files,

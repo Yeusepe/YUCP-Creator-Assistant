@@ -954,7 +954,9 @@ describe.serial('tus ingest end to end', () => {
     expect(protectedChunkObjects).toHaveLength(protectedChunks.size);
     const metadataObjectKeys = new Set([
       `${stores.metadata.config.indexPrefix}${assemblyIndexId}`,
-      ...(manifest.bootstrapMedia ?? []).map((media) => media.objectKey),
+      ...(manifest.bootstrapMedia ?? [])
+        .map((media) => media.objectKey)
+        .filter((objectKey): objectKey is string => objectKey !== undefined),
     ]);
     expect(new Set(metadataObjects.map((object) => object.key))).toEqual(metadataObjectKeys);
     expect(

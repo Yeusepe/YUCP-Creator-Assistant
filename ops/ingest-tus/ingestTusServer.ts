@@ -576,11 +576,19 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Ingest
         throw tusError(500, 'Completed upload is missing its file storage path.');
       }
 
+      const creatorId = requiredMetadata(
+        storedUpload.metadata,
+        CREATOR_ID_METADATA_KEY,
+        'creator identity'
+      );
+      const protectionPolicyId = requiredProtectionPolicyId(storedUpload.metadata);
       try {
         await persistCompletedUpload({
           catalog: input.catalog,
           contentType: quarantineContentType(storedUpload),
+          creatorId,
           path: storedUpload.storage.path,
+          protectionPolicyId,
           storage: input.quarantineStorage,
           versionId,
         });
@@ -600,14 +608,10 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Ingest
       const assemblyInput = {
         catalog: input.catalog,
         commonStore: input.commonStore,
-        creatorId: requiredMetadata(
-          storedUpload.metadata,
-          CREATOR_ID_METADATA_KEY,
-          'creator identity'
-        ),
+        creatorId,
         metadataStore: input.metadataStore,
         protectedStore: input.protectedStore,
-        protectionPolicyId: requiredProtectionPolicyId(storedUpload.metadata),
+        protectionPolicyId,
         scratchRoot: input.scratchRoot,
         versionId,
         inputPath: storedUpload.storage.path,

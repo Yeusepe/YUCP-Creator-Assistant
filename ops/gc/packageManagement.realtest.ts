@@ -264,7 +264,7 @@ function reusedBytes(
 
 async function drainGarbageCollection(input: {
   catalog: StorageGcCatalog;
-  storage: ExpiredRetentionStorage;
+  deletionStorage: ExpiredRetentionStorage;
 }): Promise<{
   deletedBytes: number;
   deletedObjects: number;
@@ -568,7 +568,7 @@ describe.serial('real Unity package management', () => {
     });
     const baseGc = await drainGarbageCollection({
       catalog: gcCatalog,
-      storage: exactStorage,
+      deletionStorage: exactStorage,
     });
     const deletedBaseObjects = await requireSql()<{ id: string; verification_state: string }[]>`
       SELECT id, verification_state
@@ -606,7 +606,7 @@ describe.serial('real Unity package management', () => {
     expect(gcClaimPlan).not.toContain('Seq Scan on storage_write_intents');
     const packageGc = await drainGarbageCollection({
       catalog: gcCatalog,
-      storage: exactStorage,
+      deletionStorage: exactStorage,
     });
     expect(await activeCatalog.listVersions('com.yucp.druffle-management')).toEqual([]);
     expect(await activeCatalog.listVersions('com.yucp.unrelated-retained')).toEqual([unrelated]);

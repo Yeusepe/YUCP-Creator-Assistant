@@ -258,13 +258,13 @@ describe.serial('exact-version garbage collection', () => {
 
     const first = await runExactVersionGarbageCollection({
       catalog: gcCatalog,
-      storage,
+      deletionStorage: storage,
     });
     expect(first.deletedObjects).toBe(0);
 
     const secondRun = runExactVersionGarbageCollection({
       catalog: gcCatalog,
-      storage,
+      deletionStorage: storage,
     });
     await storage.deletionStarted;
     let competingLockSettled = false;
@@ -359,11 +359,11 @@ describe.serial('exact-version garbage collection', () => {
 
     const first = await runExactVersionGarbageCollection({
       catalog: gcCatalog,
-      storage,
+      deletionStorage: storage,
     });
     const second = await runExactVersionGarbageCollection({
       catalog: gcCatalog,
-      storage,
+      deletionStorage: storage,
     });
     const candidates = await activeSql<{ object_version_id: string }[]>`
       SELECT object_version_id
@@ -404,11 +404,11 @@ describe.serial('exact-version garbage collection', () => {
 
     const first = await runExactVersionGarbageCollection({
       catalog: gcCatalog,
-      storage,
+      deletionStorage: storage,
     });
     const second = await runExactVersionGarbageCollection({
       catalog: gcCatalog,
-      storage,
+      deletionStorage: storage,
     });
 
     expect(first.deletedObjects).toBe(0);
@@ -465,11 +465,11 @@ describe.serial('exact-version garbage collection', () => {
 
     const first = await runExactVersionGarbageCollection({
       catalog: gcCatalog,
-      storage,
+      deletionStorage: storage,
     });
     const second = await runExactVersionGarbageCollection({
       catalog: gcCatalog,
-      storage,
+      deletionStorage: storage,
     });
     const candidates = await activeSql<{ object_version_id: string }[]>`
       SELECT object_version_id
@@ -546,7 +546,7 @@ describe.serial('exact-version garbage collection', () => {
     const recovered = await runExactVersionGarbageCollection({
       catalog: gcCatalog,
       now: new Date(second.generation.completedAt.getTime() + 2),
-      storage,
+      deletionStorage: storage,
     });
     const states = await activeSql<{ candidate_state: string; journal_state: string }[]>`
       SELECT
@@ -656,7 +656,7 @@ describe.serial('exact-version garbage collection', () => {
     });
     const whileShared = await runExactVersionGarbageCollection({
       catalog: gcCatalog,
-      storage,
+      deletionStorage: storage,
     });
     expect(whileShared.candidatesObserved).toBe(0);
 
@@ -667,7 +667,7 @@ describe.serial('exact-version garbage collection', () => {
     });
     const first = await runExactVersionGarbageCollection({
       catalog: gcCatalog,
-      storage,
+      deletionStorage: storage,
     });
     expect(first.candidatesObserved).toBe(1);
     expect(first.deletedObjects).toBe(0);
@@ -680,7 +680,7 @@ describe.serial('exact-version garbage collection', () => {
 
     const second = await runExactVersionGarbageCollection({
       catalog: gcCatalog,
-      storage,
+      deletionStorage: storage,
     });
     expect(second.deletedObjects).toBe(1);
     expect(
@@ -862,7 +862,7 @@ describe.serial('exact-version garbage collection', () => {
     });
     await runExactVersionGarbageCollection({
       catalog: gcCatalog,
-      storage,
+      deletionStorage: storage,
     });
     const candidatesAfter211 = await activeSql<{ object_version_id: string }[]>`
       SELECT object_version_id
@@ -899,7 +899,7 @@ describe.serial('exact-version garbage collection', () => {
     });
     const first = await runExactVersionGarbageCollection({
       catalog: gcCatalog,
-      storage,
+      deletionStorage: storage,
     });
     expect(first.deletedObjects).toBe(0);
     const candidatesAfterLastRelease = await activeSql<
@@ -923,7 +923,7 @@ describe.serial('exact-version garbage collection', () => {
 
     const second = await runExactVersionGarbageCollection({
       catalog: gcCatalog,
-      storage,
+      deletionStorage: storage,
     });
     expect(second.deletedObjects).toBe(1);
     const packageStates = await activeSql<{ id: string; state: string }[]>`
@@ -1032,10 +1032,13 @@ describe.serial('exact-version garbage collection', () => {
       reason: 'creator-request',
     });
 
-    await runExactVersionGarbageCollection({ catalog: gcCatalog, storage });
+    await runExactVersionGarbageCollection({
+      catalog: gcCatalog,
+      deletionStorage: storage,
+    });
     const held = await runExactVersionGarbageCollection({
       catalog: gcCatalog,
-      storage,
+      deletionStorage: storage,
     });
     expect(held.deletedObjects).toBe(0);
     expect(
@@ -1046,10 +1049,13 @@ describe.serial('exact-version garbage collection', () => {
     ).toHaveLength(1);
 
     await gcCatalog.releaseReleasePin(pin.id);
-    await runExactVersionGarbageCollection({ catalog: gcCatalog, storage });
+    await runExactVersionGarbageCollection({
+      catalog: gcCatalog,
+      deletionStorage: storage,
+    });
     const released = await runExactVersionGarbageCollection({
       catalog: gcCatalog,
-      storage,
+      deletionStorage: storage,
     });
     expect(released.deletedObjects).toBe(1);
   }, 180_000);
@@ -1115,7 +1121,7 @@ describe.serial('exact-version garbage collection', () => {
     const released = await runExactVersionGarbageCollection({
       catalog: gcCatalog,
       now: new Date(second.generation.completedAt.getTime() + 2),
-      storage,
+      deletionStorage: storage,
     });
     expect(released.deletedObjects).toBe(1);
   }, 180_000);
@@ -1166,19 +1172,19 @@ describe.serial('exact-version garbage collection', () => {
     const whilePinned = await runExactVersionGarbageCollection({
       catalog: gcCatalog,
       now: new Date(expiresAt.getTime() - 1),
-      storage,
+      deletionStorage: storage,
     });
     expect(whilePinned.candidatesObserved).toBe(0);
     const firstExpired = await runExactVersionGarbageCollection({
       catalog: gcCatalog,
       now: new Date(expiresAt.getTime() + 1),
-      storage,
+      deletionStorage: storage,
     });
     expect(firstExpired.deletedObjects).toBe(0);
     const secondExpired = await runExactVersionGarbageCollection({
       catalog: gcCatalog,
       now: new Date(expiresAt.getTime() + 2),
-      storage,
+      deletionStorage: storage,
     });
     expect(secondExpired.deletedObjects).toBe(1);
   }, 180_000);

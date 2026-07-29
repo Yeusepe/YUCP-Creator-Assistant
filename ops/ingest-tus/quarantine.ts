@@ -1,10 +1,14 @@
 import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
-import { extname } from 'node:path';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
+import { extname, join, resolve } from 'node:path';
+import { Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import type { Catalog, PackageQuarantineObject } from '../catalog';
 import type { CasConfig } from '../storage-core/config';
 import { S3ExactStoragePort } from '../storage-core/exactStorage';
+import type { ProtectionPolicyId } from '../storage-core/protectionPolicyId';
 import { S3MultipartCompletionUncertainError } from '../storage-core/s3Control';
 
 const VERSION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -22,6 +26,7 @@ export type QuarantineExactHead = QuarantineExactVersion & {
 };
 
 export interface QuarantineStoragePort {
+  getExactVersion(objectKey: string, providerVersion: string): Promise<Response>;
   headExactVersion(objectKey: string, providerVersion: string): Promise<QuarantineExactHead>;
   listVersions(objectKey: string): Promise<QuarantineExactVersion[]>;
   putFile(input: {
@@ -80,7 +85,9 @@ async function verifyExactQuarantineObject(input: {
 export async function persistCompletedUpload(input: {
   catalog: QuarantineCatalogPort;
   contentType: string;
+  creatorId: string;
   path: string;
+  protectionPolicyId: ProtectionPolicyId;
   storage: QuarantineStoragePort;
   versionId: string;
 }): Promise<PackageQuarantineObject> {
@@ -93,7 +100,9 @@ export async function persistCompletedUpload(input: {
   const intent = await input.catalog.beginQuarantineObject({
     bytes: details.size,
     contentType: input.contentType,
+    creatorId: input.creatorId,
     objectKey,
+    protectionPolicyId: input.protectionPolicyId,
     sha256,
     versionId: input.versionId,
   });
@@ -148,9 +157,109 @@ export async function persistCompletedUpload(input: {
   });
 }
 
+function checkpointExtension(checkpoint: PackageQuarantineObject): string {
+  const extension = extname(checkpoint.objectKey).toLowerCase();
+  if (!ALLOWED_EXTENSIONS.has(extension)) {
+    throw new Error('Quarantine checkpoint extension is invalid');
+  }
+  return extension;
+}
+
+async function restoreCheckpointFile(input: {
+  checkpoint: PackageQuarantineObject;
+  outputPath: string;
+  signal?: AbortSignal;
+  storage: QuarantineStoragePort;
+}): Promise<void> {
+  input.signal?.throwIfAborted();
+  const { checkpoint } = input;
+  if (
+    checkpoint.state !== 'COMMITTED' ||
+    !checkpoint.fileIdentifier ||
+    !checkpoint.providerVersion
+  ) {
+    throw new Error('Quarantine checkpoint is not committed');
+  }
+  await verifyExactQuarantineObject({
+    bytes: checkpoint.bytes,
+    contentType: checkpoint.contentType,
+    objectKey: checkpoint.objectKey,
+    sha256: checkpoint.sha256,
+    storage: input.storage,
+    version: {
+      fileIdentifier: checkpoint.fileIdentifier,
+      providerVersion: checkpoint.providerVersion,
+    },
+  });
+  input.signal?.throwIfAborted();
+  const response = await input.storage.getExactVersion(
+    checkpoint.objectKey,
+    checkpoint.providerVersion
+  );
+  if (!response.body) {
+    throw new Error('Quarantine exact object returned an empty response body');
+  }
+
+  let bytes = 0;
+  const digest = createHash('sha256');
+  const verifier = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      bytes += chunk.byteLength;
+      digest.update(chunk);
+      callback(null, chunk);
+    },
+  });
+  await pipeline(
+    Readable.fromWeb(response.body as unknown as NodeReadableStream),
+    verifier,
+    createWriteStream(input.outputPath, { flags: 'wx' }),
+    { signal: input.signal }
+  );
+  if (bytes !== checkpoint.bytes || digest.digest('hex') !== checkpoint.sha256) {
+    throw new Error('Restored quarantine object failed content verification');
+  }
+}
+
+export async function withRestoredCompletedUpload<T>(input: {
+  checkpoint: PackageQuarantineObject;
+  operation: (path: string) => Promise<T>;
+  scratchRoot: string;
+  signal?: AbortSignal;
+  storage: QuarantineStoragePort;
+}): Promise<T> {
+  input.signal?.throwIfAborted();
+  const requestedScratchRoot = input.scratchRoot.trim();
+  if (!requestedScratchRoot) {
+    throw new Error('Quarantine recovery scratch root is invalid');
+  }
+  const scratchRoot = resolve(requestedScratchRoot);
+  await mkdir(scratchRoot, { recursive: true });
+  const scratchPath = await mkdtemp(join(scratchRoot, 'quarantine-redrive-'));
+  try {
+    const path = join(scratchPath, `package${checkpointExtension(input.checkpoint)}`);
+    await restoreCheckpointFile({
+      checkpoint: input.checkpoint,
+      outputPath: path,
+      signal: input.signal,
+      storage: input.storage,
+    });
+    input.signal?.throwIfAborted();
+    return await input.operation(path);
+  } finally {
+    await rm(scratchPath, { force: true, recursive: true });
+  }
+}
+
 export function createS3QuarantineStorage(config: CasConfig): QuarantineStoragePort {
   const storage = new S3ExactStoragePort({ quarantine: config });
   return {
+    getExactVersion(objectKey, providerVersion) {
+      return storage.getExactVersion({
+        objectKey,
+        providerVersion,
+        role: 'quarantine',
+      });
+    },
     async headExactVersion(objectKey, providerVersion) {
       const head = await storage.headExactVersion({
         objectKey,

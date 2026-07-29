@@ -13,7 +13,8 @@ import {
   type RedriveRequest,
   runCatalogMigrations,
 } from '../catalog';
-import { ingestVersion, promoteVersion, retrieveVersion } from '../ingest-pipeline';
+import { beginVersion, ingestVersion, promoteVersion, retrieveVersion } from '../ingest-pipeline';
+import { createS3QuarantineStorage, persistCompletedUpload } from '../ingest-tus/quarantine';
 import { type CasConfig, loadCasConfig } from '../storage-core/config';
 import { deliveryManifestObjectId, parseDeliveryManifest } from '../storage-core/deliveryManifest';
 import {
@@ -53,6 +54,7 @@ let catalog: Catalog | undefined;
 let commonStore: S3CasStore | undefined;
 let metadataStore: S3CasStore | undefined;
 let protectedStore: S3CasStore | undefined;
+let quarantineConfig: CasConfig | undefined;
 let scratchPath: string | undefined;
 let catalogDatabaseUrl: string | undefined;
 const schedulers = new Set<IngestScheduler>();
@@ -150,6 +152,13 @@ function requireScratchPath(): string {
   return scratchPath;
 }
 
+function requireQuarantineConfig(): CasConfig {
+  if (!quarantineConfig) {
+    throw new Error('Scheduler end-to-end quarantine storage was not initialized');
+  }
+  return quarantineConfig;
+}
+
 function requireCatalogDatabaseUrl(): string {
   if (!catalogDatabaseUrl) {
     throw new Error('Scheduler end-to-end database URL was not initialized');
@@ -189,6 +198,11 @@ async function buildProductionSchedulerRuntime(): Promise<SchedulerRuntime> {
     PROTECTED_S3_BUCKET: activeStores.protectedStore.config.bucket,
     PROTECTED_S3_ACCESS_KEY_ID: activeStores.protectedStore.config.accessKeyId,
     PROTECTED_S3_SECRET_ACCESS_KEY: activeStores.protectedStore.config.secretAccessKey,
+    QUARANTINE_S3_ENDPOINT: requireQuarantineConfig().endpoint,
+    QUARANTINE_S3_REGION: requireQuarantineConfig().region,
+    QUARANTINE_S3_BUCKET: requireQuarantineConfig().bucket,
+    QUARANTINE_S3_ACCESS_KEY_ID: requireQuarantineConfig().accessKeyId,
+    QUARANTINE_S3_SECRET_ACCESS_KEY: requireQuarantineConfig().secretAccessKey,
     SCHEDULER_STATUS_HEARTBEAT_URL:
       'https://127.0.0.1:1/ext/heartbeat/yucp-ingest-scheduler/test-secret',
   }));
@@ -280,6 +294,7 @@ async function cleanup(): Promise<void> {
   commonStore = undefined;
   metadataStore = undefined;
   protectedStore = undefined;
+  quarantineConfig = undefined;
   try {
     await activeSql?.end({ timeout: 1 });
   } finally {
@@ -371,7 +386,8 @@ beforeAll(async () => {
     const commonConfig = roleConfig('common');
     const metadataConfig = roleConfig('metadata');
     const protectedConfig = roleConfig('protected');
-    for (const config of [commonConfig, metadataConfig, protectedConfig]) {
+    quarantineConfig = roleConfig('quarantine');
+    for (const config of [commonConfig, metadataConfig, protectedConfig, quarantineConfig]) {
       await createS3Bucket(config);
     }
     const durableStorage = new DurableExactStorage(
@@ -808,43 +824,70 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
     expect(errors).toEqual([]);
   });
 
-  it('does not automatically recover a failure without CAS assembly data', async () => {
+  it('automatically assembles a committed upload after the ingest process stops', async () => {
     const activeCatalog = requireCatalog();
     const activeSql = requireSql();
-    const created = await activeCatalog.createVersion({
-      packageId: 'scheduler-source-replay-required',
+    const activeStores = requireStores();
+    const scratch = requireScratchPath();
+    const inputPath = join(scratch, 'quarantine-redrive.unitypackage');
+    const inputFiles = await createUnityPackageRecordFixture({
+      outputPath: inputPath,
+      timestamp: new Date('2026-07-24T00:00:00.000Z'),
+      versionSeed: 'scheduler-quarantine-redrive',
+    });
+    const uploading = await beginVersion({
+      catalog: activeCatalog,
+      packageId: 'scheduler-quarantine-redrive',
       version: '1.0.0',
     });
-    const failed = await activeCatalog.markFailed(created.id, 'upload failed before assembly');
-    expect(failed).toMatchObject({
-      state: 'FAILED',
-      assemblyObjectId: null,
-      releaseRoot: null,
+    const checkpoint = await persistCompletedUpload({
+      catalog: activeCatalog,
+      contentType: 'application/gzip',
+      creatorId: 'scheduler-quarantine-creator',
+      path: inputPath,
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
+      storage: createS3QuarantineStorage(requireQuarantineConfig()),
+      versionId: uploading.id,
     });
+    expect(checkpoint).toMatchObject({
+      creatorId: 'scheduler-quarantine-creator',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
+      state: 'COMMITTED',
+    });
+    await rm(inputPath, { force: true });
     await activeSql`
       UPDATE package_versions
-      SET next_attempt_at = clock_timestamp() - interval '1 millisecond'
-      WHERE id = ${created.id}
+      SET updated_at = clock_timestamp() - interval '2 minutes'
+      WHERE id = ${uploading.id}
     `;
 
     const runtime = await buildProductionSchedulerRuntime();
     runtime.scheduler.start();
-    await Bun.sleep(intervalMs * 8);
+    await waitForState(uploading.id, 'READY');
     await runtime.scheduler.stop();
 
-    expect(await activeCatalog.getVersion(created.id)).toMatchObject({
-      state: 'FAILED',
+    expect(await activeCatalog.getVersion(uploading.id)).toMatchObject({
+      state: 'READY',
       attempts: 1,
-      assemblyObjectId: null,
-      releaseRoot: null,
+      assemblyObjectId: expect.any(String),
+      releaseRoot: expect.any(String),
     });
+    const retrievedPath = await retrieveVersion({
+      catalog: activeCatalog,
+      ...activeStores,
+      outputPath: join(scratch, 'quarantine-redrive-retrieved'),
+      versionId: uploading.id,
+    });
+    for (const [relativePath, expectedSha256] of inputFiles) {
+      expect(await sha256File(join(retrievedPath, relativePath))).toBe(expectedSha256);
+    }
 
     console.log(
       [
-        'SCHEDULER_SOURCE_REPLAY_RESULT',
-        'automatic-recovery=no',
-        'state=FAILED',
-        'cas-index=absent',
+        'SCHEDULER_QUARANTINE_REDRIVE_RESULT',
+        'ingest-process-stopped=yes',
+        'source-restored-from-quarantine=yes',
+        'state=READY',
         'redrive-attempted=yes',
       ].join('\n')
     );

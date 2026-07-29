@@ -297,7 +297,7 @@ function AccountProfile() {
         <p className="account-feature-copy">
           {isCreator
             ? 'Use the creator dashboard to configure storefront integrations, packages, collaboration flows, and any connected communities.'
-            : 'This creates your creator account immediately and opens the dashboard. No server or bot installation is required.'}
+            : 'This creates your creator account immediately and opens the dashboard.'}
         </p>
 
         <div className="account-inline-actions">

@@ -1,7 +1,11 @@
 import type { StorageGcCatalog, StorageGcDeletion } from '../catalog/storageGcCatalog';
-import type { ExactStoragePort } from '../storage-core/exactStorage';
+import {
+  ExactVersionDeletionBlockedError,
+  type ExactVersionDeletionPort,
+} from '../storage-core/exactVersionDeletion';
 
 const DEFAULT_DELETION_LIMIT = 100;
+const DEFAULT_OBJECT_LOCK_RETRY_MS = 24 * 60 * 60 * 1_000;
 
 export type ExactVersionGarbageCollectionResult = {
   candidatesObserved: number;
@@ -21,48 +25,32 @@ function errorMessage(error: unknown): string {
   return String(error).trim() || 'Unknown exact-version deletion failure';
 }
 
-async function exactVersionStillExists(
-  deletion: StorageGcDeletion,
-  storage: ExactStoragePort
-): Promise<boolean> {
-  const versions = await storage.listExactVersions({
-    objectKey: deletion.objectKey,
-    role: deletion.storageRole,
-  });
-  return versions.some((version) => version.providerVersion === deletion.providerVersion);
-}
-
 async function processDeletion(input: {
   catalog: StorageGcCatalog;
+  deletionStorage: ExactVersionDeletionPort;
   deletion: StorageGcDeletion;
   now: Date;
+  objectLockRetryMs: number;
   result: ExactVersionGarbageCollectionResult;
-  storage: ExactStoragePort;
 }): Promise<void> {
   try {
     const fenced = await input.catalog.withPendingDeletionFence({
       handoff: async () => {
-        if (!(await exactVersionStillExists(input.deletion, input.storage))) {
-          return { state: 'DELETED' as const };
-        }
-        const retention = await input.storage.getRetention({
-          objectKey: input.deletion.objectKey,
-          providerVersion: input.deletion.providerVersion,
-          role: input.deletion.storageRole,
-        });
-        if (retention.retainUntil.getTime() > input.now.getTime()) {
-          return {
-            retainUntil: retention.retainUntil,
-            state: 'RETENTION_BLOCKED' as const,
-          };
-        }
-        await input.storage.deleteExactVersion({
-          objectKey: input.deletion.objectKey,
-          providerVersion: input.deletion.providerVersion,
-          role: input.deletion.storageRole,
-        });
-        if (await exactVersionStillExists(input.deletion, input.storage)) {
-          throw new Error('Exact provider version still exists after deletion');
+        try {
+          await input.deletionStorage.deleteExactVersion({
+            fileIdentifier: input.deletion.fileIdentifier,
+            objectKey: input.deletion.objectKey,
+            providerVersion: input.deletion.providerVersion,
+            role: input.deletion.storageRole,
+          });
+        } catch (error) {
+          if (error instanceof ExactVersionDeletionBlockedError) {
+            return {
+              retainUntil: new Date(input.now.getTime() + input.objectLockRetryMs),
+              state: 'RETENTION_BLOCKED' as const,
+            };
+          }
+          throw error;
         }
         return { state: 'DELETED' as const };
       },
@@ -93,16 +81,21 @@ async function processDeletion(input: {
 
 export async function runExactVersionGarbageCollection(input: {
   catalog: StorageGcCatalog;
+  deletionStorage: ExactVersionDeletionPort;
   deletionLimit?: number;
   now?: Date;
-  storage: ExactStoragePort;
+  objectLockRetryMs?: number;
 }): Promise<ExactVersionGarbageCollectionResult> {
   const deletionLimit = input.deletionLimit ?? DEFAULT_DELETION_LIMIT;
+  const objectLockRetryMs = input.objectLockRetryMs ?? DEFAULT_OBJECT_LOCK_RETRY_MS;
   if (!Number.isSafeInteger(deletionLimit) || deletionLimit < 1 || deletionLimit > 1000) {
     throw new Error('Exact-version GC deletion limit is invalid');
   }
   if (input.now !== undefined && !Number.isFinite(input.now.getTime())) {
     throw new Error('Exact-version GC time is invalid');
+  }
+  if (!Number.isSafeInteger(objectLockRetryMs) || objectLockRetryMs < 1) {
+    throw new Error('Exact-version GC Object Lock retry interval is invalid');
   }
   const observed = await input.catalog.observeGeneration(input.now);
   const now = input.now ?? observed.generation.completedAt;
@@ -121,10 +114,11 @@ export async function runExactVersionGarbageCollection(input: {
   for (const deletion of pending) {
     await processDeletion({
       catalog: input.catalog,
+      deletionStorage: input.deletionStorage,
       deletion,
       now,
+      objectLockRetryMs,
       result,
-      storage: input.storage,
     });
     result.recoveredDeletions += 1;
   }
@@ -140,10 +134,11 @@ export async function runExactVersionGarbageCollection(input: {
     }
     await processDeletion({
       catalog: input.catalog,
+      deletionStorage: input.deletionStorage,
       deletion,
       now,
+      objectLockRetryMs,
       result,
-      storage: input.storage,
     });
     processed += 1;
   }
