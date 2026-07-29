@@ -263,7 +263,7 @@ afterAll(async () => {
 });
 
 describe.serial('PostgreSQL materialization capability broker', () => {
-  it('consumes one fenced capability without returning materialization keys', async () => {
+  it('consumes one fenced capability and rotates source authorization on lease renewal', async () => {
     let broker = createBroker();
     const installJob = {
       bindingRoot: new Uint8Array(32).fill(0x23),
@@ -415,6 +415,24 @@ describe.serial('PostgreSQL materialization capability broker', () => {
       installSessionId: 'job-1',
     });
     expect(consumed).not.toHaveProperty('keyEnvelope');
+
+    const renewedWithSourceAuthorization = await broker.renewClaimLease({
+      jobId: claimed.jobId,
+      leaseDurationMs: 600_000,
+      leaseGeneration: claimed.leaseGeneration,
+      leaseOwner: 'data-node-1',
+      now: new Date((nowSeconds + 240) * 1_000),
+    });
+    expect(renewedWithSourceAuthorization).toMatchObject({
+      jobId: 'job-1',
+      leaseExpiresAt: new Date((nowSeconds + 840) * 1_000),
+      leaseGeneration: 1,
+      sourceAuthorization: {
+        expiresAt: new Date((nowSeconds + 540) * 1_000),
+        grant: expect.any(String),
+      },
+      status: 'renewed',
+    });
 
     const personalizedBytes = new TextEncoder().encode('personalized png bytes');
     renditionArchive = zipSync({

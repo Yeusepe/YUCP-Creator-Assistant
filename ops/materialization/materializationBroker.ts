@@ -653,6 +653,16 @@ export class MaterializationBroker {
         ${new Date(expiresAt * 1_000)},
         ${input.traceId}
       )
+      ON CONFLICT (job_id, lease_generation)
+      DO UPDATE SET
+        grant_id = EXCLUDED.grant_id,
+        source_version_id = EXCLUDED.source_version_id,
+        proof_key_thumbprint = EXCLUDED.proof_key_thumbprint,
+        signed_grant_sha256 = EXCLUDED.signed_grant_sha256,
+        issued_at = EXCLUDED.issued_at,
+        expires_at = EXCLUDED.expires_at,
+        trace_id = EXCLUDED.trace_id,
+        created_at = clock_timestamp()
     `;
     return {
       expiresAt: new Date(expiresAt * 1_000),
