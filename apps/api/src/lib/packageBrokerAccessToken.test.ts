@@ -19,6 +19,7 @@ test('verifies package operations against the dedicated broker resource', async 
   await verifyPackageBrokerAccessRequest(request, {
     convexSiteUrl: 'https://auth.example.test',
     dpopReplayStore,
+    publicResourceBaseUrl: 'https://api.example.test',
     requiredAuthorizedParty: 'yucp-package-broker',
     requiredScopes: ['package:operate'],
   });
@@ -27,6 +28,7 @@ test('verifies package operations against the dedicated broker resource', async 
     audience: PACKAGE_BROKER_AUDIENCE,
     convexSiteUrl: 'https://auth.example.test',
     dpopReplayStore,
+    publicResourceBaseUrl: 'https://api.example.test',
     requiredAuthorizedParty: 'yucp-package-broker',
     requiredScopes: ['package:operate'],
   });

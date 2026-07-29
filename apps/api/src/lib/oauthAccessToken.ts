@@ -25,6 +25,7 @@ export interface VerifyOAuthAccessTokenOptions {
 
 export interface VerifyOAuthAccessRequestOptions extends VerifyOAuthAccessTokenOptions {
   dpopReplayStore: DpopReplayStore;
+  publicResourceBaseUrl: string;
   requiredAuthorizedParty?: string;
 }
 
@@ -136,7 +137,31 @@ export async function verifyBetterAuthAccessRequest(
     const { getDpopJktFromPayload, requestToResourceInput, verifyAccessTokenRequest } =
       await import('better-auth/oauth2');
     const authBase = `${options.convexSiteUrl.replace(/\/$/, '')}/api/auth`;
-    const verified = await verifyAccessTokenRequest(requestToResourceInput(request), {
+    const publicBaseUrl = new URL(options.publicResourceBaseUrl);
+    if (
+      (publicBaseUrl.protocol !== 'https:' && publicBaseUrl.protocol !== 'http:') ||
+      publicBaseUrl.username ||
+      publicBaseUrl.password
+    ) {
+      throw new Error('OAuth public resource base URL is invalid');
+    }
+    const internalRequestUrl = new URL(request.url);
+    const publicRequestUrl = new URL(
+      `${internalRequestUrl.pathname}${internalRequestUrl.search}`,
+      publicBaseUrl.origin
+    );
+    const resourceInput = {
+      ...requestToResourceInput(request),
+      /**
+       * Better Auth compares DPoP `htu` with this exact URL. Its resource-server
+       * documentation requires the externally visible URL behind a proxy.
+       * The configured public origin is trusted; client-supplied forwarding
+       * headers are intentionally ignored.
+       * https://better-auth.com/docs/beta/plugins/oauth-provider#verification
+       */
+      url: publicRequestUrl.href,
+    };
+    const verified = await verifyAccessTokenRequest(resourceInput, {
       verifyOptions: {
         issuer: authBase,
         audience: options.audience,

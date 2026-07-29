@@ -34,6 +34,7 @@ describe('verifyBetterAuthAccessToken', () => {
     convexSiteUrl: 'https://test.convex.site',
     logger: { debug, warn },
     logContext: 'OAuth token verification failed',
+    publicResourceBaseUrl: 'https://api.example.test',
   };
 
   beforeEach(() => {
@@ -126,6 +127,33 @@ describe('verifyBetterAuthAccessToken', () => {
         replayStore,
         signingAlgorithms: ['ES256'],
       },
+    });
+  });
+
+  it('verifies DPoP htu against the trusted public resource URL behind a proxy', async () => {
+    const request = new Request(
+      'http://10.42.0.30:8080/api/v2/package-installs/authorizations?attempt=1',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'DPoP access-token',
+          DPoP: 'proof-jwt',
+          'X-Forwarded-Host': 'attacker.example.test',
+          'X-Forwarded-Proto': 'http',
+        },
+      }
+    );
+
+    await verifyBetterAuthAccessRequest(request, {
+      ...options,
+      audience: 'https://api.example.test/package-operations',
+      dpopReplayStore: { reserve: async () => true },
+      publicResourceBaseUrl: 'https://api.example.test',
+    });
+
+    expect(verifyAccessTokenRequestMock.mock.calls[0]?.[0]).toMatchObject({
+      method: 'POST',
+      url: 'https://api.example.test/api/v2/package-installs/authorizations?attempt=1',
     });
   });
 

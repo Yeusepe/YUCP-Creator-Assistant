@@ -452,6 +452,7 @@ function initializeAuth(webhookBaseUrl?: string) {
               dpopReplayStore: operationAuthorizationStore.dpopReplayStore(),
               logger,
               logContext: 'Package install DPoP verification failed',
+              publicResourceBaseUrl: publicBaseUrl,
               requiredAuthorizedParty: 'yucp-package-broker',
               requiredScopes: ['package:operate'],
             });
