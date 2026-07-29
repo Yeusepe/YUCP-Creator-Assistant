@@ -166,9 +166,17 @@ async function signedRequest(input: SignedRequestInput): Promise<Response> {
         lastFailure = failure;
         throttleFailures += 1;
         if (throttleFailures >= throttleAttempts) break;
-        await new Promise((resolve) =>
-          setTimeout(resolve, throttleRetryDelayMs(throttleFailures, retryAfterMs(response)))
+        const delayMs = throttleRetryDelayMs(throttleFailures, retryAfterMs(response));
+        console.warn(
+          JSON.stringify({
+            event: 's3.throttled_retry',
+            operation: input.operation,
+            status: response.status,
+            attempt: throttleFailures,
+            delayMs: Math.round(delayMs),
+          })
         );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
         continue;
       }
       if (response.status >= 500) {
