@@ -2390,6 +2390,44 @@ describe.serial('PostgreSQL catalog integration', () => {
     );
   });
 
+  it('a requeue failure preserves the retry budget and stays immediately claimable', async () => {
+    const activeCatalog = requireCatalog();
+    const database = requireSql();
+    const versionId = await createUploadingVersion('shutdown-requeue');
+    await activeCatalog.markFailed(versionId, 'genuine failure');
+    await activeCatalog.advanceVersion(versionId, 'UPLOADING', {
+      event: { type: 'catalog.version.retrying' },
+    });
+
+    const requeued = await activeCatalog.markFailed(
+      versionId,
+      'Interrupted by service shutdown',
+      undefined,
+      { requeue: true }
+    );
+    expect(requeued.attempts).toBe(1);
+    expect(requeued.nextAttemptAt).not.toBeNull();
+
+    await database`
+      UPDATE package_versions
+      SET
+        assembly_object_id = 's3-index:shutdown-requeue',
+        release_root = ${'c'.repeat(64)},
+        source_format = 'CANONICAL_ZIP_V1'
+      WHERE id = ${versionId}
+    `;
+    const redriven: string[] = [];
+    const result = await reconcileCatalog(database, {
+      stuckThresholdMs: 60 * 60 * 1000,
+      redrive: async ({ version }) => {
+        redriven.push(version.id);
+      },
+      publish: async () => {},
+    });
+    expect(redriven).toEqual([versionId]);
+    expect(result.versionsRedriven).toBe(1);
+  });
+
   it('a replacing upload starts with a fresh retry budget', async () => {
     const activeCatalog = requireCatalog();
     const versionId = await createUploadingVersion('fresh-budget');

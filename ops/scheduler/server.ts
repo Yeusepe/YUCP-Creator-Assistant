@@ -165,6 +165,7 @@ export async function buildSchedulerRuntime(
     url: runtimeEnv.statusHeartbeatUrl,
   });
   const database = openCatalogDatabase(runtimeEnv.catalogDatabaseUrl);
+  const shutdown = new AbortController();
   try {
     await runCatalogMigrations(database);
     const catalog = new Catalog(database, { maxAttempts: runtimeEnv.catalogMaxAttempts });
@@ -273,8 +274,9 @@ export async function buildSchedulerRuntime(
                   })
                 );
               },
-              operation: (signal) =>
-                withRestoredCompletedUpload({
+              operation: (heartbeatSignal) => {
+                const signal = AbortSignal.any([heartbeatSignal, shutdown.signal]);
+                return withRestoredCompletedUpload({
                   checkpoint,
                   scratchRoot: runtimeEnv.scratchRoot,
                   signal,
@@ -294,12 +296,20 @@ export async function buildSchedulerRuntime(
                       },
                       signal
                     ),
-                }),
+                });
+              },
             });
           } catch (error) {
             const failed = await catalog.getVersion(version.id);
             if (failed?.state === 'UPLOADING') {
-              await catalog.markFailed(version.id, schedulerErrorDiagnostic(error).errorMessage);
+              await catalog.markFailed(
+                version.id,
+                shutdown.signal.aborted
+                  ? 'Interrupted by service shutdown'
+                  : schedulerErrorDiagnostic(error).errorMessage,
+                undefined,
+                shutdown.signal.aborted ? { requeue: true } : {}
+              );
             }
             throw error;
           }
@@ -338,18 +348,34 @@ export async function buildSchedulerRuntime(
             `Automatic redrive cannot resume catalog version ${version.id} from ${current.state}`
           );
         }
-        await promoteVersion({
-          catalog,
-          commonStore,
-          metadataStore,
-          protectedStore,
-          scratchRoot: runtimeEnv.scratchRoot,
-          versionId: version.id,
-        });
+        try {
+          await promoteVersion(
+            {
+              catalog,
+              commonStore,
+              metadataStore,
+              protectedStore,
+              scratchRoot: runtimeEnv.scratchRoot,
+              versionId: version.id,
+            },
+            shutdown.signal
+          );
+        } catch (error) {
+          if (shutdown.signal.aborted) {
+            const interrupted = await catalog.getVersion(version.id);
+            if (interrupted && ['PROMOTING', 'UPLOADING'].includes(interrupted.state)) {
+              await catalog.markFailed(version.id, 'Interrupted by service shutdown', undefined, {
+                requeue: true,
+              });
+            }
+          }
+          throw error;
+        }
       },
       protectedStore,
       resolveCreatorId: createConvexPackageCreatorResolver(runtimeEnv.publish),
       scratchRoot: runtimeEnv.scratchRoot,
+      shutdownSignal: shutdown.signal,
       stuckThresholdMs: positiveInteger(
         env,
         'SCHEDULER_STUCK_THRESHOLD_MS',
@@ -357,7 +383,18 @@ export async function buildSchedulerRuntime(
       ),
     });
 
-    return { database, scheduler };
+    return {
+      database,
+      scheduler: {
+        start: () => scheduler.start(),
+        // Abort in-flight promotion and redrive work first so live versions are
+        // requeued (no attempt burned) before the pod is torn down.
+        stop: async () => {
+          shutdown.abort();
+          await scheduler.stop();
+        },
+      },
+    };
   } catch (error) {
     await database.end({ timeout: 0 });
     throw error;

@@ -959,7 +959,11 @@ async function finishPromotion(
   }
 }
 
-export async function promoteVersion(input: PromoteVersionInput): Promise<PackageVersion> {
+export async function promoteVersion(
+  input: PromoteVersionInput,
+  shutdownSignal?: AbortSignal
+): Promise<PackageVersion> {
+  shutdownSignal?.throwIfAborted();
   const promoting = await input.catalog.transition(input.versionId, 'PROMOTING', {
     event: { type: 'catalog.version.promoting' },
   });
@@ -976,7 +980,12 @@ export async function promoteVersion(input: PromoteVersionInput): Promise<Packag
         })
       );
     },
-    operation: (signal) => finishPromotion(input, promoting, signal),
+    operation: (signal) =>
+      finishPromotion(
+        input,
+        promoting,
+        shutdownSignal ? AbortSignal.any([signal, shutdownSignal]) : signal
+      ),
   });
 }
 

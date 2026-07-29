@@ -26,6 +26,7 @@ export type CreateIngestSchedulerOptions = Omit<
   protectedStore: CasStore;
   resolveCreatorId: (version: PackageVersion) => Promise<string>;
   scratchRoot: string;
+  shutdownSignal?: AbortSignal;
 };
 
 export interface IngestScheduler {
@@ -74,6 +75,7 @@ export function createIngestScheduler(options: CreateIngestSchedulerOptions): In
     protectedStore,
     resolveCreatorId,
     scratchRoot,
+    shutdownSignal,
     ...reconcileOptions
   } = options;
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -139,6 +141,9 @@ export function createIngestScheduler(options: CreateIngestSchedulerOptions): In
     }
 
     for (const candidate of candidates) {
+      if (shutdownSignal?.aborted) {
+        break;
+      }
       const context: IngestSchedulerErrorContext = {
         stage:
           candidate.state === 'READY' && candidate.release_schema_version === 3
@@ -169,21 +174,44 @@ export function createIngestScheduler(options: CreateIngestSchedulerOptions): In
             });
             return;
           }
-          await promoteVersion({
-            catalog,
-            commonStore,
-            metadataStore,
-            protectedStore,
-            scratchRoot,
-            versionId: candidate.id,
-          });
+          await promoteVersion(
+            {
+              catalog,
+              commonStore,
+              metadataStore,
+              protectedStore,
+              scratchRoot,
+              versionId: candidate.id,
+            },
+            shutdownSignal
+          );
         });
       } catch (error) {
         succeeded = false;
+        if (shutdownSignal?.aborted) {
+          await requeueInterrupted(candidate.id);
+          break;
+        }
         await reportError(error, context);
       }
     }
     return succeeded;
+  }
+
+  // A shutdown mid-flight is not the version's fault: requeue it so the next
+  // deployment resumes immediately instead of burning a retry attempt and
+  // waiting out the stuck-work threshold.
+  async function requeueInterrupted(versionId: string): Promise<void> {
+    try {
+      const version = await catalog.getVersion(versionId);
+      if (version && (version.state === 'PROMOTING' || version.state === 'UPLOADING')) {
+        await catalog.markFailed(versionId, 'Interrupted by service shutdown', undefined, {
+          requeue: true,
+        });
+      }
+    } catch {
+      // Best effort during shutdown; the reconciler stuck-work path remains the fallback.
+    }
   }
 
   async function runTick(): Promise<void> {

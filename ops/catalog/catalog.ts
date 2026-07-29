@@ -196,6 +196,12 @@ export interface TransitionOptions {
   fields?: TransitionFields;
   event: CatalogEvent;
   replacesUpload?: boolean;
+  /**
+   * A requeue failure records why live work stopped without burning the retry
+   * budget and leaves the version immediately eligible for redrive. Reserved for
+   * interruptions the version did not cause, such as a service shutdown.
+   */
+  requeue?: boolean;
 }
 
 export class PackageVersionNotFoundError extends Error {
@@ -1022,15 +1028,18 @@ export class Catalog {
         options.replacesUpload === true
       );
       const enteringFailed = targetState === 'FAILED';
+      // A requeue failure records an external interruption (service shutdown) without burning
+      // the retry budget; the version stays immediately eligible for redrive.
+      const requeue = enteringFailed && options.requeue === true;
       // A replacing upload is a fresh creator-initiated submission: it must not inherit the retry
       // budget burned by earlier uploads of the same version. Automatic redrives never replace.
       const freshUpload = targetState === 'UPLOADING' && options.replacesUpload === true;
-      const nextAttempts = enteringFailed
-        ? current.attempts + 1
-        : freshUpload
-          ? 0
-          : current.attempts;
-      const backoffMs = enteringFailed ? retryBackoffMs(nextAttempts, this.retryPolicy) : 0;
+      const nextAttempts =
+        enteringFailed && !requeue ? current.attempts + 1 : freshUpload ? 0 : current.attempts;
+      const backoffMs =
+        enteringFailed && !requeue
+          ? retryBackoffMs(Math.max(nextAttempts, 1), this.retryPolicy)
+          : 0;
       const updatedRows = await transaction<PackageVersionRow[]>`
         UPDATE package_versions
         SET
@@ -1120,9 +1129,14 @@ export class Catalog {
   async markFailed(
     versionId: string,
     error: string,
-    event: CatalogEvent = { type: 'catalog.version.failed' }
+    event: CatalogEvent = { type: 'catalog.version.failed' },
+    options: { requeue?: boolean } = {}
   ): Promise<PackageVersion> {
-    return this.transition(versionId, 'FAILED', { fields: { error }, event });
+    return this.transition(versionId, 'FAILED', {
+      fields: { error },
+      event,
+      ...(options.requeue ? { requeue: true } : {}),
+    });
   }
 
   async deleteVersion(
