@@ -31,6 +31,34 @@ func (provider credentialProviderFunc) Access(
 	return provider(ctx, identity, forceRefresh, report)
 }
 
+type authenticationCredentialProvider struct {
+	forceRefresh bool
+}
+
+func (provider *authenticationCredentialProvider) Access(
+	_ context.Context,
+	_ ClientIdentity,
+	forceRefresh bool,
+	_ ProgressReporter,
+) (OAuthTokens, deviceidentity.Identity, error) {
+	provider.forceRefresh = forceRefresh
+	return OAuthTokens{}, deviceidentity.Identity{}, nil
+}
+
+func (*authenticationCredentialProvider) Status(
+	context.Context,
+	ClientIdentity,
+) (bool, error) {
+	return true, nil
+}
+
+func (*authenticationCredentialProvider) SignOut(
+	context.Context,
+	ClientIdentity,
+) error {
+	return nil
+}
+
 type remoteExchangeFunc func(
 	context.Context,
 	OperationRequest,
@@ -72,6 +100,28 @@ func (executor lifecycleExecutorFunc) Execute(
 	report lifecycle.ProgressReporter,
 ) (lifecycle.Result, error) {
 	return executor(ctx, request, identity, document, report)
+}
+
+func TestAuthenticationSignInReusesSavedCredentialsBeforeOpeningBrowser(
+	t *testing.T,
+) {
+	credentials := &authenticationCredentialProvider{}
+	runtime := Runtime{Credentials: credentials}
+
+	result, err := runtime.HandleAuthentication(
+		context.Background(),
+		ClientIdentity{UserSID: "S-1-5-21-saved"},
+		"sign-in",
+	)
+	if err != nil {
+		t.Fatalf("HandleAuthentication() error = %v", err)
+	}
+	if !result.SignedIn {
+		t.Fatal("HandleAuthentication() = signed out, want saved session")
+	}
+	if credentials.forceRefresh {
+		t.Fatal("sign-in forced a refresh instead of reusing saved credentials")
+	}
 }
 
 func TestRuntimeOpensVerificationAndRetriesWithoutExposingCapabilities(t *testing.T) {

@@ -98,6 +98,7 @@ func TestEnsureInstallsExactSignedRuntimeAndStartsBrokerOnCleanMachine(t *testin
 		t,
 		repositoryRoot,
 		rootBytes,
+		testMetadataVersion,
 		[]tufrepository.Target{
 			{Bytes: sourceBroker, Name: testBrokerTarget},
 			{Bytes: sourceHelper, Name: testHelperTarget},
@@ -166,8 +167,9 @@ func TestEnsureInstallsExactSignedRuntimeAndStartsBrokerOnCleanMachine(t *testin
 	) {
 		t.Fatal("active pipe server does not match the signed broker image")
 	}
+	activeProcessID := result.BrokerProcessID
 	t.Cleanup(func() {
-		process, findErr := os.FindProcess(result.BrokerProcessID)
+		process, findErr := os.FindProcess(activeProcessID)
 		if findErr == nil {
 			_ = process.Kill()
 			_, _ = process.Wait()
@@ -218,6 +220,59 @@ func TestEnsureInstallsExactSignedRuntimeAndStartsBrokerOnCleanMachine(t *testin
 	}
 	if !bytes.Equal(readRequiredFile(t, repaired.HelperPath), sourceHelper) {
 		t.Fatal("repair did not restore the exact signed helper")
+	}
+
+	updatedBrokerPath := filepath.Join(
+		buildRoot,
+		"source",
+		"yucp-package-broker-updated.exe",
+	)
+	buildNativeCommandWithArguments(
+		t,
+		moduleRoot,
+		"./cmd/yucp-package-broker",
+		updatedBrokerPath,
+		"-ldflags=-s",
+	)
+	updatedBroker := readRequiredFile(t, updatedBrokerPath)
+	if bytes.Equal(updatedBroker, sourceBroker) {
+		t.Fatal("updated broker test fixture matches the original broker")
+	}
+	publishTestRuntimeRepository(
+		t,
+		repositoryRoot,
+		rootBytes,
+		testMetadataVersion+1,
+		[]tufrepository.Target{
+			{Bytes: updatedBroker, Name: testBrokerTarget},
+			{Bytes: sourceHelper, Name: testHelperTarget},
+			{Bytes: runtimeDescriptor, Name: testRuntimeTarget},
+			{Bytes: trustDocument, Name: testTrustTarget},
+		},
+	)
+
+	updated, err := Ensure(context.Background(), config)
+	if err != nil {
+		t.Fatalf("runtime update Ensure() error = %v", err)
+	}
+	activeProcessID = updated.BrokerProcessID
+	if !updated.BrokerStarted ||
+		updated.BrokerProcessID == result.BrokerProcessID ||
+		updated.BrokerSHA256 != sha256Hex(updatedBroker) {
+		t.Fatalf("runtime update did not replace the live broker: %#v", updated)
+	}
+	if processRunning(uint32(result.BrokerProcessID)) {
+		t.Fatal("prior broker process is still running after runtime update")
+	}
+	if !bytes.Equal(readRequiredFile(t, updated.BrokerPath), updatedBroker) {
+		t.Fatal("updated broker differs from the exact signed TUF target")
+	}
+	if !serverProcessMatches(
+		pipeName,
+		uint32(updated.BrokerProcessID),
+		updated.BrokerPath,
+	) {
+		t.Fatal("updated pipe server does not match the signed broker image")
 	}
 }
 
@@ -302,11 +357,24 @@ func TestBrokerCreationFlagsRespectCurrentJobLimits(t *testing.T) {
 }
 
 func buildNativeCommand(t *testing.T, moduleRoot string, command string, output string) {
+	buildNativeCommandWithArguments(t, moduleRoot, command, output)
+}
+
+func buildNativeCommandWithArguments(
+	t *testing.T,
+	moduleRoot string,
+	command string,
+	output string,
+	arguments ...string,
+) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(output), 0o700); err != nil {
 		t.Fatalf("create native build directory: %v", err)
 	}
-	build := exec.Command("go", "build", "-trimpath", "-o", output, command)
+	buildArguments := []string{"build", "-trimpath"}
+	buildArguments = append(buildArguments, arguments...)
+	buildArguments = append(buildArguments, "-o", output, command)
+	build := exec.Command("go", buildArguments...)
 	build.Dir = moduleRoot
 	build.Env = append(os.Environ(), "GOFLAGS=-mod=readonly")
 	outputBytes, err := build.CombinedOutput()
@@ -319,6 +387,7 @@ func publishTestRuntimeRepository(
 	t *testing.T,
 	output string,
 	root []byte,
+	metadataVersion int64,
 	targets []tufrepository.Target,
 ) {
 	t.Helper()
@@ -327,7 +396,7 @@ func publishTestRuntimeRepository(
 	timestamp := testRuntimeSigner(t, metadata.TIMESTAMP)
 	now := time.Now().UTC()
 	bundle, err := tufrepository.Build(tufrepository.Input{
-		MetadataVersion: testMetadataVersion,
+		MetadataVersion: metadataVersion,
 		Now:             now,
 		Root:            root,
 		Signers: tufrepository.OnlineSigners{

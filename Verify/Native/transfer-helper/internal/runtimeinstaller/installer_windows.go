@@ -111,58 +111,91 @@ func Ensure(ctx context.Context, config Config) (Result, error) {
 	defer lock.release()
 
 	activePath := filepath.Join(normalized.InstallRoot, activeRecordName)
-	previous, previousOK := readActiveRecord(activePath, normalized.InstallRoot)
+	previous, previousOK := readActiveBrokerRecord(
+		activePath,
+		normalized.InstallRoot,
+	)
 	if previousOK && !matchesBootstrap(previous, normalized) {
 		previousOK = false
 	}
-	if previousOK {
-		if serverProcessMatches(
-			previous.PipeName,
-			uint32(previous.BrokerProcessID),
-			previous.BrokerPath,
-		) {
+	previousLive := previousOK && serverProcessMatches(
+		previous.PipeName,
+		uint32(previous.BrokerProcessID),
+		previous.BrokerPath,
+	)
+
+	desired, installErr := installSignedRuntime(normalized)
+	if installErr != nil {
+		if previousLive {
 			return resultFromRecord(previous, activePath, false), nil
+		}
+		return restorePreviousRuntime(
+			normalized,
+			activePath,
+			previous,
+			previousOK,
+			installErr,
+		)
+	}
+
+	if previousLive && sameRuntime(previous, desired) {
+		return resultFromRecord(previous, activePath, false), nil
+	}
+	if previousLive {
+		if err := terminateVerifiedRuntime(previous); err != nil {
+			return Result{}, err
 		}
 	}
 
-	desired, installErr := installSignedRuntime(normalized)
-	if installErr == nil {
-		repaired, repairedOK := readActiveRecord(activePath, normalized.InstallRoot)
-		if repairedOK &&
-			sameRuntime(repaired, desired) &&
-			serverProcessMatches(
-				repaired.PipeName,
-				uint32(repaired.BrokerProcessID),
-				repaired.BrokerPath,
-			) {
-			return resultFromRecord(repaired, activePath, false), nil
-		}
-		started, startErr := startRuntime(normalized, desired)
-		if startErr == nil {
-			if err := writeActiveRecord(activePath, started); err != nil {
-				terminateProcess(started.BrokerProcessID)
-				return Result{}, err
-			}
-			return resultFromRecord(started, activePath, true), nil
-		}
-		installErr = startErr
-	}
-	if previousOK {
-		rolledBack, rollbackErr := startRuntime(normalized, previous)
-		if rollbackErr == nil {
-			if err := writeActiveRecord(activePath, rolledBack); err != nil {
-				terminateProcess(rolledBack.BrokerProcessID)
-				return Result{}, err
-			}
-			return resultFromRecord(rolledBack, activePath, true), nil
-		}
-		return Result{}, fmt.Errorf(
-			"start signed package runtime: %v; restore prior runtime: %w",
-			installErr,
-			rollbackErr,
+	started, startErr := startRuntime(normalized, desired)
+	if startErr != nil {
+		return restorePreviousRuntime(
+			normalized,
+			activePath,
+			previous,
+			previousOK,
+			startErr,
 		)
 	}
-	return Result{}, installErr
+	if err := writeActiveRecord(activePath, started); err != nil {
+		terminateProcess(started.BrokerProcessID)
+		return restorePreviousRuntime(
+			normalized,
+			activePath,
+			previous,
+			previousOK,
+			err,
+		)
+	}
+	return resultFromRecord(started, activePath, true), nil
+}
+
+func restorePreviousRuntime(
+	config normalizedConfig,
+	activePath string,
+	previous activeRecord,
+	previousOK bool,
+	startErr error,
+) (Result, error) {
+	if !previousOK {
+		return Result{}, startErr
+	}
+	if err := validateActiveRecord(previous, config.InstallRoot); err != nil {
+		return Result{}, startErr
+	}
+	rolledBack, rollbackErr := startRuntime(config, previous)
+	if rollbackErr == nil {
+		if err := writeActiveRecord(activePath, rolledBack); err != nil {
+			terminateProcess(rolledBack.BrokerProcessID)
+			return Result{}, err
+		}
+		return resultFromRecord(rolledBack, activePath, true), nil
+	}
+	return Result{}, fmt.Errorf(
+		"start signed package runtime: %v; restore prior runtime: %w",
+		startErr,
+		rollbackErr,
+	)
 }
 
 func matchesBootstrap(record activeRecord, config normalizedConfig) bool {
@@ -296,6 +329,11 @@ func installSignedRuntime(config normalizedConfig) (activeRecord, error) {
 		config.InstallRoot,
 		"versions",
 		descriptorResult.SHA256,
+		runtimeBundleID(
+			descriptorResult.SHA256,
+			helper.SHA256,
+			brokerResult.SHA256,
+		),
 	)
 	helperPath := filepath.Join(versionRoot, filepath.Base(HelperTargetName))
 	if err := publishExactFile(helperDownload, helperPath, helper.SHA256); err != nil {
@@ -323,6 +361,23 @@ func installSignedRuntime(config normalizedConfig) (activeRecord, error) {
 		TargetsURL:              runtimeDescriptor.TargetsURL,
 		TrustTarget:             runtimeDescriptor.TrustTarget,
 	}, nil
+}
+
+func runtimeBundleID(
+	descriptorSHA256 string,
+	helperSHA256 string,
+	brokerSHA256 string,
+) string {
+	bundleSHA256 := digestHex([]byte(
+		"yucp-package-runtime-bundle-v1\n" +
+			descriptorSHA256 + "\n" +
+			helperSHA256 + "\n" +
+			brokerSHA256,
+	))
+	// Keep the signed runtime path below the Win32 MAX_PATH boundary while
+	// retaining a 128-bit content-addressed namespace. Exact target digests are
+	// still verified before every activation.
+	return bundleSHA256[:32]
 }
 
 func parseDescriptor(
@@ -556,7 +611,32 @@ func serverProcessMatches(pipeName string, processID uint32, expectedPath string
 	return strings.EqualFold(actualPath, filepath.Clean(expectedPath))
 }
 
+func terminateVerifiedRuntime(record activeRecord) error {
+	processID := uint32(record.BrokerProcessID)
+	if !serverProcessMatches(record.PipeName, processID, record.BrokerPath) {
+		return fmt.Errorf("active package broker identity changed before replacement")
+	}
+	terminateProcess(record.BrokerProcessID)
+	if processRunning(processID) {
+		return fmt.Errorf("active package broker did not stop for replacement")
+	}
+	if serverProcessID(record.PipeName) != 0 {
+		return fmt.Errorf("package broker pipe was reassigned during replacement")
+	}
+	return nil
+}
+
 func validateActiveRecord(record activeRecord, installRoot string) error {
+	if err := validateActiveBrokerRecord(record, installRoot); err != nil {
+		return err
+	}
+	if err := verifyFile(record.HelperPath, record.HelperSHA256); err != nil {
+		return fmt.Errorf("verify active transfer helper: %w", err)
+	}
+	return nil
+}
+
+func validateActiveBrokerRecord(record activeRecord, installRoot string) error {
 	if record.SchemaVersion != activeRecordSchema ||
 		record.RuntimeDescriptorSHA256 == "" ||
 		record.PipeName != broker.DefaultPipeName ||
@@ -575,9 +655,6 @@ func validateActiveRecord(record activeRecord, installRoot string) error {
 	if err := verifyFile(record.BrokerPath, record.BrokerSHA256); err != nil {
 		return fmt.Errorf("verify active package broker: %w", err)
 	}
-	if err := verifyFile(record.HelperPath, record.HelperSHA256); err != nil {
-		return fmt.Errorf("verify active transfer helper: %w", err)
-	}
 	if _, err := canonicalRuntimeURL(record.APIBaseURL); err != nil {
 		return fmt.Errorf("active package API URL: %w", err)
 	}
@@ -594,6 +671,25 @@ func validateActiveRecord(record activeRecord, installRoot string) error {
 }
 
 func readActiveRecord(path string, installRoot string) (activeRecord, bool) {
+	return readActiveRecordWithValidator(path, installRoot, validateActiveRecord)
+}
+
+func readActiveBrokerRecord(
+	path string,
+	installRoot string,
+) (activeRecord, bool) {
+	return readActiveRecordWithValidator(
+		path,
+		installRoot,
+		validateActiveBrokerRecord,
+	)
+}
+
+func readActiveRecordWithValidator(
+	path string,
+	installRoot string,
+	validator func(activeRecord, string) error,
+) (activeRecord, bool) {
 	raw, err := readBounded(path, maxDescriptorBytes)
 	if err != nil {
 		return activeRecord{}, false
@@ -603,7 +699,7 @@ func readActiveRecord(path string, installRoot string) (activeRecord, bool) {
 	var record activeRecord
 	if decoder.Decode(&record) != nil ||
 		requireJSONEnd(decoder) != nil ||
-		validateActiveRecord(record, installRoot) != nil {
+		validator(record, installRoot) != nil {
 		return activeRecord{}, false
 	}
 	return record, true

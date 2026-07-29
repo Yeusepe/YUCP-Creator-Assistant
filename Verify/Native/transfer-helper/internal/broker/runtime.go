@@ -86,7 +86,7 @@ func (runtime Runtime) HandleAuthentication(
 		_, _, err := credentials.Access(
 			ctx,
 			clientIdentity,
-			true,
+			false,
 			func(string, int64, int64) error { return nil },
 		)
 		return AuthenticationResult{SignedIn: err == nil}, err
