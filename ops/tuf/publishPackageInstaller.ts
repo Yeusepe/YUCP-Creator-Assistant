@@ -34,16 +34,23 @@ const INFISICAL_KEYS = [
   'METADATA_S3_ACCESS_KEY_ID',
   'METADATA_S3_SECRET_ACCESS_KEY',
   'PACKAGE_INSTALLER_TUF_REPOSITORY_ID',
+] as const;
+const OFFLINE_AUTHORITY_KEYS = [
   'PACKAGE_INSTALL_SIGNING_KEY_ID',
   'PACKAGE_INSTALL_SIGNING_PUBLIC_KEY',
   'MATERIALIZATION_RECEIPT_KEY_ID',
   'MATERIALIZATION_RECEIPT_PUBLIC_KEY',
+] as const;
+const OFFLINE_SIGNING_KEYS = [
   'YUCP_TUF_TARGETS_PRIVATE_KEY',
   'YUCP_TUF_SNAPSHOT_PRIVATE_KEY',
   'YUCP_TUF_TIMESTAMP_PRIVATE_KEY',
 ] as const;
+const OFFLINE_CONNECTIVITY_KEYS = ['CATALOG_DATABASE_URL'] as const;
 const REQUIRED_KEYS = [
   ...INFISICAL_KEYS,
+  ...OFFLINE_AUTHORITY_KEYS,
+  ...OFFLINE_SIGNING_KEYS,
   'PACKAGE_INSTALLER_TUF_ROOT_PATH',
   'PACKAGE_INSTALLER_TUF_ROOT_SHA256',
   'PACKAGE_INSTALLER_TUF_BROKER_WINDOWS_AMD64_PATH',
@@ -55,6 +62,38 @@ const REQUIRED_KEYS = [
   'PACKAGE_INSTALLER_TUF_PUBLICATION_ATTEMPT_ID',
   'PACKAGE_INSTALLER_TUF_PUBLISHER_EXECUTABLE',
 ] as const;
+
+type HydratePublicationEnv = (
+  env: NodeJS.ProcessEnv,
+  requiredKeys: readonly string[]
+) => Promise<NodeJS.ProcessEnv>;
+
+export async function resolvePackageInstallerPublicationEnv(
+  sourceEnv: NodeJS.ProcessEnv,
+  hydrate: HydratePublicationEnv = hydrateStorageServiceEnv
+): Promise<NodeJS.ProcessEnv> {
+  const hydrated = await hydrate(sourceEnv, INFISICAL_KEYS);
+  const offlineInputs: NodeJS.ProcessEnv = {};
+  for (const key of [...OFFLINE_AUTHORITY_KEYS, ...OFFLINE_SIGNING_KEYS]) {
+    const value = sourceEnv[key]?.trim();
+    if (!value) {
+      throw new Error(`Missing required offline TUF authority input: ${key}`);
+    }
+    offlineInputs[key] = value;
+  }
+  const connectivity: NodeJS.ProcessEnv = {};
+  for (const key of OFFLINE_CONNECTIVITY_KEYS) {
+    const value = sourceEnv[key]?.trim();
+    if (value) {
+      connectivity[key] = value;
+    }
+  }
+  return {
+    ...hydrated,
+    ...offlineInputs,
+    ...connectivity,
+  };
+}
 
 function required(env: NodeJS.ProcessEnv, key: (typeof REQUIRED_KEYS)[number]): string {
   const value = env[key]?.trim();
@@ -298,9 +337,9 @@ async function readGeneratedBundle(input: {
 export async function publishPackageInstallerTuf(
   sourceEnv: NodeJS.ProcessEnv = process.env
 ): Promise<{ metadataVersion: number; publicationId: string }> {
-  // Secrets remain authoritative in Infisical. Artifact paths, endpoint pins, and the
-  // idempotent attempt ID belong to the explicit offline publication invocation.
-  const env = await hydrateStorageServiceEnv(sourceEnv, INFISICAL_KEYS);
+  // Service credentials remain authoritative in Infisical. The online-role TUF
+  // private keys stay in the explicit offline publication invocation.
+  const env = await resolvePackageInstallerPublicationEnv(sourceEnv);
   const repositoryId = required(env, 'PACKAGE_INSTALLER_TUF_REPOSITORY_ID');
   const rootPath = requireAbsoluteFile(
     required(env, 'PACKAGE_INSTALLER_TUF_ROOT_PATH'),

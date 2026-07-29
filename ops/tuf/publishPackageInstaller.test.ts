@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { buildRuntimeDescriptor, verifyPinnedRoot } from './publishPackageInstaller';
+import {
+  buildRuntimeDescriptor,
+  resolvePackageInstallerPublicationEnv,
+  verifyPinnedRoot,
+} from './publishPackageInstaller';
 
 describe('package installer TUF root pin', () => {
   test('accepts only the exact lowercase SHA-256 chosen by the offline ceremony', () => {
@@ -10,6 +14,42 @@ describe('package installer TUF root pin', () => {
     expect(verifyPinnedRoot(root, digest)).toBe(digest);
     expect(() => verifyPinnedRoot(root, '0'.repeat(64))).toThrow('does not match');
     expect(() => verifyPinnedRoot(root, digest.toUpperCase())).toThrow('canonical');
+  });
+});
+
+describe('package installer offline publication environment', () => {
+  test('keeps online-role private keys in the explicit offline invocation', async () => {
+    const source = {
+      CATALOG_DATABASE_URL: 'postgresql://catalog.example.test:30400/yucp',
+      MATERIALIZATION_RECEIPT_KEY_ID: 'receipt-key',
+      MATERIALIZATION_RECEIPT_PUBLIC_KEY: 'receipt-public-key',
+      PACKAGE_INSTALL_SIGNING_KEY_ID: 'install-key',
+      PACKAGE_INSTALL_SIGNING_PUBLIC_KEY: 'install-public-key',
+      YUCP_TUF_SNAPSHOT_PRIVATE_KEY: 'snapshot-private-key',
+      YUCP_TUF_TARGETS_PRIVATE_KEY: 'targets-private-key',
+      YUCP_TUF_TIMESTAMP_PRIVATE_KEY: 'timestamp-private-key',
+    };
+    let requestedKeys: readonly string[] = [];
+    const resolved = await resolvePackageInstallerPublicationEnv(
+      source,
+      async (env, keys) => {
+        requestedKeys = keys;
+        return {
+          ...env,
+          CATALOG_DATABASE_URL: 'postgresql://catalog.internal/yucp',
+        };
+      }
+    );
+
+    expect(requestedKeys).not.toContain('YUCP_TUF_TARGETS_PRIVATE_KEY');
+    expect(requestedKeys).not.toContain('MATERIALIZATION_RECEIPT_PUBLIC_KEY');
+    expect(resolved.CATALOG_DATABASE_URL).toBe(
+      'postgresql://catalog.example.test:30400/yucp'
+    );
+    expect(resolved.YUCP_TUF_TARGETS_PRIVATE_KEY).toBe('targets-private-key');
+    expect(resolved.YUCP_TUF_SNAPSHOT_PRIVATE_KEY).toBe('snapshot-private-key');
+    expect(resolved.YUCP_TUF_TIMESTAMP_PRIVATE_KEY).toBe('timestamp-private-key');
+    expect(resolved.MATERIALIZATION_RECEIPT_PUBLIC_KEY).toBe('receipt-public-key');
   });
 });
 

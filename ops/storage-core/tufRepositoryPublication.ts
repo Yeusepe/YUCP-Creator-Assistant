@@ -217,15 +217,25 @@ export async function publishTufRepository(input: {
       continue;
     }
     const write = entry.replaceable ? input.storage.putVersioned : input.storage.putImmutable;
-    const object = await write.call(input.storage, {
-      body: entry.body,
-      contentType: entry.contentType,
-      idempotencyKey: `tuf:${input.publicationId}:${entry.repositoryPath}`,
-      objectKey,
-      ownerId: input.publicationId,
-      ownerKind: 'maintenance',
-      storageRole: 'metadata',
-    });
+    let object: StorageObjectVersion;
+    try {
+      object = await write.call(input.storage, {
+        body: entry.body,
+        contentType: entry.contentType,
+        idempotencyKey: `tuf:${input.publicationId}:${entry.repositoryPath}`,
+        objectKey,
+        ownerId: input.publicationId,
+        ownerKind: 'maintenance',
+        storageRole: 'metadata',
+      });
+    } catch (error) {
+      throw new Error(
+        `Publish TUF object ${entry.repositoryPath}: ${
+          error instanceof Error ? error.message : 'unknown storage failure'
+        }`,
+        { cause: error }
+      );
+    }
     await input.catalog.recordObject({
       object: requireRecordedObject(object, objectKey),
       publicationId: input.publicationId,
