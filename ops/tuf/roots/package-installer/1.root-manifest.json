@@ -1,0 +1,14 @@
+{
+  "expires": "2036-01-01T00:00:00Z",
+  "rootPublicKeys": [
+    "rf_AYVS03ZHUlS5cQ-kWL2L2Ll_26Gek0k20KpCiDPI",
+    "ahnf-y8tY_iOdrjhHEk3bZsK8e_08PWSio04HYR7mcM",
+    "4PI5cIQcgHFuUgAZxQpTVSsn7hTIa9WyZ8Ddqg80ozU"
+  ],
+  "rootThreshold": 2,
+  "schemaVersion": 1,
+  "snapshotPublicKey": "Jt3u-jEfU3KfIGKc7SCBJNl-h282tBfRauyjXwXDVMQ",
+  "targetsPublicKey": "aUi8n0HPpYPjSFGSfgSB_3IFiHzu6Cwp_BwIGpWLT4M",
+  "timestampPublicKey": "g2MkGexGZ-iwm2_lxxPt56L44oqun5Ga21jJwxau0NI",
+  "version": 1
+}

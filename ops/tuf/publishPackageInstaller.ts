@@ -26,7 +26,7 @@ const BROKER_TARGET = 'broker/windows-amd64/yucp-package-broker.exe';
 const RUNTIME_TARGET = 'runtime/windows-amd64/package-runtime.json';
 const TRUST_TARGET = 'package-install-trust.json';
 const BROKER_PIPE_NAME = String.raw`\\.\pipe\yucp.package-broker.v1`;
-const REQUIRED_KEYS = [
+const INFISICAL_KEYS = [
   'CATALOG_DATABASE_URL',
   'METADATA_S3_ENDPOINT',
   'METADATA_S3_REGION',
@@ -34,6 +34,16 @@ const REQUIRED_KEYS = [
   'METADATA_S3_ACCESS_KEY_ID',
   'METADATA_S3_SECRET_ACCESS_KEY',
   'PACKAGE_INSTALLER_TUF_REPOSITORY_ID',
+  'PACKAGE_INSTALL_SIGNING_KEY_ID',
+  'PACKAGE_INSTALL_SIGNING_PUBLIC_KEY',
+  'MATERIALIZATION_RECEIPT_KEY_ID',
+  'MATERIALIZATION_RECEIPT_PUBLIC_KEY',
+  'YUCP_TUF_TARGETS_PRIVATE_KEY',
+  'YUCP_TUF_SNAPSHOT_PRIVATE_KEY',
+  'YUCP_TUF_TIMESTAMP_PRIVATE_KEY',
+] as const;
+const REQUIRED_KEYS = [
+  ...INFISICAL_KEYS,
   'PACKAGE_INSTALLER_TUF_ROOT_PATH',
   'PACKAGE_INSTALLER_TUF_ROOT_SHA256',
   'PACKAGE_INSTALLER_TUF_BROKER_WINDOWS_AMD64_PATH',
@@ -44,13 +54,6 @@ const REQUIRED_KEYS = [
   'PACKAGE_INSTALLER_TUF_TARGETS_URL',
   'PACKAGE_INSTALLER_TUF_PUBLICATION_ATTEMPT_ID',
   'PACKAGE_INSTALLER_TUF_PUBLISHER_EXECUTABLE',
-  'PACKAGE_INSTALL_SIGNING_KEY_ID',
-  'PACKAGE_INSTALL_SIGNING_PUBLIC_KEY',
-  'MATERIALIZATION_RECEIPT_KEY_ID',
-  'MATERIALIZATION_RECEIPT_PUBLIC_KEY',
-  'YUCP_TUF_TARGETS_PRIVATE_KEY',
-  'YUCP_TUF_SNAPSHOT_PRIVATE_KEY',
-  'YUCP_TUF_TIMESTAMP_PRIVATE_KEY',
 ] as const;
 
 function required(env: NodeJS.ProcessEnv, key: (typeof REQUIRED_KEYS)[number]): string {
@@ -295,7 +298,9 @@ async function readGeneratedBundle(input: {
 export async function publishPackageInstallerTuf(
   sourceEnv: NodeJS.ProcessEnv = process.env
 ): Promise<{ metadataVersion: number; publicationId: string }> {
-  const env = await hydrateStorageServiceEnv(sourceEnv, REQUIRED_KEYS);
+  // Secrets remain authoritative in Infisical. Artifact paths, endpoint pins, and the
+  // idempotent attempt ID belong to the explicit offline publication invocation.
+  const env = await hydrateStorageServiceEnv(sourceEnv, INFISICAL_KEYS);
   const repositoryId = required(env, 'PACKAGE_INSTALLER_TUF_REPOSITORY_ID');
   const rootPath = requireAbsoluteFile(
     required(env, 'PACKAGE_INSTALLER_TUF_ROOT_PATH'),

@@ -28,7 +28,10 @@ export type NativeRuntimeRelease = {
   trustedRoot: ReleaseArtifact;
 };
 
-export type NativeRuntimePublisherTrustMode = 'pinned-development' | 'system';
+export type NativeRuntimePublisherTrustMode =
+  | 'pinned-development'
+  | 'pinned-production'
+  | 'system';
 
 type PublisherVerifier = (input: {
   certificateSha256: string;
@@ -89,7 +92,7 @@ function requirePublisherSubject(value: unknown): string {
 }
 
 function requirePublisherTrustMode(value: unknown): NativeRuntimePublisherTrustMode {
-  if (value !== 'system' && value !== 'pinned-development') {
+  if (value !== 'system' && value !== 'pinned-development' && value !== 'pinned-production') {
     throw new Error('The native runtime publisher trust mode is invalid');
   }
   return value;
@@ -126,11 +129,23 @@ function requirePublisherTrustScope(input: {
   targetsUrl: string;
   trustMode: NativeRuntimePublisherTrustMode;
 }): void {
-  if (input.trustMode !== 'pinned-development') {
+  if (input.trustMode === 'system') {
     return;
   }
   const metadataUrl = new URL(input.metadataUrl);
   const targetsUrl = new URL(input.targetsUrl);
+  if (input.trustMode === 'pinned-production') {
+    if (
+      metadataUrl.protocol !== 'https:' ||
+      targetsUrl.protocol !== 'https:' ||
+      input.subject !== 'CN=YUCP Package Runtime'
+    ) {
+      throw new Error(
+        'The pinned production publisher requires HTTPS repositories and the YUCP runtime identity'
+      );
+    }
+    return;
+  }
   const loopbackHosts = new Set(['localhost', '127.0.0.1', '[::1]']);
   if (
     metadataUrl.protocol !== 'http:' ||
@@ -190,8 +205,8 @@ export async function inspectWindowsPublisher(
   const script = [
     'Import-Module Microsoft.PowerShell.Security',
     '$signature = Get-AuthenticodeSignature -LiteralPath $env:YUCP_RELEASE_EXECUTABLE_PATH',
-    "$isPinnedDevelopment = $env:YUCP_RELEASE_PUBLISHER_TRUST_MODE -eq 'pinned-development'",
-    "if ($null -eq $signature.SignerCertificate -or ($signature.Status -ne 'Valid' -and -not ($isPinnedDevelopment -and $signature.Status -eq 'UnknownError'))) { exit 41 }",
+    "$isPinned = $env:YUCP_RELEASE_PUBLISHER_TRUST_MODE -eq 'pinned-development' -or $env:YUCP_RELEASE_PUBLISHER_TRUST_MODE -eq 'pinned-production'",
+    "if ($null -eq $signature.SignerCertificate -or ($signature.Status -ne 'Valid' -and -not ($isPinned -and $signature.Status -eq 'UnknownError'))) { exit 41 }",
     '$certificate = $signature.SignerCertificate',
     '$sha = [System.Security.Cryptography.SHA256]::Create()',
     'try { $digest = $sha.ComputeHash($certificate.RawData) } finally { $sha.Dispose() }',

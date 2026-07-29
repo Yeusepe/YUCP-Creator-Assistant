@@ -296,4 +296,49 @@ describe('native importer runtime release', () => {
       await rm(scratchPath, { force: true, recursive: true });
     }
   });
+
+  test('pins the production publisher to canonical HTTPS repositories and identity', async () => {
+    const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-native-runtime-production-trust-'));
+    try {
+      const sourcePath = join(scratchPath, 'source-helper.exe');
+      const rootPath = join(scratchPath, 'reviewed-root.json');
+      await writeFile(sourcePath, Uint8Array.from([0x4d, 0x5a, 0x09, 0x0a]));
+      await writeFile(rootPath, '{"signed":{"_type":"root","version":1}}');
+
+      const manifestPath = await createNativeRuntimeRelease({
+        executablePath: sourcePath,
+        metadataUrl: 'https://verify.creators.yucp.club/api/v2/package-installer/tuf/metadata',
+        publisherInspector: async () => ({
+          certificateSha256: 'f'.repeat(64),
+          subject: 'CN=YUCP Package Runtime',
+        }),
+        publisherTrustMode: 'pinned-production',
+        releasePath: join(scratchPath, 'release'),
+        targetsUrl: 'https://verify.creators.yucp.club/api/v2/package-installer/tuf/targets',
+        trustedRootPath: rootPath,
+      });
+      const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+        publisher: { trustMode: string };
+      };
+
+      expect(manifest.publisher.trustMode).toBe('pinned-production');
+
+      await expect(
+        createNativeRuntimeRelease({
+          executablePath: sourcePath,
+          metadataUrl: METADATA_URL,
+          publisherInspector: async () => ({
+            certificateSha256: 'f'.repeat(64),
+            subject: 'CN=Different Publisher',
+          }),
+          publisherTrustMode: 'pinned-production',
+          releasePath: join(scratchPath, 'invalid-release'),
+          targetsUrl: TARGETS_URL,
+          trustedRootPath: rootPath,
+        })
+      ).rejects.toThrow('pinned production publisher');
+    } finally {
+      await rm(scratchPath, { force: true, recursive: true });
+    }
+  });
 });
