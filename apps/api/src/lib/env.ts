@@ -11,6 +11,8 @@ import { logger } from './logger';
 
 export interface LocalEnv {
   NODE_ENV: 'development' | 'production' | 'test';
+  /** Canonical public API origin used for request-bound authorization such as DPoP htu. */
+  API_BASE_URL?: string;
   INFISICAL_URL?: string;
   INFISICAL_TOKEN?: string;
   // Convex (auth runs on Convex)
@@ -211,6 +213,7 @@ function loadFromEnv(): LocalEnv {
 
   return {
     NODE_ENV: (process.env.NODE_ENV as EnvConfig['NODE_ENV']) || 'development',
+    API_BASE_URL: normalizeUrl(process.env.API_BASE_URL),
     INFISICAL_URL: process.env.INFISICAL_URL,
     INFISICAL_TOKEN: process.env.INFISICAL_TOKEN,
     CONVEX_DEPLOYMENT: process.env.CONVEX_DEPLOYMENT,

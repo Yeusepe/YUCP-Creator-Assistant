@@ -48,6 +48,7 @@ import {
   checkPublicApiRateLimit,
   getPublicApiRateLimitStore,
 } from './lib/publicApiRateLimit';
+import { resolvePublicRuntimeOrigins } from './lib/publicRuntimeOrigins';
 import { detectTunnelUrl } from './lib/tunnel';
 import { createConfiguredVpmAliasArtifactStore } from './lib/vpmAliasArtifactStore';
 import { loadVpmBootstrapMediaReader } from './lib/vpmBootstrapMediaReader';
@@ -261,10 +262,13 @@ function initializeAuth(webhookBaseUrl?: string) {
   if (configuredPolarKeys > 0 && configuredPolarKeys < 2) {
     throw new Error('POLAR_ACCESS_TOKEN and POLAR_WEBHOOK_SECRET must be configured together');
   }
-  const siteUrl = env.SITE_URL ?? 'http://localhost:3001';
-  // Use a tunnel only for externally reachable webhook/install callbacks.
-  const publicBaseUrl = webhookBaseUrl ?? siteUrl;
-  const frontendUrl = env.FRONTEND_URL ?? siteUrl;
+  // DPoP htu verification must use the externally visible API origin. The
+  // browser frontend is a separate authority and cannot be used as a fallback.
+  const {
+    frontendUrl,
+    publicApiBaseUrl: publicBaseUrl,
+    siteUrl,
+  } = resolvePublicRuntimeOrigins(env, webhookBaseUrl);
   validateCouplingServiceBaseUrl({
     apiBaseUrl: publicBaseUrl,
     convexSiteUrl: env.CONVEX_SITE_URL,
