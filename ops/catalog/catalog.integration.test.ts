@@ -2390,6 +2390,42 @@ describe.serial('PostgreSQL catalog integration', () => {
     );
   });
 
+  it('marks a zombie on its final attempt as failed without redriving it', async () => {
+    const database = requireSql();
+    const versionId = await createUploadingVersion('final-attempt-zombie');
+    await database`
+      UPDATE package_versions
+      SET
+        state = 'PROMOTING',
+        attempts = 5,
+        assembly_object_id = 's3-index:final-attempt-zombie',
+        release_root = ${'b'.repeat(64)},
+        source_format = 'CANONICAL_ZIP_V1',
+        manifest_sha256 = ${'a'.repeat(64)},
+        updated_at = clock_timestamp() - interval '1 hour'
+      WHERE id = ${versionId}
+    `;
+
+    const redriven: string[] = [];
+    await reconcileCatalog(database, {
+      stuckThresholdMs: 60 * 1000,
+      redrive: async ({ version }) => {
+        redriven.push(version.id);
+      },
+      publish: async () => {},
+    });
+
+    expect(redriven).toEqual([]);
+    const rows = await database<{ state: string; attempts: number; error: string | null }[]>`
+      SELECT state, attempts, error FROM package_versions WHERE id = ${versionId}
+    `;
+    expect(rows[0]).toMatchObject({
+      state: 'FAILED',
+      attempts: 6,
+      error: 'Reconciler detected stuck PROMOTING work',
+    });
+  });
+
   it('a requeue failure preserves the retry budget and stays immediately claimable', async () => {
     const activeCatalog = requireCatalog();
     const database = requireSql();

@@ -143,11 +143,11 @@ async function claimRedrive(
       FROM package_versions
       WHERE
         id = ${candidateId}
-        AND attempts < ${retryPolicy.maxAttempts}
-        AND (next_attempt_at IS NULL OR next_attempt_at <= clock_timestamp())
         AND (
           (
             state = 'FAILED'
+            AND attempts < ${retryPolicy.maxAttempts}
+            AND (next_attempt_at IS NULL OR next_attempt_at <= clock_timestamp())
             AND next_attempt_at IS NOT NULL
             AND (
               (
@@ -165,6 +165,7 @@ async function claimRedrive(
           )
           OR (
             state IN ${transaction(transientStates)}
+            AND (next_attempt_at IS NULL OR next_attempt_at <= clock_timestamp())
             AND updated_at <=
               clock_timestamp() - (${stuckThresholdMs} * interval '1 millisecond')
           )
@@ -230,6 +231,11 @@ async function claimRedrive(
     if (!updated) {
       throw new Error('PostgreSQL did not return the claimed package version');
     }
+    if (updated.attempts >= retryPolicy.maxAttempts) {
+      // A zombie caught on its final attempt is recorded as FAILED above, but its
+      // retry budget is spent: report no claim so nothing redrives it.
+      return null;
+    }
     return {
       version: toPackageVersion(updated),
       idempotencyKey: `${updated.id}:redrive:${updated.attempts}`,
@@ -287,11 +293,11 @@ export async function reconcileCatalog(
     SELECT id
     FROM package_versions
     WHERE
-      attempts < ${retryPolicy.maxAttempts}
-      AND (next_attempt_at IS NULL OR next_attempt_at <= clock_timestamp())
-      AND (
+      (
         (
           state = 'FAILED'
+          AND attempts < ${retryPolicy.maxAttempts}
+          AND (next_attempt_at IS NULL OR next_attempt_at <= clock_timestamp())
           AND next_attempt_at IS NOT NULL
           AND (
             (
@@ -307,8 +313,12 @@ export async function reconcileCatalog(
             )
           )
         )
+        -- Stuck live work must be detected regardless of the retry budget: an
+        -- orphaned worker on the final attempt would otherwise stay a zombie
+        -- forever, never even reaching FAILED.
         OR (
           state IN ${sql(transientStates)}
+          AND (next_attempt_at IS NULL OR next_attempt_at <= clock_timestamp())
           AND updated_at <=
             clock_timestamp() - (${options.stuckThresholdMs} * interval '1 millisecond')
         )
