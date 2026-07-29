@@ -156,7 +156,10 @@ describe('local public importer repository', () => {
       );
       await writeFile(join(importerPath, 'Editor', 'Empty.meta'), 'fileFormatVersion: 2\n');
       await writeFile(join(importerPath, 'Editor', 'Runtime.meta'), 'fileFormatVersion: 2\n');
-      await writeFile(join(importerPath, 'Editor', 'Runtime', 'Importer.cs'), 'namespace YUCP {}\n');
+      await writeFile(
+        join(importerPath, 'Editor', 'Runtime', 'Importer.cs'),
+        'namespace YUCP {}\n'
+      );
       await writeFile(
         join(importerPath, 'Editor', 'Runtime', 'Importer.cs.meta'),
         'fileFormatVersion: 2\n'
