@@ -183,8 +183,7 @@ function recordsMatch(
     left.idempotencyKey === right.idempotencyKey &&
     left.operation === right.operation &&
     left.projectIdentity === right.projectIdentity &&
-    left.releaseRoot === right.releaseRoot &&
-    left.traceparent === right.traceparent
+    left.releaseRoot === right.releaseRoot
   );
 }
 

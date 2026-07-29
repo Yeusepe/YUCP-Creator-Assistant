@@ -595,22 +595,21 @@ describe.serial('PostgreSQL catalog integration', () => {
     ).resolves.toMatchObject({ generation: 3, status: 'claimed' });
   });
 
-  it('treats traceparent as exact idempotency context', async () => {
+  it('replays the original authorization when only tracing context changes', async () => {
     const store = new PackageOperationAuthorizationStore(requireSql());
     const record = operationAuthorizationRecord();
     expect((await store.reserve(record)).status).toBe('created');
-    expect(
-      (
-        await store.reserve({
-          ...operationAuthorizationRecord({
-            buyerId: record.buyerId,
-            deviceKeyThumbprint: record.deviceKeyThumbprint,
-            idempotencyKey: record.idempotencyKey,
-          }),
-          traceparent: '00-1123456789abcdef0123456789abcdef-0123456789abcdef-01',
-        })
-      ).status
-    ).toBe('conflict');
+    const retried = await store.reserve({
+      ...operationAuthorizationRecord({
+        buyerId: record.buyerId,
+        deviceKeyThumbprint: record.deviceKeyThumbprint,
+        idempotencyKey: record.idempotencyKey,
+      }),
+      traceparent: '00-1123456789abcdef0123456789abcdef-0123456789abcdef-01',
+    });
+
+    expect(retried.status).toBe('existing');
+    expect(retried.record.traceparent).toBe(record.traceparent);
   });
 
   it('bounds expired operation authorization cleanup to one fixed batch', async () => {
