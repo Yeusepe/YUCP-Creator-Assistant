@@ -218,12 +218,11 @@ export async function verifyBetterAuthAccessRequest(
     const metadata = {
       message: error instanceof Error ? error.message : String(error),
       ...(error instanceof Error && error.name ? { name: error.name } : {}),
+      expected: isExpectedVerificationFailure(error),
     };
-    if (isExpectedVerificationFailure(error)) {
-      options.logger?.debug?.(logMessage, metadata);
-    } else {
-      options.logger?.warn(logMessage, metadata);
-    }
+    // Request-bound broker verification has exactly one legitimate caller, so even
+    // "expected" rejections are actionable and must be visible in production logs.
+    options.logger?.warn(logMessage, metadata);
     return { ok: false, reason: 'invalid' };
   }
 }
