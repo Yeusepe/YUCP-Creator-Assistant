@@ -138,7 +138,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'account',
     label: 'Account and connection surfaces',
     invariant:
-      'Account connection surfaces must show the signed-in user’s real provider state and always preserve reconnect, disconnect, and retry actions for degraded records. Creator activation must revalidate the durable signed-in session, resolve the canonical linked Discord identity when a cookie session omits it, treat an existing active creator profile as success, and never reuse an account shell forever after creator or session state changes.',
+      'Account connection surfaces must show the signed-in user’s real provider state and always preserve reconnect, disconnect, and retry actions for degraded records. First-party native OAuth grants must remain visible and revocable from the website so users can sign installed applications out without access to Unity. Creator activation must revalidate the durable signed-in session, resolve the canonical linked Discord identity when a cookie session omits it, treat an existing active creator profile as success, and never reuse an account shell forever after creator or session state changes.',
     primaryRegressionHomes: [
       'apps/api/src/routes/connect.guildChannels.test.ts',
       'apps/api/src/routes/connectUserVerification.readSurface.test.ts',

@@ -18,6 +18,20 @@ import {
   getBetterAuthPage,
 } from './lib/betterAuthAdapter';
 
+function readOAuthClientPlatform(metadata: string | null | undefined): string | null {
+  if (!metadata) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(metadata) as { firstParty?: unknown; platform?: unknown };
+    return parsed.firstParty === true && typeof parsed.platform === 'string'
+      ? parsed.platform
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 // ============================================================================
 // OAuth Grants
 // ============================================================================
@@ -63,11 +77,23 @@ export const listOAuthGrantsForUser = query({
           where: buildBetterAuthEqualityWhere([{ field: 'clientId', value: clientId }]),
         })
       )
-    )) as Array<{ clientId: string; name?: string | null } | null>;
+    )) as Array<{
+      clientId: string;
+      metadata?: string | null;
+      name?: string | null;
+    } | null>;
 
     const clientMap = new Map(
       clientRecords
-        .filter((c): c is { clientId: string; name?: string | null } => !!c)
+        .filter(
+          (
+            c
+          ): c is {
+            clientId: string;
+            metadata?: string | null;
+            name?: string | null;
+          } => !!c
+        )
         .map((c) => [c.clientId, c])
     );
 
@@ -77,6 +103,7 @@ export const listOAuthGrantsForUser = query({
         consentId: consent._id,
         clientId: consent.clientId,
         appName: client?.name ?? consent.clientId,
+        platform: readOAuthClientPlatform(client?.metadata),
         scopes: consent.scopes ?? [],
         grantedAt: consent.createdAt ?? null,
         updatedAt: consent.updatedAt ?? null,

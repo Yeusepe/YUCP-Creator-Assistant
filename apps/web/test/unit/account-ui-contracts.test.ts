@@ -47,6 +47,10 @@ const accountMachinesRouteSource = readFileSync(
   resolve(__dirname, '../../src/routes/_authenticated/account/machines.lazy.tsx'),
   'utf8'
 );
+const accountAuthorizedAppsRouteSource = readFileSync(
+  resolve(__dirname, '../../src/routes/_authenticated/account/authorized-apps.lazy.tsx'),
+  'utf8'
+);
 const dashboardPackagesRouteSource = readFileSync(
   resolve(__dirname, '../../src/routes/_authenticated/dashboard/packages.lazy.tsx'),
   'utf8'
@@ -185,6 +189,14 @@ describe('account UI contracts', () => {
 
     expect(dashboardPrefetchSource).toContain("queryKey: ['creator-certificates']");
     expect(dashboardPrefetchSource).toContain('prefetchQuery(');
+  });
+
+  it('lets users sign native YUCP applications out from the website', () => {
+    expect(accountAuthorizedAppsRouteSource).toContain("grant.platform === 'native'");
+    expect(accountAuthorizedAppsRouteSource).toContain("'Sign out'");
+    expect(accountAuthorizedAppsRouteSource).toContain('`Sign out of ');
+    expect(accountAuthorizedAppsRouteSource).toContain('grant.appName');
+    expect(accountAuthorizedAppsRouteSource).toContain('isLoading={revokeMut.isPending}');
   });
 
   it('supports plan and portal deep links for Unity billing handoff', () => {

@@ -40,20 +40,29 @@ function GrantRow({ grant, index }: Readonly<{ grant: OAuthGrant; index: number 
   const [confirming, setConfirming] = useState(false);
   const queryClient = useQueryClient();
   const toast = useToast();
+  const isNativeApplication = grant.platform === 'native';
+  const actionLabel = isNativeApplication ? 'Sign out' : 'Revoke';
+  const actionPendingLabel = isNativeApplication ? 'Signing out...' : 'Revoking...';
+  const modalTitle = isNativeApplication
+    ? `Sign out of ${grant.appName}?`
+    : `Revoke ${grant.appName}?`;
 
   const revokeMut = useMutation({
     mutationFn: () => revokeUserOAuthGrant(grant.consentId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: USER_OAUTH_GRANTS_QUERY_KEY });
       setConfirming(false);
-      toast.success('App access revoked', {
+      toast.success(isNativeApplication ? 'Application signed out' : 'App access revoked', {
         description: `${grant.appName} must be authorized again before it can use your account.`,
       });
     },
     onError: () => {
-      toast.error('Could not revoke app access', {
-        description: `Please try revoking ${grant.appName} again.`,
-      });
+      toast.error(
+        isNativeApplication ? 'Could not sign application out' : 'Could not revoke app access',
+        {
+          description: `Please try ${isNativeApplication ? 'signing out of' : 'revoking'} ${grant.appName} again.`,
+        }
+      );
     },
   });
 
@@ -116,17 +125,18 @@ function GrantRow({ grant, index }: Readonly<{ grant: OAuthGrant; index: number 
         <div className="account-entity-aside">
           {!confirming ? (
             <YucpButton yucp="ghost" onClick={() => setConfirming(true)}>
-              Revoke
+              {actionLabel}
             </YucpButton>
           ) : null}
         </div>
       </div>
 
       {confirming ? (
-        <AccountModal title={`Revoke ${grant.appName}?`} onClose={() => setConfirming(false)}>
+        <AccountModal title={modalTitle} onClose={() => setConfirming(false)}>
           <p className="account-modal-body">
-            Revoking access immediately invalidates this client&apos;s ability to use your account.
-            Any existing access tokens must be reissued after a new consent flow.
+            {isNativeApplication
+              ? 'Signing out revokes this application’s saved YUCP session. It must sign in again before it can use your account.'
+              : 'Revoking access immediately invalidates this client’s ability to use your account. Any existing access tokens must be reissued after a new consent flow.'}
           </p>
           <div className="account-modal-actions">
             <YucpButton
@@ -142,7 +152,7 @@ function GrantRow({ grant, index }: Readonly<{ grant: OAuthGrant; index: number 
               isDisabled={revokeMut.isPending}
               onClick={() => revokeMut.mutate()}
             >
-              {revokeMut.isPending ? 'Revoking...' : 'Revoke access'}
+              {revokeMut.isPending ? actionPendingLabel : actionLabel}
             </YucpButton>
           </div>
         </AccountModal>

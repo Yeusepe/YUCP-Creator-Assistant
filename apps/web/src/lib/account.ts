@@ -23,6 +23,7 @@ export interface OAuthGrant {
   consentId: string;
   clientId: string;
   appName: string;
+  platform: string | null;
   scopes: string[];
   grantedAt: number | null;
   updatedAt: number | null;
