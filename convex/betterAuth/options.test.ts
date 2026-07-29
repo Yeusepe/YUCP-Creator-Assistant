@@ -194,6 +194,7 @@ describe('createSchemaAuthOptions', () => {
         | {
             options?: {
               grantTypes?: readonly string[];
+              refreshTokenReuseInterval?: number;
               scopes?: readonly string[];
             };
           }
@@ -202,6 +203,7 @@ describe('createSchemaAuthOptions', () => {
       expect(oauthPlugin?.options?.scopes).toEqual([...OAUTH_PROVIDER_SCOPES]);
       expect(oauthPlugin?.options?.scopes).toContain('offline_access');
       expect(oauthPlugin?.options?.grantTypes).toContain('refresh_token');
+      expect(oauthPlugin?.options?.refreshTokenReuseInterval).toBe(30);
     }
   });
 

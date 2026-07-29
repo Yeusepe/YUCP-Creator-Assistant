@@ -30,7 +30,10 @@ import { components, internal } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
 import authConfig from './auth.config';
 import { createJwtJwksAdapter } from './betterAuth/jwtAdapter';
-import { OAUTH_PROVIDER_SCOPES } from './betterAuth/oauthProviderScopes';
+import {
+  OAUTH_NATIVE_REFRESH_TOKEN_REUSE_INTERVAL_SECONDS,
+  OAUTH_PROVIDER_SCOPES,
+} from './betterAuth/oauthProviderScopes';
 import { betterAuthReservationBridge } from './betterAuth/reservationBridge';
 import authSchema from './betterAuth/schema';
 import { BETTER_AUTH_BACKUP_CODE_OPTIONS } from './lib/accountSecurityConfig';
@@ -428,6 +431,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
         allowDynamicClientRegistration: false,
         allowUnauthenticatedClientRegistration: false,
         grantTypes: ['authorization_code', 'refresh_token'],
+        refreshTokenReuseInterval: OAUTH_NATIVE_REFRESH_TOKEN_REUSE_INTERVAL_SECONDS,
         silenceWarnings: {
           oauthAuthServerConfig: true,
         },

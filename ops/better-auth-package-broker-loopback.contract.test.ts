@@ -18,6 +18,8 @@ describe('Better Auth package broker loopback contract', () => {
     );
     const convexHttp = readRepositoryFile('convex/http.ts');
     const convexSchema = readRepositoryFile('convex/schema.ts');
+    const authOptions = readRepositoryFile('convex/betterAuth/options.ts');
+    const authRuntime = readRepositoryFile('convex/auth.ts');
     const apiProxy = readRepositoryFile('apps/api/src/index.ts');
     const clientSeed = readRepositoryFile('convex/seedYucpOAuthClient.ts');
     const devSupervisor = readRepositoryFile('ops/dev-supervisor.ts');
@@ -37,6 +39,12 @@ describe('Better Auth package broker loopback contract', () => {
     expect(apiProxy).not.toContain('redirect_uri_rewritten');
     expect(apiProxy).not.toContain('/api/yucp/oauth/callback');
     expect(apiProxy).toContain('bindDefaultOAuthResource(requestParams)');
+    expect(authOptions).toContain(
+      'refreshTokenReuseInterval: OAUTH_NATIVE_REFRESH_TOKEN_REUSE_INTERVAL_SECONDS'
+    );
+    expect(authRuntime).toContain(
+      'refreshTokenReuseInterval: OAUTH_NATIVE_REFRESH_TOKEN_REUSE_INTERVAL_SECONDS'
+    );
     expect(clientSeed).toContain("const callbackUrl = 'http://127.0.0.1/callback';");
     expect(devSupervisor).toContain(
       'bunx convex dev --run seedYucpOAuthClient:seedPackageBrokerOAuthClient'

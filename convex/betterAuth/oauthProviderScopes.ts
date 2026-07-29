@@ -11,6 +11,13 @@ import {
 export const OAUTH_REFRESH_TOKEN_SCOPE = 'offline_access';
 export const PACKAGE_BROKER_OPERATION_SCOPE = 'package:operate';
 
+// Native clients can legitimately retry a rotated token when the first
+// response is lost. Better Auth replays only the same response for the same
+// client, scopes, resources, and sender constraint during this bounded window.
+// https://better-auth.com/docs/plugins/oauth-provider#refresh-token-grant
+// https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14.2
+export const OAUTH_NATIVE_REFRESH_TOKEN_REUSE_INTERVAL_SECONDS = 30;
+
 export type OAuthProviderScope =
   | PublicApiScope
   | typeof OAUTH_REFRESH_TOKEN_SCOPE
