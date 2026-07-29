@@ -27,7 +27,8 @@ COPY . .
 # The web workspace is excluded so the paid @heroui-pro packages never enter
 # this image, keeping it safe to publish publicly. Ops services only use
 # @yucp/shared and root dependencies.
-RUN bun install --frozen-lockfile --filter '!@yucp/web'
+RUN bun install --frozen-lockfile --filter '!@yucp/web' \
+    && rm -rf /root/.bun/install/cache
 
 ENV NODE_ENV=production
 ENV LOG_LEVEL=info
