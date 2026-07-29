@@ -1,6 +1,38 @@
 {
-  "schemaVersion": 1,
   "releases": {
+    "0.1.0": {
+      "sha256": "45d071e4c20e4c00bec9d085dc7ff67ec7b0b7defdabb9ce496f30cd1ef28640"
+    },
+    "0.1.1": {
+      "sha256": "8654762f731780e1078715d8ef7f0b958b5febd098b6683a8c3e861bac490fc9"
+    },
+    "0.1.3": {
+      "sha256": "fe02fddc9e8a9c930791e1f25471ea3f8b2550b0de85d97b9035b77e4f838079"
+    },
+    "0.1.4": {
+      "sha256": "526983dc88df7819a8b9e1f5345094ca8c2b93e98f723c5b7c048de64b32ceaa"
+    },
+    "0.1.5": {
+      "sha256": "4c846f332109163e73c6e6d7b7f6d6ba1cf122b0cd443cd503d8da64a0ec0c26"
+    },
+    "0.1.6": {
+      "sha256": "36d2ed8d55a75bd2eba0afb9dbc9b6c0926c516a91ad0d2b0056710d05a477b9"
+    },
+    "0.1.7": {
+      "sha256": "dcafd47addd164109a58bfb75b087b1e193b9d452ae6d9819bb6e8ea6dbbe102"
+    },
+    "0.1.8": {
+      "sha256": "cb4b7793e1fe2789dce9d04edf593ccc9bcdf97b3e3d55edad4ac982d3764c56"
+    },
+    "0.1.11": {
+      "sha256": "896b0ecf2bb1eb990eb56dfd16e52acfcc106655212a6bf0d4fdc12c954ce66c"
+    },
+    "0.1.12": {
+      "sha256": "2498d489155912d1cb35c091454f52a9c81b4e14bb2812b887dd3e914c5508dc"
+    },
+    "0.1.13": {
+      "sha256": "ef1b599b083fd6df356922ab763714b97f1ac034cc9be1ef08461fd1dce25ce3"
+    },
     "0.1.32": {
       "sha256": "2240bd929419e98ccf039426aeeccf07a2dcb019dfdd9a4ce752c1459c770264"
     },
@@ -64,6 +96,12 @@
     "0.1.53": {
       "sha256": "03a987f0d638cead93349cad0219915ded920467b2301ec4578cae509ba44740"
     },
+    "0.1.54": {
+      "sha256": "4b5eb0dbc13f59b8048b81629c7f1a7f43a448d16ceb291fa062001bc3e30582"
+    },
+    "0.1.55": {
+      "sha256": "755f33628558066182f284a7e6eeb60e0b91cea6abbef106636cb1c031251d0e"
+    },
     "0.1.56": {
       "sha256": "2f60e2f539e836dcab44bbb2c6ed628911a15ff412ca50462c46c4e730965336"
     },
@@ -81,6 +119,10 @@
     },
     "0.1.61": {
       "sha256": "80f14eb4959468e19154db9beccc92f9e7807d64e4114c3c28806609b17f9ef0"
+    },
+    "0.1.63": {
+      "sha256": "860d2ec8374f63c34f708e8c2de0ca429b1f1a5f304021b972db991ad0b01199"
     }
-  }
+  },
+  "schemaVersion": 1
 }
