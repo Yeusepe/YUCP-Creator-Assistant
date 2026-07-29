@@ -13,6 +13,7 @@
 
 import { describe, expect, it } from 'bun:test';
 import { encrypt } from '../src/lib/encrypt';
+import { getStateStore } from '../src/lib/stateStore';
 import { type FakeConvexOptions, startFakeConvexServer } from './helpers/fakeConvex';
 import { startTestServer, type TestServerHandle } from './helpers/testServer';
 import {
@@ -26,6 +27,7 @@ import {
 
 const ENCRYPTION_SECRET = 'test-encryption-secret-32-chars!!';
 const JINXXY_WEBHOOK_SECRET_PURPOSE = 'jinxxy-webhook-signing-secret' as const;
+const COLLAB_WEBHOOK_SECRET_PURPOSE = 'collab-webhook-signing-secret' as const;
 const PAYHIP_CREDENTIAL_PURPOSE = 'payhip-api-key' as const;
 const LEMONSQUEEZY_WEBHOOK_SECRET_PURPOSE = 'lemonsqueezy-webhook-secret' as const;
 
@@ -33,6 +35,7 @@ const refs = {
   getConnectionByWebhookRouteToken: 'providerConnections:getConnectionByWebhookRouteToken',
   getConnectionForBackfill: 'providerConnections:getConnectionForBackfill',
   getWebhookCredentialByRouteId: 'providerConnections:getWebhookCredentialByRouteId',
+  getCollabWebhookSecret: 'collaboratorInvites:getCollabWebhookSecret',
   getProviderConnectionAdmin: 'providerPlatform:getProviderConnectionAdmin',
   insertWebhookEvent: 'webhookIngestion:insertWebhookEvent',
   markWebhookConfigured: 'providerConnections:markWebhookConfigured',
@@ -230,6 +233,45 @@ describe('Gumroad webhook security', () => {
 });
 
 describe('Jinxxy webhook security', () => {
+  it('accepts a signed test delivery while a collaborator invite is still pending', async () => {
+    const store = createWebhookStore();
+    const inviteId = 'pending-collab-invite';
+    const secret = 'pending-collab-webhook-secret';
+    const secretRef = await encrypt(secret, ENCRYPTION_SECRET, COLLAB_WEBHOOK_SECRET_PURPOSE);
+    const body = jinxxyOrderPayload({ eventId: 'evt_pending_collab_001' });
+
+    await getStateStore().set(
+      `collab_webhook:${inviteId}`,
+      JSON.stringify({ signingSecretEncrypted: secretRef }),
+      60_000
+    );
+
+    await withWebhookHarness(
+      {
+        query: {
+          [refs.getCollabWebhookSecret]: () => null,
+        },
+        mutation: {
+          [refs.insertWebhookEvent]: (args) => store.insert(args),
+        },
+      },
+      async ({ convex, server }) => {
+        const res = await server.fetch(`/webhooks/jinxxy-collab/creator-1/${inviteId}`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-signature': await signJinxxy(secret, body),
+          },
+          body,
+        });
+
+        expect(res.status).toBe(200);
+        expect(store.size()).toBe(1);
+        expect(convex.getCalls(refs.insertWebhookEvent)).toHaveLength(1);
+      }
+    );
+  });
+
   it('rejects invalid signatures without storing events', async () => {
     const store = createWebhookStore();
     const secretRef = await encrypt(

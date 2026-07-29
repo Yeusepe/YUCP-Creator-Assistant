@@ -26,6 +26,7 @@ const COLLAB_WEBHOOK_SECRET_PURPOSE = 'collab-webhook-signing-secret' as const;
 
 const COLLAB_TEST_PREFIX = 'collab_test:';
 const COLLAB_TEST_TTL_MS = 60 * 1000;
+const COLLAB_WEBHOOK_PREFIX = 'collab_webhook:';
 const WEBHOOK_MAX_AGE_MS = 5 * 60 * 1000;
 
 async function hmacSha256(secret: string, body: string): Promise<string> {
@@ -97,6 +98,38 @@ async function getCollabWebhookSecret(
   }
 }
 
+/**
+ * The collaborator configures this secret before accepting the invite. During
+ * that short pending period, it lives in the state store and is moved into the
+ * collaborator connection when the invite is accepted.
+ */
+async function getPendingCollabWebhookSecret(
+  encryptionSecret: string,
+  inviteId: string
+): Promise<string | null> {
+  const raw = await getStateStore().get(`${COLLAB_WEBHOOK_PREFIX}${inviteId}`);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as { signingSecretEncrypted?: string };
+    if (!parsed.signingSecretEncrypted) {
+      logger.warn('Collab pending webhook: stored secret is missing', { inviteId });
+      return null;
+    }
+    return await decrypt(
+      parsed.signingSecretEncrypted,
+      encryptionSecret,
+      COLLAB_WEBHOOK_SECRET_PURPOSE
+    );
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      logger.warn('Collab pending webhook: failed to parse stored secret', { inviteId });
+      return null;
+    }
+    throw err;
+  }
+}
+
 async function handleJinxxyCollabWebhook(
   request: Request,
   ownerAuthUserId: string,
@@ -124,12 +157,9 @@ async function handleJinxxyCollabWebhook(
     });
     const signature = request.headers.get('x-signature');
 
-    const webhookSecret = await getCollabWebhookSecret(
-      convex,
-      apiSecret,
-      encryptionSecret,
-      inviteId
-    );
+    const webhookSecret =
+      (await getCollabWebhookSecret(convex, apiSecret, encryptionSecret, inviteId)) ??
+      (await getPendingCollabWebhookSecret(encryptionSecret, inviteId));
     let signatureValid = false;
 
     if (webhookSecret && signature) {
