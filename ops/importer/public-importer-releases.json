@@ -134,6 +134,9 @@
     },
     "0.1.67": {
       "sha256": "f03add77fd822874cce841fb7434a86afa08b8d2d71600d66cf577c5626dfdd9"
+    },
+    "0.1.68": {
+      "sha256": "f79bbc5e3a219eb3f291372ebfe654c763d3e0b26da056e6eac290bfdace9c42"
     }
   },
   "schemaVersion": 1
