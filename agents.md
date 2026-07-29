@@ -342,6 +342,8 @@ Server icons must **never** be rendered as circles (`border-radius: 50%`). Use `
 
 - Make loading skeletons representative of the final page structure instead of generic placeholders, especially in dashboard and account flows.
 - In UI redesigns, prioritize responsive layouts and clear hierarchy; the `/account/security` page is a strong reference for the broader product direction.
+- Keep diagnostic commands efficient and stateful. Search once, retain concrete paths, IDs, and command syntax already discovered, then use the narrowest probe that can confirm or reject the current hypothesis. Do not repeat broad searches, CLI help commands, or equivalent checks unless prior state may actually have changed.
+- Prefer reading the exact local implementation or emitting one targeted diagnostic over multi-step indirect inspection. Summarize the evidence after each probe and let it determine the next command.
 
 ## Learned Workspace Facts
 
