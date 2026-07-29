@@ -1,0 +1,51 @@
+name: Pin Public Importer Releases
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: importer-release-pinning-main
+  cancel-in-progress: false
+
+jobs:
+  pin:
+    name: Verify and pin released importer archives
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5
+        with:
+          bun-version: "1.3.9"
+
+      - name: Install locked dependencies
+        env:
+          HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
+        run: bun install --frozen-lockfile
+
+      - name: Verify public releases and update the immutable ledger
+        id: sync
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bun run importer:sync-public-releases
+
+      - name: Commit newly pinned archives
+        if: steps.sync.outputs.pinned_versions != ''
+        env:
+          PINNED_VERSIONS: ${{ steps.sync.outputs.pinned_versions }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ops/importer/public-importer-releases.json
+          git commit -m "release(importer): pin ${PINNED_VERSIONS} archive"
+          git pull --rebase origin main
+          git push origin HEAD:main
