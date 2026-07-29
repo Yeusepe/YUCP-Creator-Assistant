@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
-import { createMaterializationControlPlaneHandler } from './server';
+import { DELIVERY_GRANT_MAX_LIFETIME_SECONDS } from '../storage-core/packageContractsV2';
+import {
+  createMaterializationControlPlaneHandler,
+  DEFAULT_MATERIALIZATION_SOURCE_GRANT_LIFETIME_SECONDS,
+} from './server';
 
 const endpoint = 'https://control.example.test/v2/internal/materialization-capabilities/consume';
 const capabilityToken = Buffer.from('signed-capability').toString('base64url');
@@ -8,6 +12,12 @@ const now = 2_000_000_000;
 const apiSecret = 'test-api-shared-secret-that-is-long';
 const materializerSecret = 'test-materializer-secret-that-is-long';
 const signingPrivateKey = new Uint8Array(32).fill(0x11);
+
+it('keeps source authorization valid for the full delivery-grant window', () => {
+  expect(DEFAULT_MATERIALIZATION_SOURCE_GRANT_LIFETIME_SECONDS).toBe(
+    DELIVERY_GRANT_MAX_LIFETIME_SECONDS
+  );
+});
 
 function encodeJson(value: unknown): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');

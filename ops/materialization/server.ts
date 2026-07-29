@@ -9,7 +9,10 @@ import {
 } from '../storage-core/config';
 import { verifyDpopProof } from '../storage-core/dpop';
 import { S3ExactStoragePort } from '../storage-core/exactStorage';
-import { packageContractKeyId } from '../storage-core/packageContractsV2';
+import {
+  DELIVERY_GRANT_MAX_LIFETIME_SECONDS,
+  packageContractKeyId,
+} from '../storage-core/packageContractsV2';
 import { parseTufRepositoryRoutePath } from '../storage-core/tufRepositoryPath';
 import { ExactTufRepositoryReader } from '../storage-core/tufRepositoryReader';
 import { createMaterializationKeyBrokerClient } from './keyBrokerClient';
@@ -36,6 +39,9 @@ const ATTRIBUTION_CANDIDATE_PAGE_LIMIT = 512;
 const REQUEST_BODY_LIMIT = 64 * 1_024;
 const CAPABILITY_REQUEST_BODY_LIMIT = 2 * 1_024 * 1_024;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
+
+export const DEFAULT_MATERIALIZATION_SOURCE_GRANT_LIFETIME_SECONDS =
+  DELIVERY_GRANT_MAX_LIFETIME_SECONDS;
 
 type ConsumeCapabilityInput = Parameters<MaterializationBroker['consumeCapability']>[0];
 type PrepareRenditionInput = Parameters<MaterializationBroker['prepareRenditionUpload']>[0];
@@ -865,7 +871,8 @@ async function main(): Promise<void> {
       issuer: requiredEnv('MATERIALIZATION_SOURCE_GRANT_ISSUER'),
       keyId: packageContractKeyId(requiredEnv('MATERIALIZATION_SOURCE_GRANT_KEY_ID')),
       lifetimeSeconds: Number.parseInt(
-        process.env.MATERIALIZATION_SOURCE_GRANT_LIFETIME_SECONDS ?? '300',
+        process.env.MATERIALIZATION_SOURCE_GRANT_LIFETIME_SECONDS ??
+          String(DEFAULT_MATERIALIZATION_SOURCE_GRANT_LIFETIME_SECONDS),
         10
       ),
       privateKey: envBase64Url('MATERIALIZATION_SOURCE_GRANT_PRIVATE_KEY', 32),
