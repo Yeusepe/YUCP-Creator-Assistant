@@ -20,6 +20,9 @@ let actionImpl: (...args: unknown[]) => Promise<unknown> = async () => ({
 let polarCustomerStateImpl: (externalId: string) => Promise<unknown> = async () => null;
 
 const apiMock = {
+  authViewer: {
+    getDiscordUserIdByAuthUser: 'authViewer.getDiscordUserIdByAuthUser',
+  },
   betterAuthApiKeys: {
     listApiKeysForAuthUser: 'betterAuthApiKeys.listApiKeysForAuthUser',
   },
@@ -667,6 +670,66 @@ describe('POST /api/connect/creator-account', () => {
     expect(mutationCalls.some((call) => call.fn === apiMock.guildLinks.upsertGuildLink)).toBe(
       false
     );
+  });
+
+  it('resolves the linked Discord identity when the cookie session omits it', async () => {
+    const mutationCalls: Array<{ fn: unknown; args: unknown }> = [];
+
+    queryImpl = async (fn, args) => {
+      if (fn === apiMock.creatorProfiles.getCreatorProfile) {
+        return null;
+      }
+      if (fn === apiMock.authViewer.getDiscordUserIdByAuthUser) {
+        expect(args).toEqual({
+          apiSecret: 'test-convex-secret',
+          authUserId: 'cookie-session-creator',
+        });
+        return 'discord-cookie-session-creator';
+      }
+      throw new Error(`Unexpected query fn: ${String(fn)}`);
+    };
+    mutationImpl = async (fn, args) => {
+      mutationCalls.push({ fn, args });
+      return 'creator-profile-cookie-session';
+    };
+
+    const fakeAuth = {
+      ...auth,
+      getSession: async () => ({
+        user: {
+          id: 'cookie-session-creator',
+          name: 'Cookie Session Creator',
+        },
+        discordUserId: null,
+      }),
+      getDiscordUserId: async () => null,
+    } as unknown as Auth;
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+
+    const res = await isolatedRoutes.activateCreatorAccount(
+      new Request('http://localhost:3001/api/connect/creator-account', {
+        method: 'POST',
+        headers: {
+          Origin: 'http://localhost:3000',
+        },
+      })
+    );
+
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({
+      creatorAccount: { isActive: true },
+      created: true,
+    });
+    expect(mutationCalls).toContainEqual({
+      fn: apiMock.creatorProfiles.createCreatorProfile,
+      args: {
+        apiSecret: 'test-convex-secret',
+        name: 'Cookie Session Creator',
+        ownerDiscordUserId: 'discord-cookie-session-creator',
+        authUserId: 'cookie-session-creator',
+        policy: {},
+      },
+    });
   });
 });
 

@@ -20,6 +20,7 @@ import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { type Auth } from '../auth';
 import { createAuthUserActorBinding } from '../lib/apiActor';
+import { resolveDiscordUserIdForAuthUser } from '../lib/authIdentity';
 import {
   buildCookie,
   CONNECT_TOKEN_COOKIE,
@@ -260,8 +261,22 @@ export function createConnectRoutes(
     return {};
   }
 
-  async function getAuthenticatedDiscordUserId(request: Request): Promise<string | null> {
-    return auth.getDiscordUserId(request);
+  async function getAuthenticatedDiscordUserId(
+    request: Request,
+    authUserId?: string
+  ): Promise<string | null> {
+    const authenticatedDiscordUserId = await auth.getDiscordUserId(request);
+    if (authenticatedDiscordUserId || !authUserId) {
+      return authenticatedDiscordUserId;
+    }
+
+    return loadRequestScoped(request, requestScopeKey('connect:discord-user', { authUserId }), () =>
+      resolveDiscordUserIdForAuthUser(
+        getConvexClientFromUrl(config.convexUrl),
+        config.convexApiSecret,
+        authUserId
+      )
+    );
   }
 
   interface ConnectSession {
@@ -498,7 +513,7 @@ export function createConnectRoutes(
       session.discordUserId ??
       (await timing.measure(
         'discord_identity',
-        () => getAuthenticatedDiscordUserId(request),
+        () => getAuthenticatedDiscordUserId(request, session.user.id),
         'resolve creator activation Discord identity'
       ));
     if (!discordUserId) {

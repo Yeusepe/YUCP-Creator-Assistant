@@ -4,6 +4,7 @@ import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { Auth } from '../auth';
 import { createAuthUserActorBinding } from '../lib/apiActor';
+import { resolveDiscordUserIdForAuthUser } from '../lib/authIdentity';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
@@ -358,10 +359,11 @@ export function createConnectUserVerificationRoutes({
 
       try {
         const convex = getConvexClientFromUrl(config.convexUrl);
-        const discordUserId = await convex.query(api.authViewer.getDiscordUserIdByAuthUser, {
-          apiSecret: config.convexApiSecret,
-          authUserId: session.user.id,
-        });
+        const discordUserId = await resolveDiscordUserIdForAuthUser(
+          convex,
+          config.convexApiSecret,
+          session.user.id
+        );
         if (discordUserId) {
           beginUrl.searchParams.set('discordUserId', discordUserId);
         }
