@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -16,7 +17,12 @@ import (
 	"github.com/yucp/transfer-helper/internal/dpop"
 )
 
-const maxPackageAPIResponseBytes = 512 * 1024
+const (
+	maxPackageAPIResponseBytes       = 512 * 1024
+	maxPackageAPITransientAttempts   = 4
+	packageAPITransientRetryBaseWait = 250 * time.Millisecond
+	packageAPITransientRetryMaxWait  = 2 * time.Second
+)
 
 var ErrAuthenticationRequired = errors.New("package broker authentication is required")
 
@@ -272,6 +278,39 @@ func (client RemoteClient) post(
 	if err != nil {
 		return fmt.Errorf("encode package broker API request: %w", err)
 	}
+	var lastError error
+	for attempt := 0; attempt < maxPackageAPITransientAttempts; attempt++ {
+		lastError = client.postOnce(
+			ctx,
+			target,
+			encoded,
+			accessToken,
+			privateKey,
+			traceparent,
+			destination,
+		)
+		if lastError == nil || !transientPackageAPIError(lastError) {
+			return lastError
+		}
+		if attempt == maxPackageAPITransientAttempts-1 {
+			break
+		}
+		if err := waitPackageAPIRetry(ctx, attempt); err != nil {
+			return err
+		}
+	}
+	return lastError
+}
+
+func (client RemoteClient) postOnce(
+	ctx context.Context,
+	target string,
+	encoded []byte,
+	accessToken string,
+	privateKey *ecdsa.PrivateKey,
+	traceparent string,
+	destination any,
+) error {
 	proofTime := time.Now()
 	if client.Now != nil {
 		proofTime = client.Now()
@@ -334,6 +373,47 @@ func (client RemoteClient) post(
 		return fmt.Errorf("decode package broker API response: %w", err)
 	}
 	return nil
+}
+
+func transientPackageAPIError(err error) bool {
+	if err == nil ||
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, ErrAuthenticationRequired) {
+		return false
+	}
+	var statusError *packageAPIStatusError
+	if errors.As(err, &statusError) {
+		switch statusError.status {
+		case http.StatusRequestTimeout,
+			http.StatusTooEarly,
+			http.StatusTooManyRequests,
+			http.StatusInternalServerError,
+			http.StatusBadGateway,
+			http.StatusServiceUnavailable,
+			http.StatusGatewayTimeout:
+			return true
+		default:
+			return false
+		}
+	}
+	var networkError net.Error
+	return errors.As(err, &networkError)
+}
+
+func waitPackageAPIRetry(ctx context.Context, attempt int) error {
+	delay := packageAPITransientRetryBaseWait << attempt
+	if delay > packageAPITransientRetryMaxWait {
+		delay = packageAPITransientRetryMaxWait
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (client RemoteClient) canonicalAPIBase() (string, error) {

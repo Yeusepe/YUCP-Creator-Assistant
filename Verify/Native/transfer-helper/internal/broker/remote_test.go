@@ -124,6 +124,103 @@ func TestRemoteClientKeepsServerCapabilitiesInsideBroker(t *testing.T) {
 	}
 }
 
+func TestRemoteClientRetriesTransientAuthorizationFailureWithFreshDPoPProof(t *testing.T) {
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	request := OperationRequest{
+		AliasID:                     "druffle",
+		ApprovedActiveContentDigest: strings.Repeat("33", 32),
+		ApprovedPolicyVersion:       "active-content-policy-v1",
+		ExpectedCurrentReleaseRoot:  strings.Repeat("00", 32),
+		IdempotencyKey:              "install-druffle-transient-auth-1",
+		Operation:                   "install",
+		ProjectIdentity:             strings.Repeat("22", 32),
+		ProjectPath:                 `C:\Unity\ImportTesting`,
+		RunID:                       "run-druffle-transient-auth-1",
+		SchemaVersion:               OperationRequestSchemaVersion,
+		Traceparent:                 "00-c9ce8fef3bd6ad7a3e62e750197a8810-0123456789abcdef-01",
+	}
+	authorizationRequests := 0
+	sessionRequests := 0
+	var authorizationProofs []string
+	server := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		httpRequest *http.Request,
+	) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch httpRequest.URL.Path {
+		case "/api/v2/package-installs/authorizations":
+			authorizationRequests++
+			authorizationProofs = append(
+				authorizationProofs,
+				httpRequest.Header.Get("DPoP"),
+			)
+			if authorizationRequests == 1 {
+				writer.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = writer.Write([]byte(`{"error":"authorization verifier unavailable"}`))
+				return
+			}
+			writer.WriteHeader(http.StatusCreated)
+			_, _ = writer.Write([]byte(`{
+				"expiresAt":"2030-01-01T00:00:00Z",
+				"operationCapability":"signed-operation-capability",
+				"releaseRoot":"` + strings.Repeat("11", 32) + `"
+			}`))
+		case "/api/v2/package-installs/sessions":
+			sessionRequests++
+			_, _ = writer.Write([]byte(`{
+				"deliveryGrant":"signed-delivery-grant",
+				"deliveryGrantPurpose":"delivery-grant-v2",
+				"installSession":"signed-install-session",
+				"installSessionPurpose":"install-session-v2",
+				"releaseRoot":"` + strings.Repeat("11", 32) + `",
+				"versionId":"version-druffle-1"
+			}`))
+		default:
+			http.NotFound(writer, httpRequest)
+		}
+	}))
+	defer server.Close()
+
+	client := RemoteClient{
+		APIBaseURL: server.URL,
+		HTTPClient: server.Client(),
+		Now:        func() time.Time { return time.Unix(1_000, 0) },
+	}
+	authorized, err := client.AuthorizeAndExchange(
+		context.Background(),
+		request,
+		OAuthTokens{
+			AccessToken:  "access-token",
+			ExpiresAt:    time.Unix(1_300, 0),
+			RefreshToken: "refresh-token",
+			Scope:        "package:operate offline_access",
+			TokenType:    "DPoP",
+		},
+		privateKey,
+	)
+	if err != nil {
+		t.Fatalf("AuthorizeAndExchange() error = %v", err)
+	}
+	if authorized.InstallSession != "signed-install-session" {
+		t.Fatalf("AuthorizeAndExchange() = %#v", authorized)
+	}
+	if authorizationRequests != 2 || sessionRequests != 1 {
+		t.Fatalf(
+			"request counts = authorization %d, session %d; want 2 and 1",
+			authorizationRequests,
+			sessionRequests,
+		)
+	}
+	if len(authorizationProofs) != 2 ||
+		authorizationProofs[0] == "" ||
+		authorizationProofs[0] == authorizationProofs[1] {
+		t.Fatalf("authorization DPoP proofs were not refreshed: %#v", authorizationProofs)
+	}
+}
+
 func TestRemoteClientRecoversACompletedExchangeAfterTheFirstResponseIsLost(t *testing.T) {
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
