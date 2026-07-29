@@ -154,7 +154,7 @@ describe('YUCP bootstrap Unity package', () => {
       vpmRepositories: Record<string, string>;
     };
     expect(descriptor.vpmDependencies).toEqual({
-      'com.yucp.importer': '>=0.1.64',
+      'com.yucp.importer': '>=0.1.65',
     });
     expect(descriptor.vpmRepositories).toEqual({
       YUCP: 'https://vpm.yucp.club/index.json',
