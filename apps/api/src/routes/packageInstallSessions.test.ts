@@ -477,11 +477,14 @@ describe('package install session route', () => {
         }),
       sessionId: 'session-renewable',
     });
+    const renewalClaimIssuedAt = new Date(
+      Math.floor(Date.now() / 1_000) * 1_000 + 731
+    );
     const beginRenewal = mock(async () => ({
       capabilityId: `operation-${'77'.repeat(24)}`,
       generation: 1,
       grantId: 'grant-initial',
-      issuedAt: new Date(),
+      issuedAt: renewalClaimIssuedAt,
       renewableUntil: new Date(Date.now() + 60 * 60 * 1_000),
       status: 'claimed' as const,
     }));
@@ -533,6 +536,11 @@ describe('package install session route', () => {
       })
     );
     expect(completeRenewal).toHaveBeenCalledTimes(1);
+    expect(completeRenewal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        issuedAt: new Date(Math.floor(renewalClaimIssuedAt.getTime() / 1_000) * 1_000),
+      })
+    );
     await expect(
       verifyDeliveryGrantV2({
         context: {

@@ -589,7 +589,7 @@ export class PackageOperationAuthorizationStore {
         SET
           previous_grant_token_sha256 = ${input.grantTokenSha256},
           renewal_generation = renewal_generation + 1,
-          renewal_issued_at = date_trunc('milliseconds', clock_timestamp()),
+          renewal_issued_at = date_trunc('second', clock_timestamp()),
           renewal_lease_until =
             clock_timestamp() + (${leaseMilliseconds} * interval '1 millisecond'),
           renewal_state = 'PROCESSING'

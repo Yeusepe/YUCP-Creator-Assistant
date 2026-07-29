@@ -406,14 +406,16 @@ describe.serial('PostgreSQL catalog integration', () => {
     });
     expect(concurrent).toEqual({ status: 'in_progress' });
     const renewedGrantDigest = 'bc'.repeat(32);
+    const contractIssuedAt = new Date(Math.floor(first.issuedAt.getTime() / 1_000) * 1_000);
+    expect(contractIssuedAt.getMilliseconds()).toBe(0);
     expect(
       await store.completeRenewal({
         capabilityId: first.capabilityId,
         generation: first.generation,
         grantId: 'grant-renewal-initial',
-        expiresAt: new Date(first.issuedAt.getTime() + 5 * 60 * 1_000),
+        expiresAt: new Date(contractIssuedAt.getTime() + 5 * 60 * 1_000),
         grantTokenSha256: renewedGrantDigest,
-        issuedAt: first.issuedAt,
+        issuedAt: contractIssuedAt,
       })
     ).toBe(true);
 
@@ -428,9 +430,9 @@ describe.serial('PostgreSQL catalog integration', () => {
       capabilityId: record.capabilityId,
       generation: 1,
       grantId: 'grant-renewal-initial',
-      expiresAt: new Date(first.issuedAt.getTime() + 5 * 60 * 1_000),
+      expiresAt: new Date(contractIssuedAt.getTime() + 5 * 60 * 1_000),
       grantTokenSha256: renewedGrantDigest,
-      issuedAt: first.issuedAt,
+      issuedAt: contractIssuedAt,
       renewableUntil,
       status: 'ready',
     });
