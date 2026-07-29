@@ -32,7 +32,7 @@ describe('S3 rendition upload tickets', () => {
     expect(ticket.headers).toEqual({
       'content-length': '4096',
       'content-type': 'application/zip',
-      'x-amz-content-sha256': 'ab'.repeat(32),
+      'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
       'x-amz-meta-yucp-sha256': 'ab'.repeat(32),
     });
     expect(ticket.url).not.toContain('test-secret-key');

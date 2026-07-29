@@ -866,7 +866,11 @@ export async function createS3PutObjectUploadTicket(input: {
   const requiredHeaders = new Headers({
     'content-length': String(input.bytes),
     'content-type': input.contentType,
-    'x-amz-content-sha256': input.sha256Hex,
+    // Backblaze accepts presigned S3 PUT uploads only with the standard
+    // UNSIGNED-PAYLOAD marker. The signed metadata still binds the expected
+    // SHA-256, and rendition completion hashes the exact stored version.
+    // https://www.backblaze.com/docs/cloud-storage-s3-compatible-api
+    'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
     'x-amz-meta-yucp-sha256': input.sha256Hex,
   });
   const signer = new AwsV4Signer({
