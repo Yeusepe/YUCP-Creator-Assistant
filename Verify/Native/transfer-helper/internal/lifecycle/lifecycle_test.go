@@ -600,8 +600,14 @@ func lifecycleManifest(
 		t.Fatalf("DomainHash(release) error = %v", err)
 	}
 	manifestValue := map[string]any{
-		"activeContentDigest":        hex.EncodeToString(make([]byte, 32)),
-		"activePolicyVersion":        "active-content-policy-v1",
+		"activeContentDigest": hex.EncodeToString(make([]byte, 32)),
+		"activePolicyVersion": "active-content-policy-v1",
+		"bootstrapMedia": []any{map[string]any{
+			"kind":    "product-link",
+			"label":   "Store",
+			"ordinal": 0,
+			"url":     "https://store.example.test/product",
+		}},
 		"chunkAvgKib":                256,
 		"commonRoot":                 hex.EncodeToString(commonRoot[:]),
 		"normalizationPolicyVersion": "package-normalization-policy-v2",

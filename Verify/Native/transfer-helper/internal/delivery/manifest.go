@@ -23,8 +23,10 @@ const (
 	maxChunkBytes                       = 1024 * 1024
 	maxVPMDependencies                  = 64
 	maxVPMRepositories                  = 16
-	maxVPMBootstrapMedia                = 2
-	maxVPMBootstrapMediaBytes           = 2 * 1024 * 1024
+	maxVPMBootstrapMedia                = 42
+	maxVPMBootstrapMediaBytes           = 16 * 1024 * 1024
+	maxVPMGalleryItems                  = 8
+	maxVPMProductLinkItems              = 32
 )
 
 var vpmPackageIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,213}$`)
@@ -46,14 +48,17 @@ type File struct {
 }
 
 type BootstrapMedia struct {
-	BucketName      string `json:"bucketName"`
-	ByteSize        int64  `json:"byteSize"`
-	ContentType     string `json:"contentType"`
+	BucketName      string `json:"bucketName,omitempty"`
+	ByteSize        *int64 `json:"byteSize,omitempty"`
+	ContentType     string `json:"contentType,omitempty"`
 	Kind            string `json:"kind"`
-	LocalPath       string `json:"localPath"`
-	ObjectKey       string `json:"objectKey"`
-	ProviderVersion string `json:"providerVersion"`
-	SHA256          string `json:"sha256"`
+	Label           string `json:"label,omitempty"`
+	LocalPath       string `json:"localPath,omitempty"`
+	ObjectKey       string `json:"objectKey,omitempty"`
+	Ordinal         *int   `json:"ordinal,omitempty"`
+	ProviderVersion string `json:"providerVersion,omitempty"`
+	SHA256          string `json:"sha256,omitempty"`
+	URL             string `json:"url,omitempty"`
 }
 
 type PackageMetadata struct {
@@ -246,30 +251,92 @@ func validateVPMBootstrapMetadata(manifest Manifest) error {
 	if len(manifest.BootstrapMedia) > maxVPMBootstrapMedia {
 		return fmt.Errorf("delivery manifest bootstrap media count exceeds its limit")
 	}
-	mediaKinds := make(map[string]struct{}, len(manifest.BootstrapMedia))
+	mediaRoles := make(map[string]struct{}, len(manifest.BootstrapMedia))
 	for _, media := range manifest.BootstrapMedia {
-		expectedPath := ""
+		requiresOrdinal := false
+		maximumOrdinal := 0
 		switch media.Kind {
-		case "icon":
-			expectedPath = "Documentation~/YUCP/icon.png"
-		case "banner":
-			expectedPath = "Documentation~/YUCP/banner.png"
+		case "icon", "banner":
+		case "gallery":
+			requiresOrdinal = true
+			maximumOrdinal = maxVPMGalleryItems
+		case "product-link":
+			requiresOrdinal = true
+			maximumOrdinal = maxVPMProductLinkItems
 		default:
 			return fmt.Errorf("delivery manifest bootstrap media kind is invalid")
 		}
-		if _, exists := mediaKinds[media.Kind]; exists {
-			return fmt.Errorf("delivery manifest bootstrap media kind is duplicated")
+		if requiresOrdinal {
+			if media.Ordinal == nil || *media.Ordinal < 0 || *media.Ordinal >= maximumOrdinal {
+				return fmt.Errorf("delivery manifest bootstrap media ordinal is invalid")
+			}
+		} else if media.Ordinal != nil {
+			return fmt.Errorf("delivery manifest bootstrap media ordinal is invalid")
 		}
-		mediaKinds[media.Kind] = struct{}{}
+		ordinal := 0
+		if media.Ordinal != nil {
+			ordinal = *media.Ordinal
+		}
+		role := fmt.Sprintf("%s:%d", media.Kind, ordinal)
+		if _, exists := mediaRoles[role]; exists {
+			return fmt.Errorf("delivery manifest bootstrap media role is duplicated")
+		}
+		mediaRoles[role] = struct{}{}
+
+		hasPayload := media.BucketName != "" ||
+			media.ByteSize != nil ||
+			media.ContentType != "" ||
+			media.LocalPath != "" ||
+			media.ObjectKey != "" ||
+			media.ProviderVersion != "" ||
+			media.SHA256 != ""
+		if !hasPayload {
+			if media.Kind != "product-link" ||
+				!isVPMSafeText(media.Label, 120) ||
+				!isPublicHTTPSURL(media.URL) {
+				return fmt.Errorf("delivery manifest bootstrap media is invalid")
+			}
+			continue
+		}
+
+		extension := ""
+		switch media.ContentType {
+		case "image/png":
+			extension = "png"
+		case "image/jpeg":
+			extension = "jpg"
+		default:
+			return fmt.Errorf("delivery manifest bootstrap media content type is invalid")
+		}
+		expectedPath := ""
+		switch media.Kind {
+		case "icon", "banner":
+			expectedPath = fmt.Sprintf("Documentation~/YUCP/%s.%s", media.Kind, extension)
+		case "gallery":
+			expectedPath = fmt.Sprintf("Documentation~/YUCP/gallery/%03d.%s", ordinal, extension)
+		case "product-link":
+			expectedPath = fmt.Sprintf(
+				"Documentation~/YUCP/product-links/%03d.%s",
+				ordinal,
+				extension,
+			)
+		}
 		if !isVPMSafeText(media.BucketName, 255) ||
-			media.ByteSize < 8 ||
-			media.ByteSize > maxVPMBootstrapMediaBytes ||
-			media.ContentType != "image/png" ||
+			media.ByteSize == nil ||
+			*media.ByteSize < 8 ||
+			*media.ByteSize > maxVPMBootstrapMediaBytes ||
 			media.LocalPath != expectedPath ||
 			!isSafeObjectKey(media.ObjectKey) ||
 			!isVPMSafeText(media.ProviderVersion, 1_024) ||
 			!isDigest(media.SHA256) {
 			return fmt.Errorf("delivery manifest bootstrap media is invalid")
+		}
+		if media.Kind == "product-link" {
+			if !isVPMSafeText(media.Label, 120) || !isPublicHTTPSURL(media.URL) {
+				return fmt.Errorf("delivery manifest bootstrap media product link is invalid")
+			}
+		} else if media.Label != "" || media.URL != "" {
+			return fmt.Errorf("delivery manifest bootstrap media product link is invalid")
 		}
 	}
 	if manifest.PackageMetadata != nil {
@@ -430,4 +497,13 @@ func isSafeObjectKey(value string) bool {
 		}
 	}
 	return true
+}
+
+func isPublicHTTPSURL(value string) bool {
+	parsed, err := url.Parse(value)
+	return err == nil &&
+		parsed.IsAbs() &&
+		parsed.Scheme == "https" &&
+		parsed.Hostname() != "" &&
+		parsed.User == nil
 }

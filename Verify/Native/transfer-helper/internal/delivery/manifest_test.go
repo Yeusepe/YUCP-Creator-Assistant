@@ -40,16 +40,35 @@ func TestParseManifestRecomputesEverySignedReleaseBinding(t *testing.T) {
 			"sha256":         hex.EncodeToString(fileDigest[:]),
 		}},
 		"packageId": "product-1",
-		"bootstrapMedia": []any{map[string]any{
-			"bucketName":      "metadata",
-			"byteSize":        1024,
-			"contentType":     "image/png",
-			"kind":            "icon",
-			"localPath":       "Documentation~/YUCP/icon.png",
-			"objectKey":       "bootstrap-media/product-1/icon.png",
-			"providerVersion": "version-icon-1",
-			"sha256":          hex.EncodeToString(fileDigest[:]),
-		}},
+		"bootstrapMedia": []any{
+			map[string]any{
+				"bucketName":      "metadata",
+				"byteSize":        1024,
+				"contentType":     "image/png",
+				"kind":            "icon",
+				"localPath":       "Documentation~/YUCP/icon.png",
+				"objectKey":       "bootstrap-media/product-1/icon.png",
+				"providerVersion": "version-icon-1",
+				"sha256":          hex.EncodeToString(fileDigest[:]),
+			},
+			map[string]any{
+				"bucketName":      "metadata",
+				"byteSize":        2048,
+				"contentType":     "image/jpeg",
+				"kind":            "gallery",
+				"localPath":       "Documentation~/YUCP/gallery/000.jpg",
+				"objectKey":       "bootstrap-media/product-1/gallery-0.jpg",
+				"ordinal":         0,
+				"providerVersion": "version-gallery-1",
+				"sha256":          hex.EncodeToString(fileDigest[:]),
+			},
+			map[string]any{
+				"kind":    "product-link",
+				"label":   "Store",
+				"ordinal": 0,
+				"url":     "https://store.example.test/product",
+			},
+		},
 		"packageMetadata": map[string]any{
 			"author":      "YUCP",
 			"description": "A verified package",
@@ -102,8 +121,14 @@ func TestParseManifestRecomputesEverySignedReleaseBinding(t *testing.T) {
 		manifest.Files[0].NormalizedPath != "Assets/Product/file.txt" ||
 		manifest.ActivePolicyVersion != "active-content-policy-v1" ||
 		manifest.NormalizationPolicyVersion != "package-normalization-policy-v2" ||
-		len(manifest.BootstrapMedia) != 1 ||
+		len(manifest.BootstrapMedia) != 3 ||
 		manifest.BootstrapMedia[0].Kind != "icon" ||
+		manifest.BootstrapMedia[1].Kind != "gallery" ||
+		manifest.BootstrapMedia[1].Ordinal == nil ||
+		*manifest.BootstrapMedia[1].Ordinal != 0 ||
+		manifest.BootstrapMedia[2].Kind != "product-link" ||
+		manifest.BootstrapMedia[2].Label != "Store" ||
+		manifest.BootstrapMedia[2].URL != "https://store.example.test/product" ||
 		manifest.PackageMetadata == nil ||
 		manifest.PackageMetadata.PackageName != "Product" ||
 		manifest.VPMDependencies["com.yucp.components"] != ">=0.3.42" ||
