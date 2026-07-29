@@ -5,14 +5,18 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math/big"
 	"net"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 )
+
+var proofIdentifierSequence atomic.Uint64
 
 type publicJWK struct {
 	Curve string `json:"crv"`
@@ -97,10 +101,11 @@ func createProof(
 	if err != nil {
 		return "", fmt.Errorf("encode DPoP protected header: %w", err)
 	}
-	jti := make([]byte, 16)
-	if _, err := rand.Read(jti); err != nil {
+	jti := make([]byte, 24)
+	if _, err := rand.Read(jti[:16]); err != nil {
 		return "", fmt.Errorf("create DPoP proof identifier: %w", err)
 	}
+	binary.BigEndian.PutUint64(jti[16:], proofIdentifierSequence.Add(1))
 	payloadClaims := proofPayload{
 		Method:     method,
 		URL:        canonicalURL,

@@ -20,7 +20,7 @@ type CredentialProvider interface {
 	Access(
 		ctx context.Context,
 		identity ClientIdentity,
-		forceRefresh bool,
+		mode CredentialAccessMode,
 		report ProgressReporter,
 	) (OAuthTokens, deviceidentity.Identity, error)
 }
@@ -86,7 +86,7 @@ func (runtime Runtime) HandleAuthentication(
 		_, _, err := credentials.Access(
 			ctx,
 			clientIdentity,
-			false,
+			CredentialAccessInteractive,
 			func(string, int64, int64) error { return nil },
 		)
 		return AuthenticationResult{SignedIn: err == nil}, err
@@ -151,7 +151,7 @@ func (runtime Runtime) handleNew(
 	tokens, device, err := runtime.Credentials.Access(
 		ctx,
 		clientIdentity,
-		false,
+		CredentialAccessReuse,
 		report,
 	)
 	if err != nil {
@@ -167,7 +167,7 @@ func (runtime Runtime) handleNew(
 		tokens, device, err = runtime.Credentials.Access(
 			ctx,
 			clientIdentity,
-			true,
+			CredentialAccessRefresh,
 			report,
 		)
 		if err == nil {
@@ -243,7 +243,7 @@ func (runtime Runtime) handleNew(
 			refreshedTokens, refreshedDevice, refreshErr := runtime.Credentials.Access(
 				renewalContext,
 				clientIdentity,
-				true,
+				CredentialAccessRefresh,
 				report,
 			)
 			if refreshErr != nil {
@@ -367,6 +367,7 @@ func (runtime Runtime) waitForVerification(
 	defer cancel()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	refreshedAfterAuthenticationFailure := false
 	for {
 		select {
 		case <-waitContext.Done():
@@ -384,15 +385,19 @@ func (runtime Runtime) waitForVerification(
 				return authorized, tokens, device, nil
 			}
 			if errors.Is(err, ErrAuthenticationRequired) {
+				if refreshedAfterAuthenticationFailure {
+					return AuthorizedOperation{}, tokens, device, err
+				}
 				tokens, device, err = runtime.Credentials.Access(
 					waitContext,
 					clientIdentity,
-					true,
+					CredentialAccessRefresh,
 					report,
 				)
 				if err != nil {
 					return AuthorizedOperation{}, tokens, device, err
 				}
+				refreshedAfterAuthenticationFailure = true
 				continue
 			}
 			var stillRequired *VerificationRequiredError

@@ -112,6 +112,32 @@ func TestManagedCredentialsSignOutRevokesAndClearsWindowsProtectedSession(
 	}
 }
 
+func TestManagedCredentialsRefreshFailureDoesNotOpenBrowser(t *testing.T) {
+	const userSID = "S-1-5-21-refresh-failure"
+	flow := newControlledOAuthFlow("refresh-failure")
+	credentials := newTestManagedCredentials(t, map[string]OAuthFlow{
+		userSID: flow,
+	})
+	if err := credentials.Store.Save(userSID, flow.tokens); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	_, _, err := credentials.Access(
+		context.Background(),
+		ClientIdentity{UserSID: userSID},
+		CredentialAccessRefresh,
+		discardCredentialProgress,
+	)
+	if !errors.Is(err, ErrAuthenticationRequired) {
+		t.Fatalf("Access() error = %v, want ErrAuthenticationRequired", err)
+	}
+	select {
+	case <-flow.authorizeStarted:
+		t.Fatal("noninteractive refresh opened browser authorization")
+	default:
+	}
+}
+
 func TestManagedCredentialsDoNotBlockAnotherUserDuringAuthorization(t *testing.T) {
 	firstFlow := newControlledOAuthFlow("first")
 	secondFlow := newControlledOAuthFlow("second")
@@ -125,7 +151,7 @@ func TestManagedCredentialsDoNotBlockAnotherUserDuringAuthorization(t *testing.T
 		_, _, err := credentials.Access(
 			context.Background(),
 			ClientIdentity{UserSID: "S-1-5-21-first"},
-			false,
+			CredentialAccessInteractive,
 			discardCredentialProgress,
 		)
 		firstDone <- err
@@ -137,7 +163,7 @@ func TestManagedCredentialsDoNotBlockAnotherUserDuringAuthorization(t *testing.T
 		_, _, err := credentials.Access(
 			context.Background(),
 			ClientIdentity{UserSID: "S-1-5-21-second"},
-			false,
+			CredentialAccessInteractive,
 			discardCredentialProgress,
 		)
 		secondDone <- err
@@ -170,7 +196,7 @@ func TestManagedCredentialsObserveCancellationWhileWaitingForTheSameUser(
 		_, _, err := credentials.Access(
 			context.Background(),
 			ClientIdentity{UserSID: "S-1-5-21-same"},
-			false,
+			CredentialAccessInteractive,
 			discardCredentialProgress,
 		)
 		firstDone <- err
@@ -184,7 +210,7 @@ func TestManagedCredentialsObserveCancellationWhileWaitingForTheSameUser(
 		_, _, err := credentials.Access(
 			waitContext,
 			ClientIdentity{UserSID: "S-1-5-21-same"},
-			false,
+			CredentialAccessInteractive,
 			discardCredentialProgress,
 		)
 		waiterDone <- err

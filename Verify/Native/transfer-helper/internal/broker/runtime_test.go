@@ -18,30 +18,30 @@ import (
 type credentialProviderFunc func(
 	context.Context,
 	ClientIdentity,
-	bool,
+	CredentialAccessMode,
 	ProgressReporter,
 ) (OAuthTokens, deviceidentity.Identity, error)
 
 func (provider credentialProviderFunc) Access(
 	ctx context.Context,
 	identity ClientIdentity,
-	forceRefresh bool,
+	mode CredentialAccessMode,
 	report ProgressReporter,
 ) (OAuthTokens, deviceidentity.Identity, error) {
-	return provider(ctx, identity, forceRefresh, report)
+	return provider(ctx, identity, mode, report)
 }
 
 type authenticationCredentialProvider struct {
-	forceRefresh bool
+	mode CredentialAccessMode
 }
 
 func (provider *authenticationCredentialProvider) Access(
 	_ context.Context,
 	_ ClientIdentity,
-	forceRefresh bool,
+	mode CredentialAccessMode,
 	_ ProgressReporter,
 ) (OAuthTokens, deviceidentity.Identity, error) {
-	provider.forceRefresh = forceRefresh
+	provider.mode = mode
 	return OAuthTokens{}, deviceidentity.Identity{}, nil
 }
 
@@ -119,8 +119,186 @@ func TestAuthenticationSignInReusesSavedCredentialsBeforeOpeningBrowser(
 	if !result.SignedIn {
 		t.Fatal("HandleAuthentication() = signed out, want saved session")
 	}
-	if credentials.forceRefresh {
-		t.Fatal("sign-in forced a refresh instead of reusing saved credentials")
+	if credentials.mode != CredentialAccessInteractive {
+		t.Fatalf("sign-in credential mode = %d, want interactive", credentials.mode)
+	}
+}
+
+func TestPackageOperationAuthenticationFailureDoesNotStartInteractiveCredentials(
+	t *testing.T,
+) {
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	var accessCalls []CredentialAccessMode
+	request := authenticationRegressionRequest(t, "initial-authentication")
+	runtime := Runtime{
+		Credentials: credentialProviderFunc(func(
+			_ context.Context,
+			_ ClientIdentity,
+			mode CredentialAccessMode,
+			_ ProgressReporter,
+		) (OAuthTokens, deviceidentity.Identity, error) {
+			accessCalls = append(accessCalls, mode)
+			return OAuthTokens{
+					AccessToken:  "access-token",
+					RefreshToken: "refresh-token",
+					Scope:        "package:operate offline_access",
+					TokenType:    "DPoP",
+				},
+				deviceidentity.Identity{
+					PrivateKey: privateKey,
+					Thumbprint: strings.Repeat("44", 32),
+				},
+				nil
+		}),
+		Exchange: remoteExchangeFunc(func(
+			context.Context,
+			OperationRequest,
+			OAuthTokens,
+			*ecdsa.PrivateKey,
+		) (AuthorizedOperation, error) {
+			return AuthorizedOperation{}, ErrAuthenticationRequired
+		}),
+		Executor: lifecycleExecutorFunc(func(
+			context.Context,
+			lifecycle.AuthorizedRequest,
+			deviceidentity.Identity,
+			trust.Document,
+			lifecycle.ProgressReporter,
+		) (lifecycle.Result, error) {
+			t.Fatal("Execute() must not run")
+			return lifecycle.Result{}, nil
+		}),
+		LaunchURL: func(ClientIdentity, string) error {
+			t.Fatal("LaunchURL() must not run")
+			return nil
+		},
+		Results:   mustResultStore(t),
+		StateRoot: t.TempDir(),
+	}
+
+	result, err := runtime.Handle(
+		context.Background(),
+		ClientIdentity{ProcessID: 42, UserSID: "S-1-5-21-auth-failure"},
+		request,
+		func(string, int64, int64) error { return nil },
+	)
+	if err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if result.ErrorCode != "AUTHENTICATION_REQUIRED" {
+		t.Fatalf("result error code = %q, want AUTHENTICATION_REQUIRED", result.ErrorCode)
+	}
+	if !reflect.DeepEqual(
+		accessCalls,
+		[]CredentialAccessMode{
+			CredentialAccessReuse,
+			CredentialAccessRefresh,
+		},
+	) {
+		t.Fatalf(
+			"package operation credential calls = %#v, want reuse then noninteractive refresh",
+			accessCalls,
+		)
+	}
+}
+
+func TestVerificationPollingAuthenticationFailureDoesNotStartInteractiveCredentials(
+	t *testing.T,
+) {
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	var accessCalls []CredentialAccessMode
+	exchanges := 0
+	opened := 0
+	request := authenticationRegressionRequest(t, "verification-authentication")
+	runtime := Runtime{
+		Credentials: credentialProviderFunc(func(
+			_ context.Context,
+			_ ClientIdentity,
+			mode CredentialAccessMode,
+			_ ProgressReporter,
+		) (OAuthTokens, deviceidentity.Identity, error) {
+			accessCalls = append(accessCalls, mode)
+			if mode == CredentialAccessRefresh {
+				return OAuthTokens{}, deviceidentity.Identity{},
+					ErrAuthenticationRequired
+			}
+			return OAuthTokens{
+					AccessToken:  "access-token",
+					RefreshToken: "refresh-token",
+					Scope:        "package:operate offline_access",
+					TokenType:    "DPoP",
+				},
+				deviceidentity.Identity{
+					PrivateKey: privateKey,
+					Thumbprint: strings.Repeat("44", 32),
+				},
+				nil
+		}),
+		Exchange: remoteExchangeFunc(func(
+			context.Context,
+			OperationRequest,
+			OAuthTokens,
+			*ecdsa.PrivateKey,
+		) (AuthorizedOperation, error) {
+			exchanges++
+			if exchanges == 1 {
+				return AuthorizedOperation{}, &VerificationRequiredError{
+					URL: "https://app.example.test/access/product-1",
+				}
+			}
+			return AuthorizedOperation{}, ErrAuthenticationRequired
+		}),
+		Executor: lifecycleExecutorFunc(func(
+			context.Context,
+			lifecycle.AuthorizedRequest,
+			deviceidentity.Identity,
+			trust.Document,
+			lifecycle.ProgressReporter,
+		) (lifecycle.Result, error) {
+			t.Fatal("Execute() must not run")
+			return lifecycle.Result{}, nil
+		}),
+		LaunchURL: func(ClientIdentity, string) error {
+			opened++
+			return nil
+		},
+		Results:                  mustResultStore(t),
+		StateRoot:                t.TempDir(),
+		VerificationPollInterval: 1,
+	}
+
+	result, err := runtime.Handle(
+		context.Background(),
+		ClientIdentity{ProcessID: 42, UserSID: "S-1-5-21-verification-auth"},
+		request,
+		func(string, int64, int64) error { return nil },
+	)
+	if err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if result.ErrorCode != "AUTHENTICATION_REQUIRED" {
+		t.Fatalf("result error code = %q, want AUTHENTICATION_REQUIRED", result.ErrorCode)
+	}
+	if opened != 1 {
+		t.Fatalf("verification pages opened = %d, want 1", opened)
+	}
+	if !reflect.DeepEqual(
+		accessCalls,
+		[]CredentialAccessMode{
+			CredentialAccessReuse,
+			CredentialAccessRefresh,
+		},
+	) {
+		t.Fatalf(
+			"verification credential calls = %#v, want reuse then noninteractive refresh",
+			accessCalls,
+		)
 	}
 }
 
@@ -146,7 +324,7 @@ func TestRuntimeOpensVerificationAndRetriesWithoutExposingCapabilities(t *testin
 		Credentials: credentialProviderFunc(func(
 			context.Context,
 			ClientIdentity,
-			bool,
+			CredentialAccessMode,
 			ProgressReporter,
 		) (OAuthTokens, deviceidentity.Identity, error) {
 			return OAuthTokens{
@@ -227,6 +405,24 @@ func TestRuntimeOpensVerificationAndRetriesWithoutExposingCapabilities(t *testin
 	}
 }
 
+func authenticationRegressionRequest(
+	t *testing.T,
+	label string,
+) OperationRequest {
+	t.Helper()
+	return OperationRequest{
+		AliasID:                    "jammr",
+		ExpectedCurrentReleaseRoot: strings.Repeat("00", 32),
+		IdempotencyKey:             "preflight-" + label,
+		Operation:                  "preflight",
+		ProjectIdentity:            strings.Repeat("22", 32),
+		ProjectPath:                t.TempDir(),
+		RunID:                      "run-" + label,
+		SchemaVersion:              OperationRequestSchemaVersion,
+		Traceparent:                "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
+	}
+}
+
 func TestRuntimePersistsAndRedactsFailedTerminalResult(t *testing.T) {
 	request := OperationRequest{
 		AliasID:                    "jammr",
@@ -245,7 +441,7 @@ func TestRuntimePersistsAndRedactsFailedTerminalResult(t *testing.T) {
 		Credentials: credentialProviderFunc(func(
 			context.Context,
 			ClientIdentity,
-			bool,
+			CredentialAccessMode,
 			ProgressReporter,
 		) (OAuthTokens, deviceidentity.Identity, error) {
 			accesses++

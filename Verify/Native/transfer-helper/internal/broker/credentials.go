@@ -14,6 +14,14 @@ import (
 
 const accessTokenRefreshMargin = 30 * time.Second
 
+type CredentialAccessMode uint8
+
+const (
+	CredentialAccessReuse CredentialAccessMode = iota
+	CredentialAccessRefresh
+	CredentialAccessInteractive
+)
+
 type OAuthFlow interface {
 	Authorize(
 		ctx context.Context,
@@ -147,7 +155,7 @@ func (credentials *ManagedCredentials) oauthForClient(
 func (credentials *ManagedCredentials) Access(
 	ctx context.Context,
 	clientIdentity ClientIdentity,
-	forceRefresh bool,
+	mode CredentialAccessMode,
 	report ProgressReporter,
 ) (OAuthTokens, deviceidentity.Identity, error) {
 	if credentials == nil ||
@@ -183,7 +191,14 @@ func (credentials *ManagedCredentials) Access(
 	if err != nil {
 		return OAuthTokens{}, deviceidentity.Identity{}, err
 	}
-	if found && !forceRefresh && now.Add(accessTokenRefreshMargin).Before(stored.ExpiresAt) {
+	if mode > CredentialAccessInteractive {
+		return OAuthTokens{}, deviceidentity.Identity{}, fmt.Errorf(
+			"package broker credential access mode is invalid",
+		)
+	}
+	if found &&
+		mode != CredentialAccessRefresh &&
+		now.Add(accessTokenRefreshMargin).Before(stored.ExpiresAt) {
 		return stored, identity, nil
 	}
 	if found && stored.RefreshToken != "" {
@@ -198,6 +213,14 @@ func (credentials *ManagedCredentials) Access(
 			}
 			return refreshed, identity, nil
 		}
+		if mode != CredentialAccessInteractive {
+			return OAuthTokens{}, deviceidentity.Identity{}, ErrAuthenticationRequired
+		}
+	}
+	if mode != CredentialAccessInteractive {
+		return OAuthTokens{}, deviceidentity.Identity{}, ErrAuthenticationRequired
+	}
+	if found {
 		if err := credentials.Store.Clear(clientIdentity.UserSID); err != nil {
 			return OAuthTokens{}, deviceidentity.Identity{}, err
 		}

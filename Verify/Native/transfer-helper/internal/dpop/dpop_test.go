@@ -13,6 +13,15 @@ import (
 	"time"
 )
 
+type repeatingEntropyReader byte
+
+func (reader repeatingEntropyReader) Read(destination []byte) (int, error) {
+	for index := range destination {
+		destination[index] = byte(reader)
+	}
+	return len(destination), nil
+}
+
 func TestCreateProofBindsMethodURLTokenAndPublicKey(t *testing.T) {
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -74,6 +83,44 @@ func TestCreateProofBindsMethodURLTokenAndPublicKey(t *testing.T) {
 		new(big.Int).SetBytes(signature[32:]),
 	) {
 		t.Fatal("proof signature did not verify")
+	}
+}
+
+func TestCreateProofIdentifierRemainsUniqueWhenEntropyRepeats(t *testing.T) {
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	originalReader := rand.Reader
+	rand.Reader = repeatingEntropyReader(0x42)
+	defer func() {
+		rand.Reader = originalReader
+	}()
+
+	identifiers := make([]string, 0, 2)
+	for attempt := 0; attempt < 2; attempt++ {
+		proof, err := CreateProof(
+			privateKey,
+			"POST",
+			"https://api.example.test/api/v2/package-installs/authorizations",
+			"access-token",
+			time.Unix(1_800_000_000, 0),
+		)
+		if err != nil {
+			t.Fatalf("CreateProof() attempt %d error = %v", attempt, err)
+		}
+		parts := strings.Split(proof, ".")
+		if len(parts) != 3 {
+			t.Fatalf("proof parts = %d, want 3", len(parts))
+		}
+		var payload proofPayload
+		if err := decodePart(parts[1], &payload); err != nil {
+			t.Fatalf("decode proof payload: %v", err)
+		}
+		identifiers = append(identifiers, payload.Identifier)
+	}
+	if identifiers[0] == identifiers[1] {
+		t.Fatalf("DPoP proof identifiers were reused: %q", identifiers[0])
 	}
 }
 
