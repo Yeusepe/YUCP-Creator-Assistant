@@ -23,10 +23,10 @@ const importerIndexFetchMock = mock(async () =>
     packages: {
       'com.yucp.importer': {
         versions: {
-          '0.1.55': {
+          '0.1.64': {
             name: 'com.yucp.importer',
             displayName: 'YUCP Package Importer',
-            version: '0.1.55',
+            version: '0.1.64',
             unity: '2022.3',
             description: 'YUCP package importer',
             author: {
@@ -34,7 +34,7 @@ const importerIndexFetchMock = mock(async () =>
               url: 'https://vpm.yucp.club/',
             },
             zipSHA256: 'b8f611e191f4fc796c84c3a52f55f5c3b7e62acdf574962a0499aade61533380',
-            url: 'https://packages.example.test/com.yucp.importer-0.1.55.zip',
+            url: 'https://packages.example.test/com.yucp.importer-0.1.64.zip',
           },
         },
       },
@@ -236,7 +236,7 @@ function publishedAlias(input: {
       url: 'https://yucp.club/',
     },
     vpmDependencies: {
-      'com.yucp.importer': '>=0.1.55',
+      'com.yucp.importer': '>=0.1.64',
     },
     yucp: {
       kind: 'alias-v1',
@@ -244,7 +244,7 @@ function publishedAlias(input: {
       packageVersion,
       installStrategy: 'server-authorized',
       importerPackage: 'com.yucp.importer',
-      minImporterVersion: '0.1.55',
+      minImporterVersion: '0.1.64',
     },
     url: `https://mapache.private.yucp.club/api/vpm/alias-publications/${input.publicationId}/${input.bootstrapVersion}.zip`,
     zipSHA256: sha256,
@@ -1306,7 +1306,7 @@ describe('package-scoped VPM routes', () => {
       channel: 'stable',
       description: 'Adds JAMMR after purchase verification.',
       media: [],
-      minImporterVersion: '0.1.55',
+      minImporterVersion: '0.1.64',
       packageId: 'com.yucp.jammr',
       packageName: 'JAMMR',
       presentationFingerprintSha256: 'f'.repeat(64),
@@ -1387,7 +1387,7 @@ describe('package-scoped VPM routes', () => {
       channel: 'stable',
       description: 'Stale description.',
       media: [],
-      minImporterVersion: '0.1.55',
+      minImporterVersion: '0.1.64',
       packageId: 'com.yucp.jammr',
       packageName: 'JAMMR',
       presentationFingerprintSha256: 'e'.repeat(64),
@@ -1654,10 +1654,10 @@ describe('package-scoped VPM routes', () => {
           },
           'com.yucp.importer': {
             versions: {
-              '0.1.55': {
+              '0.1.64': {
                 name: 'com.yucp.importer',
                 displayName: 'YUCP Package Importer',
-                version: '0.1.55',
+                version: '0.1.64',
                 unity: '2022.3',
                 description: 'YUCP package importer',
                 author: {
@@ -1665,7 +1665,7 @@ describe('package-scoped VPM routes', () => {
                   url: 'https://vpm.yucp.club/',
                 },
                 zipSHA256: 'b8f611e191f4fc796c84c3a52f55f5c3b7e62acdf574962a0499aade61533380',
-                url: 'https://packages.example.test/com.yucp.importer-0.1.55.zip',
+                url: 'https://packages.example.test/com.yucp.importer-0.1.64.zip',
               },
             },
           },
@@ -1705,10 +1705,10 @@ describe('package-scoped VPM routes', () => {
         packages: {
           'com.yucp.importer': {
             versions: {
-              '0.1.55': {
+              '0.1.64': {
                 name: 'com.yucp.importer',
                 displayName: 'YUCP Package Importer',
-                version: '0.1.55',
+                version: '0.1.64',
                 unity: '2022.3',
                 description: 'YUCP package importer',
                 author: {
@@ -1716,7 +1716,7 @@ describe('package-scoped VPM routes', () => {
                   url: 'https://vpm.yucp.club/',
                 },
                 zipSHA256: 'd'.repeat(64),
-                url: 'http://127.0.0.1:3004/packages/com.yucp.importer-0.1.55.zip',
+                url: 'http://127.0.0.1:3004/packages/com.yucp.importer-0.1.64.zip',
               },
               '0.1.13': {
                 name: 'com.yucp.importer',
@@ -1752,7 +1752,7 @@ describe('package-scoped VPM routes', () => {
       packages?: Record<string, { versions?: Record<string, unknown> }>;
     };
     expect(response.status).toBe(200);
-    expect(Object.keys(body.packages?.['com.yucp.importer']?.versions ?? {})).toEqual(['0.1.55']);
+    expect(Object.keys(body.packages?.['com.yucp.importer']?.versions ?? {})).toEqual(['0.1.64']);
   });
 
   it('keeps the repository stable when storefront and edition state changes', async () => {
