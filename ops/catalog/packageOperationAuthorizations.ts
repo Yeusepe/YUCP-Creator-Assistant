@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto';
 import { parseTraceparent } from '@yucp/shared';
+import { PACKAGE_INSTALL_DPOP_MAX_REPLAY_RESERVATION_LIFETIME_MS } from '../storage-core/dpopReplayPolicy';
 import { PACKAGE_INSTALL_AUTHORIZATION_POLICY } from '../storage-core/packageInstallAuthorizationPolicy';
 import type { CatalogDatabase } from './database';
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const CAPABILITY_ID_PATTERN = /^operation-[0-9a-f]{48}$/;
 const MAX_CAPABILITY_LIFETIME_MS = 5 * 60 * 1_000;
-const MAX_DPOP_REPLAY_LIFETIME_MS = 5 * 60 * 1_000;
 
 export type PackageOperationAuthorizationRecord = {
   aliasId: string;
@@ -713,7 +713,7 @@ export class PackageOperationAuthorizationStore {
           !Number.isFinite(reservation.now.getTime()) ||
           !Number.isFinite(reservation.expiresAt.getTime()) ||
           lifetime <= 0 ||
-          lifetime > MAX_DPOP_REPLAY_LIFETIME_MS
+          lifetime > PACKAGE_INSTALL_DPOP_MAX_REPLAY_RESERVATION_LIFETIME_MS
         ) {
           return false;
         }

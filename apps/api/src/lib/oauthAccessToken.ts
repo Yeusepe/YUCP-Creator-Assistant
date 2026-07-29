@@ -1,4 +1,5 @@
 import type { DpopReplayStore } from 'better-auth/oauth2';
+import { PACKAGE_INSTALL_DPOP_PROOF_MAX_AGE_SECONDS } from '../../../../ops/storage-core/dpopReplayPolicy';
 
 export interface VerifiedOAuthAccessToken {
   grantedScopes: string[];
@@ -168,7 +169,7 @@ export async function verifyBetterAuthAccessRequest(
       },
       jwksUrl: `${authBase}/jwks`,
       dpop: {
-        proofMaxAgeSeconds: 300,
+        proofMaxAgeSeconds: PACKAGE_INSTALL_DPOP_PROOF_MAX_AGE_SECONDS,
         replayStore: options.dpopReplayStore,
         signingAlgorithms: ['ES256'],
       },

@@ -4,6 +4,11 @@ import { copyFile, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/pro
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  PACKAGE_INSTALL_DPOP_ACCEPTED_FUTURE_SKEW_SECONDS,
+  PACKAGE_INSTALL_DPOP_MAX_REPLAY_RESERVATION_LIFETIME_MS,
+  PACKAGE_INSTALL_DPOP_PROOF_MAX_AGE_SECONDS,
+} from '../storage-core/dpopReplayPolicy';
 import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId';
 import { waitForPostgres } from '../testing/postgresReadiness';
 import {
@@ -722,6 +727,19 @@ describe.serial('PostgreSQL catalog integration', () => {
     ]);
     expect(reservations.sort()).toEqual([false, true]);
 
+    const maximumAcceptedFutureSkew = new Date(
+      now.getTime() + PACKAGE_INSTALL_DPOP_ACCEPTED_FUTURE_SKEW_SECONDS * 1_000
+    );
+    expect(
+      await store.reserve({
+        expiresAt: new Date(
+          maximumAcceptedFutureSkew.getTime() + PACKAGE_INSTALL_DPOP_PROOF_MAX_AGE_SECONDS * 1_000
+        ),
+        key: 'proof-with-accepted-future-skew',
+        now,
+      })
+    ).toBe(true);
+
     const restartedDatabase = openCatalogDatabase(databaseUrl);
     try {
       const restartedStore = new PackageOperationAuthorizationStore(
@@ -760,7 +778,9 @@ describe.serial('PostgreSQL catalog integration', () => {
     expect(expiredRows[0]?.count).toBe(5);
     expect(
       await store.reserve({
-        expiresAt: new Date(cleanupNow.getTime() + 5 * 60 * 1_000 + 1),
+        expiresAt: new Date(
+          cleanupNow.getTime() + PACKAGE_INSTALL_DPOP_MAX_REPLAY_RESERVATION_LIFETIME_MS + 1
+        ),
         key: 'proof-too-long',
         now: cleanupNow,
       })
