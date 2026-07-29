@@ -156,6 +156,19 @@ export async function buildVpmPackageArchive(
       entries[archivePath] = [bytes, { level: 9, mtime: timestamp }];
     }
   }
+  const archivePaths = new Set(Object.keys(entries));
+  for (const archivePath of archivePaths) {
+    if (!archivePath.endsWith('.meta')) {
+      continue;
+    }
+    const metadataTarget = archivePath.slice(0, -'.meta'.length);
+    const targetExists =
+      archivePaths.has(metadataTarget) ||
+      [...archivePaths].some((candidate) => candidate.startsWith(`${metadataTarget}/`));
+    if (!targetExists) {
+      delete entries[archivePath];
+    }
+  }
   return zipSync(entries, { level: 9 });
 }
 

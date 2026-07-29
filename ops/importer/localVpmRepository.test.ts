@@ -144,6 +144,38 @@ describe('local public importer repository', () => {
     }
   });
 
+  test('excludes folder metadata when the public archive has no files in that folder', async () => {
+    const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-local-vpm-empty-folders-'));
+    const importerPath = join(scratchPath, 'com.yucp.importer');
+    try {
+      await mkdir(join(importerPath, 'Editor', 'Empty'), { recursive: true });
+      await mkdir(join(importerPath, 'Editor', 'Runtime'), { recursive: true });
+      await writeFile(
+        join(importerPath, 'package.json'),
+        '{"name":"com.yucp.importer","displayName":"Importer","version":"0.1.61"}\n'
+      );
+      await writeFile(join(importerPath, 'Editor', 'Empty.meta'), 'fileFormatVersion: 2\n');
+      await writeFile(join(importerPath, 'Editor', 'Runtime.meta'), 'fileFormatVersion: 2\n');
+      await writeFile(join(importerPath, 'Editor', 'Runtime', 'Importer.cs'), 'namespace YUCP {}\n');
+      await writeFile(
+        join(importerPath, 'Editor', 'Runtime', 'Importer.cs.meta'),
+        'fileFormatVersion: 2\n'
+      );
+
+      const repository = await buildLocalImporterRepository({
+        baseUrl: 'http://127.0.0.1:3004',
+        importerPath,
+      });
+      const files = unzipSync(repository.archive);
+
+      expect(files['Editor/Empty.meta']).toBeUndefined();
+      expect(files['Editor/Runtime.meta']).toBeDefined();
+      expect(files['Editor/Runtime/Importer.cs.meta']).toBeDefined();
+    } finally {
+      await rm(scratchPath, { force: true, recursive: true });
+    }
+  });
+
   test('changes deterministic ZIP timestamps when the package version changes', async () => {
     const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-local-vpm-version-time-'));
     try {
