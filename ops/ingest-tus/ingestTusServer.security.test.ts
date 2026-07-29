@@ -88,8 +88,10 @@ interface MemoryQuarantineRow {
   bytes: number;
   content_type: string;
   created_at: Date;
+  creator_id: string;
   file_identifier: string | null;
   object_key: string;
+  protection_policy_id: string;
   provider_version: string | null;
   sha256: string;
   state: 'COMMITTED' | 'PENDING' | 'UNCERTAIN';
@@ -130,7 +132,9 @@ function createMemoryCatalog(
   const sql = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const statement = strings.join('?');
     if (statement.includes('INSERT INTO package_quarantine_objects')) {
-      const versionId = String(values[4]);
+      // Mirrors Catalog.beginQuarantineObject parameter order:
+      // objectKey, sha256, bytes, contentType, creatorId, protectionPolicyId, versionId.
+      const versionId = String(values[6]);
       if (quarantineRows.has(versionId) || rows.get(versionId)?.state !== 'UPLOADING') {
         return [];
       }
@@ -139,8 +143,10 @@ function createMemoryCatalog(
         bytes: Number(values[2]),
         content_type: String(values[3]),
         created_at: now,
+        creator_id: String(values[4]),
         file_identifier: null,
         object_key: String(values[0]),
+        protection_policy_id: String(values[5]),
         provider_version: null,
         sha256: String(values[1]),
         state: 'PENDING',
