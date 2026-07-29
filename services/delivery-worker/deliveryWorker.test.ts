@@ -293,7 +293,92 @@ describe('common package delivery Worker', () => {
     );
     expect(chunkResponse.status).toBe(200);
     expect(new Uint8Array(await chunkResponse.arrayBuffer())).toEqual(chunkBytes);
-    expect(storageRoles).toEqual(['metadata', 'metadata', 'common']);
+    expect(storageRoles).toEqual(['metadata', 'common']);
+    expect(chunkResponse.headers.get('x-delivery-storage-fetches')).toBe('1');
+    expect(manifestResponse.headers.get('x-yucp-manifest-source')).toBe('storage');
+    expect(chunkResponse.headers.get('x-yucp-manifest-source')).toBe('cache');
+  });
+
+  it('names the denial stage for membership and authorization rejections', async () => {
+    const versionId = randomUUID();
+    const chunkBytes = new TextEncoder().encode('denial stage release');
+    const fixture = commonManifest(versionId, chunkBytes);
+    globalThis.fetch = mock(async (input: string | URL | Request) => {
+      const origin = new URL(new Request(input).url);
+      if (origin.pathname.startsWith('/metadata-test/')) {
+        return new Response(fixture.body, {
+          headers: { 'Content-Length': String(Buffer.byteLength(fixture.body)) },
+        });
+      }
+      return new Response(null, { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const unauthorized = await worker.fetch(
+      new Request(`https://delivery.example.test/v2/delivery/${versionId}/manifest`),
+      await testEnv()
+    );
+    expect(unauthorized.status).toBe(403);
+    expect(unauthorized.headers.get('x-yucp-denial-stage')).toBe('authorization');
+
+    const missingChunkUrl =
+      `https://delivery.example.test/v2/delivery/${versionId}/chunks/${'f'.repeat(64)}`;
+    const membership = await worker.fetch(
+      new Request(missingChunkUrl, {
+        headers: await createAuthorization({
+          bindingRoot: fixture.bindingRoot,
+          productId: fixture.manifest.packageId,
+          releaseRoot: fixture.manifest.releaseRoot,
+          url: missingChunkUrl,
+          versionId,
+        }),
+      }),
+      await testEnv()
+    );
+    expect(membership.status).toBe(403);
+    expect(membership.headers.get('x-yucp-denial-stage')).toBe('membership');
+  });
+
+  it('shares one manifest storage load across concurrent cold requests', async () => {
+    const versionId = randomUUID();
+    const chunkBytes = new TextEncoder().encode('single-flight release');
+    const fixture = commonManifest(versionId, chunkBytes);
+    let manifestFetches = 0;
+    globalThis.fetch = mock(async (input: string | URL | Request) => {
+      const origin = new URL(new Request(input).url);
+      if (origin.pathname.startsWith('/metadata-test/')) {
+        manifestFetches += 1;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return new Response(fixture.body, {
+          headers: { 'Content-Length': String(Buffer.byteLength(fixture.body)) },
+        });
+      }
+      if (origin.pathname.startsWith('/common-test/')) {
+        return new Response(chunkBytes);
+      }
+      return new Response(null, { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const chunkId = fixture.manifest.files[0]?.chunks[0]?.id as string;
+    const chunkUrl = `https://delivery.example.test/v2/delivery/${versionId}/chunks/${chunkId}`;
+    const request = async () =>
+      worker.fetch(
+        new Request(chunkUrl, {
+          headers: await createAuthorization({
+            bindingRoot: fixture.bindingRoot,
+            productId: fixture.manifest.packageId,
+            releaseRoot: fixture.manifest.releaseRoot,
+            url: chunkUrl,
+            versionId,
+          }),
+        }),
+        await testEnv()
+      );
+
+    const [first, second] = await Promise.all([request(), request()]);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(manifestFetches).toBe(1);
   });
 
   it('rejects a grant for a different version before storage', async () => {
@@ -382,7 +467,7 @@ describe('common package delivery Worker', () => {
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(storageFetches).toBe(2);
+    expect(storageFetches).toBe(1);
   });
 
   it('accepts fresh proof identifiers from the same device key', async () => {
@@ -419,7 +504,7 @@ describe('common package delivery Worker', () => {
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(storageFetches).toBe(2);
+    expect(storageFetches).toBe(1);
   });
 
   it('does not let invalid proof or grant attempts poison the replay cache', async () => {
@@ -476,5 +561,95 @@ describe('common package delivery Worker', () => {
     expect(invalidGrantResponse.status).toBe(403);
     expect(validResponse.status).toBe(200);
     expect(storageFetches).toBe(1);
+  });
+
+  it('reloads a republished manifest when a valid grant disagrees with the cache', async () => {
+    const versionId = randomUUID();
+    const staleFixture = commonManifest(versionId, new TextEncoder().encode('stale release'));
+    const freshChunkBytes = new TextEncoder().encode('fresh release');
+    const freshFixture = commonManifest(versionId, freshChunkBytes);
+    let servedManifestBody = staleFixture.body;
+    let manifestFetches = 0;
+    globalThis.fetch = mock(async (input: string | URL | Request) => {
+      const origin = new URL(new Request(input).url);
+      if (origin.pathname.startsWith('/metadata-test/')) {
+        manifestFetches += 1;
+        return new Response(servedManifestBody, {
+          headers: { 'Content-Length': String(Buffer.byteLength(servedManifestBody)) },
+        });
+      }
+      if (origin.pathname.startsWith('/common-test/')) {
+        return new Response(freshChunkBytes);
+      }
+      return new Response(null, { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const manifestUrl = `https://delivery.example.test/v2/delivery/${versionId}/manifest`;
+    const staleResponse = await worker.fetch(
+      new Request(manifestUrl, {
+        headers: await createAuthorization({
+          bindingRoot: staleFixture.bindingRoot,
+          productId: staleFixture.manifest.packageId,
+          releaseRoot: staleFixture.manifest.releaseRoot,
+          url: manifestUrl,
+          versionId,
+        }),
+      }),
+      await testEnv()
+    );
+    expect(staleResponse.status).toBe(200);
+
+    servedManifestBody = freshFixture.body;
+    const chunkId = freshFixture.manifest.files[0]?.chunks[0]?.id as string;
+    const chunkUrl = `https://delivery.example.test/v2/delivery/${versionId}/chunks/${chunkId}`;
+    const chunkResponse = await worker.fetch(
+      new Request(chunkUrl, {
+        headers: await createAuthorization({
+          bindingRoot: freshFixture.bindingRoot,
+          productId: freshFixture.manifest.packageId,
+          releaseRoot: freshFixture.manifest.releaseRoot,
+          url: chunkUrl,
+          versionId,
+        }),
+      }),
+      await testEnv()
+    );
+
+    expect(chunkResponse.status).toBe(200);
+    expect(new Uint8Array(await chunkResponse.arrayBuffer())).toEqual(freshChunkBytes);
+    expect(manifestFetches).toBe(2);
+  });
+
+  it('retries a rate limited storage read before serving the manifest', async () => {
+    const versionId = randomUUID();
+    const fixture = commonManifest(versionId, new TextEncoder().encode('rate limited release'));
+    let manifestFetches = 0;
+    globalThis.fetch = mock(async () => {
+      manifestFetches += 1;
+      if (manifestFetches === 1) {
+        return new Response('slow down', { headers: { 'retry-after': '0' }, status: 503 });
+      }
+      return new Response(fixture.body, {
+        headers: { 'Content-Length': String(Buffer.byteLength(fixture.body)) },
+      });
+    }) as unknown as typeof fetch;
+    const url = `https://delivery.example.test/v2/delivery/${versionId}/manifest`;
+
+    const response = await worker.fetch(
+      new Request(url, {
+        headers: await createAuthorization({
+          bindingRoot: fixture.bindingRoot,
+          productId: fixture.manifest.packageId,
+          releaseRoot: fixture.manifest.releaseRoot,
+          url,
+          versionId,
+        }),
+      }),
+      await testEnv()
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(fixture.body);
+    expect(manifestFetches).toBe(2);
   });
 });

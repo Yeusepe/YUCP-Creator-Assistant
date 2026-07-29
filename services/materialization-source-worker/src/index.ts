@@ -6,6 +6,7 @@ import {
 } from '../../../ops/storage-core/deliveryManifest';
 import { verifyDpopProof } from '../../../ops/storage-core/dpop';
 import { BoundedDpopReplayCache } from '../../../ops/storage-core/dpopReplayCache';
+import { BoundedManifestCache, type CachedManifest } from '../../../ops/storage-core/manifestCache';
 import {
   type DeliveryGrantV2,
   packageContractKeyId,
@@ -13,6 +14,7 @@ import {
 } from '../../../ops/storage-core/packageContractsV2';
 import { createLogicalReleasePublicationV4 } from '../../../ops/storage-core/releasePublication';
 import { buildS3ObjectUrl } from '../../../ops/storage-core/s3ObjectUrl';
+import { fetchWithSlowDownBackoff } from '../../../ops/storage-core/storageBackoff';
 
 // Cloudflare Workers support response streaming, but origin subrequests stay bounded.
 // Reference: https://developers.cloudflare.com/workers/platform/limits/
@@ -56,11 +58,25 @@ const ORIGIN_TIMEOUT_MS = 30_000;
 const MAX_DPOP_REPLAY_ENTRIES = 8_192;
 const DPOP_REPLAY_SWEEP_LIMIT = 128;
 const DPOP_REPLAY_WINDOW_MS = 5 * 60 * 1_000;
+const MANIFEST_CACHE_MAX_BODY_BYTES = 8 * 1024 * 1024;
+const MANIFEST_CACHE_MAX_ENTRIES = 64;
+const MANIFEST_CACHE_TTL_MS = 5 * 60 * 1_000;
 // This bounded module cache is same-isolate abuse detection, not cross-region security truth.
 const dpopReplayCache = new BoundedDpopReplayCache({
   maxEntries: MAX_DPOP_REPLAY_ENTRIES,
   sweepLimit: DPOP_REPLAY_SWEEP_LIMIT,
 });
+// Same-isolate reuse of a validated manifest; the per-request grant binding check
+// below invalidates a stale entry after a manifest republish, and the TTL bounds
+// how long republished-but-still-granted manifests can serve from cache.
+const manifestCache = new BoundedManifestCache({
+  maxBodyBytes: MANIFEST_CACHE_MAX_BODY_BYTES,
+  maxEntries: MANIFEST_CACHE_MAX_ENTRIES,
+  ttlMs: MANIFEST_CACHE_TTL_MS,
+});
+// Concurrent chunk requests on a cold isolate share one storage load per version
+// instead of racing identical downloads.
+const inflightManifestLoads = new Map<string, Promise<CachedManifest>>();
 
 type BindingName = (typeof REQUIRED_BINDINGS)[number];
 type S3ReadRole = {
@@ -81,11 +97,16 @@ type SourceConfig = {
   storageFormatVersion: string;
 };
 
+// The denial stage names which phase rejected the request so the materializer's
+// failure classifier no longer has to infer it from the storage-fetch counter.
+type DenialStage = 'authorization' | 'binding' | 'chunk' | 'manifest' | 'membership';
+
 class HttpError extends Error {
   constructor(
     readonly status: number,
     message: string,
-    readonly storageFetches = 0
+    readonly storageFetches = 0,
+    readonly stage: DenialStage = 'authorization'
   ) {
     super(message);
   }
@@ -213,21 +234,41 @@ function createStorageClient(role: S3ReadRole): AwsClient {
   });
 }
 
-async function getStorageObject(aws: AwsClient, role: S3ReadRole, key: string): Promise<Response> {
+async function getStorageObject(
+  aws: AwsClient,
+  role: S3ReadRole,
+  key: string,
+  stage: DenialStage = 'manifest'
+): Promise<Response> {
   const url = buildS3ObjectUrl({ bucket: role.bucket, endpoint: role.endpoint }, key);
-  return aws.fetch(url, {
-    method: 'GET',
-    signal: AbortSignal.timeout(ORIGIN_TIMEOUT_MS),
-  });
+  try {
+    return await fetchWithSlowDownBackoff(() =>
+      aws.fetch(url, {
+        method: 'GET',
+        signal: AbortSignal.timeout(ORIGIN_TIMEOUT_MS),
+      })
+    );
+  } catch (error) {
+    if (error instanceof HttpError) {
+      throw error;
+    }
+    // Persistent network failures are storage outages, not authorization denials.
+    throw new HttpError(502, 'Storage request failed', 1, stage);
+  }
 }
 
 async function readLimitedText(response: Response, limit: number): Promise<string> {
   const declaredLength = response.headers.get('content-length');
   if (declaredLength !== null && Number(declaredLength) > limit) {
-    throw new HttpError(502, 'Materialization source manifest exceeded its size limit', 1);
+    throw new HttpError(
+      502,
+      'Materialization source manifest exceeded its size limit',
+      1,
+      'manifest'
+    );
   }
   if (!response.body) {
-    throw new HttpError(502, 'Materialization source manifest has no body', 1);
+    throw new HttpError(502, 'Materialization source manifest has no body', 1, 'manifest');
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -245,7 +286,12 @@ async function readLimitedText(response: Response, limit: number): Promise<strin
       }
       received += value.byteLength;
       if (received > limit) {
-        throw new HttpError(502, 'Materialization source manifest exceeded its size limit', 1);
+        throw new HttpError(
+          502,
+          'Materialization source manifest exceeded its size limit',
+          1,
+          'manifest'
+        );
       }
       text += decoder.decode(value, { stream: true });
     }
@@ -294,19 +340,31 @@ function logMissingManifestChunk(input: {
   );
 }
 
-async function loadManifest(
+function manifestMatchesGrant(entry: CachedManifest, grant: DeliveryGrantV2): boolean {
+  return (
+    entry.releaseRoot === bytesToHex(grant.releaseRoot) &&
+    entry.bindingRoot === bytesToHex(grant.bindingRoot)
+  );
+}
+
+async function loadManifestFromStorage(
   aws: AwsClient,
   config: SourceConfig,
-  grant: DeliveryGrantV2,
+  diagnosticJobId: string,
   versionId: string
-): Promise<{ body: string; manifest: DeliveryManifest; storageFetches: number }> {
+): Promise<CachedManifest> {
   const key = `${config.metadata.indexPrefix}${deliveryManifestObjectId(versionId)}`;
   const response = await getStorageObject(aws, config.metadata, key);
   if (response.status === 404) {
-    throw new HttpError(404, 'Materialization source version was not found', 1);
+    throw new HttpError(404, 'Materialization source version was not found', 1, 'manifest');
   }
   if (!response.ok) {
-    throw new HttpError(502, 'Materialization source manifest storage request failed', 1);
+    throw new HttpError(
+      502,
+      'Materialization source manifest storage request failed',
+      1,
+      'manifest'
+    );
   }
   let body: string;
   let manifest: DeliveryManifest;
@@ -316,18 +374,18 @@ async function loadManifest(
     if (error instanceof HttpError) {
       throw error;
     }
-    throw new HttpError(502, 'Materialization source manifest failed validation', 1);
+    throw new HttpError(502, 'Materialization source manifest failed validation', 1, 'manifest');
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(body);
   } catch {
     logManifestValidationFailure({
-      jobId: grant.installSessionId,
+      jobId: diagnosticJobId,
       reason: 'Materialization source manifest is not valid JSON',
       versionId,
     });
-    throw new HttpError(502, 'Materialization source manifest failed validation', 1);
+    throw new HttpError(502, 'Materialization source manifest failed validation', 1, 'manifest');
   }
   try {
     manifest = parseDeliveryManifest(parsed);
@@ -336,23 +394,22 @@ async function loadManifest(
       throw error;
     }
     logManifestValidationFailure({
-      jobId: grant.installSessionId,
+      jobId: diagnosticJobId,
       reason:
         error instanceof Error
           ? error.message
           : 'Materialization source manifest validation raised an unknown error',
       versionId,
     });
-    throw new HttpError(502, 'Materialization source manifest failed validation', 1);
+    throw new HttpError(502, 'Materialization source manifest failed validation', 1, 'manifest');
   }
   if (
     manifest.versionId !== versionId ||
     manifest.storageFormatVersion !== config.storageFormatVersion ||
-    manifest.packageId !== grant.productId ||
     manifest.files.reduce((total, file) => total + file.chunks.length, 0) > MAX_SOURCE_CHUNKS ||
     manifest.files.some((file) => file.chunks.some((chunk) => chunk.size > MAX_CHUNK_BYTES))
   ) {
-    throw new HttpError(502, 'Materialization source manifest is not accepted', 1);
+    throw new HttpError(502, 'Materialization source manifest is not accepted', 1, 'manifest');
   }
   const publication = createLogicalReleasePublicationV4({
     files: manifest.files,
@@ -361,13 +418,72 @@ async function loadManifest(
     version: manifest.version,
     versionId: manifest.versionId,
   });
-  if (
-    publication.releaseRoot !== bytesToHex(grant.releaseRoot) ||
-    publication.bindingRoot !== bytesToHex(grant.bindingRoot)
-  ) {
-    throw new HttpError(403, 'Materialization source manifest binding is invalid', 1);
+  const entry: CachedManifest = {
+    bindingRoot: publication.bindingRoot,
+    body,
+    manifest,
+    releaseRoot: publication.releaseRoot,
+  };
+  manifestCache.set(versionId, entry);
+  return entry;
+}
+
+function loadManifestShared(
+  aws: AwsClient,
+  config: SourceConfig,
+  diagnosticJobId: string,
+  versionId: string
+): Promise<CachedManifest> {
+  const pending = inflightManifestLoads.get(versionId);
+  if (pending) {
+    return pending;
   }
-  return { body, manifest, storageFetches: 1 };
+  const load = loadManifestFromStorage(aws, config, diagnosticJobId, versionId);
+  inflightManifestLoads.set(versionId, load);
+  const cleanup = () => {
+    if (inflightManifestLoads.get(versionId) === load) {
+      inflightManifestLoads.delete(versionId);
+    }
+  };
+  load.then(cleanup, cleanup);
+  return load;
+}
+
+async function loadManifest(
+  aws: AwsClient,
+  config: SourceConfig,
+  grant: DeliveryGrantV2,
+  versionId: string
+): Promise<{
+  body: string;
+  manifest: DeliveryManifest;
+  manifestSource: 'cache' | 'storage';
+  storageFetches: number;
+}> {
+  let manifestSource: 'cache' | 'storage' = 'cache';
+  let entry = manifestCache.get(versionId);
+  if (entry && !manifestMatchesGrant(entry, grant)) {
+    manifestCache.delete(versionId);
+    entry = undefined;
+  }
+  if (!entry) {
+    manifestSource = 'storage';
+    entry = await loadManifestShared(aws, config, grant.installSessionId, versionId);
+  }
+  if (entry.manifest.packageId !== grant.productId) {
+    throw new HttpError(502, 'Materialization source manifest is not accepted', 1, 'manifest');
+  }
+  if (!manifestMatchesGrant(entry, grant)) {
+    throw new HttpError(403, 'Materialization source manifest binding is invalid', 1, 'binding');
+  }
+  // storageFetches reports actual origin reads; the x-yucp-denial-stage header
+  // carries the phase information the materializer previously inferred from it.
+  return {
+    body: entry.body,
+    manifest: entry.manifest,
+    manifestSource,
+    storageFetches: manifestSource === 'cache' ? 0 : 1,
+  };
 }
 
 function findManifestChunk(
@@ -514,12 +630,13 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     if (match[2] === 'manifest') {
       return noStoreResponse(loaded.body, 200, loaded.storageFetches, {
         'content-type': 'application/json',
+        'x-yucp-manifest-source': loaded.manifestSource,
       });
     }
 
     const chunkId = match[3] ?? '';
     if (!CHUNK_ID.test(chunkId)) {
-      throw new HttpError(403, 'Forbidden', loaded.storageFetches);
+      throw new HttpError(403, 'Forbidden', loaded.storageFetches, 'membership');
     }
     const chunk = findManifestChunk(loaded.manifest, chunkId);
     if (!chunk) {
@@ -529,7 +646,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
         manifest: loaded.manifest,
         versionId,
       });
-      throw new HttpError(403, 'Forbidden', loaded.storageFetches);
+      throw new HttpError(403, 'Forbidden', loaded.storageFetches, 'membership');
     }
     const sourceRole = chunk.classification === 'protected' ? config.protected : config.common;
     const response = await getStorageObject(
@@ -547,17 +664,24 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     }
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (bytes.byteLength !== chunk.size || (await sha256Hex(bytes)) !== chunk.sha256) {
-      throw new HttpError(502, 'Materialization source chunk failed verification', storageFetches);
+      throw new HttpError(
+        502,
+        'Materialization source chunk failed verification',
+        storageFetches,
+        'chunk'
+      );
     }
     return noStoreResponse(bytes, 200, storageFetches, {
       'content-length': String(bytes.byteLength),
       'content-type': 'application/octet-stream',
       etag: `"${chunk.id}"`,
+      'x-yucp-manifest-source': loaded.manifestSource,
     });
   } catch (error) {
     const httpError = error instanceof HttpError ? error : new HttpError(403, 'Forbidden');
     return noStoreResponse(httpError.message, httpError.status, httpError.storageFetches, {
       'content-type': 'text/plain; charset=utf-8',
+      'x-yucp-denial-stage': httpError.stage,
     });
   }
 }

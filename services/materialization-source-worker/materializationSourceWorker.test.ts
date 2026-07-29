@@ -324,7 +324,7 @@ describe('materialization source Worker', () => {
     );
     expect(chunkResponse.status).toBe(200);
     expect(new Uint8Array(await chunkResponse.arrayBuffer())).toEqual(chunkBytes);
-    expect(storageRoles).toEqual(['metadata', 'metadata', 'common', 'metadata', 'protected']);
+    expect(storageRoles).toEqual(['metadata', 'common', 'protected']);
   });
 
   it('logs a safe validation diagnostic without exposing the manifest body', async () => {
@@ -409,6 +409,27 @@ describe('materialization source Worker', () => {
       versionId,
     });
     expect(diagnostics[0]).not.toContain(missingChunkId);
+
+    // The materializer classifies rejections by the x-yucp-denial-stage header,
+    // so membership rejections must carry it even on manifest cache hits where
+    // the storage-fetch count is legitimately zero.
+    const cachedMissUrl =
+      `https://source.example.test/v2/internal/materialization-sources/${versionId}/chunks/` +
+      'e'.repeat(64);
+    const cachedMissResponse = await worker.fetch(
+      new Request(cachedMissUrl, {
+        headers: await createAuthorization({
+          bindingRoot: fixture.bindingRoot,
+          releaseRoot: fixture.manifest.releaseRoot,
+          url: cachedMissUrl,
+          versionId,
+        }),
+      }),
+      await testEnv()
+    );
+    expect(cachedMissResponse.status).toBe(403);
+    expect(cachedMissResponse.headers.get('x-delivery-storage-fetches')).toBe('0');
+    expect(cachedMissResponse.headers.get('x-yucp-denial-stage')).toBe('membership');
   });
 
   it('rejects a source grant for a different version before storage', async () => {

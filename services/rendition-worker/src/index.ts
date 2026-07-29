@@ -9,6 +9,7 @@ import {
   verifyMaterializationReceiptV2,
 } from '../../../ops/storage-core/packageContractsV2';
 import { buildS3ObjectUrl } from '../../../ops/storage-core/s3ObjectUrl';
+import { fetchWithSlowDownBackoff } from '../../../ops/storage-core/storageBackoff';
 
 // Cloudflare recommends streamed responses and bounded request bodies.
 // Reference: https://developers.cloudflare.com/workers/platform/limits/
@@ -285,19 +286,15 @@ async function getExactRendition(
     )
   );
   objectUrl.searchParams.set('versionId', receipt.rendition.providerVersion);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), ORIGIN_HEADER_TIMEOUT_MS);
-  try {
-    // Backblaze B2 S3 GetObject supports exact versionId and single Range requests.
-    // https://www.backblaze.com/apidocs/s3-get-object
-    return await client.fetch(objectUrl, {
+  // Backblaze B2 S3 GetObject supports exact versionId and single Range requests.
+  // https://www.backblaze.com/apidocs/s3-get-object
+  return fetchWithSlowDownBackoff(() =>
+    client.fetch(objectUrl, {
       headers: offset > 0 ? { Range: `bytes=${offset}-` } : undefined,
       method: 'GET',
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
+      signal: AbortSignal.timeout(ORIGIN_HEADER_TIMEOUT_MS),
+    })
+  );
 }
 
 function resumeOffset(request: Request, objectBytes: number): number {
