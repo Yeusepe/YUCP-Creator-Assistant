@@ -86,7 +86,7 @@ export async function handleProviderProducts(
 
     const credential = await runtime.getCredential(ctx);
 
-    if (runtime.needsCredential && credential === null) {
+    if (runtime.needsCredential && credential === null && !runtime.supportsCollab) {
       return new Response(
         JSON.stringify({
           products: [],

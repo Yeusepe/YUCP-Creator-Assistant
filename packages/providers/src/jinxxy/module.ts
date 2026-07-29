@@ -422,15 +422,13 @@ export function createJinxxyProviderModule<
       return await ports.decryptCredential(encryptedApiKey, ctx);
     },
     async fetchProducts(credential, ctx): Promise<ProductRecord[]> {
-      if (!credential) {
-        return [];
-      }
-
       const detailCache = new Map<
         string,
         Promise<Awaited<ReturnType<JinxxyClientLike['getProduct']>>>
       >();
-      const products: ProductRecord[] = await listProductsForKey(credential, ports, detailCache);
+      const products: ProductRecord[] = credential
+        ? await listProductsForKey(credential, ports, detailCache)
+        : [];
 
       try {
         const collabConnections = await ports.listCollaboratorConnections(ctx);

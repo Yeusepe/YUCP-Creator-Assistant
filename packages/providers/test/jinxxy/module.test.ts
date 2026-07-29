@@ -83,6 +83,53 @@ describe('createJinxxyProviderModule', () => {
     ]);
   });
 
+  it('lists collaborator products when the workspace owner has no Jinxxy store', async () => {
+    const module = createJinxxyProviderModule({
+      logger,
+      async getEncryptedCredential() {
+        return null;
+      },
+      async decryptCredential() {
+        return 'collaborator-key';
+      },
+      async listCollaboratorConnections() {
+        return [
+          {
+            id: 'collab-only-1',
+            provider: 'jinxxy',
+            credentialEncrypted: 'encrypted-collaborator',
+            collaboratorDisplayName: 'Shared Store',
+          },
+        ];
+      },
+      createClient(apiKey) {
+        expect(apiKey).toBe('collaborator-key');
+        return {
+          async getProducts() {
+            return {
+              products: [{ id: 'collaborator-product', name: 'Collaborator Product' }],
+              pagination: { has_next: false },
+            };
+          },
+          async getProduct() {
+            return null;
+          },
+          async verifyLicenseByKey() {
+            return { valid: false };
+          },
+        };
+      },
+    });
+
+    await expect(module.fetchProducts(null, makeCtx())).resolves.toEqual([
+      {
+        id: 'collaborator-product',
+        name: 'Collaborator Product',
+        collaboratorName: 'Shared Store',
+      },
+    ]);
+  });
+
   it('hydrates Jinxxy product URLs and canonical slugs from the product detail endpoint', async () => {
     const module = createJinxxyProviderModule({
       logger,

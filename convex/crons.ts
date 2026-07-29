@@ -44,4 +44,11 @@ crons.interval(
   {}
 );
 
+crons.interval(
+  'reconcile connected store catalogs',
+  { hours: 1 },
+  internal.catalogMaterialization.reconcileActiveConnections,
+  {}
+);
+
 export default crons;

@@ -10,6 +10,7 @@ import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { mutation, query } from './_generated/server';
+import { enqueueCatalogMaterialization } from './catalogMaterialization';
 import { requireApiSecret } from './lib/apiAuth';
 import {
   type ExternalAccountIdentityCandidate,
@@ -737,10 +738,18 @@ export const putProviderCredential = mutation({
       metadata: args.metadata,
     });
 
+    const updatedAt = Date.now();
     await ctx.db.patch(args.providerConnectionId, {
       providerKey,
       status: 'active',
-      updatedAt: Date.now(),
+      updatedAt,
+    });
+    await enqueueCatalogMaterialization(ctx, {
+      authUserId: args.authUserId,
+      provider: providerKey,
+      sourceConnectionId: String(args.providerConnectionId),
+      sourceKind: 'owner',
+      sourceUpdatedAt: updatedAt,
     });
 
     return credentialId;
@@ -1063,6 +1072,14 @@ export const upsertProviderConnection = mutation({
       }
     }
 
+    await enqueueCatalogMaterialization(ctx, {
+      authUserId: args.authUserId,
+      provider: args.providerKey,
+      sourceConnectionId: String(connectionId),
+      sourceKind: 'owner',
+      sourceUpdatedAt: now,
+    });
+
     return connectionId;
   },
 });
@@ -1132,6 +1149,14 @@ export const upsertVrchatConnection = mutation({
       capabilityKey: 'catalog_sync',
       status: 'configured',
       requiredCredentialKeys: ['vrchat_session'],
+    });
+
+    await enqueueCatalogMaterialization(ctx, {
+      authUserId: args.authUserId,
+      provider: 'vrchat',
+      sourceConnectionId: String(connectionId),
+      sourceKind: 'owner',
+      sourceUpdatedAt: now,
     });
 
     return connectionId;

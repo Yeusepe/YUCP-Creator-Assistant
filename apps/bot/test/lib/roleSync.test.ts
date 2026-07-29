@@ -68,6 +68,7 @@ mock.module('../../../../convex/_generated/api', () => ({
       getByGuildWithProductNames: 'role_rules:getByGuildWithProductNames',
       getEnabledVerificationProvidersFromProducts:
         'role_rules:getEnabledVerificationProvidersFromProducts',
+      addCatalogProduct: 'role_rules:addCatalogProduct',
       addProductForProvider: 'role_rules:addProductForProvider',
       createRoleRule: 'role_rules:createRoleRule',
       getByProduct: 'role_rules:getByProduct',
@@ -424,6 +425,52 @@ describe('role sync service regressions', () => {
         }),
       })
     );
+  });
+
+  it('materializes collaborator products for package uploads without requiring an owner store', async () => {
+    listProviderProductsMock.mockResolvedValueOnce({
+      products: [
+        {
+          id: 'collaborator-product',
+          name: 'Collaborator Product',
+          collaboratorName: 'Shared Store',
+          productUrl: 'https://jinxxy.com/shared-store/collaborator-product',
+          thumbnailUrl: 'https://cdn.example.com/collaborator-product.png',
+          canonicalSlug: 'collaborator-product',
+          aliases: ['Shared Avatar'],
+        },
+      ],
+    } as never);
+    const service = createService();
+    const job = createJob({
+      jobType: 'catalog_materialization' as never,
+      payload: {
+        provider: 'jinxxy',
+        sourceConnectionId: 'collaborator-connection-1',
+        sourceKind: 'collaborator',
+      },
+    });
+
+    await (
+      service as unknown as {
+        processCatalogMaterializationJob: (job: OutboxJob) => Promise<void>;
+      }
+    ).processCatalogMaterializationJob(job);
+
+    expect(listProviderProductsMock).toHaveBeenCalledWith('jinxxy', 'auth-user-123');
+    expect(mutationMock).toHaveBeenCalledWith('role_rules:addCatalogProduct', {
+      apiSecret: 'test-secret',
+      authUserId: 'auth-user-123',
+      productId: 'collaborator-product',
+      providerProductRef: 'collaborator-product',
+      provider: 'jinxxy',
+      canonicalUrl: 'https://jinxxy.com/shared-store/collaborator-product',
+      supportsAutoDiscovery: false,
+      displayName: 'Collaborator Product (via Shared Store)',
+      thumbnailUrl: 'https://cdn.example.com/collaborator-product.png',
+      canonicalSlug: 'collaborator-product',
+      aliases: ['Shared Avatar'],
+    });
   });
 
   it('treats legacy rules without a provider as existing setup matches', () => {

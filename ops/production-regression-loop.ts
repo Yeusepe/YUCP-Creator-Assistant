@@ -34,13 +34,14 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'provider',
     label: 'Provider runtime contracts',
     invariant:
-      'Provider adapters and internal RPC boundaries must reject or normalize upstream drift without looping pagination, mis-scaling provider currency units, dropping credential expiry, silently rewriting response shape, hanging dashboard catalog surfaces when live reconciliation stalls, or violating transport contracts such as int64 serialization. Public catalog URLs must come from provider-supplied storefront data or a documented canonical slug template, never from opaque provider API product IDs.',
+      'Provider adapters and internal RPC boundaries must reject or normalize upstream drift without looping pagination, mis-scaling provider currency units, dropping credential expiry, silently rewriting response shape, hanging dashboard catalog surfaces when live reconciliation stalls, or violating transport contracts such as int64 serialization. A collaborator-capable provider must list active collaborator-store products even when the creator workspace has no owner-store credential. Public catalog URLs must come from provider-supplied storefront data or a documented canonical slug template, never from opaque provider API product IDs.',
     primaryRegressionHomes: [
       'packages/providers/test/providerMetadata.test.ts',
       'packages/providers/test/gumroad/module.test.ts',
       'packages/providers/test/jinxxy/module.test.ts',
       'packages/providers/test/lemonsqueezy/module.test.ts',
       'packages/providers/test/vrchat/module.test.ts',
+      'apps/api/src/routes/products.test.ts',
       'apps/api/src/internalRpc/router.test.ts',
     ],
     secondaryRegressionHomes: [
@@ -52,6 +53,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     remediationHomes: [
       'apps/api/test/providers',
       'convex/migrations.realtest.ts',
+      'convex/catalogMaterialization.realtest.ts',
       'convex/packageRegistry.realtest.ts',
       'ops/catalog-product-url-remediation.test.ts',
     ],
@@ -93,12 +95,13 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'verification',
     label: 'Verification flows',
     invariant:
-      "Verification must resolve the buyer subject, keep creator-scoped session context separate from buyer auth ownership, write entitlements and account-link records for the canonical buyer auth user, and attach the canonical catalog product before marking a provider license intent verified. A provider response that identifies a different product must never unlock the requested product. The VPM repository must consume only these canonical catalog identities. Verification must expose entitlements through stable read DTOs instead of raw persisted rows, preserve degraded or failure signals all the way to the public surface, advertise provider-owned manual license proof through actual hosted product requirements so a manual buyer can reach the entitlement funnel, report an OAuth-JWT Suite subject as verified only when it has at least one active entitlement, commit manual-license revocation before a bounded, idempotent entitlement-and-role-removal cascade runs so high-redemption reusable licenses remain revokable, charge each Workpool role-removal dispatch its full durable write cost when sizing that cascade, reject direct service revocation through status updates so the dedicated revoke flow always schedules cleanup, keep provider source idempotency scoped to the granted product so multi-product orders can assign every role, complete role-sync jobs only after every configured product role is satisfied, surface role-sync failures even when product-driven jobs discover the guild during processing, keep actor-protected Convex helper contracts aligned with the API service actor envelope, route API-originated verification state changes through public validated Convex actions instead of calling internal functions over the client boundary, grant buyer product access from active entitlements across every active linked subject while preserving product-level grants that predate catalog product attribution, scope human-friendly buyer access URLs to the creator profile before resolving product aliases so another creator's slug or duplicated product reference cannot be substituted, rate-limit public buyer access lookups before database work, return one stable buyer-and-creator VPM source from every product page for that creator, derive its package set dynamically from the buyer's active entitlements and the creator's enabled packages, and publish each package under the uploaded install ID and release version, never issue or serve a creator-private VPM repository through the shared VPM origin when its creator hostname is unavailable or unconfigured, remove verification grants from browser URLs immediately after reading return state, omit public creator and product references from telemetry, keep the main package list limited to products with ready package history while the upload picker exposes products before their first package upload and collapses equivalent cross-provider entries without discarding their provider records, retain catalog rows whenever package or entitlement history still references them, accept deletion of a version that never reached the Convex reference catalog so one absent tombstone cannot poison the ordered outbox and block every later Ready package, and let a newer Ready event replace immutable release data only after that durable version identity was explicitly deleted so clean re-uploads can publish without weakening active-release immutability. Signed-in package installation must return a trusted product verification URL when entitlement is absent. Creator package enablement must remain stable until an authenticated owner revokes it.",
+      "Verification must resolve the buyer subject, keep creator-scoped session context separate from buyer auth ownership, write entitlements and account-link records for the canonical buyer auth user, and attach the canonical catalog product before marking a provider license intent verified. A provider response that identifies a different product must never unlock the requested product. The VPM repository must consume only these canonical catalog identities. Verification must expose entitlements through stable read DTOs instead of raw persisted rows, preserve degraded or failure signals all the way to the public surface, advertise provider-owned manual license proof through actual hosted product requirements so a manual buyer can reach the entitlement funnel, report an OAuth-JWT Suite subject as verified only when it has at least one active entitlement, commit manual-license revocation before a bounded, idempotent entitlement-and-role-removal cascade runs so high-redemption reusable licenses remain revokable, charge each Workpool role-removal dispatch its full durable write cost when sizing that cascade, reject direct service revocation through status updates so the dedicated revoke flow always schedules cleanup, keep provider source idempotency scoped to the granted product so multi-product orders can assign every role, complete role-sync jobs only after every configured product role is satisfied, surface role-sync failures even when product-driven jobs discover the guild during processing, keep actor-protected Convex helper contracts aligned with the API service actor envelope, route API-originated verification state changes through public validated Convex actions instead of calling internal functions over the client boundary, grant buyer product access from active entitlements across every active linked subject while preserving product-level grants that predate catalog product attribution, scope human-friendly buyer access URLs to the creator profile before resolving product aliases so another creator's slug or duplicated product reference cannot be substituted, rate-limit public buyer access lookups before database work, return one stable buyer-and-creator VPM source from every product page for that creator, derive its package set dynamically from the buyer's active entitlements and the creator's enabled packages, and publish each package under the uploaded install ID and release version, never issue or serve a creator-private VPM repository through the shared VPM origin when its creator hostname is unavailable or unconfigured, remove verification grants from browser URLs immediately after reading return state, omit public creator and product references from telemetry, keep the main package list limited to products with ready package history while the upload picker exposes products before their first package upload and collapses equivalent cross-provider entries without discarding their provider records, durably materialize upload targets after either an owner store or collaborator store connects so a creator with no store can still publish, retain catalog rows whenever package or entitlement history still references them, accept deletion of a version that never reached the Convex reference catalog so one absent tombstone cannot poison the ordered outbox and block every later Ready package, and let a newer Ready event replace immutable release data only after that durable version identity was explicitly deleted so clean re-uploads can publish without weakening active-release immutability. Signed-in package installation must return a trusted product verification URL when entitlement is absent. Creator package enablement must remain stable until an authenticated owner revokes it.",
     primaryRegressionHomes: [
       'convex/entitlements.realtest.ts',
       'convex/entitlements.buyer-holder.realtest.ts',
       'convex/manualLicenses.realtest.ts',
       'convex/outboxJobs.realtest.ts',
+      'convex/catalogMaterialization.realtest.ts',
       'convex/packageRegistry.realtest.ts',
       'convex/packageVersions.realtest.ts',
       'convex/creatorVpmLinks.realtest.ts',
@@ -124,6 +127,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
       'apps/web/test/unit/purchase-verification-ui-state.test.ts',
       'apps/web/test/unit/get-in-unity-route.test.tsx',
       'apps/web/test/unit/dashboard-packages-route.test.tsx',
+      'apps/web/test/unit/packages-client.test.ts',
       'apps/web/test/unit/product-access-diagnostics.test.ts',
     ],
     remediationHomes: [
@@ -138,7 +142,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'account',
     label: 'Account and connection surfaces',
     invariant:
-      'Account connection surfaces must show the signed-in user’s real provider state and always preserve reconnect, disconnect, and retry actions for degraded records. First-party native OAuth grants must remain visible and revocable from the website so users can sign installed applications out without access to Unity. Creator activation must revalidate the durable signed-in session, resolve the canonical linked Discord identity when a cookie session omits it, treat an existing active creator profile as success, and never reuse an account shell forever after creator or session state changes.',
+      'Account connection surfaces must show the signed-in user’s real provider state and always preserve reconnect, disconnect, and retry actions for degraded records. Activating an owner or collaborator store connection must enqueue idempotent catalog materialization for that creator workspace. First-party native OAuth grants must remain visible and revocable from the website so users can sign installed applications out without access to Unity. Creator activation must revalidate the durable signed-in session, resolve the canonical linked Discord identity when a cookie session omits it, treat an existing active creator profile as success, and never reuse an account shell forever after creator or session state changes.',
     primaryRegressionHomes: [
       'apps/api/src/routes/connect.guildChannels.test.ts',
       'apps/api/src/routes/connectUserVerification.readSurface.test.ts',
@@ -150,20 +154,26 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
       'apps/web/test/unit/dashboard-connected-platforms.test.tsx',
       'apps/web/test/unit/store-integrations-status-label.test.tsx',
     ],
-    remediationHomes: ['convex/providerConnections.realtest.ts'],
+    remediationHomes: [
+      'convex/providerConnections.realtest.ts',
+      'convex/catalogMaterialization.realtest.ts',
+    ],
   },
   {
     id: 'backfill',
     label: 'Backfill and repair paths',
     invariant:
-      'Backfill and repair jobs must authenticate correctly, preserve tenant ownership, replay provider state without creating duplicate or cross-tenant records, and repair fabricated catalog storefront links without replacing them with another unverified URL.',
+      'Backfill and repair jobs must authenticate correctly, preserve tenant ownership, replay provider state without creating duplicate or cross-tenant records, enqueue missing catalog materialization for active owner and collaborator stores, and repair fabricated catalog storefront links without replacing them with another unverified URL.',
     primaryRegressionHomes: ['apps/api/src/routes/backfill.test.ts', 'apps/api/test/providers'],
     secondaryRegressionHomes: [
       'ops/buyer-attribution-remediation.test.ts',
       'ops/catalog-product-url-remediation.test.ts',
       'ops/subject-ownership-remediation.test.ts',
     ],
-    remediationHomes: ['convex/migrations.realtest.ts'],
+    remediationHomes: [
+      'convex/migrations.realtest.ts',
+      'convex/catalogMaterialization.realtest.ts',
+    ],
   },
 ];
 
@@ -206,6 +216,7 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       './convex/entitlements.buyer-holder.realtest.ts',
       './convex/manualLicenses.realtest.ts',
       './convex/catalogSyncIdentity.realtest.ts',
+      './convex/catalogMaterialization.realtest.ts',
       './convex/migrations.realtest.ts',
       './convex/outboxJobs.realtest.ts',
       './convex/packageRegistry.realtest.ts',
@@ -231,6 +242,7 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       './packages/providers/test/jinxxy/module.test.ts',
       './packages/providers/test/lemonsqueezy/module.test.ts',
       './packages/providers/test/vrchat/module.test.ts',
+      './apps/api/src/routes/products.test.ts',
       './apps/bot/test/lib/roleSync.test.ts',
       './apps/bot/test/lib/setupCatalog.test.ts',
       './apps/bot/test/commands/autosetup.test.ts',
@@ -307,6 +319,7 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       './test/unit/purchase-verification-ui-state.test.ts',
       './test/unit/get-in-unity-route.test.tsx',
       './test/unit/dashboard-packages-route.test.tsx',
+      './test/unit/packages-client.test.ts',
       './test/unit/product-access-diagnostics.test.ts',
     ],
     covers: ['verification', 'account'],

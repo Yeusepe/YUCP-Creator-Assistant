@@ -7,6 +7,7 @@
 
 import { ConvexError, v } from 'convex/values';
 import { internalQuery, mutation, query } from './_generated/server';
+import { enqueueCatalogMaterialization } from './catalogMaterialization';
 import { requireApiSecret } from './lib/apiAuth';
 
 /**
@@ -238,6 +239,13 @@ export const acceptCollaboratorInvite = mutation({
       },
       createdAt: Date.now(),
     });
+    await enqueueCatalogMaterialization(ctx, {
+      authUserId: invite.ownerAuthUserId,
+      provider,
+      sourceConnectionId: String(connectionId),
+      sourceKind: 'collaborator',
+      sourceUpdatedAt: now,
+    });
     return connectionId;
   },
 });
@@ -294,6 +302,13 @@ export const addCollaboratorConnectionManual = mutation({
         addedByDiscordUserId: args.addedByDiscordUserId,
       },
       createdAt: Date.now(),
+    });
+    await enqueueCatalogMaterialization(ctx, {
+      authUserId: args.ownerAuthUserId,
+      provider: args.provider ?? 'jinxxy',
+      sourceConnectionId: String(connectionId),
+      sourceKind: 'collaborator',
+      sourceUpdatedAt: now,
     });
     return connectionId;
   },

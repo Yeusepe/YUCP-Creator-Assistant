@@ -349,9 +349,8 @@ describe('buyer product access route', () => {
 
     fireEvent.click(manualSetupToggle);
     expect(manualSetupPanel).not.toHaveAttribute('inert');
-    expect(manualSetupToggle.querySelector('desc')?.textContent).toContain(
-      'Line Arrow Down Large 1'
-    );
+    expect(manualSetupToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(manualSetupToggle.querySelector('svg')).toHaveClass('is-open');
     fireEvent.click(screen.getAllByRole('button', { name: 'Copy' })[1]);
     await waitFor(() => {
       expect(copyToClipboardMock).toHaveBeenCalledWith(repository.indexUrl);

@@ -93,6 +93,12 @@ export interface RetroactiveRuleSyncPayload {
   productId: string;
 }
 
+export interface CatalogMaterializationPayload {
+  provider: string;
+  sourceConnectionId: string;
+  sourceKind: 'owner' | 'collaborator';
+}
+
 export interface VerifyPromptRefreshPayload {
   guildId: string;
   guildLinkId: Id<'guild_links'>;
@@ -137,6 +143,7 @@ export interface OutboxJob {
     | 'role_sync'
     | 'role_removal'
     | 'creator_alert'
+    | 'catalog_materialization'
     | 'retroactive_rule_sync'
     | 'migration_analyze'
     | 'setup_apply'
@@ -146,6 +153,7 @@ export interface OutboxJob {
     | RoleSyncPayload
     | RoleRemovalPayload
     | CreatorAlertPayload
+    | CatalogMaterializationPayload
     | RetroactiveRuleSyncPayload
     | MigrationAnalyzePayload
     | SetupApplyPayload
@@ -193,6 +201,7 @@ export interface Entitlement {
 interface SetupProduct {
   aliases?: string[];
   canonicalSlug?: string;
+  collaboratorName?: string;
   id: string;
   name: string;
   provider: ProviderKey;
@@ -525,6 +534,13 @@ export class RoleSyncService {
             return;
           }
 
+          if (job.jobType === 'catalog_materialization') {
+            await this.processCatalogMaterializationJob(job);
+            await this.updateJobStatus(job._id, 'completed');
+            this.logger.info('Catalog materialization job completed', { jobId: job._id });
+            return;
+          }
+
           if (job.jobType === 'retroactive_rule_sync') {
             await this.processRetroactiveRuleSyncJob(job);
             await this.updateJobStatus(job._id, 'completed');
@@ -849,6 +865,71 @@ export class RoleSyncService {
     }
 
     await channel.send({ content: payload.message, allowedMentions: { parse: [] } });
+  }
+
+  private async processCatalogMaterializationJob(job: OutboxJob): Promise<void> {
+    const payload = job.payload as CatalogMaterializationPayload;
+    if (
+      !payload.provider ||
+      !payload.sourceConnectionId ||
+      (payload.sourceKind !== 'owner' && payload.sourceKind !== 'collaborator')
+    ) {
+      throw new Error('Catalog materialization payload is invalid');
+    }
+
+    const descriptor = getProviderDescriptor(payload.provider);
+    if (!descriptor?.capabilities.includes('catalog_sync')) {
+      throw new Error(`Provider ${payload.provider} does not support catalog synchronization`);
+    }
+
+    await withBotStageSpan(
+      'catalog.materialize',
+      {
+        authUserId: job.authUserId,
+        provider: payload.provider,
+        sourceConnectionId: payload.sourceConnectionId,
+        sourceKind: payload.sourceKind,
+      },
+      async () => {
+        const result = await listProviderProducts(payload.provider, job.authUserId);
+        if (result.error) {
+          throw new Error(
+            `Catalog synchronization failed for ${payload.provider}: ${result.error}`
+          );
+        }
+
+        for (const product of result.products) {
+          const productId = product.id.trim();
+          if (!productId) {
+            throw new Error(
+              `Catalog synchronization returned an empty product id for ${payload.provider}`
+            );
+          }
+          const canonicalUrl = resolveCatalogProductUrl({
+            provider: payload.provider,
+            productUrl: product.productUrl,
+            canonicalSlug: product.canonicalSlug,
+          });
+          const displayName = product.collaboratorName
+            ? `${product.name} (via ${product.collaboratorName})`
+            : product.name;
+
+          await this.convexClient.mutation(api.role_rules.addCatalogProduct, {
+            apiSecret: this.apiSecret,
+            authUserId: job.authUserId,
+            productId,
+            providerProductRef: productId,
+            provider: payload.provider,
+            canonicalUrl: canonicalUrl ?? undefined,
+            supportsAutoDiscovery: descriptor.supportsAutoDiscovery ?? false,
+            displayName,
+            thumbnailUrl: product.thumbnailUrl,
+            canonicalSlug: product.canonicalSlug,
+            aliases: product.aliases,
+          });
+        }
+      }
+    );
   }
 
   private async processVerifyPromptRefreshJob(job: OutboxJob): Promise<void> {
@@ -2199,6 +2280,7 @@ export class RoleSyncService {
             'role_sync',
             'role_removal',
             'creator_alert',
+            'catalog_materialization',
             'retroactive_rule_sync',
             'migration_analyze',
             'setup_apply',

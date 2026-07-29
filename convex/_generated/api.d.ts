@@ -19,6 +19,7 @@ import type * as betterAuthApiKeys from "../betterAuthApiKeys.js";
 import type * as betterAuthReservations from "../betterAuthReservations.js";
 import type * as bindings from "../bindings.js";
 import type * as buyerCreatorVpmRepositories from "../buyerCreatorVpmRepositories.js";
+import type * as catalogMaterialization from "../catalogMaterialization.js";
 import type * as catalogTiers from "../catalogTiers.js";
 import type * as certificateBilling from "../certificateBilling.js";
 import type * as certificateBillingSync from "../certificateBillingSync.js";
@@ -148,6 +149,7 @@ declare const fullApi: ApiFromModules<{
   betterAuthReservations: typeof betterAuthReservations;
   bindings: typeof bindings;
   buyerCreatorVpmRepositories: typeof buyerCreatorVpmRepositories;
+  catalogMaterialization: typeof catalogMaterialization;
   catalogTiers: typeof catalogTiers;
   certificateBilling: typeof certificateBilling;
   certificateBillingSync: typeof certificateBillingSync;

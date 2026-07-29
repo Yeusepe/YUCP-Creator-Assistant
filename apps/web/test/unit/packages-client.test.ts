@@ -214,4 +214,51 @@ describe('creator package client pagination', () => {
       },
     ]);
   });
+
+  it('keeps an auto-materialized collaborator-store product available for first upload', async () => {
+    apiClientGetMock.mockResolvedValueOnce({
+      data: [
+        {
+          _id: 'catalog_product_collaborator_upload',
+          aliases: ['Shared Avatar'],
+          canonicalSlug: 'collaborator-upload',
+          catalogTiers: [],
+          displayName: 'Collaborator Product (via Shared Store)',
+          productId: 'collaborator-product',
+          provider: 'jinxxy',
+          providerProductRef: 'collaborator-product',
+          status: 'active' as const,
+          supportsAutoDiscovery: true,
+          createdAt: 1,
+          updatedAt: 2,
+          canArchive: true,
+          canRestore: false,
+          canDelete: true,
+          workspace: {
+            authUserId: 'creator-without-store',
+            displayName: 'Creator without a store',
+            isOwner: true,
+          },
+        },
+      ],
+      hasMore: false,
+      nextCursor: null,
+    });
+
+    await expect(listCreatorPackagePickerProducts()).resolves.toEqual([
+      {
+        identityKey: 'catalog:catalog_product_collaborator_upload',
+        products: [
+          expect.objectContaining({
+            _id: 'catalog_product_collaborator_upload',
+            displayName: 'Collaborator Product (via Shared Store)',
+            workspace: expect.objectContaining({
+              authUserId: 'creator-without-store',
+              isOwner: true,
+            }),
+          }),
+        ],
+      },
+    ]);
+  });
 });

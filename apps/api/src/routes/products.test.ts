@@ -1,12 +1,24 @@
 import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import type { ProductRecord } from '../providers/types';
 
-const fetchProductsMock = mock(async () => []);
-const getCredentialMock = mock(async () => ({ accessToken: 'provider-credential' }));
-const getProviderRuntimeMock = mock(() => ({
-  needsCredential: true,
-  getCredential: getCredentialMock,
-  fetchProducts: fetchProductsMock,
-}));
+const fetchProductsMock = mock(
+  async (_credential: string | null, _ctx: unknown): Promise<ProductRecord[]> => []
+);
+const getCredentialMock = mock(
+  async (_ctx: unknown): Promise<string | null> => 'provider-credential'
+);
+const getProviderRuntimeMock = mock(
+  (): {
+    needsCredential: boolean;
+    supportsCollab?: boolean;
+    getCredential: typeof getCredentialMock;
+    fetchProducts: typeof fetchProductsMock;
+  } => ({
+    needsCredential: true,
+    getCredential: getCredentialMock,
+    fetchProducts: fetchProductsMock,
+  })
+);
 const errorMock = mock((_message: string, _meta?: Record<string, unknown>) => {});
 const warnMock = mock((_message: string, _meta?: Record<string, unknown>) => {});
 
@@ -62,7 +74,7 @@ describe('handleProviderProducts', () => {
     errorMock.mockReset();
     warnMock.mockReset();
 
-    getCredentialMock.mockResolvedValue({ accessToken: 'provider-credential' });
+    getCredentialMock.mockResolvedValue('provider-credential');
     fetchProductsMock.mockResolvedValue([]);
     getProviderRuntimeMock.mockReturnValue({
       needsCredential: true,
@@ -116,5 +128,51 @@ describe('handleProviderProducts', () => {
     expect(errorMock).toHaveBeenCalledTimes(1);
     const [_message, meta] = errorMock.mock.calls[0] ?? [];
     expect(JSON.stringify(meta)).not.toContain(leakedToken);
+  });
+
+  it('loads collaborator products when the creator has no owner credential', async () => {
+    getCredentialMock.mockResolvedValueOnce(null);
+    fetchProductsMock.mockResolvedValueOnce([
+      {
+        id: 'collaborator-product',
+        name: 'Collaborator Product',
+        collaboratorName: 'Shared Store',
+      },
+    ]);
+    getProviderRuntimeMock.mockReturnValueOnce({
+      needsCredential: true,
+      supportsCollab: true,
+      getCredential: getCredentialMock,
+      fetchProducts: fetchProductsMock,
+    });
+
+    const response = await handleProviderProducts(
+      new Request('https://api.example.com/api/jinxxy/products', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          apiSecret: 'convex-secret',
+          authUserId: 'creator-without-store',
+        }),
+      }),
+      'jinxxy'
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      products: [
+        {
+          id: 'collaborator-product',
+          name: 'Collaborator Product',
+          collaboratorName: 'Shared Store',
+        },
+      ],
+    });
+    expect(fetchProductsMock).toHaveBeenCalledWith(
+      null,
+      expect.objectContaining({ authUserId: 'creator-without-store' })
+    );
   });
 });
