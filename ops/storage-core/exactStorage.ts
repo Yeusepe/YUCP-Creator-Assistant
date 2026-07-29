@@ -86,6 +86,7 @@ export interface ExactStoragePort {
     role: StorageRole;
   }): Promise<void>;
   getExactVersion(input: {
+    expectedBytes?: number;
     objectKey: string;
     providerVersion: string;
     role: StorageRole;
@@ -211,11 +212,14 @@ export class S3ExactStoragePort implements ExactStoragePort {
   }
 
   getExactVersion(input: {
+    expectedBytes?: number;
     objectKey: string;
     providerVersion: string;
     role: StorageRole;
   }): Promise<Response> {
-    return getS3ObjectVersion(this.#config(input.role), input.objectKey, input.providerVersion);
+    return getS3ObjectVersion(this.#config(input.role), input.objectKey, input.providerVersion, {
+      ...(input.expectedBytes ? { expectedBytes: input.expectedBytes } : {}),
+    });
   }
 
   getRetention(input: {

@@ -76,6 +76,7 @@ export class DurableExactStorage {
 
   async #verifyIntentBody(intent: StorageWriteIntent, head: ExactObjectHead): Promise<void> {
     const response = await this.storage.getExactVersion({
+      expectedBytes: intent.expectedBytes,
       objectKey: head.objectKey,
       providerVersion: head.providerVersion,
       role: head.storageRole,

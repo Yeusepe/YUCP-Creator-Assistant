@@ -36,6 +36,7 @@ type SignedRequestInput = {
   operation: string;
   key?: string;
   query?: Record<string, string>;
+  expectedResponseBytes?: number;
   retries?: number;
 };
 
@@ -103,9 +104,12 @@ function signedRequestBodyBytes(body: BodyInit | undefined): number {
 
 export function resolveSignedRequestTimeoutMs(
   requestTimeoutMs: number,
-  body: BodyInit | undefined
+  body: BodyInit | undefined,
+  expectedResponseBytes = 0
 ): number {
-  const bytes = signedRequestBodyBytes(body);
+  // The abort deadline covers the whole transfer in either direction, so a large
+  // expected download needs the same size-proportional budget as a large upload.
+  const bytes = Math.max(signedRequestBodyBytes(body), expectedResponseBytes);
   if (bytes === 0) return requestTimeoutMs;
   if (!Number.isFinite(bytes)) return S3_MAX_REQUEST_TIMEOUT_MS;
   return Math.min(
@@ -134,7 +138,11 @@ async function signedRequest(input: SignedRequestInput): Promise<Response> {
     service: 's3',
     retries: 0,
   });
-  const timeoutMs = resolveSignedRequestTimeoutMs(input.config.requestTimeoutMs, input.body);
+  const timeoutMs = resolveSignedRequestTimeoutMs(
+    input.config.requestTimeoutMs,
+    input.body,
+    input.expectedResponseBytes ?? 0
+  );
   const replayable = isReplayableBody(input.body);
   const transientAttempts = replayable ? (input.retries ?? 2) + 1 : 1;
   const throttleAttempts = replayable ? S3_THROTTLE_RETRIES + 1 : 1;
@@ -652,7 +660,8 @@ export async function putS3FileVersioned(input: {
 export async function getS3ObjectVersion(
   config: CasConfig,
   key: string,
-  versionId: string
+  versionId: string,
+  options: { expectedBytes?: number } = {}
 ): Promise<Response> {
   if (!versionId.trim()) {
     throw new Error('S3 exact version identifier must not be empty');
@@ -663,6 +672,7 @@ export async function getS3ObjectVersion(
     method: 'GET',
     operation: 'GetObjectVersion',
     query: { versionId },
+    ...(options.expectedBytes ? { expectedResponseBytes: options.expectedBytes } : {}),
   });
   const returnedVersion = exactVersionFromResponse(response);
   if (returnedVersion.versionId !== versionId) {

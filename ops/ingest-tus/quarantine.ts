@@ -26,7 +26,11 @@ export type QuarantineExactHead = QuarantineExactVersion & {
 };
 
 export interface QuarantineStoragePort {
-  getExactVersion(objectKey: string, providerVersion: string): Promise<Response>;
+  getExactVersion(
+    objectKey: string,
+    providerVersion: string,
+    expectedBytes?: number
+  ): Promise<Response>;
   headExactVersion(objectKey: string, providerVersion: string): Promise<QuarantineExactHead>;
   listVersions(objectKey: string): Promise<QuarantineExactVersion[]>;
   putFile(input: {
@@ -194,7 +198,8 @@ async function restoreCheckpointFile(input: {
   input.signal?.throwIfAborted();
   const response = await input.storage.getExactVersion(
     checkpoint.objectKey,
-    checkpoint.providerVersion
+    checkpoint.providerVersion,
+    checkpoint.bytes
   );
   if (!response.body) {
     throw new Error('Quarantine exact object returned an empty response body');
@@ -253,8 +258,9 @@ export async function withRestoredCompletedUpload<T>(input: {
 export function createS3QuarantineStorage(config: CasConfig): QuarantineStoragePort {
   const storage = new S3ExactStoragePort({ quarantine: config });
   return {
-    getExactVersion(objectKey, providerVersion) {
+    getExactVersion(objectKey, providerVersion, expectedBytes) {
       return storage.getExactVersion({
+        ...(expectedBytes ? { expectedBytes } : {}),
         objectKey,
         providerVersion,
         role: 'quarantine',

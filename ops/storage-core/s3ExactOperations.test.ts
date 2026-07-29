@@ -110,6 +110,16 @@ describe('signed request deadlines', () => {
 
     expect(resolveSignedRequestTimeoutMs(30_000, body)).toBe(15 * 60 * 1000);
   });
+
+  it('grants a large expected download the same size-proportional deadline', () => {
+    const large = resolveSignedRequestTimeoutMs(30_000, undefined, 293 * 1024 * 1024);
+
+    expect(large).toBeGreaterThan(30_000);
+    expect(resolveSignedRequestTimeoutMs(30_000, undefined, 0)).toBe(30_000);
+    expect(resolveSignedRequestTimeoutMs(30_000, undefined, 8 * 1024 * 1024 * 1024)).toBe(
+      15 * 60 * 1000
+    );
+  });
 });
 
 describe('signed request retries', () => {
