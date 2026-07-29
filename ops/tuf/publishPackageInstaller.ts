@@ -152,11 +152,14 @@ export function buildRuntimeDescriptor(input: {
   const authBaseUrl = requireCanonicalHttpsUrl(input.authBaseUrl, 'Package authorization');
   const metadataUrl = requireCanonicalHttpsUrl(input.metadataUrl, 'Package TUF metadata');
   const targetsUrl = requireCanonicalHttpsUrl(input.targetsUrl, 'Package TUF targets');
+  const metadataRepositoryUrl = new URL(metadataUrl);
+  const targetsRepositoryUrl = new URL(targetsUrl);
   if (
-    metadataUrl !== `${apiBaseUrl}/api/v2/package-installer/tuf/metadata` ||
-    targetsUrl !== `${apiBaseUrl}/api/v2/package-installer/tuf/targets`
+    metadataRepositoryUrl.origin !== targetsRepositoryUrl.origin ||
+    metadataRepositoryUrl.pathname !== '/api/v2/package-installer/tuf/metadata' ||
+    targetsRepositoryUrl.pathname !== '/api/v2/package-installer/tuf/targets'
   ) {
-    throw new Error('Package TUF URLs must use the package API');
+    throw new Error('Package TUF URLs must use the signed repository routes');
   }
   return Buffer.from(
     JSON.stringify({

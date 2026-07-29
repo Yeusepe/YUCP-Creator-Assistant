@@ -54,6 +54,24 @@ describe('package installer offline publication environment', () => {
 });
 
 describe('package installer signed runtime descriptor', () => {
+  test('allows the signed TUF repository to use a different origin from the protected API', () => {
+    expect(
+      JSON.parse(
+        buildRuntimeDescriptor({
+          apiBaseUrl: 'https://api.example.test',
+          authBaseUrl: 'https://dashboard.example.test/api/auth',
+          metadataUrl: 'https://dashboard.example.test/api/v2/package-installer/tuf/metadata',
+          targetsUrl: 'https://dashboard.example.test/api/v2/package-installer/tuf/targets',
+        }).toString('utf8')
+      )
+    ).toMatchObject({
+      apiBaseUrl: 'https://api.example.test',
+      authBaseUrl: 'https://dashboard.example.test/api/auth',
+      metadataUrl: 'https://dashboard.example.test/api/v2/package-installer/tuf/metadata',
+      targetsUrl: 'https://dashboard.example.test/api/v2/package-installer/tuf/targets',
+    });
+  });
+
   test('fixes executable targets and rejects mutable or insecure endpoint values', () => {
     expect(
       JSON.parse(
@@ -99,6 +117,6 @@ describe('package installer signed runtime descriptor', () => {
         metadataUrl: 'https://other.example.test/metadata',
         targetsUrl: 'https://api.example.test/api/v2/package-installer/tuf/targets',
       })
-    ).toThrow('must use the package API');
+    ).toThrow('signed repository routes');
   });
 });
