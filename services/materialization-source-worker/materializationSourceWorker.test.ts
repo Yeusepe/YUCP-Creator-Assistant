@@ -20,11 +20,13 @@ import {
 import worker from './src/index';
 
 const originalFetch = globalThis.fetch;
+const originalConsoleError = console.error;
 const grantPrivateKey = new Uint8Array(32).fill(0x29);
 const grantKeyId = packageContractKeyId('source-grant-test-2026-01');
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  console.error = originalConsoleError;
 });
 
 function encodeJson(value: unknown): string {
@@ -276,6 +278,48 @@ describe('materialization source Worker', () => {
     expect(chunkResponse.status).toBe(200);
     expect(new Uint8Array(await chunkResponse.arrayBuffer())).toEqual(chunkBytes);
     expect(storageRoles).toEqual(['metadata', 'metadata', 'protected']);
+  });
+
+  it('logs a safe validation diagnostic without exposing the manifest body', async () => {
+    const versionId = randomUUID();
+    const chunkBytes = new TextEncoder().encode('invalid protected manifest');
+    const fixture = protectedManifest(versionId, chunkBytes);
+    const privateMarker = 'must-not-appear-in-worker-logs';
+    const diagnostics: string[] = [];
+    console.error = mock((message: string) => {
+      diagnostics.push(message);
+    });
+    globalThis.fetch = mock(async () =>
+      Response.json({
+        privateMarker,
+        schemaVersion: 4,
+      })
+    ) as unknown as typeof fetch;
+    const url = `https://source.example.test/v2/internal/materialization-sources/${versionId}/manifest`;
+
+    const response = await worker.fetch(
+      new Request(url, {
+        headers: await createAuthorization({
+          bindingRoot: fixture.bindingRoot,
+          releaseRoot: fixture.manifest.releaseRoot,
+          url,
+          versionId,
+        }),
+      }),
+      await testEnv()
+    );
+
+    expect(response.status).toBe(502);
+    expect(response.headers.get('x-delivery-storage-fetches')).toBe('1');
+    expect(diagnostics).toHaveLength(1);
+    expect(JSON.parse(diagnostics[0] ?? '')).toEqual({
+      errorCode: 'MATERIALIZATION_SOURCE_MANIFEST_INVALID',
+      event: 'materialization.source_manifest.validation_failed',
+      jobId: 'job-1',
+      reason: 'Delivery manifest has an invalid storageFormatVersion',
+      versionId,
+    });
+    expect(diagnostics[0]).not.toContain(privateMarker);
   });
 
   it('rejects a source grant for a different version before storage', async () => {

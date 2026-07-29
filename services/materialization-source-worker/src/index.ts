@@ -236,6 +236,22 @@ async function readLimitedText(response: Response, limit: number): Promise<strin
   }
 }
 
+function logManifestValidationFailure(input: {
+  jobId: string;
+  reason: string;
+  versionId: string;
+}): void {
+  console.error(
+    JSON.stringify({
+      errorCode: 'MATERIALIZATION_SOURCE_MANIFEST_INVALID',
+      event: 'materialization.source_manifest.validation_failed',
+      jobId: input.jobId,
+      reason: input.reason,
+      versionId: input.versionId,
+    })
+  );
+}
+
 async function loadManifest(
   aws: AwsClient,
   config: SourceConfig,
@@ -254,11 +270,37 @@ async function loadManifest(
   let manifest: DeliveryManifest;
   try {
     body = await readLimitedText(response, MAX_MANIFEST_BYTES);
-    manifest = parseDeliveryManifest(JSON.parse(body));
   } catch (error) {
     if (error instanceof HttpError) {
       throw error;
     }
+    throw new HttpError(502, 'Materialization source manifest failed validation', 1);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    logManifestValidationFailure({
+      jobId: grant.installSessionId,
+      reason: 'Materialization source manifest is not valid JSON',
+      versionId,
+    });
+    throw new HttpError(502, 'Materialization source manifest failed validation', 1);
+  }
+  try {
+    manifest = parseDeliveryManifest(parsed);
+  } catch (error) {
+    if (error instanceof HttpError) {
+      throw error;
+    }
+    logManifestValidationFailure({
+      jobId: grant.installSessionId,
+      reason:
+        error instanceof Error
+          ? error.message
+          : 'Materialization source manifest validation raised an unknown error',
+      versionId,
+    });
     throw new HttpError(502, 'Materialization source manifest failed validation', 1);
   }
   if (

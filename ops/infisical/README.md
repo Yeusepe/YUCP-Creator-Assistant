@@ -108,6 +108,7 @@ names consumed by apps/api, ingest-tus, the scheduler, and the delivery Worker.
 | `/storage/renditions/write/` | `RENDITION_S3_ACCESS_KEY_ID`, `RENDITION_S3_SECRET_ACCESS_KEY` | Linux materializer |
 | `/storage/renditions/read/` | `RENDITION_S3_READONLY_ACCESS_KEY_ID`, `RENDITION_S3_READONLY_SECRET_ACCESS_KEY` | rendition Worker |
 | `/storage/materialization/capacity/` | `MATERIALIZATION_CHUNK_CACHE_MAX_BYTES`, `MATERIALIZATION_EMERGENCY_DISK_FLOOR_BYTES` | Linux materializer |
+| `/storage/materialization/source-delivery/` | `MATERIALIZATION_SOURCE_DELIVERY_BASE_URL`, `MATERIALIZATION_SOURCE_GRANT_AUDIENCE`, `MATERIALIZATION_SOURCE_GRANT_ISSUER`, `MATERIALIZATION_SOURCE_GRANT_KEY_ID`, `MATERIALIZATION_SOURCE_GRANT_PRIVATE_KEY` | materialization control plane and materialization source Worker deployment |
 | `/storage/delivery/shared/` | `DELIVERY_HMAC_KEY` | apps/api, VPM, and curated delivery Worker sync |
 | `/storage/delivery/api/` | `DELIVERY_BASE_URL`, `VPM_BASE_URL`, `VPM_PUBLIC_INDEX_URL`, `PRIVATE_VPM_ROOT_DOMAIN`, `PRIVATE_VPM_CLOUDFLARE_ACCOUNT_ID`, `PRIVATE_VPM_CLOUDFLARE_API_TOKEN`, `PRIVATE_VPM_CLOUDFLARE_SERVICE`, `PRIVATE_VPM_CLOUDFLARE_ZONE_ID`, `PRIVATE_VPM_CLOUDFLARE_ZONE_NAME` | apps/api and VPM only |
 | `/infra/convex/` | `CONVEX_URL`, `CONVEX_API_SECRET` | apps/api, Convex, bot, and scheduler |
@@ -209,6 +210,36 @@ STORAGE_FORMAT_VERSION
 Write-capable common and metadata credentials are excluded.
 The API and VPM consume their own public origins.
 
+### Materialization source Worker
+
+`bun run materialization-source:worker:secrets:sync --prod` deploys the current
+`yucp-materialization-source-worker` bundle together with its exact read-only storage and grant
+verification bindings. The verifier public key is derived during deployment from the canonical
+`MATERIALIZATION_SOURCE_GRANT_PRIVATE_KEY`; the private signing seed is never uploaded to the
+Worker.
+
+Canonical Infisical source values:
+
+```text
+METADATA_S3_ENDPOINT
+METADATA_S3_REGION
+METADATA_S3_BUCKET
+METADATA_S3_READONLY_ACCESS_KEY_ID
+METADATA_S3_READONLY_SECRET_ACCESS_KEY
+METADATA_INDEX_PREFIX
+PROTECTED_S3_ENDPOINT
+PROTECTED_S3_REGION
+PROTECTED_S3_BUCKET
+PROTECTED_S3_READONLY_ACCESS_KEY_ID
+PROTECTED_S3_READONLY_SECRET_ACCESS_KEY
+PROTECTED_CHUNK_PREFIX
+STORAGE_FORMAT_VERSION
+MATERIALIZATION_SOURCE_GRANT_KEY_ID
+MATERIALIZATION_SOURCE_GRANT_ISSUER
+MATERIALIZATION_SOURCE_GRANT_PRIVATE_KEY
+MATERIALIZATION_SOURCE_GRANT_AUDIENCE
+```
+
 ### YUCP signing and protected delivery
 
 These keys back certificate issuance, protected materialization grants, broker auth, and runtime artifact envelopes:
@@ -298,6 +329,9 @@ bun run --filter @yucp/web worker:version:upload
 
 # Curated delivery Worker secret binding sync
 bun run delivery:worker:secrets:sync --prod
+
+# Materialization source Worker bundle and binding sync
+bun run materialization-source:worker:secrets:sync --prod
 ```
 
 What each command does:
@@ -310,6 +344,8 @@ What each command does:
 - `worker:version:upload` uploads a Worker version without replacing this deploy guidance.
 - `delivery:worker:secrets:sync` syncs the exact delivery Worker binding allowlist, including the
   same `DELIVERY_HMAC_KEY` declaration consumed by apps/api.
+- `materialization-source:worker:secrets:sync` derives the source grant verifier from the canonical
+  signing seed, excludes that seed, and deploys the source Worker with read-only storage bindings.
 
 ## Secret rotation guidance
 

@@ -4,7 +4,10 @@ import { resolve } from 'node:path';
 import {
   DELIVERY_WORKER_BINDING_KEYS,
   getDeliveryWorkerBindingValues,
+  getMaterializationSourceWorkerBindingValues,
   getWebLocalEnvValues,
+  MATERIALIZATION_SOURCE_WORKER_BINDING_KEYS,
+  MATERIALIZATION_SOURCE_WORKER_SOURCE_KEYS,
   resolveWebEnvValues,
   resolveWebLocalEnvPath,
 } from './cloudflare-web-config';
@@ -97,6 +100,42 @@ describe('cloudflare-web-config', () => {
     }
     expect(inventory).not.toContain('CAS_S3_READONLY_ACCESS_KEY_ID');
     expect(inventory).not.toContain('CAS_S3_READONLY_SECRET_ACCESS_KEY');
+  });
+
+  test('derives the materialization source Worker verifier from canonical Infisical values', async () => {
+    const source = Object.fromEntries(
+      MATERIALIZATION_SOURCE_WORKER_SOURCE_KEYS.map((key) => [
+        key,
+        `placeholder-${key.toLowerCase()}`,
+      ])
+    );
+    source.MATERIALIZATION_SOURCE_GRANT_PRIVATE_KEY = Buffer.alloc(32, 0x29).toString('base64url');
+
+    const bindings = await getMaterializationSourceWorkerBindingValues(source);
+
+    expect(Object.keys(bindings)).toEqual([...MATERIALIZATION_SOURCE_WORKER_BINDING_KEYS]);
+    expect(bindings).toMatchObject({
+      DELIVERY_GRANT_ISSUER: source.MATERIALIZATION_SOURCE_GRANT_ISSUER,
+      DELIVERY_GRANT_KEY_ID: source.MATERIALIZATION_SOURCE_GRANT_KEY_ID,
+      MATERIALIZATION_SOURCE_AUDIENCE: source.MATERIALIZATION_SOURCE_GRANT_AUDIENCE,
+      METADATA_S3_READONLY_ACCESS_KEY_ID: source.METADATA_S3_READONLY_ACCESS_KEY_ID,
+      PROTECTED_S3_READONLY_ACCESS_KEY_ID: source.PROTECTED_S3_READONLY_ACCESS_KEY_ID,
+    });
+    expect(bindings.DELIVERY_GRANT_PUBLIC_KEY).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(bindings).not.toHaveProperty('MATERIALIZATION_SOURCE_GRANT_PRIVATE_KEY');
+  });
+
+  test('documents every materialization source Worker source value in Infisical', () => {
+    const template = readFileSync(
+      resolve(import.meta.dir, 'infisical', 'secrets.template.yaml'),
+      'utf8'
+    );
+    const inventory = readFileSync(resolve(import.meta.dir, 'infisical', 'README.md'), 'utf8');
+
+    for (const key of MATERIALIZATION_SOURCE_WORKER_SOURCE_KEYS) {
+      expect(template).toContain(`${key}:`);
+      expect(inventory).toContain(key);
+    }
   });
 
   test('keeps the Infisical storage format equal to the canonical manifest format', () => {

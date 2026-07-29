@@ -20,6 +20,9 @@ describe('Cloudflare Workers Builds contract', () => {
     expect(packageJson.scripts?.['cloudflare:worker:version:upload']).toBe(
       'bun install --frozen-lockfile && bun run --filter @yucp/web worker:version:upload'
     );
+    expect(packageJson.scripts?.['materialization-source:worker:secrets:sync']).toBe(
+      'bun run --env-file=.env.infisical ops/sync-materialization-source-worker-secrets.ts'
+    );
   });
 
   test('regenerates licensed icons through the shared web build used by every deploy path', () => {
