@@ -320,8 +320,7 @@ describe('common package delivery Worker', () => {
     expect(unauthorized.status).toBe(403);
     expect(unauthorized.headers.get('x-yucp-denial-stage')).toBe('authorization');
 
-    const missingChunkUrl =
-      `https://delivery.example.test/v2/delivery/${versionId}/chunks/${'f'.repeat(64)}`;
+    const missingChunkUrl = `https://delivery.example.test/v2/delivery/${versionId}/chunks/${'f'.repeat(64)}`;
     const membership = await worker.fetch(
       new Request(missingChunkUrl, {
         headers: await createAuthorization({
