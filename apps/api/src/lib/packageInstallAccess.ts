@@ -109,6 +109,31 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
+/**
+ * Convex mirrors only the public protected-file projection (see
+ * ops/catalog/convexPublish.ts requiredProtectedFiles); the catalog stamps extra
+ * routing metadata (couplingLane, pixel dimensions) that never leaves the
+ * authority. Compare exactly the mirrored fields so authority-only additions
+ * cannot break publication matching.
+ */
+function publicProtectedFilesProjection(value: unknown): unknown {
+  if (!Array.isArray(value)) {
+    return value;
+  }
+  return value.map((entry) => {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+      return entry;
+    }
+    const file = entry as Record<string, unknown>;
+    return {
+      materializerType: file.materializerType,
+      normalizedPath: file.normalizedPath,
+      required: file.required,
+      sourceSha256: file.sourceSha256,
+    };
+  });
+}
+
 function publicationMatchesAuthority(
   published: PublishedVersion,
   authoritative: AuthoritativePackageVersion
@@ -126,7 +151,8 @@ function publicationMatchesAuthority(
     authoritative.protectionPolicyId === published.protectionPolicyId &&
     authoritative.releaseRoot === published.releaseRoot &&
     authoritative.version === published.version &&
-    canonicalJson(authoritative.protectedFiles) === canonicalJson(published.protectedFiles)
+    canonicalJson(publicProtectedFilesProjection(authoritative.protectedFiles)) ===
+      canonicalJson(publicProtectedFilesProjection(published.protectedFiles))
   );
 }
 

@@ -154,6 +154,83 @@ describe('package install access', () => {
     expect(publication?.versionId).toBe('current-postgres-version-id');
   });
 
+  it('matches authority protected files that carry lane metadata beyond the public projection', async () => {
+    const publicFile = {
+      materializerType: 'png',
+      normalizedPath: 'Assets/Textures/body.png',
+      required: false,
+      sourceSha256: '88'.repeat(32),
+    };
+    convexQueryMock.mockResolvedValue({
+      activeContentDigest: '11'.repeat(32),
+      activePolicyVersion: 'policy-v1',
+      bindingRoot: '22'.repeat(32),
+      commonRoot: '33'.repeat(32),
+      logicalBytes: 1024,
+      logicalFiles: 2,
+      manifestSha256: '44'.repeat(32),
+      packageId: 'com.yucp.jammr',
+      protectedFiles: [publicFile],
+      protectedSourceRoot: '55'.repeat(32),
+      protectionPolicyDigest: '66'.repeat(32),
+      protectionPolicyId: 'protect-v1',
+      releaseRoot: '77'.repeat(32),
+      version: '2.1.11',
+      versionId: 'convex-version-id',
+    });
+    const access = createConvexPackageInstallAccess({
+      convexApiSecret: 'test-convex-secret',
+      convexUrl: 'https://convex.example.test',
+      publicationAuthority: {
+        async resolveInstalledVersion() {
+          return null;
+        },
+        async resolveReadyVersion() {
+          return {
+            activeContentDigest: '11'.repeat(32),
+            activePolicyVersion: 'policy-v1',
+            bindingRoot: '22'.repeat(32),
+            commonRoot: '33'.repeat(32),
+            id: 'postgres-version-id',
+            logicalBytes: 1024,
+            logicalFiles: 2,
+            manifestSha256: '44'.repeat(32),
+            // The catalog stamps routing metadata the Convex mirror never carries
+            // (prod incident 2026-07-30: every install 404'd as unpublished).
+            protectedFiles: [
+              {
+                ...publicFile,
+                couplingLane: 'worker',
+                pngHeight: 2048,
+                pngWidth: 2048,
+                streamingSupported: true,
+              },
+            ],
+            protectedSourceRoot: '55'.repeat(32),
+            protectionPolicyDigest: '66'.repeat(32),
+            protectionPolicyId: 'protect-v1',
+            releaseRoot: '77'.repeat(32),
+            version: '2.1.11',
+          };
+        },
+      },
+    });
+
+    const publication = await access.resolvePublication(
+      {
+        aliasId: 'com.yucp.jammr',
+        catalogProductIds: ['catalog-jammr'],
+        creatorId: 'creator-jammr',
+        packageId: 'com.yucp.jammr',
+        storefronts: [],
+      },
+      'standard',
+      undefined
+    );
+
+    expect(publication?.versionId).toBe('postgres-version-id');
+  });
+
   it('maps superseded and deleted projections to retained installed authority', async () => {
     const installedProjection = {
       activeContentDigest: '11'.repeat(32),
