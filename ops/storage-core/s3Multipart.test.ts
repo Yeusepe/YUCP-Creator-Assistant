@@ -13,12 +13,13 @@ afterEach(() => {
 });
 
 describe('S3 multipart file upload', () => {
-  it('uploads bounded parts and returns the exact completed object version', async () => {
+  it('uploads bounded parts and identifies the object by its multipart ETag, never the version-id header', async () => {
     const root = await mkdtemp(join(tmpdir(), 'yucp-s3-multipart-'));
     try {
       const bytes = Buffer.alloc(6 * 1024 * 1024, 0x4a);
       const path = join(root, 'raw.bin');
       await writeFile(path, bytes);
+      const multipartEtag = '0f343b0931126a20f133d67c2b018a3b-2';
       const requests: Array<{ bytes: number; method: string; url: string }> = [];
       globalThis.fetch = mock(async (input: string | URL | Request) => {
         const request = new Request(input);
@@ -40,9 +41,15 @@ describe('S3 multipart file upload', () => {
           });
         }
         if (request.method === 'POST' && url.searchParams.has('uploadId')) {
-          return new Response('<CompleteMultipartUploadResult/>', {
-            headers: { 'x-amz-version-id': 'exact-version-1' },
-          });
+          // R2 shape: a decorative x-amz-version-id header alongside the real
+          // multipart ETag. If-match reads compare against the ETag, so adopting
+          // the version id would 412 on the very next head (prod incident 2026-07-30).
+          return new Response(
+            '<CompleteMultipartUploadResult>' +
+              `<ETag>&quot;${multipartEtag}&quot;</ETag>` +
+              '</CompleteMultipartUploadResult>',
+            { headers: { 'x-amz-version-id': 'decorative-r2-version-id' } }
+          );
         }
         throw new Error('Unexpected S3 request');
       }) as unknown as typeof fetch;
@@ -64,10 +71,10 @@ describe('S3 multipart file upload', () => {
       });
 
       expect(result).toEqual({
-        fileIdentifier: 'exact-version-1',
+        fileIdentifier: multipartEtag,
         multipart: true,
         parts: 2,
-        versionId: 'exact-version-1',
+        versionId: multipartEtag,
       });
       expect(requests.map((request) => request.method)).toEqual(['POST', 'PUT', 'PUT', 'POST']);
       expect(requests.map((request) => request.bytes)).toEqual([

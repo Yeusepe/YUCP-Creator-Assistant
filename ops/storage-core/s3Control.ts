@@ -596,22 +596,18 @@ export async function putS3FileVersioned(input: {
     if (/<Error(?:\s|>)/.test(completedXml)) {
       throw new S3MultipartCompletionUncertainError(input.key, uploadId);
     }
-    const completedVersionId = completed.headers.get('x-amz-version-id')?.trim();
-    let version: S3ExactObjectVersion;
-    if (completedVersionId && completedVersionId !== 'null') {
-      version = { fileIdentifier: completedVersionId, versionId: completedVersionId };
-    } else {
-      // Providers without versioning report the completed object only through the
-      // (opaque) multipart ETag inside the completion XML.
-      const encodedEtag = completedXml.match(/<ETag>([\s\S]*?)<\/ETag>/)?.[1];
-      const etag = normalizeS3Etag(encodedEtag ? xmlDecode(encodedEtag) : null);
-      if (!etag) {
-        throw new S3MultipartCompletionUncertainError(input.key, uploadId);
-      }
-      version = { fileIdentifier: etag, versionId: etag };
+    // The completed object is identified only by its (opaque) multipart ETag from the
+    // completion XML. x-amz-version-id is deliberately ignored here like everywhere else:
+    // every exact read enforces identity with if-match, which compares against the ETag,
+    // so adopting R2's decorative version id guarantees a 412 on the very next head.
+    const encodedEtag = completedXml.match(/<ETag>([\s\S]*?)<\/ETag>/)?.[1];
+    const etag = normalizeS3Etag(encodedEtag ? xmlDecode(encodedEtag) : null);
+    if (!etag) {
+      throw new S3MultipartCompletionUncertainError(input.key, uploadId);
     }
     return {
-      ...version,
+      fileIdentifier: etag,
+      versionId: etag,
       multipart: true,
       parts: completedParts.length,
     };
