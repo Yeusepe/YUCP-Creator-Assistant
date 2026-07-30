@@ -489,4 +489,81 @@ describe('materialization source Worker', () => {
     expect(replay.headers.get('x-delivery-storage-fetches')).toBe('0');
     expect(storageFetches).toBe(1);
   });
+
+  it('serves verified chunks from the edge cache and refetches on corruption', async () => {
+    const versionId = randomUUID();
+    const chunkBytes = new TextEncoder().encode('edge cached protected chunk');
+    const fixture = protectedManifest(versionId, chunkBytes);
+    let chunkStorageFetches = 0;
+    globalThis.fetch = mock(async (input: string | URL | Request) => {
+      const request = new Request(input);
+      const origin = new URL(request.url);
+      if (origin.pathname.startsWith('/metadata-test/')) {
+        return new Response(fixture.body, {
+          headers: {
+            'Content-Length': String(Buffer.byteLength(fixture.body)),
+            'Content-Type': 'application/json',
+          },
+        });
+      }
+      if (origin.pathname.startsWith('/protected-test/')) {
+        chunkStorageFetches += 1;
+        return new Response(chunkBytes);
+      }
+      return new Response(null, { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const cacheStore = new Map<string, Response>();
+    const fakeCaches = {
+      default: {
+        async match(request: Request): Promise<Response | undefined> {
+          return cacheStore.get(request.url)?.clone();
+        },
+        async put(request: Request, response: Response): Promise<void> {
+          cacheStore.set(request.url, response);
+        },
+      },
+    };
+    (globalThis as { caches?: unknown }).caches = fakeCaches;
+    try {
+      const chunkId = fixture.manifest.files.find((file) => file.classification === 'protected')
+        ?.chunks[0]?.id as string;
+      const chunkUrl = `https://source.example.test/v2/internal/materialization-sources/${versionId}/chunks/${chunkId}`;
+      const fetchChunk = async () =>
+        await worker.fetch(
+          new Request(chunkUrl, {
+            headers: await createAuthorization({
+              bindingRoot: fixture.bindingRoot,
+              releaseRoot: fixture.manifest.releaseRoot,
+              url: chunkUrl,
+              versionId,
+            }),
+          }),
+          await testEnv()
+        );
+
+      const first = await fetchChunk();
+      expect(first.status).toBe(200);
+      expect(first.headers.get('x-yucp-chunk-source')).toBe('storage');
+      expect(new Uint8Array(await first.arrayBuffer())).toEqual(chunkBytes);
+      expect(chunkStorageFetches).toBe(1);
+      expect(cacheStore.size).toBe(1);
+
+      const second = await fetchChunk();
+      expect(second.status).toBe(200);
+      expect(second.headers.get('x-yucp-chunk-source')).toBe('edge-cache');
+      expect(new Uint8Array(await second.arrayBuffer())).toEqual(chunkBytes);
+      expect(chunkStorageFetches).toBe(1);
+
+      const cacheKey = [...cacheStore.keys()][0] as string;
+      cacheStore.set(cacheKey, new Response(new TextEncoder().encode('corrupted bytes')));
+      const third = await fetchChunk();
+      expect(third.status).toBe(200);
+      expect(third.headers.get('x-yucp-chunk-source')).toBe('storage');
+      expect(new Uint8Array(await third.arrayBuffer())).toEqual(chunkBytes);
+      expect(chunkStorageFetches).toBe(2);
+    } finally {
+      delete (globalThis as { caches?: unknown }).caches;
+    }
+  });
 });

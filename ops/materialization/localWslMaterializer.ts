@@ -312,8 +312,6 @@ export async function startLocalWslMaterializer(
   if (!existsSync(sourceRoot)) {
     throw new Error('The proprietary coupling source repository is unavailable');
   }
-  const renditionEndpoint = requireEnvironment(baseEnv, 'RENDITION_S3_ENDPOINT');
-  requireLoopbackEndpointPort(renditionEndpoint);
   const sourceEndpoint = baseEnv.MATERIALIZATION_SOURCE_BASE_URL ?? 'http://127.0.0.1:3005';
   const controlEndpoint = baseEnv.MATERIALIZATION_CONTROL_PLANE_BASE_URL ?? 'http://127.0.0.1:3012';
   const sourcePort = requireLoopbackEndpointPort(sourceEndpoint);

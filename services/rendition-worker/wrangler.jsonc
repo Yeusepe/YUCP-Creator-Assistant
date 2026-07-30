@@ -5,6 +5,10 @@
   "compatibility_date": "2026-07-24",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
+  "route": {
+    "pattern": "delivery.yucp.club/v2/renditions*",
+    "zone_name": "yucp.club"
+  },
   "observability": {
     "enabled": true,
     "logs": {
@@ -23,8 +27,9 @@
     "PACKAGE_INSTALL_SIGNING_PUBLIC_KEY": "configure-through-deployment",
     "RENDITION_RECEIPT_KEY_ID": "configure-through-deployment",
     "RENDITION_RECEIPT_PUBLIC_KEY": "configure-through-deployment",
-    "RENDITION_S3_BUCKET": "configure-through-deployment",
-    "RENDITION_S3_ENDPOINT": "https://s3.us-west-004.backblazeb2.com",
-    "RENDITION_S3_REGION": "us-west-004"
+    "MATERIALIZER_ORIGIN_URL": "https://materializer.example.invalid"
+  },
+  "secrets": {
+    "required": ["MATERIALIZER_RENDITION_SHARED_SECRET"]
   }
 }

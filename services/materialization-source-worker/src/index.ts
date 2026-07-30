@@ -590,6 +590,69 @@ function chunkObjectKey(role: S3ReadRole & { chunkPrefix: string }, chunkId: str
   return `${role.chunkPrefix}${chunkId.slice(0, 4)}/${chunkId}`;
 }
 
+// Cache only digest-verified chunks; authorization still runs per request.
+const CHUNK_CACHE_VERSION = 'v1';
+
+function edgeCache(): Cache | undefined {
+  return (globalThis as { caches?: CacheStorage }).caches?.default;
+}
+
+function chunkCacheKey(input: {
+  chunkId: string;
+  classification: 'common' | 'protected';
+  sha256: string;
+  url: URL;
+}): Request {
+  return new Request(
+    `https://${input.url.hostname}/__internal/chunk-cache/${CHUNK_CACHE_VERSION}/${input.classification}/${input.chunkId}/${input.sha256}`,
+    { method: 'GET' }
+  );
+}
+
+async function matchVerifiedChunk(
+  cache: Cache,
+  cacheKey: Request,
+  chunk: { sha256: string; size: number }
+): Promise<Uint8Array | undefined> {
+  let cached: Response | undefined;
+  try {
+    cached = await cache.match(cacheKey);
+  } catch {
+    return undefined;
+  }
+  if (!cached) {
+    return undefined;
+  }
+  const bytes = new Uint8Array(await cached.arrayBuffer());
+  if (bytes.byteLength !== chunk.size || (await sha256Hex(bytes)) !== chunk.sha256) {
+    return undefined;
+  }
+  return bytes;
+}
+
+function storeVerifiedChunk(
+  ctx: ExecutionContext | undefined,
+  cache: Cache,
+  cacheKey: Request,
+  bytes: Uint8Array
+): void {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  const stored = cache
+    .put(
+      cacheKey,
+      new Response(copy, {
+        headers: {
+          'cache-control': 'public, max-age=31536000, immutable',
+          'content-length': String(copy.byteLength),
+          'content-type': 'application/octet-stream',
+        },
+      })
+    )
+    .catch(() => undefined);
+  ctx?.waitUntil(stored);
+}
+
 function noStoreResponse(
   body: BodyInit | null,
   status: number,
@@ -605,7 +668,11 @@ function noStoreResponse(
   });
 }
 
-async function handleRequest(request: Request, env: Env): Promise<Response> {
+async function handleRequest(
+  request: Request,
+  env: Env,
+  ctx?: ExecutionContext
+): Promise<Response> {
   try {
     if (request.method !== 'GET') {
       throw new HttpError(405, 'Method not allowed');
@@ -649,32 +716,52 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
       throw new HttpError(403, 'Forbidden', loaded.storageFetches, 'membership');
     }
     const sourceRole = chunk.classification === 'protected' ? config.protected : config.common;
-    const response = await getStorageObject(
-      createStorageClient(sourceRole),
-      sourceRole,
-      chunkObjectKey(sourceRole, chunkId)
-    );
-    const storageFetches = loaded.storageFetches + 1;
-    if (!response.ok) {
-      throw new HttpError(
-        502,
-        'Materialization source chunk storage request failed',
-        storageFetches
+    const cache = edgeCache();
+    const cacheKey = cache
+      ? chunkCacheKey({
+          chunkId,
+          classification: chunk.classification,
+          sha256: chunk.sha256,
+          url,
+        })
+      : undefined;
+    let bytes = cache && cacheKey ? await matchVerifiedChunk(cache, cacheKey, chunk) : undefined;
+    let chunkSource: 'edge-cache' | 'storage' = 'edge-cache';
+    let storageFetches = loaded.storageFetches;
+    if (!bytes) {
+      chunkSource = 'storage';
+      const response = await getStorageObject(
+        createStorageClient(sourceRole),
+        sourceRole,
+        chunkObjectKey(sourceRole, chunkId)
       );
-    }
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength !== chunk.size || (await sha256Hex(bytes)) !== chunk.sha256) {
-      throw new HttpError(
-        502,
-        'Materialization source chunk failed verification',
-        storageFetches,
-        'chunk'
-      );
+      storageFetches += 1;
+      if (!response.ok) {
+        throw new HttpError(
+          502,
+          'Materialization source chunk storage request failed',
+          storageFetches
+        );
+      }
+      const fetched = new Uint8Array(await response.arrayBuffer());
+      if (fetched.byteLength !== chunk.size || (await sha256Hex(fetched)) !== chunk.sha256) {
+        throw new HttpError(
+          502,
+          'Materialization source chunk failed verification',
+          storageFetches,
+          'chunk'
+        );
+      }
+      bytes = fetched;
+      if (cache && cacheKey) {
+        storeVerifiedChunk(ctx, cache, cacheKey, bytes);
+      }
     }
     return noStoreResponse(bytes, 200, storageFetches, {
       'content-length': String(bytes.byteLength),
       'content-type': 'application/octet-stream',
       etag: `"${chunk.id}"`,
+      'x-yucp-chunk-source': chunkSource,
       'x-yucp-manifest-source': loaded.manifestSource,
     });
   } catch (error) {

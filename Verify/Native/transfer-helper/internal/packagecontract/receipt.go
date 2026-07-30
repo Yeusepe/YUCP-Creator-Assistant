@@ -18,12 +18,9 @@ type MaterializedFile struct {
 }
 
 type ExactRendition struct {
-	BucketName      string
-	FileIdentifier  string
-	ObjectBytes     int64
-	ObjectKey       string
-	ObjectSHA256    [32]byte
-	ProviderVersion string
+	FileIdentifier string
+	ObjectBytes    int64
+	ObjectSHA256   [32]byte
 }
 
 type MaterializationReceipt struct {
@@ -161,27 +158,29 @@ func ParseMaterializationReceipt(payload []byte) (MaterializationReceipt, error)
 	}
 	if err := requireExactIntegerLabels(
 		renditionMap,
-		[]int64{0, 1, 2, 3, 4, 5, 6},
+		[]int64{0, 1, 2},
 		"MaterializationReceiptV2.rendition",
 	); err != nil {
 		return MaterializationReceipt{}, err
 	}
-	role, err := requireString(
+	renditionFileIdentifier, err := requireString(
 		renditionMap[int64(0)],
-		"MaterializationReceiptV2.rendition.storageRole",
+		"MaterializationReceiptV2.rendition.fileIdentifier",
 	)
-	if err != nil || role != "renditions" {
-		return MaterializationReceipt{}, fmt.Errorf("MaterializationReceiptV2 rendition role is invalid")
+	if err != nil || len([]byte(renditionFileIdentifier)) > 512 {
+		return MaterializationReceipt{}, fmt.Errorf(
+			"MaterializationReceiptV2 rendition file identifier is invalid",
+		)
 	}
 	renditionDigest, err := requireDigest(
-		renditionMap[int64(5)],
+		renditionMap[int64(1)],
 		"MaterializationReceiptV2.rendition.objectSha256",
 	)
 	if err != nil {
 		return MaterializationReceipt{}, err
 	}
 	renditionBytes, err := requireInt(
-		renditionMap[int64(6)],
+		renditionMap[int64(2)],
 		"MaterializationReceiptV2.rendition.objectBytes",
 	)
 	if err != nil || renditionBytes <= 0 {
@@ -190,8 +189,9 @@ func ParseMaterializationReceipt(payload []byte) (MaterializationReceipt, error)
 	receipt := MaterializationReceipt{
 		OutputFiles: outputFiles,
 		Rendition: ExactRendition{
-			ObjectBytes:  renditionBytes,
-			ObjectSHA256: renditionDigest,
+			FileIdentifier: renditionFileIdentifier,
+			ObjectBytes:    renditionBytes,
+			ObjectSHA256:   renditionDigest,
 		},
 	}
 	for field, destination := range map[int64]*string{
@@ -209,24 +209,6 @@ func ParseMaterializationReceipt(payload []byte) (MaterializationReceipt, error)
 		if fieldErr != nil || len([]byte(value)) > 512 {
 			return MaterializationReceipt{}, fmt.Errorf(
 				"MaterializationReceiptV2 text claim %d is invalid",
-				field,
-			)
-		}
-		*destination = value
-	}
-	for field, destination := range map[int64]*string{
-		1: &receipt.Rendition.BucketName,
-		2: &receipt.Rendition.ObjectKey,
-		3: &receipt.Rendition.ProviderVersion,
-		4: &receipt.Rendition.FileIdentifier,
-	} {
-		value, fieldErr := requireString(
-			renditionMap[field],
-			fmt.Sprintf("MaterializationReceiptV2.rendition.%d", field),
-		)
-		if fieldErr != nil || len([]byte(value)) > 2_048 {
-			return MaterializationReceipt{}, fmt.Errorf(
-				"MaterializationReceiptV2 rendition claim %d is invalid",
 				field,
 			)
 		}

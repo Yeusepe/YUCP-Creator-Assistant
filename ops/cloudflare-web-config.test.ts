@@ -5,9 +5,12 @@ import {
   DELIVERY_WORKER_BINDING_KEYS,
   getDeliveryWorkerBindingValues,
   getMaterializationSourceWorkerBindingValues,
+  getRenditionWorkerBindingValues,
   getWebLocalEnvValues,
   MATERIALIZATION_SOURCE_WORKER_BINDING_KEYS,
   MATERIALIZATION_SOURCE_WORKER_SOURCE_KEYS,
+  RENDITION_WORKER_BINDING_KEYS,
+  RENDITION_WORKER_SOURCE_KEYS,
   resolveWebEnvValues,
   resolveWebLocalEnvPath,
 } from './cloudflare-web-config';
@@ -137,6 +140,34 @@ describe('cloudflare-web-config', () => {
       expect(template).toContain(`${key}:`);
       expect(inventory).toContain(key);
     }
+  });
+
+  test('derives only the public rendition Worker bindings from Infisical', () => {
+    const source = Object.fromEntries(
+      RENDITION_WORKER_SOURCE_KEYS.map((key) => [key, `placeholder-${key.toLowerCase()}`])
+    );
+    source.MATERIALIZATION_RECEIPT_PRIVATE_KEY = Buffer.alloc(32, 0x31).toString('base64url');
+
+    const bindings = getRenditionWorkerBindingValues(source);
+
+    expect(Object.keys(bindings)).toEqual([...RENDITION_WORKER_BINDING_KEYS]);
+    expect(bindings).toMatchObject({
+      MATERIALIZER_ORIGIN_URL: source.MATERIALIZER_ORIGIN_URL,
+      MATERIALIZER_RENDITION_SHARED_SECRET: source.MATERIALIZER_RENDITION_SHARED_SECRET,
+      RENDITION_RECEIPT_KEY_ID: source.MATERIALIZATION_RECEIPT_KEY_ID,
+    });
+    expect(bindings.RENDITION_RECEIPT_PUBLIC_KEY).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(bindings).not.toHaveProperty('MATERIALIZATION_RECEIPT_PRIVATE_KEY');
+  });
+
+  test('routes only personalized rendition downloads ahead of the delivery custom domain', () => {
+    const config = readFileSync(
+      resolve(import.meta.dir, '..', 'services', 'rendition-worker', 'wrangler.jsonc'),
+      'utf8'
+    );
+
+    expect(config).toContain('"pattern": "delivery.yucp.club/v2/renditions*"');
+    expect(config).toContain('"zone_name": "yucp.club"');
   });
 
   test('keeps the Infisical storage format equal to the canonical manifest format', () => {

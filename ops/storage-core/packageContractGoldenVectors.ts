@@ -127,13 +127,9 @@ function sampleMaterializationReceipt(): MaterializationReceiptV2 {
     receiptId: 'receipt-1',
     releaseRoot: digest(0x11),
     rendition: {
-      bucketName: 'yucp-renditions-test',
       fileIdentifier: '01JFILEID',
       objectBytes: 2_048,
-      objectKey: 'personalized/release-1/buyer-pseudonym-1.zip',
       objectSha256: digest(0x77),
-      providerVersion: '01JVERSION',
-      storageRole: 'renditions',
     },
     runtimeBuild: 'runtime-1',
     traceId: 'trace-1',

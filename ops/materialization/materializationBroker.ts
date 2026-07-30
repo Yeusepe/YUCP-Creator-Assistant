@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import type { CatalogDatabase } from '../catalog';
 import { PACKAGE_INSTALL_DPOP_MAX_REPLAY_RESERVATION_LIFETIME_MS } from '../storage-core/dpopReplayPolicy';
 import {
+  computeOutputTreeRootV2,
   type DeliveryGrantV2,
   encodeDeliveryGrantV2,
   encodeMaterializationCapabilityV2,
@@ -17,8 +18,13 @@ import {
   verifyMaterializationCapabilityV2,
 } from '../storage-core/packageContractsV2';
 import type { MaterializationKeyBrokerPort } from './keyBrokerClient';
-import { type RenditionStoragePort, type RenditionUploadTicket } from './renditionStorage';
-import { type DeclaredMaterializedFile, verifyRenditionReadback } from './renditionVerifier';
+
+export type DeclaredMaterializedFile = {
+  attributionId: string;
+  normalizedPath: string;
+  outputBytes: number;
+  outputSha256: string;
+};
 
 const SHA256_BYTES = 32;
 const MAX_LEASE_DURATION_MS = 60 * 60 * 1_000;
@@ -112,8 +118,6 @@ export type MaterializationJobProgress = {
     | 'codec'
     | 'completion'
     | 'key_derivation'
-    | 'rendition_upload'
-    | 'rendition_upload_ticket'
     | 'rendition_verify'
     | 'source_assembly'
     | 'source_manifest'
@@ -224,12 +228,6 @@ export type MaterializationReceiptSigningConfig = {
   keyId: Uint8Array;
   lifetimeSeconds: number;
   privateKey: Uint8Array;
-};
-
-export type PreparedRenditionUpload = {
-  expiresAt: string;
-  upload: RenditionUploadTicket;
-  writeIntentId: string;
 };
 
 export type CompletedRendition = {
@@ -493,7 +491,6 @@ function capabilityMatchesJob(
 export class MaterializationBroker {
   private readonly keyBroker: MaterializationKeyBrokerPort;
   private readonly receiptSigning: MaterializationReceiptSigningConfig;
-  private readonly renditionStorage: RenditionStoragePort;
   private readonly sourceGrant: MaterializationSourceGrantConfig;
   private readonly sql: CatalogDatabase;
   private readonly storageGcPinRetentionSeconds: number;
@@ -501,7 +498,6 @@ export class MaterializationBroker {
   constructor(input: {
     keyBroker: MaterializationKeyBrokerPort;
     receiptSigning: MaterializationReceiptSigningConfig;
-    renditionStorage: RenditionStoragePort;
     sourceGrant: MaterializationSourceGrantConfig;
     sql: CatalogDatabase;
     storageGcPinRetentionSeconds?: number;
@@ -517,15 +513,11 @@ export class MaterializationBroker {
     ) {
       throw new Error('Materialization receipt signing configuration is invalid');
     }
-    if (!input.renditionStorage.bucketName.trim()) {
-      throw new Error('Materialization rendition storage bucket is invalid');
-    }
     this.receiptSigning = {
       keyId: Uint8Array.from(input.receiptSigning.keyId),
       lifetimeSeconds: input.receiptSigning.lifetimeSeconds,
       privateKey: Uint8Array.from(input.receiptSigning.privateKey),
     };
-    this.renditionStorage = input.renditionStorage;
     const sourceBaseUrl = new URL(input.sourceGrant.baseUrl);
     const sourceIssuer = new URL(input.sourceGrant.issuer);
     const sourceBaseLoopback =
@@ -706,6 +698,13 @@ export class MaterializationBroker {
     ) {
       throw new Error('Encrypted attribution subject mapping is invalid');
     }
+    const cacheAffinityKey = createHash('sha256')
+      .update('yucp:materialization-cache-affinity:v1', 'ascii')
+      .update('\0', 'ascii')
+      .update(input.sourceVersionId, 'utf8')
+      .update('\0', 'ascii')
+      .update(input.sourceManifestSha256)
+      .digest();
     type ExistingJob = {
       bindingRoot: Buffer;
       buyerSubjectPseudonym: string;
@@ -800,6 +799,21 @@ export class MaterializationBroker {
         if (reacquired[0]?.pin_id !== job.storageGcPinId) {
           throw new Error('Materialization job storage GC pin binding is invalid');
         }
+        await transaction`
+          INSERT INTO materialization_dispatch_outbox (
+            job_id,
+            trace_id,
+            lane,
+            cache_affinity_key
+          )
+          VALUES (
+            ${input.id},
+            ${input.traceId},
+            ${lane},
+            ${cacheAffinityKey}
+          )
+          ON CONFLICT (job_id) DO NOTHING
+        `;
         return;
       }
 
@@ -915,6 +929,20 @@ export class MaterializationBroker {
       if (!inserted[0]) {
         throw new Error('Materialization job was not created');
       }
+      await transaction`
+        INSERT INTO materialization_dispatch_outbox (
+          job_id,
+          trace_id,
+          lane,
+          cache_affinity_key
+        )
+        VALUES (
+          ${input.id},
+          ${input.traceId},
+          ${lane},
+          ${cacheAffinityKey}
+        )
+      `;
     });
   }
 
@@ -1374,12 +1402,15 @@ export class MaterializationBroker {
   }
 
   async claimNextJob(input: {
+    jobId?: string;
     lane?: 'large' | 'maintenance';
     leaseDurationMs: number;
     leaseOwner: string;
     now?: Date;
   }): Promise<MaterializationClaimResult> {
     const lane = input.lane ?? 'large';
+    const requestedJobId =
+      input.jobId === undefined ? undefined : requireText(input.jobId, 'jobId', 128);
     const leaseOwner = requireText(input.leaseOwner, 'leaseOwner', 512);
     const now = input.now ?? new Date();
     if (
@@ -1443,7 +1474,13 @@ export class MaterializationBroker {
               source_version_id::text AS "sourceVersionId",
               storage_gc_pin_id::text AS "storageGcPinId"
             FROM materialization_jobs
-            WHERE lane = ${lane} AND state = 'QUEUED'
+            WHERE
+              lane = ${lane}
+              AND state = 'QUEUED'
+              AND (
+                ${requestedJobId ?? null}::text IS NULL
+                OR id = ${requestedJobId ?? null}
+              )
             ORDER BY created_at, id
             LIMIT 1
             FOR UPDATE SKIP LOCKED
@@ -2063,210 +2100,6 @@ export class MaterializationBroker {
     };
   }
 
-  async prepareRenditionUpload(input: {
-    bytes: number;
-    capabilityId: string;
-    coseSign1: Uint8Array;
-    jobId: string;
-    leaseGeneration: number;
-    materializerId: string;
-    now?: Date;
-    proofJti: string;
-    sha256: string;
-    traceId: string;
-    verifiedProofKeyThumbprint: Uint8Array;
-  }): Promise<PreparedRenditionUpload> {
-    const now = input.now ?? new Date();
-    const materializerId = requireText(input.materializerId, 'materializerId', 512);
-    const capabilityId = requireText(input.capabilityId, 'capabilityId', 128);
-    const jobId = requireText(input.jobId, 'jobId', 128);
-    requireText(input.traceId, 'traceId', 512);
-    const expectedSha256 = requireSha256Hex(input.sha256, 'rendition sha256');
-    if (
-      !Number.isSafeInteger(input.bytes) ||
-      input.bytes < 1 ||
-      input.bytes > 5 * 1024 ** 3 ||
-      !Number.isSafeInteger(input.leaseGeneration) ||
-      input.leaseGeneration < 1
-    ) {
-      throw new Error('Rendition upload request is invalid');
-    }
-    await this.consumeMaterializerProof({
-      capabilityId,
-      coseSign1: input.coseSign1,
-      jobStates: ['MATERIALIZING', 'VERIFYING'],
-      jobId,
-      leaseGeneration: input.leaseGeneration,
-      materializerId,
-      now,
-      proofJti: input.proofJti,
-      verifiedProofKeyThumbprint: input.verifiedProofKeyThumbprint,
-    });
-
-    const durable = await this.sql.begin(async (transaction) => {
-      const existing = await transaction<
-        {
-          bucketName: string;
-          expectedBytes: number;
-          expectedSha256: Buffer;
-          expiresAt: Date;
-          id: string;
-          objectKey: string;
-          state: string;
-        }[]
-      >`
-        SELECT
-          id::text,
-          bucket_name AS "bucketName",
-          object_key AS "objectKey",
-          expected_sha256 AS "expectedSha256",
-          expected_bytes::float8 AS "expectedBytes",
-          state,
-          expires_at AS "expiresAt"
-        FROM materialization_rendition_write_intents
-        WHERE job_id = ${jobId} AND lease_generation = ${input.leaseGeneration}
-        FOR UPDATE
-      `;
-      if (existing[0]) {
-        if (
-          existing[0].state !== 'ISSUED' ||
-          existing[0].bucketName !== this.renditionStorage.bucketName ||
-          existing[0].expectedBytes !== input.bytes ||
-          !bytesEqual(existing[0].expectedSha256, expectedSha256) ||
-          new Date(existing[0].expiresAt).getTime() <= now.getTime()
-        ) {
-          throw new Error('Existing rendition write intent does not match this request');
-        }
-        return existing[0];
-      }
-
-      const rows = await transaction<
-        {
-          capabilityConsumedAt: Date | null;
-          capabilityConsumedBy: string | null;
-          capabilityId: string;
-          encryptedSubjectMapping: Buffer | null;
-          jobId: string;
-          leaseExpiresAt: Date;
-          leaseGeneration: number;
-          leaseOwner: string;
-          state: string;
-        }[]
-      >`
-        SELECT
-          j.id AS "jobId",
-          j.state,
-          j.lease_owner AS "leaseOwner",
-          j.lease_generation AS "leaseGeneration",
-          j.lease_expires_at AS "leaseExpiresAt",
-          j.encrypted_subject_mapping AS "encryptedSubjectMapping",
-          c.capability_id AS "capabilityId",
-          c.consumed_at AS "capabilityConsumedAt",
-          c.consumed_by AS "capabilityConsumedBy"
-        FROM materialization_jobs j
-        JOIN materialization_capabilities c ON c.job_id = j.id
-        WHERE j.id = ${jobId} AND c.capability_id = ${capabilityId}
-        FOR UPDATE OF j, c
-      `;
-      const row = rows[0];
-      if (
-        !row ||
-        row.state !== 'MATERIALIZING' ||
-        row.leaseOwner !== materializerId ||
-        row.leaseGeneration !== input.leaseGeneration ||
-        new Date(row.leaseExpiresAt).getTime() <= now.getTime() ||
-        !row.capabilityConsumedAt ||
-        row.capabilityConsumedBy !== materializerId ||
-        !row.encryptedSubjectMapping
-      ) {
-        throw new Error('Rendition upload fence is stale or incomplete');
-      }
-      const expiresAt = new Date(
-        Math.min(new Date(row.leaseExpiresAt).getTime(), now.getTime() + 5 * 60 * 1_000)
-      );
-      if (expiresAt.getTime() <= now.getTime()) {
-        throw new Error('Rendition upload lease has expired');
-      }
-      const id = randomUUID();
-      const objectKey = `v2/renditions/${id.slice(0, 2)}/${id}.zip`;
-      await transaction`
-        INSERT INTO materialization_rendition_write_intents (
-          id,
-          job_id,
-          capability_id,
-          lease_generation,
-          bucket_name,
-          object_key,
-          expected_sha256,
-          expected_bytes,
-          issued_at,
-          expires_at,
-          trace_id
-        )
-        VALUES (
-          ${id},
-          ${jobId},
-          ${capabilityId},
-          ${input.leaseGeneration},
-          ${this.renditionStorage.bucketName},
-          ${objectKey},
-          ${expectedSha256},
-          ${input.bytes},
-          ${now},
-          ${expiresAt},
-          ${input.traceId}
-        )
-      `;
-      const updated = await transaction<{ id: string }[]>`
-        UPDATE materialization_jobs
-        SET state = 'VERIFYING', updated_at = ${now}
-        WHERE
-          id = ${jobId}
-          AND state = 'MATERIALIZING'
-          AND lease_owner = ${materializerId}
-          AND lease_generation = ${input.leaseGeneration}
-          AND lease_expires_at > ${now}
-        RETURNING id
-      `;
-      if (!updated[0]) {
-        throw new Error('Rendition upload lost its durable job fence');
-      }
-      return {
-        bucketName: this.renditionStorage.bucketName,
-        expectedBytes: input.bytes,
-        expectedSha256,
-        expiresAt,
-        id,
-        objectKey,
-        state: 'ISSUED',
-      };
-    });
-
-    const lifetimeSeconds = Math.max(
-      1,
-      Math.min(300, Math.floor((new Date(durable.expiresAt).getTime() - now.getTime()) / 1_000))
-    );
-    const upload = await this.renditionStorage.createUploadTicket({
-      bytes: durable.expectedBytes,
-      expiresSeconds: lifetimeSeconds,
-      objectKey: durable.objectKey,
-      now,
-      sha256Hex: Buffer.from(durable.expectedSha256).toString('hex'),
-    });
-    if (
-      upload.bucketName !== durable.bucketName ||
-      upload.objectKey !== durable.objectKey ||
-      upload.storageRole !== 'renditions'
-    ) {
-      throw new Error('Rendition storage port returned an invalid upload ticket');
-    }
-    return {
-      expiresAt: new Date(durable.expiresAt).toISOString(),
-      upload,
-      writeIntentId: durable.id,
-    };
-  }
-
   async completeRendition(input: {
     attributionRecords: readonly MaterializationAttributionOutput[];
     builds: {
@@ -2282,18 +2115,25 @@ export class MaterializationBroker {
     now?: Date;
     outputFiles: readonly DeclaredMaterializedFile[];
     outputTreeRoot: string;
-    providerVersion: string;
     proofJti: string;
+    renditionBytes: number;
+    renditionSha256: string;
     traceId: string;
     verifiedProofKeyThumbprint: Uint8Array;
-    writeIntentId: string;
   }): Promise<CompletedRendition> {
     const now = input.now ?? new Date();
     const materializerId = requireText(input.materializerId, 'materializerId', 512);
     const jobId = requireText(input.jobId, 'jobId', 128);
     const capabilityId = requireText(input.capabilityId, 'capabilityId', 128);
-    const writeIntentId = requireText(input.writeIntentId, 'writeIntentId', 128);
-    const providerVersion = requireText(input.providerVersion, 'providerVersion', 512);
+    const fileIdentifier = `${jobId}.zip`;
+    const renditionSha256 = requireSha256Hex(input.renditionSha256, 'renditionSha256');
+    if (
+      !Number.isSafeInteger(input.renditionBytes) ||
+      input.renditionBytes < 1 ||
+      input.renditionBytes > 5 * 1024 ** 3
+    ) {
+      throw new Error('Rendition completion request is invalid');
+    }
     requireText(input.traceId, 'traceId', 512);
     const outputFiles = normalizeMaterializedFiles(input.outputFiles);
     const declaredOutputTreeRoot = requireSha256Hex(input.outputTreeRoot, 'outputTreeRoot');
@@ -2305,7 +2145,7 @@ export class MaterializationBroker {
     await this.consumeMaterializerProof({
       capabilityId,
       coseSign1: input.coseSign1,
-      jobStates: ['VERIFYING', 'SUCCEEDED'],
+      jobStates: ['MATERIALIZING', 'SUCCEEDED'],
       jobId,
       leaseGeneration: input.leaseGeneration,
       materializerId,
@@ -2324,17 +2164,19 @@ export class MaterializationBroker {
         {
           capabilityId: string;
           consumedBy: string;
-          providerVersion: string;
+          fileIdentifier: string;
+          objectBytes: number;
+          objectSha256: Buffer;
           receiptId: string;
           signedReceipt: Buffer;
-          writeIntentId: string;
         }[]
       >`
         SELECT
           r.receipt_id AS "receiptId",
           r.capability_id AS "capabilityId",
-          r.rendition_write_intent_id::text AS "writeIntentId",
-          r.provider_version AS "providerVersion",
+          r.file_identifier AS "fileIdentifier",
+          r.object_sha256 AS "objectSha256",
+          r.object_bytes::float8 AS "objectBytes",
           r.signed_receipt AS "signedReceipt",
           c.consumed_by AS "consumedBy"
         FROM materialization_receipts r
@@ -2346,8 +2188,9 @@ export class MaterializationBroker {
       }
       if (
         existingReceipt[0].capabilityId !== capabilityId ||
-        existingReceipt[0].writeIntentId !== writeIntentId ||
-        existingReceipt[0].providerVersion !== providerVersion ||
+        existingReceipt[0].fileIdentifier !== fileIdentifier ||
+        existingReceipt[0].objectBytes !== input.renditionBytes ||
+        !bytesEqual(existingReceipt[0].objectSha256, renditionSha256) ||
         existingReceipt[0].consumedBy !== materializerId
       ) {
         throw new Error('Completed rendition does not match this request');
@@ -2401,43 +2244,16 @@ export class MaterializationBroker {
       FROM materialization_capabilities
       WHERE capability_id = ${capabilityId} AND job_id = ${jobId}
     `;
-    const intentRows = await this.sql<
-      {
-        bucketName: string;
-        expectedBytes: number;
-        expectedSha256: Buffer;
-        intentExpiresAt: Date;
-        intentState: string;
-        objectKey: string;
-        writeIntentId: string;
-      }[]
-    >`
-      SELECT
-        id::text AS "writeIntentId",
-        bucket_name AS "bucketName",
-        object_key AS "objectKey",
-        expected_sha256 AS "expectedSha256",
-        expected_bytes::float8 AS "expectedBytes",
-        state AS "intentState",
-        expires_at AS "intentExpiresAt"
-      FROM materialization_rendition_write_intents
-      WHERE id = ${writeIntentId} AND job_id = ${jobId} AND capability_id = ${capabilityId}
-    `;
     const job =
-      jobRows[0] && capabilityRows[0] && intentRows[0]
-        ? { ...jobRows[0], ...capabilityRows[0], ...intentRows[0] }
-        : undefined;
+      jobRows[0] && capabilityRows[0] ? { ...jobRows[0], ...capabilityRows[0] } : undefined;
     if (
       !job ||
-      job.state !== 'VERIFYING' ||
-      job.intentState !== 'ISSUED' ||
+      job.state !== 'MATERIALIZING' ||
       job.leaseOwner !== materializerId ||
       job.capabilityConsumedBy !== materializerId ||
       !job.capabilityConsumedAt ||
       job.leaseGeneration !== input.leaseGeneration ||
       new Date(job.leaseExpiresAt).getTime() <= now.getTime() ||
-      new Date(job.intentExpiresAt).getTime() <= now.getTime() ||
-      job.bucketName !== this.renditionStorage.bucketName ||
       !job.encryptedSubjectMapping
     ) {
       throw new Error('Rendition completion fence is stale or incomplete');
@@ -2462,22 +2278,8 @@ export class MaterializationBroker {
       throw new Error('Rendition attribution records do not match durable output');
     }
 
-    const head = await this.renditionStorage.headExactVersion(job.objectKey, providerVersion);
-    if (
-      head.contentLength !== job.expectedBytes ||
-      head.metadata['yucp-sha256'] !== Buffer.from(job.expectedSha256).toString('hex') ||
-      head.contentType?.split(';', 1)[0]?.trim().toLowerCase() !== 'application/zip'
-    ) {
-      throw new Error('Rendition exact-version metadata failed verification');
-    }
-    const verified = await verifyRenditionReadback({
-      expectedBytes: job.expectedBytes,
-      expectedObjectSha256: Buffer.from(job.expectedSha256).toString('hex'),
-      expectedOutputFiles: input.outputFiles,
-      response: await this.renditionStorage.getExactVersion(job.objectKey, providerVersion),
-    });
-    if (!bytesEqual(Buffer.from(verified.outputTreeRoot, 'hex'), declaredOutputTreeRoot)) {
-      throw new Error('Rendition output tree does not match trusted readback');
+    if (!bytesEqual(computeOutputTreeRootV2(outputFiles), declaredOutputTreeRoot)) {
+      throw new Error('Rendition output tree does not match its declared outputs');
     }
 
     const issuedAt = toEpochSeconds(now);
@@ -2499,7 +2301,7 @@ export class MaterializationBroker {
       materializationAlgorithm: job.materializationAlgorithm,
       materializerId,
       outputFiles,
-      outputTreeRoot: Buffer.from(verified.outputTreeRoot, 'hex'),
+      outputTreeRoot: declaredOutputTreeRoot,
       pluginVersion: job.pluginVersion,
       productId: job.productId,
       protectedSourceRoot: job.protectedSourceRoot,
@@ -2507,13 +2309,9 @@ export class MaterializationBroker {
       receiptId,
       releaseRoot: job.releaseRoot,
       rendition: {
-        bucketName: job.bucketName,
-        fileIdentifier: head.fileIdentifier,
-        objectBytes: verified.objectBytes,
-        objectKey: job.objectKey,
-        objectSha256: Buffer.from(verified.objectSha256, 'hex'),
-        providerVersion: head.providerVersion,
-        storageRole: 'renditions',
+        fileIdentifier,
+        objectBytes: input.renditionBytes,
+        objectSha256: renditionSha256,
       },
       runtimeBuild: builds.runtime,
       traceId: job.traceId,
@@ -2528,44 +2326,28 @@ export class MaterializationBroker {
 
     await this.sql.begin(async (transaction) => {
       const fence = await transaction<{ id: string }[]>`
-        SELECT j.id
-        FROM materialization_jobs j
-        JOIN materialization_rendition_write_intents w ON w.job_id = j.id
+        SELECT id
+        FROM materialization_jobs
         WHERE
-          j.id = ${jobId}
-          AND j.state = 'VERIFYING'
-          AND j.lease_owner = ${materializerId}
-          AND j.lease_generation = ${input.leaseGeneration}
-          AND j.lease_expires_at > ${now}
-          AND w.id = ${writeIntentId}
-          AND w.state = 'ISSUED'
-          AND w.expires_at > ${now}
-        FOR UPDATE OF j, w
+          id = ${jobId}
+          AND state = 'MATERIALIZING'
+          AND lease_owner = ${materializerId}
+          AND lease_generation = ${input.leaseGeneration}
+          AND lease_expires_at > ${now}
+        FOR UPDATE
       `;
       if (!fence[0]) {
         throw new Error('Rendition completion lost its durable fence');
       }
       await transaction`
-        UPDATE materialization_rendition_write_intents
-        SET
-          state = 'COMPLETED',
-          provider_version = ${head.providerVersion},
-          file_identifier = ${head.fileIdentifier},
-          completed_at = ${now},
-          updated_at = ${now}
-        WHERE id = ${writeIntentId} AND state = 'ISSUED'
-      `;
-      await transaction`
         INSERT INTO materialization_receipts (
           receipt_id,
           job_id,
           capability_id,
-          rendition_write_intent_id,
           lease_generation,
           output_tree_root,
           object_sha256,
           object_bytes,
-          provider_version,
           file_identifier,
           signed_receipt,
           signed_receipt_sha256,
@@ -2577,13 +2359,11 @@ export class MaterializationBroker {
           ${receiptId},
           ${jobId},
           ${capabilityId},
-          ${writeIntentId},
           ${input.leaseGeneration},
           ${receipt.outputTreeRoot},
           ${receipt.rendition.objectSha256},
           ${receipt.rendition.objectBytes},
-          ${head.providerVersion},
-          ${head.fileIdentifier},
+          ${fileIdentifier},
           ${signed.coseSign1},
           ${signedDigest},
           ${new Date(issuedAt * 1_000)},
@@ -2639,7 +2419,7 @@ export class MaterializationBroker {
           updated_at = ${now}
         WHERE
           id = ${jobId}
-          AND state = 'VERIFYING'
+          AND state = 'MATERIALIZING'
           AND lease_owner = ${materializerId}
           AND lease_generation = ${input.leaseGeneration}
         RETURNING id, storage_gc_pin_id::text AS "storageGcPinId"

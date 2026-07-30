@@ -201,13 +201,9 @@ function materializationReceipt(): MaterializationReceiptV2 {
     receiptId: 'receipt-1',
     releaseRoot: DIGEST_A,
     rendition: {
-      bucketName: 'yucp-renditions-test',
       fileIdentifier: '01JFILEID',
       objectBytes: 2_048,
-      objectKey: 'personalized/release-1/buyer-pseudonym-1.zip',
       objectSha256: new Uint8Array(32).fill(0x77),
-      providerVersion: '01JVERSION',
-      storageRole: 'renditions',
     },
     runtimeBuild: 'runtime-1',
     traceId: 'trace-1',
@@ -403,9 +399,9 @@ describe('package contracts v2', () => {
     expect(() =>
       encodeMaterializationReceiptV2({
         ...receipt,
-        rendition: { ...receipt.rendition, providerVersion: '' },
+        rendition: { ...receipt.rendition, fileIdentifier: '' },
       })
-    ).toThrow('providerVersion');
+    ).toThrow('fileIdentifier');
   });
 
   test('binds a one-use materialization capability to its job and proof key', async () => {

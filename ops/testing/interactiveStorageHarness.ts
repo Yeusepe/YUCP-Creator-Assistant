@@ -22,7 +22,7 @@ import {
 import { waitForMinioReady } from './minioReadiness';
 import { waitForPostgres } from './postgresReadiness';
 
-const PROFILE_VERSION = 1;
+const PROFILE_VERSION = 2;
 const OWNER_LABEL = 'club.yucp.storage-owner';
 const OWNER_VALUE = 'interactive-dev';
 const EPOCH_LABEL = 'club.yucp.storage-epoch';
@@ -40,6 +40,7 @@ export type InteractiveDevSecrets = {
   materializationCapabilityPrivateKey: string;
   materializationKeyBrokerSharedSecret: string;
   materializationMaterializerSharedSecret: string;
+  materializationRenditionSharedSecret: string;
   materializationReceiptPrivateKey: string;
   materializationSourceGrantPrivateKey: string;
   packageCatalogControlSharedSecret: string;
@@ -109,6 +110,7 @@ function makeProfile(): InteractiveStorageProfile {
       materializationCapabilityPrivateKey: randomSecret(),
       materializationKeyBrokerSharedSecret: randomSecret(),
       materializationMaterializerSharedSecret: randomSecret(),
+      materializationRenditionSharedSecret: randomSecret(),
       materializationReceiptPrivateKey: randomSecret(),
       materializationSourceGrantPrivateKey: randomSecret(),
       packageCatalogControlSharedSecret: randomSecret(),
@@ -163,6 +165,7 @@ function parseProfile(value: unknown): InteractiveStorageProfile {
       'materializationCapabilityPrivateKey',
       'materializationKeyBrokerSharedSecret',
       'materializationMaterializerSharedSecret',
+      'materializationRenditionSharedSecret',
       'materializationReceiptPrivateKey',
       'materializationSourceGrantPrivateKey',
       'packageCatalogControlSharedSecret',

@@ -49,9 +49,6 @@ describe('materialization control-plane HTTP boundary', () => {
         consumeCapability: async () => {
           throw new Error('must not run');
         },
-        prepareRenditionUpload: async () => {
-          throw new Error('must not run');
-        },
         renewClaimLease: async () => {
           throw new Error('must not run');
         },
@@ -159,9 +156,6 @@ describe('materialization control-plane HTTP boundary', () => {
             success: true,
           };
         },
-        prepareRenditionUpload: async () => {
-          throw new Error('must not run');
-        },
         renewClaimLease: async () => {
           throw new Error('must not run');
         },
@@ -259,9 +253,6 @@ describe('materialization control-plane HTTP boundary', () => {
           calls += 1;
           throw new Error('must not run');
         },
-        prepareRenditionUpload: async () => {
-          throw new Error('must not run');
-        },
         renewClaimLease: async () => {
           throw new Error('must not run');
         },
@@ -301,9 +292,7 @@ describe('materialization control-plane HTTP boundary', () => {
     expect(calls).toBe(0);
   });
 
-  it('binds upload tickets and completion requests to fresh DPoP proofs', async () => {
-    const uploadEndpoint =
-      'https://control.example.test/v2/internal/materialization-renditions/upload-ticket';
+  it('binds completion requests to fresh DPoP proofs', async () => {
     const completionEndpoint =
       'https://control.example.test/v2/internal/materialization-renditions/complete';
     const calls: string[] = [];
@@ -315,7 +304,10 @@ describe('materialization control-plane HTTP boundary', () => {
         completeRendition: async (input) => {
           calls.push(`complete:${input.proofJti}`);
           expect(input.materializerId).toBe('data-node-1');
+          expect(input.verifiedProofKeyThumbprint).toHaveLength(32);
           expect(input.outputFiles[0]?.normalizedPath).toBe('Assets/Product/a.png');
+          expect(input.renditionBytes).toBe(100);
+          expect(input.renditionSha256).toBe('a'.repeat(64));
           return {
             receipt: 'signed-receipt',
             receiptId: 'receipt-1',
@@ -327,24 +319,6 @@ describe('materialization control-plane HTTP boundary', () => {
         },
         createInstallJob: async () => {
           throw new Error('must not run');
-        },
-        prepareRenditionUpload: async (input) => {
-          calls.push(`upload:${input.proofJti}`);
-          expect(input.materializerId).toBe('data-node-1');
-          expect(input.verifiedProofKeyThumbprint).toHaveLength(32);
-          return {
-            expiresAt: '2033-05-18T03:36:40.000Z',
-            upload: {
-              bucketName: 'renditions-test',
-              headers: {
-                'content-length': '100',
-              },
-              objectKey: 'v2/renditions/aa/intent.zip',
-              storageRole: 'renditions',
-              url: 'https://storage.example.test/renditions-test/v2/renditions/aa/intent.zip',
-            },
-            writeIntentId: '018f8c03-3880-7d40-a8d5-b190a64141cc',
-          };
         },
         renewClaimLease: async () => {
           throw new Error('must not run');
@@ -370,30 +344,6 @@ describe('materialization control-plane HTTP boundary', () => {
       now: () => new Date(now * 1_000),
       pluginVersion: 'png-plugin-2',
       publicBaseUrl: 'https://control.example.test',
-    });
-
-    const upload = await handler(
-      new Request(uploadEndpoint, {
-        body: JSON.stringify({
-          bytes: 100,
-          capability: capabilityToken,
-          capabilityId: 'capability-1',
-          jobId: 'job-1',
-          leaseGeneration: 1,
-          materializerId: 'data-node-1',
-          proof: createProof(uploadEndpoint, 'proof-upload-1'),
-          sha256: 'a'.repeat(64),
-        }),
-        headers: {
-          Authorization: `Bearer ${materializerSecret}`,
-          'Content-Type': 'application/json',
-        },
-        method: 'POST',
-      })
-    );
-    expect(upload.status).toBe(200);
-    expect(await upload.json()).toMatchObject({
-      writeIntentId: '018f8c03-3880-7d40-a8d5-b190a64141cc',
     });
 
     const completion = await handler(
@@ -427,8 +377,8 @@ describe('materialization control-plane HTTP boundary', () => {
           ],
           outputTreeRoot: 'e'.repeat(64),
           proof: createProof(completionEndpoint, 'proof-complete-1'),
-          providerVersion: 'version-1',
-          writeIntentId: '018f8c03-3880-7d40-a8d5-b190a64141cc',
+          renditionBytes: 100,
+          renditionSha256: 'a'.repeat(64),
         }),
         headers: {
           Authorization: `Bearer ${materializerSecret}`,
@@ -443,7 +393,7 @@ describe('materialization control-plane HTTP boundary', () => {
       receiptId: 'receipt-1',
       success: true,
     });
-    expect(calls).toEqual(['upload:proof-upload-1', 'complete:proof-complete-1']);
+    expect(calls).toEqual(['complete:proof-complete-1']);
   });
 
   it('separates API job control from Linux materializer work claims', async () => {
@@ -463,7 +413,7 @@ describe('materialization control-plane HTTP boundary', () => {
       apiSharedSecret: apiSecret,
       broker: {
         claimNextJob: async (input) => {
-          calls.push(`claim:${input.leaseOwner}`);
+          calls.push(`claim:${input.leaseOwner}:${input.jobId}`);
           return {
             jobId: 'job-1',
             leaseExpiresAt: new Date((now + 600) * 1_000),
@@ -501,9 +451,6 @@ describe('materialization control-plane HTTP boundary', () => {
             capability: { capabilityId: 'capability-1' } as never,
             coseSign1: Buffer.from('issued-capability'),
           };
-        },
-        prepareRenditionUpload: async () => {
-          throw new Error('must not run');
         },
         reportJobProgress: async (input) => {
           calls.push(
@@ -614,6 +561,7 @@ describe('materialization control-plane HTTP boundary', () => {
     const claimed = await handler(
       new Request(claimEndpoint, {
         body: JSON.stringify({
+          jobId: 'job-1',
           lane: 'large',
           leaseDurationMs: 600_000,
           materializerId: 'data-node-1',
@@ -686,6 +634,30 @@ describe('materialization control-plane HTTP boundary', () => {
     expect(progress.status).toBe(200);
     expect(await progress.json()).toEqual({ sequence: 7, status: 'accepted' });
     expect(calls).toContain('progress:data-node-1:3:7:1024');
+
+    const obsoleteUploadProgress = await handler(
+      new Request(progressEndpoint, {
+        body: JSON.stringify({
+          jobId: 'job-1',
+          leaseGeneration: 3,
+          materializerId: 'data-node-1',
+          progress: {
+            sequence: 8,
+            stage: 'rendition_upload',
+            status: 'started',
+          },
+        }),
+        headers: {
+          Authorization: `Bearer ${materializerSecret}`,
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      })
+    );
+    expect(obsoleteUploadProgress.status).toBe(400);
+    expect(await obsoleteUploadProgress.json()).toEqual({
+      error: 'progress_stage_invalid',
+    });
 
     const status = await handler(
       new Request(statusEndpoint, {
@@ -760,7 +732,7 @@ describe('materialization control-plane HTTP boundary', () => {
     expect(await failed.json()).toEqual({ status: 'failed' });
     expect(calls).toEqual([
       'create:buyer-1:png-dct-qim-v2',
-      'claim:data-node-1',
+      'claim:data-node-1:job-1',
       'issue:data-node-1:3',
       'renew:data-node-1:3',
       'progress:data-node-1:3:7:1024',

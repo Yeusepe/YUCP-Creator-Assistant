@@ -30,17 +30,28 @@ func TestProtectedMaterializationProgressAdvancesRemainingProtectedBytes(t *test
 		TotalLogicalBytes:     4_096,
 	}
 	completed := protectedMaterializationCompletedBytes(90, 100, 90, progress)
-	if completed != 93 {
-		t.Fatalf("completed bytes = %d; want 93", completed)
+	if completed != 92 {
+		t.Fatalf("completed bytes = %d; want 92", completed)
 	}
 	progress.CompletedLogicalBytes = 512
-	if regressed := protectedMaterializationCompletedBytes(90, 100, completed, progress); regressed != 93 {
-		t.Fatalf("regressed bytes = %d; want 93", regressed)
+	if regressed := protectedMaterializationCompletedBytes(90, 100, completed, progress); regressed != 92 {
+		t.Fatalf("regressed bytes = %d; want 92", regressed)
 	}
 	progress.Stage = "tree_extraction"
 	progress.Status = "started"
-	if finished := protectedMaterializationCompletedBytes(90, 100, completed, progress); finished != 100 {
-		t.Fatalf("post-assembly bytes = %d; want 100", finished)
+	if extracted := protectedMaterializationCompletedBytes(90, 100, completed, progress); extracted != 97 {
+		t.Fatalf("post-assembly bytes = %d; want 97", extracted)
+	}
+	progress.Stage = "codec"
+	progress.CompletedFiles = 2
+	progress.TotalFiles = 4
+	if coupled := protectedMaterializationCompletedBytes(90, 100, completed, progress); coupled != 98 {
+		t.Fatalf("codec bytes = %d; want 98", coupled)
+	}
+	progress.Stage = "rendition_verify"
+	progress.Status = "completed"
+	if verified := protectedMaterializationCompletedBytes(90, 100, completed, progress); verified != 99 {
+		t.Fatalf("verified bytes = %d; want 99", verified)
 	}
 }
 
@@ -706,4 +717,78 @@ func mustLifecycleCanonical(t *testing.T, value any) []byte {
 		t.Fatalf("EncodeCanonical() error = %v", err)
 	}
 	return data
+}
+
+func TestCleanupAfterInstallDeletesRenditionAndPrunesChunkCache(t *testing.T) {
+	stateRoot := t.TempDir()
+	jobID := "job-cleanup-test"
+	renditionDir := filepath.Join(stateRoot, "renditions", jobID)
+	if err := os.MkdirAll(renditionDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(renditionDir, "receipt-1.zip"),
+		[]byte("rendition"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	receiptPath := filepath.Join(stateRoot, "receipts", "receipt-1.cose.base64url")
+	if err := os.MkdirAll(filepath.Dir(receiptPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(receiptPath, []byte("receipt\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cacheRoot := filepath.Join(stateRoot, "chunk-cache")
+	writeChunk := func(id string, age time.Duration) string {
+		path := filepath.Join(cacheRoot, id[:4], id)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, make([]byte, 100), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		stamp := time.Now().Add(-age)
+		if err := os.Chtimes(path, stamp, stamp); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	oldReferenced := writeChunk(strings.Repeat("aa", 32), 72*time.Hour)
+	oldUnreferenced := writeChunk(strings.Repeat("bb", 32), 48*time.Hour)
+	newUnreferenced := writeChunk(strings.Repeat("cc", 32), time.Minute)
+	manifest := delivery.Manifest{
+		Files: []delivery.File{
+			{
+				Chunks: []delivery.Chunk{{ID: strings.Repeat("aa", 32)}},
+			},
+		},
+	}
+
+	cleanupAfterInstall(stateRoot, jobID, manifest)
+	for _, path := range []string{oldReferenced, oldUnreferenced, newUnreferenced} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("chunk under the size bound was deleted: %v", err)
+		}
+	}
+	if _, err := os.Stat(renditionDir); !os.IsNotExist(err) {
+		t.Fatalf("rendition directory survived cleanup: %v", err)
+	}
+	if _, err := os.Stat(receiptPath); err != nil {
+		t.Fatalf("receipt must be kept: %v", err)
+	}
+
+	pruneChunkCache(cacheRoot, 250, map[string]struct{}{
+		strings.Repeat("aa", 32): {},
+	})
+	if _, err := os.Stat(oldReferenced); err != nil {
+		t.Fatalf("referenced chunk was deleted: %v", err)
+	}
+	if _, err := os.Stat(oldUnreferenced); !os.IsNotExist(err) {
+		t.Fatalf("oldest unreferenced chunk survived pruning: %v", err)
+	}
+	if _, err := os.Stat(newUnreferenced); err != nil {
+		t.Fatalf("recent chunk was deleted despite the cache fitting the bound: %v", err)
+	}
 }

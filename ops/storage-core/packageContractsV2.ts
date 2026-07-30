@@ -196,13 +196,9 @@ export type MaterializedFileV2 = {
 };
 
 export type ExactRenditionVersionV2 = {
-  bucketName: string;
   fileIdentifier: string;
-  objectKey: string;
   objectSha256: Uint8Array;
   objectBytes: number;
-  providerVersion: string;
-  storageRole: 'renditions';
 };
 
 export type MaterializationReceiptV2 = {
@@ -760,13 +756,9 @@ function materializedFileMap(file: MaterializedFileV2) {
 
 function exactRenditionMap(rendition: ExactRenditionVersionV2) {
   return new Map<number, PackageContractCborValue>([
-    [0, rendition.storageRole],
-    [1, rendition.bucketName],
-    [2, rendition.objectKey],
-    [3, rendition.providerVersion],
-    [4, rendition.fileIdentifier],
-    [5, rendition.objectSha256],
-    [6, rendition.objectBytes],
+    [0, rendition.fileIdentifier],
+    [1, rendition.objectSha256],
+    [2, rendition.objectBytes],
   ]);
 }
 
@@ -883,24 +875,6 @@ export function validateMaterializationReceiptV2(receipt: MaterializationReceipt
     throw new Error('MaterializationReceiptV2 output tree root is invalid');
   }
 
-  if (receipt.rendition.storageRole !== 'renditions') {
-    throw new Error('MaterializationReceiptV2 rendition storage role is invalid');
-  }
-  requireBoundedText(
-    receipt.rendition.bucketName,
-    'MaterializationReceiptV2.rendition.bucketName',
-    255
-  );
-  requireBoundedText(
-    receipt.rendition.objectKey,
-    'MaterializationReceiptV2.rendition.objectKey',
-    2_048
-  );
-  requireBoundedText(
-    receipt.rendition.providerVersion,
-    'MaterializationReceiptV2.rendition.providerVersion',
-    512
-  );
   requireBoundedText(
     receipt.rendition.fileIdentifier,
     'MaterializationReceiptV2.rendition.fileIdentifier',
@@ -962,14 +936,7 @@ export function decodeMaterializationReceiptV2(payload: Uint8Array): Materializa
     }
   );
   const renditionMap = requireMap(map.get(14), 'MaterializationReceiptV2.rendition');
-  requireExactLabels(renditionMap, [0, 1, 2, 3, 4, 5, 6], 'MaterializationReceiptV2.rendition');
-  const storageRole = requireString(
-    renditionMap.get(0),
-    'MaterializationReceiptV2.rendition.storageRole'
-  );
-  if (storageRole !== 'renditions') {
-    throw new Error('MaterializationReceiptV2 rendition storage role is invalid');
-  }
+  requireExactLabels(renditionMap, [0, 1, 2], 'MaterializationReceiptV2.rendition');
   const receipt: MaterializationReceiptV2 = {
     buyerSubjectPseudonym: requireBoundedText(
       map.get(4),
@@ -1017,36 +984,20 @@ export function decodeMaterializationReceiptV2(payload: Uint8Array): Materializa
     receiptId: requireBoundedText(map.get(1), 'MaterializationReceiptV2.receiptId', 512),
     releaseRoot: requireBytes(map.get(7), 'MaterializationReceiptV2.releaseRoot', SHA256_BYTES),
     rendition: {
-      bucketName: requireBoundedText(
-        renditionMap.get(1),
-        'MaterializationReceiptV2.rendition.bucketName',
-        255
-      ),
       fileIdentifier: requireBoundedText(
-        renditionMap.get(4),
+        renditionMap.get(0),
         'MaterializationReceiptV2.rendition.fileIdentifier',
         512
       ),
       objectBytes: requireInteger(
-        renditionMap.get(6),
+        renditionMap.get(2),
         'MaterializationReceiptV2.rendition.objectBytes'
       ),
-      objectKey: requireBoundedText(
-        renditionMap.get(2),
-        'MaterializationReceiptV2.rendition.objectKey',
-        2_048
-      ),
       objectSha256: requireBytes(
-        renditionMap.get(5),
+        renditionMap.get(1),
         'MaterializationReceiptV2.rendition.objectSha256',
         SHA256_BYTES
       ),
-      providerVersion: requireBoundedText(
-        renditionMap.get(3),
-        'MaterializationReceiptV2.rendition.providerVersion',
-        512
-      ),
-      storageRole: 'renditions',
     },
     runtimeBuild: requireBoundedText(map.get(20), 'MaterializationReceiptV2.runtimeBuild', 512),
     traceId: requireBoundedText(map.get(25), 'MaterializationReceiptV2.traceId', 512),

@@ -3,7 +3,6 @@ import { MAX_PACKAGE_INSTALLER_HELPER_BYTES } from '@yucp/shared/packageInstalle
 import { openCatalogDatabase, runCatalogMigrations, TufRepositoryCatalog } from '../catalog';
 import {
   hydrateEnvFromInfisical,
-  loadCasConfig,
   loadStorageRoleConfig,
   STORAGE_ROLE_PREFIXES,
 } from '../storage-core/config';
@@ -19,12 +18,14 @@ import {
   DEFAULT_MATERIALIZATION_STORAGE_GC_PIN_RETENTION_SECONDS,
   MaterializationBroker,
   type MaterializationJobProgress,
-  type PreparedRenditionUpload,
 } from './materializationBroker';
-import { S3RenditionStoragePort } from './renditionStorage';
+import {
+  CloudflareMaterializationDispatcher,
+  PostgresMaterializationDispatchOutboxRepository,
+  startMaterializationDispatchRelay,
+} from './materializationDispatch';
 
 const CONSUME_PATH = '/v2/internal/materialization-capabilities/consume';
-const UPLOAD_TICKET_PATH = '/v2/internal/materialization-renditions/upload-ticket';
 const COMPLETE_PATH = '/v2/internal/materialization-renditions/complete';
 const CREATE_JOB_PATH = '/v2/internal/materialization-jobs/create';
 const CLAIM_JOB_PATH = '/v2/internal/materialization-jobs/claim';
@@ -40,7 +41,6 @@ const CAPABILITY_REQUEST_BODY_LIMIT = 2 * 1_024 * 1_024;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
 
 type ConsumeCapabilityInput = Parameters<MaterializationBroker['consumeCapability']>[0];
-type PrepareRenditionInput = Parameters<MaterializationBroker['prepareRenditionUpload']>[0];
 type CompleteRenditionInput = Parameters<MaterializationBroker['completeRendition']>[0];
 type CreateInstallJobInput = Parameters<MaterializationBroker['createInstallJob']>[0];
 type ClaimJobInput = Parameters<MaterializationBroker['claimNextJob']>[0];
@@ -63,7 +63,6 @@ type MaterializationControlBroker = {
   listAttributionCandidates?: (
     input: Parameters<MaterializationBroker['listAttributionCandidates']>[0]
   ) => ReturnType<MaterializationBroker['listAttributionCandidates']>;
-  prepareRenditionUpload(input: PrepareRenditionInput): Promise<PreparedRenditionUpload>;
   reportJobProgress?: (
     input: ReportJobProgressInput
   ) => ReturnType<MaterializationBroker['reportJobProgress']>;
@@ -83,7 +82,6 @@ type MaterializationControlPlaneEvent = {
     | 'materialization.job.renew'
     | 'materialization.job.status'
     | 'materialization.rendition.complete'
-    | 'materialization.rendition.upload_ticket'
     | 'package_installer.tuf.read';
   status: 'accepted' | 'rejected';
   traceId: string;
@@ -330,8 +328,6 @@ function parseMaterializationProgress(
     'codec',
     'completion',
     'key_derivation',
-    'rendition_upload',
-    'rendition_upload_ticket',
     'rendition_verify',
     'source_assembly',
     'source_manifest',
@@ -469,7 +465,6 @@ export function createMaterializationControlPlaneHandler(
   }
   const routeUrls = new Map([
     [CONSUME_PATH, publicRouteUrl(config.publicBaseUrl, CONSUME_PATH)],
-    [UPLOAD_TICKET_PATH, publicRouteUrl(config.publicBaseUrl, UPLOAD_TICKET_PATH)],
     [COMPLETE_PATH, publicRouteUrl(config.publicBaseUrl, COMPLETE_PATH)],
     [CREATE_JOB_PATH, publicRouteUrl(config.publicBaseUrl, CREATE_JOB_PATH)],
     [CLAIM_JOB_PATH, publicRouteUrl(config.publicBaseUrl, CLAIM_JOB_PATH)],
@@ -511,11 +506,9 @@ export function createMaterializationControlPlaneHandler(
                   ? 'materialization.job.status'
                   : url.pathname === FAIL_JOB_PATH
                     ? 'materialization.job.fail'
-                    : url.pathname === UPLOAD_TICKET_PATH
-                      ? 'materialization.rendition.upload_ticket'
-                      : url.pathname === COMPLETE_PATH
-                        ? 'materialization.rendition.complete'
-                        : 'materialization.capability.consume';
+                    : url.pathname === COMPLETE_PATH
+                      ? 'materialization.rendition.complete'
+                      : 'materialization.capability.consume';
     const emit = (status: 'accepted' | 'rejected', errorCode?: string) => {
       config.onEvent?.({
         durationMs: performance.now() - startedAt,
@@ -566,7 +559,6 @@ export function createMaterializationControlPlaneHandler(
       const requestNow = now();
       const carriesCapability =
         url.pathname === CONSUME_PATH ||
-        url.pathname === UPLOAD_TICKET_PATH ||
         url.pathname === COMPLETE_PATH ||
         url.pathname === FAIL_JOB_PATH;
       const body = await readBoundedJson(
@@ -654,7 +646,13 @@ export function createMaterializationControlPlaneHandler(
         return noStoreJson(result, 200, traceId);
       }
       if (url.pathname === CLAIM_JOB_PATH) {
-        requireExactKeys(body, ['lane', 'leaseDurationMs', 'materializerId', 'proofKeyThumbprint']);
+        requireExactKeys(body, [
+          ...(body.jobId === undefined ? [] : ['jobId']),
+          'lane',
+          'leaseDurationMs',
+          'materializerId',
+          'proofKeyThumbprint',
+        ]);
         const lane = requireString(body.lane, 'lane', 32);
         if (lane !== 'large' && lane !== 'maintenance') {
           throw new RequestBoundaryError(400, 'lane_invalid', 'lane is invalid');
@@ -672,6 +670,7 @@ export function createMaterializationControlPlaneHandler(
           );
         }
         const claim = await config.broker.claimNextJob({
+          ...(body.jobId === undefined ? {} : { jobId: requireString(body.jobId, 'job_id', 128) }),
           lane,
           leaseDurationMs: requireInteger(body.leaseDurationMs, 'lease_duration_ms', 1),
           leaseOwner: materializerId,
@@ -765,11 +764,7 @@ export function createMaterializationControlPlaneHandler(
         url: routeUrl,
       });
 
-      let result:
-        | ConsumedMaterializationCapability
-        | PreparedRenditionUpload
-        | CompletedRendition
-        | { status: 'failed' };
+      let result: ConsumedMaterializationCapability | CompletedRendition | { status: 'failed' };
       if (url.pathname === CONSUME_PATH) {
         requireExactKeys(body, ['capability', 'materializerId', 'proof']);
         result = await config.broker.consumeCapability({
@@ -779,30 +774,6 @@ export function createMaterializationControlPlaneHandler(
           now: requestNow,
           proofJti: verifiedProof.jti,
           publicKey: config.capabilityPublicKey,
-          traceId,
-          verifiedProofKeyThumbprint: verifiedProof.thumbprint,
-        });
-      } else if (url.pathname === UPLOAD_TICKET_PATH) {
-        requireExactKeys(body, [
-          'bytes',
-          'capability',
-          'capabilityId',
-          'jobId',
-          'leaseGeneration',
-          'materializerId',
-          'proof',
-          'sha256',
-        ]);
-        result = await config.broker.prepareRenditionUpload({
-          bytes: requireInteger(body.bytes, 'bytes', 1),
-          capabilityId: requireString(body.capabilityId, 'capability_id', 128),
-          coseSign1: Buffer.from(capability, 'base64url'),
-          jobId: requireString(body.jobId, 'job_id', 128),
-          leaseGeneration: requireInteger(body.leaseGeneration, 'lease_generation', 1),
-          materializerId,
-          now: requestNow,
-          proofJti: verifiedProof.jti,
-          sha256: requireString(body.sha256, 'sha256', 64),
           traceId,
           verifiedProofKeyThumbprint: verifiedProof.thumbprint,
         });
@@ -818,8 +789,8 @@ export function createMaterializationControlPlaneHandler(
           'outputFiles',
           'outputTreeRoot',
           'proof',
-          'providerVersion',
-          'writeIntentId',
+          'renditionBytes',
+          'renditionSha256',
         ]);
         const builds = requireObject(body.builds, 'builds');
         requireExactKeys(builds, ['codec', 'helper', 'runtime']);
@@ -839,10 +810,10 @@ export function createMaterializationControlPlaneHandler(
           outputFiles: parseOutputFiles(body.outputFiles),
           outputTreeRoot: requireString(body.outputTreeRoot, 'output_tree_root', 64),
           proofJti: verifiedProof.jti,
-          providerVersion: requireString(body.providerVersion, 'provider_version'),
+          renditionBytes: requireInteger(body.renditionBytes, 'rendition_bytes', 1),
+          renditionSha256: requireString(body.renditionSha256, 'rendition_sha256', 64),
           traceId,
           verifiedProofKeyThumbprint: verifiedProof.thumbprint,
-          writeIntentId: requireString(body.writeIntentId, 'write_intent_id', 128),
         });
       } else {
         requireExactKeys(body, [
@@ -896,9 +867,7 @@ export function createMaterializationControlPlaneHandler(
                       ? 'materialization_failure_rejected'
                       : url.pathname === CONSUME_PATH
                         ? 'capability_rejected'
-                        : url.pathname === UPLOAD_TICKET_PATH
-                          ? 'rendition_upload_rejected'
-                          : 'rendition_completion_rejected');
+                        : 'rendition_completion_rejected');
       emit('rejected', errorCode);
       return noStoreJson({ error: errorCode }, 403, traceId);
     }
@@ -933,11 +902,6 @@ export const MATERIALIZATION_CONTROL_PLANE_INFISICAL_KEYS = [
   'METADATA_S3_SECRET_ACCESS_KEY',
   'PACKAGE_INSTALLER_TUF_REPOSITORY_ID',
   'PACKAGE_CATALOG_DATABASE_URL',
-  'RENDITION_S3_ACCESS_KEY_ID',
-  'RENDITION_S3_BUCKET',
-  'RENDITION_S3_ENDPOINT',
-  'RENDITION_S3_REGION',
-  'RENDITION_S3_SECRET_ACCESS_KEY',
   'MATERIALIZATION_KEY_BROKER_BASE_URL',
   'MATERIALIZATION_KEY_BROKER_SHARED_SECRET',
   'MATERIALIZATION_RECEIPT_KEY_ID',
@@ -956,6 +920,9 @@ export const MATERIALIZATION_CONTROL_PLANE_INFISICAL_KEYS = [
   'MATERIALIZATION_MATERIALIZER_SHARED_SECRET',
   'MATERIALIZATION_PLUGIN_VERSION',
   'MATERIALIZATION_CONTROL_PLANE_PUBLIC_BASE_URL',
+  'MATERIALIZATION_CLOUDFLARE_DISPATCH_ENABLED',
+  'MATERIALIZATION_CLOUDFLARE_DISPATCH_SHARED_SECRET',
+  'MATERIALIZATION_CLOUDFLARE_DISPATCH_URL',
 ] as const;
 
 async function main(): Promise<void> {
@@ -970,17 +937,6 @@ async function main(): Promise<void> {
   }
   const sql = openCatalogDatabase(requiredEnv('PACKAGE_CATALOG_DATABASE_URL'));
   await runCatalogMigrations(sql);
-  const renditionStorage = new S3RenditionStoragePort(
-    loadCasConfig({
-      CAS_S3_ACCESS_KEY_ID: requiredEnv('RENDITION_S3_ACCESS_KEY_ID'),
-      CAS_S3_BUCKET: requiredEnv('RENDITION_S3_BUCKET'),
-      CAS_S3_ENDPOINT: requiredEnv('RENDITION_S3_ENDPOINT'),
-      CAS_S3_REGION: requiredEnv('RENDITION_S3_REGION'),
-      CAS_S3_REQUEST_TIMEOUT_MS:
-        process.env.RENDITION_S3_REQUEST_TIMEOUT_MS ?? process.env.CAS_S3_REQUEST_TIMEOUT_MS,
-      CAS_S3_SECRET_ACCESS_KEY: requiredEnv('RENDITION_S3_SECRET_ACCESS_KEY'),
-    })
-  );
   const broker = new MaterializationBroker({
     keyBroker: createMaterializationKeyBrokerClient({
       baseUrl: requiredEnv('MATERIALIZATION_KEY_BROKER_BASE_URL'),
@@ -995,7 +951,6 @@ async function main(): Promise<void> {
       ),
       privateKey: envBase64Url('MATERIALIZATION_RECEIPT_PRIVATE_KEY', 32),
     },
-    renditionStorage,
     sourceGrant: {
       audience: requiredEnv('MATERIALIZATION_SOURCE_GRANT_AUDIENCE'),
       baseUrl: requiredEnv('MATERIALIZATION_SOURCE_DELIVERY_BASE_URL'),
@@ -1049,6 +1004,24 @@ async function main(): Promise<void> {
     hostname: process.env.MATERIALIZATION_CONTROL_PLANE_HOST ?? '127.0.0.1',
     port,
   });
+  const dispatchEnabled = process.env.MATERIALIZATION_CLOUDFLARE_DISPATCH_ENABLED === 'true';
+  if (
+    process.env.MATERIALIZATION_CLOUDFLARE_DISPATCH_ENABLED !== undefined &&
+    process.env.MATERIALIZATION_CLOUDFLARE_DISPATCH_ENABLED !== 'true' &&
+    process.env.MATERIALIZATION_CLOUDFLARE_DISPATCH_ENABLED !== 'false'
+  ) {
+    throw new Error('MATERIALIZATION_CLOUDFLARE_DISPATCH_ENABLED is invalid');
+  }
+  const dispatchRelay = dispatchEnabled
+    ? startMaterializationDispatchRelay({
+        dispatcher: new CloudflareMaterializationDispatcher({
+          dispatchUrl: requiredEnv('MATERIALIZATION_CLOUDFLARE_DISPATCH_URL'),
+          secret: requiredEnv('MATERIALIZATION_CLOUDFLARE_DISPATCH_SHARED_SECRET'),
+        }),
+        onEvent: (event) => console.log(JSON.stringify(event)),
+        repository: new PostgresMaterializationDispatchOutboxRepository(sql),
+      })
+    : undefined;
   console.log(
     JSON.stringify({
       event: 'materialization.control_plane.started',
@@ -1057,6 +1030,7 @@ async function main(): Promise<void> {
     })
   );
   const shutdown = async () => {
+    dispatchRelay?.stop();
     await server.stop();
     await sql.end({ timeout: 5 });
   };

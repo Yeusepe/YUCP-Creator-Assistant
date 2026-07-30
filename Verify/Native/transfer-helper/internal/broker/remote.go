@@ -99,6 +99,24 @@ type packageAPIStatusError struct {
 	status int
 }
 
+type packageAPIClassifiedError struct {
+	cause   error
+	code    string
+	message string
+}
+
+func (err *packageAPIClassifiedError) Error() string {
+	return err.message
+}
+
+func (err *packageAPIClassifiedError) StableCode() string {
+	return err.code
+}
+
+func (err *packageAPIClassifiedError) Unwrap() error {
+	return err.cause
+}
+
 func (err *packageAPIStatusError) Error() string {
 	if err.code != "" {
 		return fmt.Sprintf("package broker API returned HTTP %d (%s)", err.status, err.code)
@@ -107,6 +125,19 @@ func (err *packageAPIStatusError) Error() string {
 }
 
 func (err *packageAPIStatusError) StableCode() string {
+	if err.code == "" {
+		switch err.status {
+		case http.StatusInternalServerError:
+			return "PACKAGE_API_INTERNAL_ERROR"
+		case http.StatusBadGateway:
+			return "PACKAGE_API_BAD_GATEWAY"
+		case http.StatusServiceUnavailable:
+			return "PACKAGE_API_UNAVAILABLE"
+		case http.StatusGatewayTimeout:
+			return "PACKAGE_API_TIMEOUT"
+		}
+		return "PACKAGE_API_REQUEST_FAILED"
+	}
 	return err.code
 }
 
@@ -148,7 +179,10 @@ func (client RemoteClient) AuthorizeAndExchange(
 	if !isDigest(authorization.ReleaseRoot) ||
 		authorization.OperationCapability == "" ||
 		len(authorization.OperationCapability) > 256*1024 {
-		return AuthorizedOperation{}, fmt.Errorf("package authorization response is invalid")
+		return AuthorizedOperation{}, &packageAPIClassifiedError{
+			code:    "PACKAGE_AUTHORIZATION_RESPONSE_INVALID",
+			message: "package authorization response is invalid",
+		}
 	}
 	operation.TargetReleaseRoot = authorization.ReleaseRoot
 	sessionBody := struct {
@@ -176,7 +210,10 @@ func (client RemoteClient) AuthorizeAndExchange(
 		session.InstallSessionPurpose != "install-session-v2" ||
 		session.ReleaseRoot != authorization.ReleaseRoot ||
 		strings.TrimSpace(session.VersionID) == "" {
-		return AuthorizedOperation{}, fmt.Errorf("package install session response is invalid")
+		return AuthorizedOperation{}, &packageAPIClassifiedError{
+			code:    "PACKAGE_INSTALL_SESSION_RESPONSE_INVALID",
+			message: "package install session response is invalid",
+		}
 	}
 	return AuthorizedOperation{
 		DeliveryGrant:         session.DeliveryGrant,
@@ -370,7 +407,11 @@ func (client RemoteClient) postOnce(
 	}
 	decoder := json.NewDecoder(io.LimitReader(response.Body, maxPackageAPIResponseBytes))
 	if err := decoder.Decode(destination); err != nil {
-		return fmt.Errorf("decode package broker API response: %w", err)
+		return &packageAPIClassifiedError{
+			cause:   err,
+			code:    "PACKAGE_API_RESPONSE_INVALID",
+			message: "package broker API response is invalid",
+		}
 	}
 	return nil
 }

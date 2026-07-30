@@ -113,7 +113,7 @@ describe('YUCP public VPM alias package', () => {
       zipSHA256: built.zipSha256,
       vpmDependencies: {
         'com.example.runtime': '>=2.0.0',
-        'com.yucp.importer': '>=0.1.55',
+        'com.yucp.importer': '>=0.1.65',
       },
       yucp: {
         kind: 'alias-v1',
@@ -121,7 +121,7 @@ describe('YUCP public VPM alias package', () => {
         channel: 'stable',
         installStrategy: 'server-authorized',
         importerPackage: 'com.yucp.importer',
-        minImporterVersion: '0.1.55',
+        minImporterVersion: '0.1.65',
       },
     });
     expect(artifactUrl).toBe(immutableArtifactUrl('1.20660.12345'));
@@ -138,7 +138,7 @@ describe('YUCP public VPM alias package', () => {
       },
       vpmDependencies: {
         'com.example.runtime': '>=2.0.0',
-        'com.yucp.importer': '>=0.1.55',
+        'com.yucp.importer': '>=0.1.65',
       },
       yucp: built.manifest.yucp,
     });

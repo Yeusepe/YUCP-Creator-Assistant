@@ -104,10 +104,9 @@ names consumed by apps/api, ingest-tus, the scheduler, and the delivery Worker.
 | `/storage/protected/read/` | `PROTECTED_S3_READONLY_ACCESS_KEY_ID`, `PROTECTED_S3_READONLY_SECRET_ACCESS_KEY` | materialization source Worker |
 | `/storage/quarantine/configuration/` | `QUARANTINE_S3_ENDPOINT`, `QUARANTINE_S3_REGION`, `QUARANTINE_S3_BUCKET`, `QUARANTINE_S3_REQUEST_TIMEOUT_MS` | ingest-tus |
 | `/storage/quarantine/write/` | `QUARANTINE_S3_ACCESS_KEY_ID`, `QUARANTINE_S3_SECRET_ACCESS_KEY` | ingest-tus |
-| `/storage/renditions/configuration/` | `RENDITION_S3_ENDPOINT`, `RENDITION_S3_REGION`, `RENDITION_S3_BUCKET`, `RENDITION_S3_REQUEST_TIMEOUT_MS` | Linux materializer and rendition Worker |
-| `/storage/renditions/write/` | `RENDITION_S3_ACCESS_KEY_ID`, `RENDITION_S3_SECRET_ACCESS_KEY` | Linux materializer |
-| `/storage/renditions/read/` | `RENDITION_S3_READONLY_ACCESS_KEY_ID`, `RENDITION_S3_READONLY_SECRET_ACCESS_KEY` | rendition Worker |
+| `/storage/renditions/delivery/` | `MATERIALIZER_ORIGIN_URL`, `MATERIALIZER_RENDITION_SHARED_SECRET` | Rendition Worker and Linux materializer |
 | `/storage/materialization/capacity/` | `MATERIALIZATION_CHUNK_CACHE_MAX_BYTES`, `MATERIALIZATION_EMERGENCY_DISK_FLOOR_BYTES` | Linux materializer |
+| `/storage/materialization/control/` | `MATERIALIZATION_CLOUDFLARE_DISPATCH_URL`, `MATERIALIZATION_CLOUDFLARE_DISPATCH_SHARED_SECRET`, `MATERIALIZATION_CONTAINER_EXECUTION_SECRET`, `MATERIALIZATION_CLOUDFLARE_DISPATCH_ENABLED` | materialization control plane and Cloudflare Workflow dispatch |
 | `/storage/materialization/source-delivery/` | `MATERIALIZATION_SOURCE_DELIVERY_BASE_URL`, `MATERIALIZATION_SOURCE_GRANT_AUDIENCE`, `MATERIALIZATION_SOURCE_GRANT_ISSUER`, `MATERIALIZATION_SOURCE_GRANT_KEY_ID`, `MATERIALIZATION_SOURCE_GRANT_PRIVATE_KEY` | materialization control plane and materialization source Worker deployment |
 | `/storage/delivery/shared/` | `DELIVERY_HMAC_KEY` | apps/api, VPM, and curated delivery Worker sync |
 | `/storage/delivery/api/` | `DELIVERY_BASE_URL`, `VPM_BASE_URL`, `VPM_PUBLIC_INDEX_URL`, `PRIVATE_VPM_ROOT_DOMAIN`, `PRIVATE_VPM_CLOUDFLARE_ACCOUNT_ID`, `PRIVATE_VPM_CLOUDFLARE_API_TOKEN`, `PRIVATE_VPM_CLOUDFLARE_SERVICE`, `PRIVATE_VPM_CLOUDFLARE_ZONE_ID`, `PRIVATE_VPM_CLOUDFLARE_ZONE_NAME` | apps/api and VPM only |

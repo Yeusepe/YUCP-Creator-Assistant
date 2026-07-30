@@ -377,13 +377,9 @@ export function buildDevCommands(
         BUYER_FLOW_RENDITION_RENDITION_RECEIPT_KEY_ID: baseEnv.MATERIALIZATION_RECEIPT_KEY_ID,
         BUYER_FLOW_RENDITION_RENDITION_RECEIPT_PUBLIC_KEY:
           baseEnv.MATERIALIZATION_RECEIPT_PUBLIC_KEY,
-        BUYER_FLOW_RENDITION_RENDITION_S3_BUCKET: baseEnv.RENDITION_S3_BUCKET,
-        BUYER_FLOW_RENDITION_RENDITION_S3_ENDPOINT: baseEnv.RENDITION_S3_ENDPOINT,
-        BUYER_FLOW_RENDITION_RENDITION_S3_READONLY_ACCESS_KEY_ID:
-          baseEnv.RENDITION_S3_ACCESS_KEY_ID,
-        BUYER_FLOW_RENDITION_RENDITION_S3_READONLY_SECRET_ACCESS_KEY:
-          baseEnv.RENDITION_S3_SECRET_ACCESS_KEY,
-        BUYER_FLOW_RENDITION_RENDITION_S3_REGION: baseEnv.RENDITION_S3_REGION,
+        BUYER_FLOW_RENDITION_MATERIALIZER_ORIGIN_URL: baseEnv.MATERIALIZER_ORIGIN_URL,
+        BUYER_FLOW_RENDITION_MATERIALIZER_RENDITION_SHARED_SECRET:
+          baseEnv.MATERIALIZATION_RENDITION_SHARED_SECRET,
         BUYER_FLOW_DELIVERY_PORT: String(ports.delivery),
         BUYER_FLOW_KEEP_ALIVE: '1',
         BUYER_FLOW_STORAGE_FORMAT_VERSION: DESYNC_STORAGE_FORMAT_VERSION,
@@ -1123,6 +1119,7 @@ export function applyLocalStorageProfile(
     materializationCapabilityPublicKey: string;
     materializationKeyBrokerSharedSecret: string;
     materializationMaterializerSharedSecret: string;
+    materializationRenditionSharedSecret: string;
     materializationReceiptKeyId: string;
     materializationReceiptPrivateKey: string;
     materializationReceiptPublicKey: string;
@@ -1145,7 +1142,10 @@ export function applyLocalStorageProfile(
   const couplingUrl = `http://127.0.0.1:${ports.coupling}`;
   const storageRoleEnvironment = Object.fromEntries(
     Object.entries(storage.buckets).flatMap(([role, config]) => {
-      const prefix = role === 'renditions' ? 'RENDITION' : role.toUpperCase();
+      if (role === 'renditions') {
+        return [];
+      }
+      const prefix = role.toUpperCase();
       return [
         [`${prefix}_S3_ACCESS_KEY_ID`, config.accessKeyId],
         [`${prefix}_S3_BUCKET`, config.bucket],
@@ -1189,6 +1189,8 @@ export function applyLocalStorageProfile(
     MATERIALIZATION_MATERIALIZER_SHARED_SECRET:
       baseEnv.MATERIALIZATION_MATERIALIZER_SHARED_SECRET ??
       secrets.materializationMaterializerSharedSecret,
+    MATERIALIZATION_RENDITION_SHARED_SECRET: secrets.materializationRenditionSharedSecret,
+    MATERIALIZER_ORIGIN_URL: couplingUrl,
     MATERIALIZATION_PLUGIN_VERSION: baseEnv.MATERIALIZATION_PLUGIN_VERSION ?? 'coupling-server-v3',
     MATERIALIZATION_RECEIPT_KEY_ID: secrets.materializationReceiptKeyId,
     MATERIALIZATION_RECEIPT_PRIVATE_KEY: secrets.materializationReceiptPrivateKey,
@@ -1487,6 +1489,9 @@ async function startDevRuntime(
           randomBytes(32).toString('base64url'),
         materializationMaterializerSharedSecret:
           stableSecrets?.materializationMaterializerSharedSecret ??
+          randomBytes(32).toString('base64url'),
+        materializationRenditionSharedSecret:
+          stableSecrets?.materializationRenditionSharedSecret ??
           randomBytes(32).toString('base64url'),
         materializationReceiptKeyId,
         materializationReceiptPrivateKey: materializationReceiptPrivateKey.toString('base64url'),

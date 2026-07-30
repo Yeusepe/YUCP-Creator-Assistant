@@ -160,6 +160,7 @@
     "cloudflare:worker:version:upload": "bun install --frozen-lockfile && bun run --filter @yucp/web worker:version:upload",
     "delivery:worker:secrets:sync": "bun run --env-file=.env.infisical ops/sync-delivery-worker-secrets.ts",
     "materialization-source:worker:secrets:sync": "bun run --env-file=.env.infisical ops/sync-materialization-source-worker-secrets.ts",
+    "rendition:worker:secrets:sync": "bun run --env-file=.env.infisical ops/sync-rendition-worker-secrets.ts",
     "infisical:convex": "bun run --env-file=.env.infisical ops/infisical-convex-run.ts",
     "infisical:convex:prod": "bun run --env-file=.env.infisical ops/infisical-convex-run.ts --prod",
     "dev:api": "cross-env FRONTEND_URL=http://localhost:3000 bun run --watch apps/api/src/index.ts",

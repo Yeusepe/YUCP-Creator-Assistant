@@ -164,7 +164,8 @@ describe('DevSupervisor', () => {
     expect(runtime.env.METADATA_S3_BUCKET).toBe(runtime.storage.buckets.metadata.bucket);
     expect(runtime.env.PROTECTED_S3_BUCKET).toBe(runtime.storage.buckets.protected.bucket);
     expect(runtime.env.QUARANTINE_S3_BUCKET).toBe(runtime.storage.buckets.quarantine.bucket);
-    expect(runtime.env.RENDITION_S3_BUCKET).toBe(runtime.storage.buckets.renditions.bucket);
+    expect(runtime.env.RENDITION_S3_BUCKET).toBeUndefined();
+    expect(runtime.env.MATERIALIZER_ORIGIN_URL).toBe('http://127.0.0.1:8788');
     const importerLedger = JSON.parse(runtime.env.VPM_IMPORTER_RELEASE_LEDGER_JSON ?? 'null') as {
       releases?: Record<string, { sha256?: string }>;
       schemaVersion?: number;
@@ -651,6 +652,7 @@ describe('DevSupervisor', () => {
       materializationCapabilityPublicKey: 'local-capability-public-key',
       materializationKeyBrokerSharedSecret: 'local-key-broker-shared-secret',
       materializationMaterializerSharedSecret: 'local-materializer-shared-secret',
+      materializationRenditionSharedSecret: 'local-rendition-shared-secret',
       materializationReceiptKeyId: 'local-receipt-key',
       materializationReceiptPrivateKey: 'local-receipt-private-key',
       materializationReceiptPublicKey: 'local-receipt-public-key',
@@ -682,9 +684,8 @@ describe('DevSupervisor', () => {
       QUARANTINE_S3_ACCESS_KEY_ID: 'local-quarantine-key',
       QUARANTINE_S3_BUCKET: 'local-quarantine',
       QUARANTINE_S3_ENDPOINT: 'http://127.0.0.1:49152',
-      RENDITION_S3_ACCESS_KEY_ID: 'local-renditions-key',
-      RENDITION_S3_BUCKET: 'local-renditions',
-      RENDITION_S3_ENDPOINT: 'http://127.0.0.1:49152',
+      MATERIALIZATION_RENDITION_SHARED_SECRET: 'local-rendition-shared-secret',
+      MATERIALIZER_ORIGIN_URL: 'http://127.0.0.1:8788',
       CATALOG_DATABASE_URL: 'postgres://postgres:local-password@127.0.0.1:49153/local',
       PACKAGE_CATALOG_DATABASE_URL: 'postgres://postgres:local-password@127.0.0.1:49153/local',
       VPM_ALIAS_PUBLICATION_CATALOG_DATABASE_URL:

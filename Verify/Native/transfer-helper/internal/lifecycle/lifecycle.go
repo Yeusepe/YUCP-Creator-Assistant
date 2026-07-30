@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -492,7 +493,73 @@ func Execute(
 	); err != nil {
 		return Result{}, err
 	}
+	cleanupAfterInstall(request.StateRoot, grant.MaterializationJobID(), manifest)
 	return baseResult, nil
+}
+
+const chunkCacheMaximumBytes = 2 << 30
+
+// Cleanup is best-effort after the verified staging tree is durable.
+func cleanupAfterInstall(stateRoot string, jobID string, manifest delivery.Manifest) {
+	if safeIdentifier.MatchString(jobID) {
+		_ = os.RemoveAll(filepath.Join(stateRoot, "renditions", jobID))
+	}
+	referenced := make(map[string]struct{})
+	for _, file := range manifest.Files {
+		for _, chunk := range file.Chunks {
+			referenced[chunk.ID] = struct{}{}
+		}
+	}
+	pruneChunkCache(
+		filepath.Join(stateRoot, "chunk-cache"),
+		chunkCacheMaximumBytes,
+		referenced,
+	)
+}
+
+type cachedChunkFile struct {
+	modTime time.Time
+	path    string
+	size    int64
+}
+
+// Preserve the completed install's chunks while evicting the oldest others.
+func pruneChunkCache(cacheRoot string, maximumBytes int64, referenced map[string]struct{}) {
+	var files []cachedChunkFile
+	var totalBytes int64
+	_ = filepath.WalkDir(cacheRoot, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return nil
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			return nil
+		}
+		totalBytes += info.Size()
+		if _, keep := referenced[entry.Name()]; keep {
+			return nil
+		}
+		files = append(files, cachedChunkFile{
+			modTime: info.ModTime(),
+			path:    path,
+			size:    info.Size(),
+		})
+		return nil
+	})
+	if totalBytes <= maximumBytes {
+		return
+	}
+	sort.Slice(files, func(left int, right int) bool {
+		return files[left].modTime.Before(files[right].modTime)
+	})
+	for _, file := range files {
+		if totalBytes <= maximumBytes {
+			return
+		}
+		if os.Remove(file.path) == nil {
+			totalBytes -= file.size
+		}
+	}
 }
 
 func protectedMaterializationCompletedBytes(
@@ -504,36 +571,67 @@ func protectedMaterializationCompletedBytes(
 	if totalBytes <= stagedBytes {
 		return totalBytes
 	}
-	if materializationSourceAssemblyCompleted(progress) {
-		return totalBytes
-	}
-	candidate := stagedBytes
-	if progress.TotalLogicalBytes > 0 {
-		ratio := math.Min(
-			1,
-			float64(progress.CompletedLogicalBytes)/float64(progress.TotalLogicalBytes),
-		)
-		candidate += int64(math.Round(float64(totalBytes-stagedBytes) * ratio))
-	}
+	ratio := protectedMaterializationStageRatio(progress)
+	candidate := stagedBytes +
+		int64(math.Round(float64(totalBytes-stagedBytes)*ratio))
 	if candidate < currentBytes {
 		return currentBytes
 	}
-	if candidate > totalBytes {
-		return totalBytes
+	if candidate >= totalBytes {
+		return totalBytes - 1
 	}
 	return candidate
 }
 
-func materializationSourceAssemblyCompleted(progress delivery.ProtectedRenditionProgress) bool {
-	if progress.Stage == "source_assembly" && progress.Status == "completed" {
-		return true
-	}
+func protectedMaterializationStageRatio(progress delivery.ProtectedRenditionProgress) float64 {
+	const (
+		sourceAssemblyShare = 0.70
+		codecShare          = 0.25
+		archiveShare        = 0.02
+		verificationShare   = 0.02
+	)
 	switch progress.Stage {
-	case "tree_extraction", "key_derivation", "codec", "archive_build",
-		"rendition_verify", "rendition_upload_ticket", "rendition_upload", "completion":
-		return true
+	case "source_assembly":
+		var sourceRatio float64
+		if progress.TotalLogicalBytes > 0 {
+			sourceRatio = math.Min(
+				1,
+				float64(progress.CompletedLogicalBytes)/
+					float64(progress.TotalLogicalBytes),
+			)
+		} else if progress.Status == "completed" {
+			sourceRatio = 1
+		}
+		return sourceAssemblyShare * sourceRatio
+	case "tree_extraction", "key_derivation":
+		return sourceAssemblyShare
+	case "codec":
+		var codecRatio float64
+		if progress.TotalFiles > 0 {
+			codecRatio = math.Min(
+				1,
+				float64(progress.CompletedFiles)/float64(progress.TotalFiles),
+			)
+		} else if progress.Status == "completed" {
+			codecRatio = 1
+		}
+		return sourceAssemblyShare + codecShare*codecRatio
+	case "archive_build":
+		ratio := sourceAssemblyShare + codecShare
+		if progress.Status == "completed" {
+			ratio += archiveShare
+		}
+		return ratio
+	case "rendition_verify":
+		ratio := sourceAssemblyShare + codecShare + archiveShare
+		if progress.Status == "completed" {
+			ratio += verificationShare
+		}
+		return ratio
+	case "rendition_upload_ticket", "rendition_upload", "completion":
+		return sourceAssemblyShare + codecShare + archiveShare + verificationShare
 	default:
-		return false
+		return 0
 	}
 }
 

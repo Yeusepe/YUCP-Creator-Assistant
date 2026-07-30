@@ -12,7 +12,69 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/yucp/transfer-helper/internal/lifecycle"
 )
+
+func TestRemoteClientClassifiesEveryPackageAPIFailure(t *testing.T) {
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	for _, testCase := range []struct {
+		body       string
+		expected   string
+		name       string
+		statusCode int
+	}{
+		{
+			body:       `{}`,
+			expected:   "PACKAGE_API_REQUEST_FAILED",
+			name:       "status without server code",
+			statusCode: http.StatusNotFound,
+		},
+		{
+			body:       `{}`,
+			expected:   "PACKAGE_API_INTERNAL_ERROR",
+			name:       "internal error without server code",
+			statusCode: http.StatusInternalServerError,
+		},
+		{
+			body:       `{`,
+			expected:   "PACKAGE_API_RESPONSE_INVALID",
+			name:       "malformed success response",
+			statusCode: http.StatusOK,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(
+				writer http.ResponseWriter,
+				_ *http.Request,
+			) {
+				writer.WriteHeader(testCase.statusCode)
+				_, _ = writer.Write([]byte(testCase.body))
+			}))
+			defer server.Close()
+			client := RemoteClient{
+				APIBaseURL: server.URL,
+				HTTPClient: server.Client(),
+			}
+			var response map[string]any
+			err := client.post(
+				context.Background(),
+				"/api/v2/package-installs/authorizations",
+				map[string]string{"aliasId": "jammr"},
+				"access-token",
+				privateKey,
+				"00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
+				&response,
+			)
+			if code := lifecycle.ErrorCode(err); code != testCase.expected {
+				t.Fatalf("ErrorCode(%v) = %q, want %q", err, code, testCase.expected)
+			}
+		})
+	}
+}
 
 func TestRemoteClientKeepsServerCapabilitiesInsideBroker(t *testing.T) {
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

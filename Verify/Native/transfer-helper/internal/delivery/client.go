@@ -278,6 +278,9 @@ func ensureCachedChunk(
 	cachePath := cachedChunkPath(cfg.CacheRoot, chunk.ID)
 	if data, err := os.ReadFile(cachePath); err == nil {
 		if verifyChunk(data, chunk) == nil {
+			// Cache pruning uses access recency.
+			now := time.Now()
+			_ = os.Chtimes(cachePath, now, now)
 			return nil
 		}
 		if removeErr := os.Remove(cachePath); removeErr != nil {

@@ -9,7 +9,7 @@ import {
   packageContractKeyId,
   signPackageContract,
 } from '../../ops/storage-core/packageContractsV2';
-import worker from './src/index';
+import worker, { fetchWithResponseHeaderTimeout } from './src/index';
 
 const originalFetch = globalThis.fetch;
 const installPrivateKey = new Uint8Array(32).fill(0x31);
@@ -18,6 +18,9 @@ const installKeyId = packageContractKeyId('install-test-2026-01');
 const receiptKeyId = packageContractKeyId('receipt-test-2026-01');
 const jobId = 'job-protected-1';
 const grantId = 'grant-protected-1';
+const sharedSecret = 'rendition-shared-secret-test';
+const materializerOrigin = 'https://materializer.example.test';
+const renditionFileUrl = `${materializerOrigin}/v2/internal/rendition-files/${jobId}`;
 const renditionBytes = new TextEncoder().encode('verified rendition zip bytes');
 const renditionSha256 = createHash('sha256').update(renditionBytes).digest();
 
@@ -69,7 +72,7 @@ function createProof(input: {
   return `${header}.${payload}.${signature}`;
 }
 
-async function credentials(url: string, proofJti?: string) {
+async function credentials(url: string, proofJti?: string, fileIdentifier = `${jobId}.zip`) {
   const proofKey = generateKeyPairSync('ec', { namedCurve: 'P-256' });
   const now = Math.floor(Date.now() / 1_000);
   const releaseRoot = new Uint8Array(32).fill(0x11);
@@ -126,13 +129,9 @@ async function credentials(url: string, proofJti?: string) {
       receiptId: 'receipt-1',
       releaseRoot,
       rendition: {
-        bucketName: 'renditions-test',
-        fileIdentifier: 'file-version-1',
+        fileIdentifier,
         objectBytes: renditionBytes.byteLength,
-        objectKey: 'v2/renditions/aa/rendition.zip',
         objectSha256: renditionSha256,
-        providerVersion: 'provider-version-1',
-        storageRole: 'renditions',
       },
       runtimeBuild: 'runtime-build-1',
       traceId: 'trace-1',
@@ -161,6 +160,8 @@ async function credentials(url: string, proofJti?: string) {
 
 async function testEnv() {
   return {
+    MATERIALIZER_ORIGIN_URL: materializerOrigin,
+    MATERIALIZER_RENDITION_SHARED_SECRET: sharedSecret,
     PACKAGE_DELIVERY_AUDIENCE: 'https://delivery.example.test',
     PACKAGE_INSTALL_ISSUER: 'https://api.example.test',
     PACKAGE_INSTALL_SIGNING_KEY_ID: 'install-test-2026-01',
@@ -171,20 +172,19 @@ async function testEnv() {
     RENDITION_RECEIPT_PUBLIC_KEY: Buffer.from(
       await ed25519.getPublicKeyAsync(receiptPrivateKey)
     ).toString('base64url'),
-    RENDITION_S3_BUCKET: 'renditions-test',
-    RENDITION_S3_ENDPOINT: 'http://127.0.0.1:9000',
-    RENDITION_S3_READONLY_ACCESS_KEY_ID: 'rendition-test-access',
-    RENDITION_S3_READONLY_SECRET_ACCESS_KEY: 'rendition-test-secret',
-    RENDITION_S3_REGION: 'us-east-1',
   };
 }
 
+function originHeaders(input: string | URL | Request, init?: RequestInit): Headers {
+  return new Headers(input instanceof Request ? input.headers : init?.headers);
+}
+
 describe('personalized rendition Worker', () => {
-  it('rejects an unauthorized request before any rendition storage read', async () => {
-    let storageReads = 0;
+  it('rejects an unauthorized request before any materializer origin read', async () => {
+    let originReads = 0;
     globalThis.fetch = mock(async () => {
-      storageReads += 1;
-      throw new Error('must not read storage');
+      originReads += 1;
+      throw new Error('must not read the materializer origin');
     }) as unknown as typeof fetch;
     const response = await worker.fetch(
       new Request(`https://delivery.example.test/v2/renditions/${jobId}`, {
@@ -196,22 +196,45 @@ describe('personalized rendition Worker', () => {
     );
     expect(response.status).toBe(403);
     expect(response.headers.get('x-rendition-storage-fetches')).toBe('0');
-    expect(storageReads).toBe(0);
+    expect(originReads).toBe(0);
   });
 
-  it('streams only the exact receipt-bound rendition version', async () => {
+  it('rejects a receipt for a different ephemeral rendition file', async () => {
+    let originReads = 0;
+    globalThis.fetch = mock(async () => {
+      originReads += 1;
+      return new Response(renditionBytes);
+    }) as unknown as typeof fetch;
     const url = `https://delivery.example.test/v2/renditions/${jobId}`;
-    let storageReads = 0;
-    let storageUrl = '';
-    globalThis.fetch = mock(async (input: string | URL | Request) => {
-      storageReads += 1;
-      storageUrl = input instanceof Request ? input.url : String(input);
+    const authorized = await credentials(url, undefined, 'another-job.zip');
+
+    const response = await worker.fetch(
+      new Request(url, {
+        body: authorized.body,
+        headers: authorized.headers,
+        method: 'POST',
+      }),
+      await testEnv()
+    );
+
+    expect(response.status).toBe(403);
+    expect(originReads).toBe(0);
+  });
+
+  it('streams the full rendition from the materializer origin with the shared secret', async () => {
+    const url = `https://delivery.example.test/v2/renditions/${jobId}`;
+    let originReads = 0;
+    let originUrl = '';
+    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+      originReads += 1;
+      originUrl = input instanceof Request ? input.url : String(input);
+      const headers = originHeaders(input, init);
+      expect(headers.get('x-yucp-rendition-secret')).toBe(sharedSecret);
+      expect(headers.get('range')).toBeNull();
       return new Response(renditionBytes, {
         headers: {
           'Content-Length': String(renditionBytes.byteLength),
           'Content-Type': 'application/zip',
-          'x-amz-meta-yucp-sha256': renditionSha256.toString('hex'),
-          'x-amz-version-id': 'provider-version-1',
         },
       });
     }) as unknown as typeof fetch;
@@ -222,19 +245,19 @@ describe('personalized rendition Worker', () => {
     );
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(response.headers.get('content-type')).toBe('application/zip');
     expect(response.headers.get('x-rendition-storage-fetches')).toBe('1');
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(renditionBytes);
-    expect(storageReads).toBe(1);
-    const origin = new URL(storageUrl);
-    expect(origin.pathname).toBe('/renditions-test/v2/renditions/aa/rendition.zip');
-    expect(origin.searchParams.get('versionId')).toBe('provider-version-1');
+    expect(originReads).toBe(1);
+    expect(originUrl).toBe(renditionFileUrl);
   });
 
   it('serves only the exact remaining bytes for a verified resume request', async () => {
     const url = `https://delivery.example.test/v2/renditions/${jobId}`;
     const resumeOffset = 7;
     globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
-      const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
+      const headers = originHeaders(input, init);
+      expect(headers.get('x-yucp-rendition-secret')).toBe(sharedSecret);
       expect(headers.get('range')).toBe(`bytes=${resumeOffset}-`);
       return new Response(renditionBytes.slice(resumeOffset), {
         headers: {
@@ -243,8 +266,6 @@ describe('personalized rendition Worker', () => {
             renditionBytes.byteLength
           }`,
           'Content-Type': 'application/zip',
-          'x-amz-meta-yucp-sha256': renditionSha256.toString('hex'),
-          'x-amz-version-id': 'provider-version-1',
         },
         status: 206,
       });
@@ -272,12 +293,12 @@ describe('personalized rendition Worker', () => {
     );
   });
 
-  it('rejects a malformed client range before any rendition storage read', async () => {
+  it('rejects a malformed client range before any materializer origin read', async () => {
     const url = `https://delivery.example.test/v2/renditions/${jobId}`;
-    let storageReads = 0;
+    let originReads = 0;
     globalThis.fetch = mock(async () => {
-      storageReads += 1;
-      throw new Error('must not read storage');
+      originReads += 1;
+      throw new Error('must not read the materializer origin');
     }) as unknown as typeof fetch;
     const authorized = await credentials(url);
     const response = await worker.fetch(
@@ -294,15 +315,15 @@ describe('personalized rendition Worker', () => {
 
     expect(response.status).toBe(416);
     expect(response.headers.get('x-rendition-storage-fetches')).toBe('0');
-    expect(storageReads).toBe(0);
+    expect(originReads).toBe(0);
   });
 
   it('rejects an overlapping origin range without streaming its body', async () => {
     const url = `https://delivery.example.test/v2/renditions/${jobId}`;
     const resumeOffset = 7;
-    let storageReads = 0;
+    let originReads = 0;
     globalThis.fetch = mock(async () => {
-      storageReads += 1;
+      originReads += 1;
       return new Response(renditionBytes.slice(resumeOffset - 1), {
         headers: {
           'Content-Length': String(renditionBytes.byteLength - resumeOffset),
@@ -310,8 +331,6 @@ describe('personalized rendition Worker', () => {
             renditionBytes.byteLength - 1
           }/${renditionBytes.byteLength}`,
           'Content-Type': 'application/zip',
-          'x-amz-meta-yucp-sha256': renditionSha256.toString('hex'),
-          'x-amz-version-id': 'provider-version-1',
         },
         status: 206,
       });
@@ -331,21 +350,53 @@ describe('personalized rendition Worker', () => {
 
     expect(response.status).toBe(502);
     expect(response.headers.get('x-rendition-storage-fetches')).toBe('1');
-    expect(storageReads).toBe(1);
+    expect(originReads).toBe(1);
     expect(await response.text()).not.toContain('verified rendition');
   });
 
-  it('rejects a replayed DPoP proof before a second rendition storage read', async () => {
+  it('returns 502 when the materializer origin fails', async () => {
     const url = `https://delivery.example.test/v2/renditions/${jobId}`;
-    let storageReads = 0;
+    let originReads = 0;
     globalThis.fetch = mock(async () => {
-      storageReads += 1;
+      originReads += 1;
+      return new Response('materializer offline', { status: 500 });
+    }) as unknown as typeof fetch;
+    const authorized = await credentials(url);
+    const response = await worker.fetch(
+      new Request(url, { ...authorized, method: 'POST' }),
+      await testEnv()
+    );
+
+    expect(response.status).toBe(502);
+    expect(response.headers.get('x-rendition-storage-fetches')).toBe('1');
+    expect(originReads).toBe(1);
+  });
+
+  it('reports an unreachable materializer origin as 502, not an authorization denial', async () => {
+    const url = `https://delivery.example.test/v2/renditions/${jobId}`;
+    globalThis.fetch = mock(async () => {
+      throw new TypeError('connection refused');
+    }) as unknown as typeof fetch;
+    const authorized = await credentials(url);
+    const response = await worker.fetch(
+      new Request(url, { ...authorized, method: 'POST' }),
+      await testEnv()
+    );
+
+    expect(response.status).toBe(502);
+    expect(response.headers.get('x-rendition-storage-fetches')).toBe('1');
+  }, // seconds before giving up. // The SlowDown backoff schedule retries thrown network errors for several
+  20_000);
+
+  it('rejects a replayed DPoP proof before a second materializer origin read', async () => {
+    const url = `https://delivery.example.test/v2/renditions/${jobId}`;
+    let originReads = 0;
+    globalThis.fetch = mock(async () => {
+      originReads += 1;
       return new Response(renditionBytes, {
         headers: {
           'Content-Length': String(renditionBytes.byteLength),
           'Content-Type': 'application/zip',
-          'x-amz-meta-yucp-sha256': renditionSha256.toString('hex'),
-          'x-amz-version-id': 'provider-version-1',
         },
       });
     }) as unknown as typeof fetch;
@@ -363,7 +414,7 @@ describe('personalized rendition Worker', () => {
     expect(first.status).toBe(200);
     expect(replay.status).toBe(403);
     expect(replay.headers.get('x-rendition-storage-fetches')).toBe('0');
-    expect(storageReads).toBe(1);
+    expect(originReads).toBe(1);
   });
 
   it('keeps streaming the origin body after its response-header timer elapses', async () => {
@@ -392,8 +443,6 @@ describe('personalized rendition Worker', () => {
             headers: {
               'Content-Length': String(renditionBytes.byteLength),
               'Content-Type': 'application/zip',
-              'x-amz-meta-yucp-sha256': renditionSha256.toString('hex'),
-              'x-amz-version-id': 'provider-version-1',
             },
           }
         )
@@ -411,5 +460,33 @@ describe('personalized rendition Worker', () => {
       globalThis.setTimeout = nativeSetTimeout;
       globalThis.clearTimeout = nativeClearTimeout;
     }
+  });
+
+  it('disarms the origin header timeout before streaming the response body', async () => {
+    let requestSignal: AbortSignal | undefined;
+    const response = await fetchWithResponseHeaderTimeout(
+      async (_input, init) => {
+        requestSignal = init?.signal ?? undefined;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            async start(controller) {
+              await Bun.sleep(20);
+              if (requestSignal?.aborted) {
+                controller.error(new Error('body signal was aborted'));
+                return;
+              }
+              controller.enqueue(renditionBytes);
+              controller.close();
+            },
+          })
+        );
+      },
+      'https://materializer.example.test/v2/internal/rendition-files/job-1',
+      {},
+      5
+    );
+
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(renditionBytes);
+    expect(requestSignal?.aborted).toBeFalse();
   });
 });

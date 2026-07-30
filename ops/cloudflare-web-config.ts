@@ -19,6 +19,12 @@ export const MATERIALIZATION_SOURCE_WORKER_WRANGLER_CONFIG_PATH = resolve(
   'materialization-source-worker',
   'wrangler.jsonc'
 );
+export const RENDITION_WORKER_WRANGLER_CONFIG_PATH = resolve(
+  REPO_ROOT_DIR,
+  'services',
+  'rendition-worker',
+  'wrangler.jsonc'
+);
 export const REPO_ROOT_ENV_LOCAL_PATH = resolve(REPO_ROOT_DIR, '.env.local');
 export const WEB_WRANGLER_CONFIG_PATH = resolve(WEB_APP_DIR, 'wrangler.jsonc');
 export const WEB_DIST_SERVER_DIR = resolve(WEB_APP_DIR, 'dist', 'server');
@@ -134,6 +140,28 @@ export const MATERIALIZATION_SOURCE_WORKER_SOURCE_KEYS = [
   'MATERIALIZATION_SOURCE_GRANT_ISSUER',
   'MATERIALIZATION_SOURCE_GRANT_PRIVATE_KEY',
   'MATERIALIZATION_SOURCE_GRANT_AUDIENCE',
+] as const;
+
+export const RENDITION_WORKER_BINDING_KEYS = [
+  'PACKAGE_DELIVERY_AUDIENCE',
+  'PACKAGE_INSTALL_ISSUER',
+  'PACKAGE_INSTALL_SIGNING_KEY_ID',
+  'PACKAGE_INSTALL_SIGNING_PUBLIC_KEY',
+  'RENDITION_RECEIPT_KEY_ID',
+  'RENDITION_RECEIPT_PUBLIC_KEY',
+  'MATERIALIZER_ORIGIN_URL',
+  'MATERIALIZER_RENDITION_SHARED_SECRET',
+] as const;
+
+export const RENDITION_WORKER_SOURCE_KEYS = [
+  'PACKAGE_DELIVERY_AUDIENCE',
+  'PACKAGE_INSTALL_ISSUER',
+  'PACKAGE_INSTALL_SIGNING_KEY_ID',
+  'PACKAGE_INSTALL_SIGNING_PUBLIC_KEY',
+  'MATERIALIZATION_RECEIPT_KEY_ID',
+  'MATERIALIZATION_RECEIPT_PRIVATE_KEY',
+  'MATERIALIZER_ORIGIN_URL',
+  'MATERIALIZER_RENDITION_SHARED_SECRET',
 ] as const;
 
 const WEB_LOCAL_ENV_KEYS = [
@@ -260,14 +288,14 @@ export function getDeliveryWorkerBindingValues(
   return pickValues(source, DELIVERY_WORKER_BINDING_KEYS);
 }
 
-function deriveEd25519PublicKey(privateSeedText: string): string {
+function deriveEd25519PublicKey(privateSeedText: string, sourceName: string): string {
   if (!/^[A-Za-z0-9_-]+$/.test(privateSeedText)) {
-    throw new Error('MATERIALIZATION_SOURCE_GRANT_PRIVATE_KEY must use unpadded base64url');
+    throw new Error(`${sourceName} must use unpadded base64url`);
   }
   const seed = Buffer.from(privateSeedText, 'base64url');
   if (seed.byteLength !== 32) {
     seed.fill(0);
-    throw new Error('MATERIALIZATION_SOURCE_GRANT_PRIVATE_KEY must decode to 32 bytes');
+    throw new Error(`${sourceName} must decode to 32 bytes`);
   }
   const privatePrefix = Buffer.from('302e020100300506032b657004220420', 'hex');
   const privateDer = Buffer.concat([privatePrefix, seed]);
@@ -287,7 +315,7 @@ function deriveEd25519PublicKey(privateSeedText: string): string {
       publicDer.byteLength !== publicPrefix.byteLength + 32 ||
       !publicDer.subarray(0, publicPrefix.byteLength).equals(publicPrefix)
     ) {
-      throw new Error('Derived materialization source public key is invalid');
+      throw new Error(`Derived ${sourceName} public key is invalid`);
     }
     return publicDer.subarray(publicPrefix.byteLength).toString('base64url');
   } finally {
@@ -328,7 +356,14 @@ export function getMaterializationSourceWorkerBindingValues(
     ...(normalizeOptional(source.MATERIALIZATION_SOURCE_GRANT_ISSUER)
       ? { DELIVERY_GRANT_ISSUER: source.MATERIALIZATION_SOURCE_GRANT_ISSUER.trim() }
       : {}),
-    ...(privateSeed ? { DELIVERY_GRANT_PUBLIC_KEY: deriveEd25519PublicKey(privateSeed) } : {}),
+    ...(privateSeed
+      ? {
+          DELIVERY_GRANT_PUBLIC_KEY: deriveEd25519PublicKey(
+            privateSeed,
+            'MATERIALIZATION_SOURCE_GRANT_PRIVATE_KEY'
+          ),
+        }
+      : {}),
     ...(normalizeOptional(source.MATERIALIZATION_SOURCE_GRANT_AUDIENCE)
       ? { MATERIALIZATION_SOURCE_AUDIENCE: source.MATERIALIZATION_SOURCE_GRANT_AUDIENCE.trim() }
       : {}),
@@ -338,6 +373,37 @@ export function getMaterializationSourceWorkerBindingValues(
     MATERIALIZATION_SOURCE_WORKER_BINDING_KEYS.flatMap((key) =>
       values[key] ? [[key, values[key]]] : []
     )
+  );
+}
+
+export function getRenditionWorkerBindingValues(
+  source: Record<string, string>
+): Record<string, string> {
+  const directBindings = pickValues(source, [
+    'PACKAGE_DELIVERY_AUDIENCE',
+    'PACKAGE_INSTALL_ISSUER',
+    'PACKAGE_INSTALL_SIGNING_KEY_ID',
+    'PACKAGE_INSTALL_SIGNING_PUBLIC_KEY',
+    'MATERIALIZER_ORIGIN_URL',
+    'MATERIALIZER_RENDITION_SHARED_SECRET',
+  ]);
+  const receiptPrivateSeed = normalizeOptional(source.MATERIALIZATION_RECEIPT_PRIVATE_KEY);
+  const aliases = {
+    ...(normalizeOptional(source.MATERIALIZATION_RECEIPT_KEY_ID)
+      ? { RENDITION_RECEIPT_KEY_ID: source.MATERIALIZATION_RECEIPT_KEY_ID.trim() }
+      : {}),
+    ...(receiptPrivateSeed
+      ? {
+          RENDITION_RECEIPT_PUBLIC_KEY: deriveEd25519PublicKey(
+            receiptPrivateSeed,
+            'MATERIALIZATION_RECEIPT_PRIVATE_KEY'
+          ),
+        }
+      : {}),
+  };
+  const values = { ...directBindings, ...aliases };
+  return Object.fromEntries(
+    RENDITION_WORKER_BINDING_KEYS.flatMap((key) => (values[key] ? [[key, values[key]]] : []))
   );
 }
 

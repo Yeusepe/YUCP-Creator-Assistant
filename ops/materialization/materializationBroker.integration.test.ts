@@ -13,7 +13,6 @@ import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId'
 import { waitForPostgres } from '../testing/postgresReadiness';
 import type { MaterializationKeyBrokerPort } from './keyBrokerClient';
 import { MaterializationBroker, type MaterializationClaimResult } from './materializationBroker';
-import type { RenditionStoragePort } from './renditionStorage';
 
 const postgresImage =
   'postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193';
@@ -49,43 +48,6 @@ const keyBroker: MaterializationKeyBrokerPort = {
 
 let sql: CatalogDatabase | undefined;
 let containerStarted = false;
-let renditionArchive = new Uint8Array();
-let renditionVersion = 'rendition-version-1';
-
-const renditionStorage: RenditionStoragePort = {
-  bucketName: 'renditions-test',
-  async createUploadTicket(input) {
-    return {
-      bucketName: 'renditions-test',
-      headers: {
-        'content-length': String(input.bytes),
-        'content-type': 'application/zip',
-        'x-amz-content-sha256': input.sha256Hex,
-      },
-      objectKey: input.objectKey,
-      storageRole: 'renditions',
-      url: `https://storage.example.test/renditions-test/${input.objectKey}`,
-    };
-  },
-  async getExactVersion() {
-    return new Response(renditionArchive);
-  },
-  async headExactVersion(objectKey, providerVersion) {
-    return {
-      bucketName: 'renditions-test',
-      contentLength: renditionArchive.byteLength,
-      contentType: 'application/zip',
-      etag: '"test-etag"',
-      fileIdentifier: providerVersion,
-      metadata: {
-        'yucp-sha256': createHash('sha256').update(renditionArchive).digest('hex'),
-      },
-      objectKey,
-      providerVersion,
-      storageRole: 'renditions',
-    };
-  },
-};
 
 type CommandResult = {
   exitCode: number;
@@ -141,7 +103,6 @@ function createBroker(): MaterializationBroker {
       lifetimeSeconds: 7 * 24 * 60 * 60,
       privateKey: receiptPrivateKey,
     },
-    renditionStorage,
     sourceGrant: {
       audience: 'yucp-materialization-source',
       baseUrl: 'https://delivery.example.test',
@@ -435,36 +396,12 @@ describe.serial('PostgreSQL materialization capability broker', () => {
     });
 
     const personalizedBytes = new TextEncoder().encode('personalized png bytes');
-    renditionArchive = zipSync({
+    const renditionArchive = zipSync({
       'Assets/Product/a.png': personalizedBytes,
       'Assets/Product/common.txt': new TextEncoder().encode('common bytes'),
     });
     const renditionSha256 = createHash('sha256').update(renditionArchive).digest('hex');
     const outputSha256 = createHash('sha256').update(personalizedBytes).digest('hex');
-    const upload = await broker.prepareRenditionUpload({
-      bytes: renditionArchive.byteLength,
-      capabilityId: signed.capability.capabilityId,
-      coseSign1: signed.coseSign1,
-      jobId: 'job-1',
-      leaseGeneration: 1,
-      materializerId: 'data-node-1',
-      now: new Date((nowSeconds + 2) * 1_000),
-      proofJti: 'proof-upload-1',
-      sha256: renditionSha256,
-      traceId: 'trace-1',
-      verifiedProofKeyThumbprint: new Uint8Array(32).fill(0x33),
-    });
-    expect(upload).toMatchObject({
-      upload: {
-        bucketName: 'renditions-test',
-        storageRole: 'renditions',
-      },
-    });
-    expect(typeof upload.expiresAt).toBe('string');
-    expect(typeof upload.writeIntentId).toBe('string');
-    expect(upload.upload.objectKey).toMatch(/^v2\/renditions\/[0-9a-f]{2}\/[0-9a-f-]{36}\.zip$/);
-
-    renditionVersion = 'rendition-version-1';
     const completionInput = {
       attributionRecords: [
         {
@@ -494,11 +431,11 @@ describe.serial('PostgreSQL materialization capability broker', () => {
         },
       ],
       outputTreeRoot: createHash('sha256').update('not-the-tree-root').digest('hex'),
-      providerVersion: renditionVersion,
       proofJti: 'proof-complete-1',
+      renditionBytes: renditionArchive.byteLength,
+      renditionSha256,
       traceId: 'trace-1',
       verifiedProofKeyThumbprint: new Uint8Array(32).fill(0x33),
-      writeIntentId: upload.writeIntentId,
     };
     let completionError: unknown;
     try {
@@ -539,11 +476,9 @@ describe.serial('PostgreSQL materialization capability broker', () => {
     expect(receipt.capabilityId).toBe(signed.capability.capabilityId);
     expect(receipt.jobId).toBe('job-1');
     expect(receipt.materializerId).toBe('data-node-1');
-    expect(receipt.rendition.bucketName).toBe('renditions-test');
+    expect(receipt.rendition.fileIdentifier).toBe('job-1.zip');
     expect(receipt.rendition.objectBytes).toBe(renditionArchive.byteLength);
     expect(Buffer.from(receipt.rendition.objectSha256).toString('hex')).toBe(renditionSha256);
-    expect(receipt.rendition.providerVersion).toBe(renditionVersion);
-    expect(receipt.rendition.storageRole).toBe('renditions');
     expect(Buffer.from(receipt.outputTreeRoot).toString('hex')).toBe(trustedOutputTreeRoot);
     expect(
       await broker.completeRendition({
@@ -621,20 +556,6 @@ describe.serial('PostgreSQL materialization capability broker', () => {
       traceId: 'trace-2',
       verifiedProofKeyThumbprint: new Uint8Array(32).fill(0x33),
     });
-    const secondUpload = await broker.prepareRenditionUpload({
-      bytes: renditionArchive.byteLength,
-      capabilityId: secondSigned.capability.capabilityId,
-      coseSign1: secondSigned.coseSign1,
-      jobId: 'job-2',
-      leaseGeneration: 1,
-      materializerId: 'data-node-1',
-      now: new Date((nowSeconds + 6) * 1_000),
-      proofJti: 'proof-second-upload',
-      sha256: renditionSha256,
-      traceId: 'trace-2',
-      verifiedProofKeyThumbprint: new Uint8Array(32).fill(0x33),
-    });
-    renditionVersion = 'rendition-version-2';
     const secondCompleted = await broker.completeRendition({
       ...completionInput,
       capabilityId: secondSigned.capability.capabilityId,
@@ -643,9 +564,7 @@ describe.serial('PostgreSQL materialization capability broker', () => {
       now: new Date((nowSeconds + 7) * 1_000),
       outputTreeRoot: trustedOutputTreeRoot,
       proofJti: 'proof-second-complete',
-      providerVersion: renditionVersion,
       traceId: 'trace-2',
-      writeIntentId: secondUpload.writeIntentId,
     });
     expect(secondCompleted).toMatchObject({ success: true });
     const repeatedAttributionRows = await requireSql()<Array<{ count: number }>>`
@@ -783,7 +702,7 @@ describe.serial('PostgreSQL materialization capability broker', () => {
     expect((replayError as Error).message).toContain('already consumed');
   }, 30_000);
 
-  it('authorizes rendition upload through the active lease after one-time capability expiry', async () => {
+  it('authorizes rendition completion through the active lease after one-time capability expiry', async () => {
     const broker = createBroker();
     await broker.createInstallJob({
       bindingRoot: new Uint8Array(32).fill(0x23),
@@ -840,30 +759,60 @@ describe.serial('PostgreSQL materialization capability broker', () => {
       leaseOwner: 'data-node-lease-session',
       now: new Date((nowSeconds + 240) * 1_000),
     });
+    const personalizedBytes = new Uint8Array([1, 2, 3, 4]);
     const archive = zipSync({
-      'Assets/Product/a.png': new Uint8Array([1, 2, 3, 4]),
+      'Assets/Product/a.png': personalizedBytes,
     });
+    const outputSha256 = createHash('sha256').update(personalizedBytes).digest();
 
-    const upload = await broker.prepareRenditionUpload({
-      bytes: archive.byteLength,
+    const completed = await broker.completeRendition({
+      attributionRecords: [
+        {
+          attributionId: 'attribution-lease-session',
+          attributionTokenHash: '55'.repeat(32),
+          normalizedPath: 'Assets/Product/a.png',
+          sourceSha256: '41'.repeat(32),
+        },
+      ],
+      builds: {
+        codec: 'png-codec-build-2',
+        helper: 'materializer-host-2',
+        runtime: 'coupling-runtime-sha256:test',
+      },
       capabilityId: signed.capability.capabilityId,
       coseSign1: signed.coseSign1,
       jobId: claim.jobId,
       leaseGeneration: claim.leaseGeneration,
       materializerId: 'data-node-lease-session',
       now: new Date((nowSeconds + 360) * 1_000),
-      proofJti: 'proof-lease-session-upload',
-      sha256: createHash('sha256').update(archive).digest('hex'),
+      outputFiles: [
+        {
+          attributionId: 'attribution-lease-session',
+          normalizedPath: 'Assets/Product/a.png',
+          outputBytes: personalizedBytes.byteLength,
+          outputSha256: outputSha256.toString('hex'),
+        },
+      ],
+      outputTreeRoot: Buffer.from(
+        computeOutputTreeRootV2([
+          {
+            attributionId: 'attribution-lease-session',
+            normalizedPath: 'Assets/Product/a.png',
+            outputBytes: personalizedBytes.byteLength,
+            outputSha256,
+          },
+        ])
+      ).toString('hex'),
+      proofJti: 'proof-lease-session-complete',
+      renditionBytes: archive.byteLength,
+      renditionSha256: createHash('sha256').update(archive).digest('hex'),
       traceId: 'trace-lease-session',
       verifiedProofKeyThumbprint: new Uint8Array(32).fill(0x55),
     });
 
-    expect(upload).toMatchObject({
-      upload: {
-        bucketName: 'renditions-test',
-        storageRole: 'renditions',
-      },
-      writeIntentId: expect.any(String),
+    expect(completed).toMatchObject({
+      receiptId: expect.any(String),
+      success: true,
     });
   }, 20_000);
 
@@ -875,7 +824,6 @@ describe.serial('PostgreSQL materialization capability broker', () => {
         lifetimeSeconds: 7 * 24 * 60 * 60,
         privateKey: receiptPrivateKey,
       },
-      renditionStorage,
       sourceGrant: {
         audience: 'yucp-materialization-source',
         baseUrl: 'https://delivery.example.test',
@@ -934,7 +882,6 @@ describe.serial('PostgreSQL materialization capability broker', () => {
         lifetimeSeconds: 7 * 24 * 60 * 60,
         privateKey: receiptPrivateKey,
       },
-      renditionStorage,
       sourceGrant: {
         audience: 'yucp-materialization-source',
         baseUrl: 'https://delivery.example.test',
@@ -989,117 +936,6 @@ describe.serial('PostgreSQL materialization capability broker', () => {
       status: 'claimed',
     });
   });
-
-  it('reclaims an expired verifying lease after upload ticket creation fails', async () => {
-    const failingRenditionStorage: RenditionStoragePort = {
-      ...renditionStorage,
-      async createUploadTicket() {
-        throw new Error('rendition ticket unavailable');
-      },
-    };
-    const broker = new MaterializationBroker({
-      keyBroker,
-      receiptSigning: {
-        keyId: receiptKeyId,
-        lifetimeSeconds: 7 * 24 * 60 * 60,
-        privateKey: receiptPrivateKey,
-      },
-      renditionStorage: failingRenditionStorage,
-      sourceGrant: {
-        audience: 'yucp-materialization-source',
-        baseUrl: 'https://delivery.example.test',
-        issuer: 'https://api.example.test',
-        keyId: sourceGrantKeyId,
-        lifetimeSeconds: 300,
-        privateKey: sourceGrantPrivateKey,
-      },
-      sql: requireSql(),
-    });
-    const base = {
-      bindingRoot: new Uint8Array(32).fill(0x23),
-      buyerId: 'buyer-1',
-      creatorId: 'creator-1',
-      grantJti: 'grant-expired-verifying',
-      keyEpoch: 7,
-      materializationAlgorithm: 'png-dct-qim-v2',
-      outputFormat: 'zip' as const,
-      pluginVersion: 'png-plugin-2',
-      productId: 'com.yucp.materialization-test',
-      protectedSourceRoot: new Uint8Array(32).fill(0x22),
-      releaseRoot: new Uint8Array(32).fill(0x11),
-      sourceLogicalBytes: 4_096,
-      sourceLogicalFiles: 2,
-      sourceManifestSha256: new Uint8Array(32).fill(0x88),
-      sourceVersionId,
-      traceId: 'trace-expired-verifying',
-    };
-    await broker.createInstallJob({ ...base, id: 'job-expired-verifying' });
-    await broker.createInstallJob({ ...base, id: 'job-next' });
-    const firstClaim = await broker.claimNextJob({
-      leaseDurationMs: 600_000,
-      leaseOwner: 'data-node-1',
-      now: new Date(nowSeconds * 1_000),
-    });
-    if (firstClaim.status !== 'claimed') {
-      throw new Error('Expected the verifying materialization job to be claimed');
-    }
-    const signed = await broker.issueCapability({
-      jobId: firstClaim.jobId,
-      keyId: capabilityKeyId,
-      leaseGeneration: firstClaim.leaseGeneration,
-      leaseOwner: 'data-node-1',
-      lifetimeSeconds: 300,
-      now: new Date(nowSeconds * 1_000),
-      privateKey: capabilityPrivateKey,
-      proofKeyThumbprint: new Uint8Array(32).fill(0x33),
-    });
-    const capabilityPublicKey = await ed25519.getPublicKeyAsync(capabilityPrivateKey);
-    await broker.consumeCapability({
-      coseSign1: signed.coseSign1,
-      expectedKeyId: capabilityKeyId,
-      materializerId: 'data-node-1',
-      now: new Date((nowSeconds + 1) * 1_000),
-      publicKey: capabilityPublicKey,
-      proofJti: 'proof-expired-verifying-consume',
-      traceId: 'trace-expired-verifying',
-      verifiedProofKeyThumbprint: new Uint8Array(32).fill(0x33),
-    });
-    const archive = zipSync({
-      'Assets/Product/a.png': new Uint8Array([1, 2, 3, 4]),
-    });
-    let uploadTicketError: unknown;
-    try {
-      await broker.prepareRenditionUpload({
-        bytes: archive.byteLength,
-        capabilityId: signed.capability.capabilityId,
-        coseSign1: signed.coseSign1,
-        jobId: firstClaim.jobId,
-        leaseGeneration: firstClaim.leaseGeneration,
-        materializerId: 'data-node-1',
-        now: new Date((nowSeconds + 2) * 1_000),
-        proofJti: 'proof-expired-verifying-upload',
-        sha256: createHash('sha256').update(archive).digest('hex'),
-        traceId: 'trace-expired-verifying',
-        verifiedProofKeyThumbprint: new Uint8Array(32).fill(0x33),
-      });
-    } catch (error) {
-      uploadTicketError = error;
-    }
-    expect(uploadTicketError).toBeInstanceOf(Error);
-    expect((uploadTicketError as Error).message).toContain('rendition ticket unavailable');
-
-    expect(
-      await broker.claimNextJob({
-        leaseDurationMs: 600_000,
-        leaseOwner: 'data-node-2',
-        now: new Date((nowSeconds + 601) * 1_000),
-      })
-    ).toMatchObject({
-      jobId: 'job-expired-verifying',
-      leaseGeneration: 2,
-      status: 'claimed',
-    });
-  }, 20_000);
 
   it('isolates an unavailable expired source without blocking the next healthy job', async () => {
     const activeSql = requireSql();

@@ -58,7 +58,7 @@ describe('Convex Infisical prod helpers', () => {
     expect(secretsTemplate).toContain('DISCORD_BOT_TOKEN');
   });
 
-  it('documents a production-safe exact-storage TUF repository', async () => {
+  it('documents exact-storage TUF inputs for control-plane services', async () => {
     const secretsTemplate = await readOpsFile('ops/infisical/secrets.template.yaml');
     const exactStorageKeys = [
       'PACKAGE_INSTALLER_TUF_CATALOG_DATABASE_URL',
@@ -81,7 +81,7 @@ describe('Convex Infisical prod helpers', () => {
     expect(
       loadPackageInstallerTufRepositoryConfig({
         ...templateEnvironment,
-        NODE_ENV: 'production',
+        NODE_ENV: 'test',
       })
     ).toMatchObject({
       kind: 'exact-storage',
@@ -103,6 +103,15 @@ describe('Convex Infisical prod helpers', () => {
     };
 
     expect(loadMaterializationControlClient(environment)).not.toBeNull();
+    expect(
+      loadPackageInstallerTufRepositoryConfig({
+        ...environment,
+        NODE_ENV: 'production',
+      })
+    ).toMatchObject({
+      baseUrl: 'https://materialization.internal.placeholder.invalid',
+      kind: 'control-plane',
+    });
   });
 
   it('documents every required materialization control-plane value without storing credentials', async () => {

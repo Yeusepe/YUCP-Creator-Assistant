@@ -1,4 +1,3 @@
-import { AwsClient } from 'aws4fetch';
 import { verifyDpopProof } from '../../../ops/storage-core/dpop';
 import { BoundedDpopReplayCache } from '../../../ops/storage-core/dpopReplayCache';
 import {
@@ -8,7 +7,6 @@ import {
   verifyDeliveryGrantV2,
   verifyMaterializationReceiptV2,
 } from '../../../ops/storage-core/packageContractsV2';
-import { buildS3ObjectUrl } from '../../../ops/storage-core/s3ObjectUrl';
 import { fetchWithSlowDownBackoff } from '../../../ops/storage-core/storageBackoff';
 
 // Cloudflare recommends streamed responses and bounded request bodies.
@@ -21,11 +19,8 @@ const REQUIRED_BINDINGS = [
   'PACKAGE_INSTALL_SIGNING_PUBLIC_KEY',
   'RENDITION_RECEIPT_KEY_ID',
   'RENDITION_RECEIPT_PUBLIC_KEY',
-  'RENDITION_S3_BUCKET',
-  'RENDITION_S3_ENDPOINT',
-  'RENDITION_S3_READONLY_ACCESS_KEY_ID',
-  'RENDITION_S3_READONLY_SECRET_ACCESS_KEY',
-  'RENDITION_S3_REGION',
+  'MATERIALIZER_ORIGIN_URL',
+  'MATERIALIZER_RENDITION_SHARED_SECRET',
 ] as const;
 const RENDITION_PATH = /^\/v2\/renditions\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})$/;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
@@ -43,6 +38,7 @@ const dpopReplayCache = new BoundedDpopReplayCache({
 
 type BindingName = (typeof REQUIRED_BINDINGS)[number];
 type RenditionEnv = Readonly<Record<BindingName, string>>;
+type FetchFn = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 class HttpError extends Error {
   constructor(
@@ -66,20 +62,26 @@ function loadEnv(env: Env): RenditionEnv {
   const values = Object.fromEntries(
     REQUIRED_BINDINGS.map((name) => [name, requireBinding(env, name)])
   ) as Record<BindingName, string>;
-  const endpoint = new URL(values.RENDITION_S3_ENDPOINT);
-  if (
-    !['http:', 'https:'].includes(endpoint.protocol) ||
-    endpoint.username ||
-    endpoint.password ||
-    endpoint.pathname !== '/' ||
-    endpoint.search ||
-    endpoint.hash ||
-    values.RENDITION_S3_BUCKET.includes('/') ||
-    values.RENDITION_S3_BUCKET.includes('\\')
-  ) {
-    throw new HttpError(500, 'Rendition storage configuration is invalid');
+  let origin: URL;
+  try {
+    origin = new URL(values.MATERIALIZER_ORIGIN_URL);
+  } catch {
+    throw new HttpError(500, 'Materializer origin configuration is invalid');
   }
-  return { ...values, RENDITION_S3_ENDPOINT: endpoint.origin };
+  // HTTP is limited to loopback development origins.
+  const loopbackHttp =
+    origin.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(origin.hostname);
+  if (
+    (origin.protocol !== 'https:' && !loopbackHttp) ||
+    origin.username ||
+    origin.password ||
+    origin.pathname !== '/' ||
+    origin.search ||
+    origin.hash
+  ) {
+    throw new HttpError(500, 'Materializer origin configuration is invalid');
+  }
+  return { ...values, MATERIALIZER_ORIGIN_URL: origin.origin };
 }
 
 function decodeBase64Url(value: string, name: string): Uint8Array {
@@ -230,15 +232,34 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   );
 }
 
+export async function fetchWithResponseHeaderTimeout(
+  fetchFn: FetchFn,
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
+    throw new Error('Response header timeout is invalid');
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetchFn(input, {
+      ...init,
+      signal: init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function validateReceipt(input: {
-  config: RenditionEnv;
   grant: DeliveryGrantV2;
   jobId: string;
   receipt: MaterializationReceiptV2;
 }): void {
   const now = Math.floor(Date.now() / 1_000);
   const rendition = input.receipt.rendition;
-  const objectSegments = rendition.objectKey.split('/');
   if (
     input.receipt.grantId !== input.grant.grantId ||
     input.receipt.jobId !== input.jobId ||
@@ -248,53 +269,39 @@ function validateReceipt(input: {
     input.receipt.issuedAt > now + 60 ||
     input.receipt.expiresAt < now ||
     input.receipt.expiresAt - input.receipt.issuedAt > 30 * 24 * 60 * 60 ||
-    rendition.storageRole !== 'renditions' ||
-    rendition.bucketName !== input.config.RENDITION_S3_BUCKET ||
-    !rendition.objectKey.startsWith('v2/renditions/') ||
-    rendition.objectKey.includes('\\') ||
-    objectSegments.some((segment) => !segment || segment === '.' || segment === '..') ||
-    !rendition.providerVersion ||
-    rendition.providerVersion.length > 512
+    rendition.fileIdentifier !== `${input.jobId}.zip` ||
+    rendition.objectSha256.byteLength !== 32 ||
+    !Number.isSafeInteger(rendition.objectBytes) ||
+    rendition.objectBytes <= 0
   ) {
     throw new HttpError(403, 'Receipt binding is invalid');
   }
 }
 
-function createStorageClient(config: RenditionEnv): AwsClient {
-  return new AwsClient({
-    accessKeyId: config.RENDITION_S3_READONLY_ACCESS_KEY_ID,
-    secretAccessKey: config.RENDITION_S3_READONLY_SECRET_ACCESS_KEY,
-    region: config.RENDITION_S3_REGION,
-    service: 's3',
-    retries: 0,
-  });
-}
-
 async function getExactRendition(
-  client: AwsClient,
   config: RenditionEnv,
-  receipt: MaterializationReceiptV2,
+  jobId: string,
   offset: number
 ): Promise<Response> {
-  const objectUrl = new URL(
-    buildS3ObjectUrl(
-      {
-        bucket: config.RENDITION_S3_BUCKET,
-        endpoint: config.RENDITION_S3_ENDPOINT,
-      },
-      receipt.rendition.objectKey
-    )
-  );
-  objectUrl.searchParams.set('versionId', receipt.rendition.providerVersion);
-  // Backblaze B2 S3 GetObject supports exact versionId and single Range requests.
-  // https://www.backblaze.com/apidocs/s3-get-object
-  return fetchWithSlowDownBackoff(() =>
-    client.fetch(objectUrl, {
-      headers: offset > 0 ? { Range: `bytes=${offset}-` } : undefined,
-      method: 'GET',
-      signal: AbortSignal.timeout(ORIGIN_HEADER_TIMEOUT_MS),
-    })
-  );
+  try {
+    return await fetchWithSlowDownBackoff(() =>
+      fetchWithResponseHeaderTimeout(
+        fetch,
+        `${config.MATERIALIZER_ORIGIN_URL}/v2/internal/rendition-files/${jobId}`,
+        {
+          headers: {
+            'x-yucp-rendition-secret': config.MATERIALIZER_RENDITION_SHARED_SECRET,
+            ...(offset > 0 ? { Range: `bytes=${offset}-` } : {}),
+          },
+          method: 'GET',
+        },
+        ORIGIN_HEADER_TIMEOUT_MS
+      )
+    );
+  } catch {
+    // Persistent origin failures are outages, not authorization denials.
+    throw new HttpError(502, 'Rendition origin request failed', 1);
+  }
 }
 
 function resumeOffset(request: Request, objectBytes: number): number {
@@ -355,17 +362,16 @@ export default {
         ),
       });
       validateReceipt({
-        config,
         grant: authorization.grant,
         jobId: pathMatch[1],
         receipt,
       });
       const offset = resumeOffset(request, receipt.rendition.objectBytes);
-      const origin = await getExactRendition(createStorageClient(config), config, receipt, offset);
+      const origin = await getExactRendition(config, pathMatch[1], offset);
       storageFetches = 1;
       const expectedStatus = offset > 0 ? 206 : 200;
       if (origin.status !== expectedStatus || !origin.body) {
-        throw new HttpError(502, 'Rendition storage request failed', 1);
+        throw new HttpError(502, 'Rendition origin request failed', 1);
       }
       const contentLength = Number(origin.headers.get('content-length'));
       const expectedLength = receipt.rendition.objectBytes - offset;
@@ -373,16 +379,10 @@ export default {
         offset > 0
           ? `bytes ${offset}-${receipt.rendition.objectBytes - 1}/${receipt.rendition.objectBytes}`
           : null;
-      const metadataDigest = origin.headers.get('x-amz-meta-yucp-sha256');
-      const providerVersion = origin.headers.get('x-amz-version-id');
+      // Integrity is enforced by the buyer client's full-file hash against the receipt.
       if (
         contentLength !== expectedLength ||
         (offset > 0 && origin.headers.get('content-range') !== expectedContentRange) ||
-        metadataDigest !==
-          Array.from(receipt.rendition.objectSha256, (byte) =>
-            byte.toString(16).padStart(2, '0')
-          ).join('') ||
-        (providerVersion && providerVersion !== receipt.rendition.providerVersion) ||
         origin.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase() !==
           'application/zip'
       ) {
