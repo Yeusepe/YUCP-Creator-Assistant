@@ -280,6 +280,15 @@ export function createConvexPackageInstallAccess(
         ...(targetReleaseRoot ? { releaseRoot: targetReleaseRoot } : {}),
       })) as PublishedVersion | null;
       if (!completePublishedVersion(published)) {
+        console.warn(
+          JSON.stringify({
+            editionId,
+            event: 'package_install.publication_unresolved',
+            packageId: group.packageId,
+            stage: published ? 'incomplete-projection' : 'convex-null',
+            targetReleaseRoot: targetReleaseRoot ?? null,
+          })
+        );
         return null;
       }
       const authoritative = await config.publicationAuthority.resolveReadyVersion({
@@ -287,7 +296,19 @@ export function createConvexPackageInstallAccess(
         packageId: group.packageId,
         releaseRoot: published.releaseRoot,
       });
-      return authorizedPublication(group, published, authoritative);
+      const publication = authorizedPublication(group, published, authoritative);
+      if (!publication) {
+        console.warn(
+          JSON.stringify({
+            editionId,
+            event: 'package_install.publication_unresolved',
+            packageId: group.packageId,
+            releaseRoot: published.releaseRoot,
+            stage: authoritative ? 'authority-mismatch' : 'authority-null',
+          })
+        );
+      }
+      return publication;
     },
 
     async resolveInstalledRelease(group, editionId, releaseRoot) {
