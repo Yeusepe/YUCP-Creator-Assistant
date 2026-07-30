@@ -702,6 +702,7 @@ describe('package install session route', () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({
       error: 'Package authorization service unavailable',
+      errorCode: 'AUTH_DEPENDENCY_UNAVAILABLE',
     });
     expect(port.resolveProductGroup).not.toHaveBeenCalled();
   });

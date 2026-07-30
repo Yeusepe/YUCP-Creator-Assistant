@@ -92,7 +92,13 @@ export interface StorageGcRuntime {
 type StorageGcLogger = Pick<Console, 'error' | 'info'>;
 
 function errorName(error: unknown): string {
-  return error instanceof Error ? error.name : 'unknown_error';
+  if (!(error instanceof Error)) {
+    return 'unknown_error';
+  }
+  // Include the message so startup failures are diagnosable from logs alone,
+  // but strip credentials that connection errors embed in URLs.
+  const message = error.message.replace(/\/\/[^@\s/]+@/g, '//***@');
+  return `${error.name}: ${message}`;
 }
 
 function requiredValue(

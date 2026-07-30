@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -56,6 +57,25 @@ type DownloadedRendition struct {
 	Path          string
 	SignedReceipt string
 	SHA256        string
+}
+
+// materializationFailedError preserves the server's stable error code so the
+// broker surfaces it instead of a generic PACKAGE_LIFECYCLE_FAILED.
+type materializationFailedError struct {
+	code string
+}
+
+func (err *materializationFailedError) Error() string {
+	return fmt.Sprintf("materialization failed with stable error code %s", err.code)
+}
+
+var safeStableCodePattern = regexp.MustCompile(`^[A-Z0-9_]{1,64}$`)
+
+func (err *materializationFailedError) StableCode() string {
+	if safeStableCodePattern.MatchString(err.code) {
+		return err.code
+	}
+	return "MATERIALIZATION_FAILED"
 }
 
 type materializationStatus struct {
@@ -182,7 +202,7 @@ func FetchProtectedRendition(
 			encodedReceipt = status.Receipt
 		case "failed":
 			return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
-				fmt.Errorf("materialization failed with stable error code %s", status.ErrorCode)
+				&materializationFailedError{code: status.ErrorCode}
 		case "pending":
 			if status.QueuePosition < 0 ||
 				(status.State != "MATERIALIZING" &&

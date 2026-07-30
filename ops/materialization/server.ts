@@ -484,6 +484,13 @@ export function createMaterializationControlPlaneHandler(
     const traceId = createTraceId(request);
     const startedAt = performance.now();
     const url = new URL(request.url);
+    // Unauthenticated liveness probe for uptime monitors; exposes no state.
+    if (url.pathname === '/v2/health') {
+      if (request.method !== 'GET') {
+        return noStoreJson({ error: 'method_not_allowed' }, 405, traceId);
+      }
+      return noStoreJson({ ok: true }, 200, traceId);
+    }
     const tufRoute = config.packageInstallerTufRepository
       ? parseTufRepositoryRoutePath(url.pathname, PACKAGE_INSTALLER_TUF_PREFIX)
       : null;

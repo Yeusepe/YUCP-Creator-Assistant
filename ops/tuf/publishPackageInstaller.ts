@@ -429,7 +429,13 @@ export async function publishPackageInstallerTuf(
   const database = openCatalogDatabase(required(env, 'CATALOG_DATABASE_URL'));
   const scratch = await mkdtemp(path.join(tmpdir(), 'yucp-tuf-publish-'));
   try {
-    await runCatalogMigrations(database);
+    // Publishing runs from developer machines whose working trees can hold
+    // draft migrations; applying those to production ahead of their commit
+    // strands every deployed service (2026-07-29 outage). Deployed services
+    // own schema migration; the publisher must opt in explicitly.
+    if (env.YUCP_TUF_PUBLISH_APPLY_MIGRATIONS === '1') {
+      await runCatalogMigrations(database);
+    }
     const catalog = new TufRepositoryCatalog(database);
     const publication = await catalog.reservePublication({
       idempotencyKey,

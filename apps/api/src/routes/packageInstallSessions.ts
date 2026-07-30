@@ -536,7 +536,7 @@ function accessRequestFailureResponse(
     return jsonNoStore({ error: 'Token missing required scope' }, 403);
   }
   if (authentication.status === 503) {
-    return jsonNoStore({ error: 'Package authorization service unavailable' }, 503);
+    return jsonNoStore({ error: 'Package authorization service unavailable', errorCode: 'AUTH_DEPENDENCY_UNAVAILABLE' }, 503);
   }
   return jsonNoStore({ error: 'Invalid or expired DPoP authorization' }, 401);
 }
@@ -876,10 +876,10 @@ export function createPackageInstallSessionRoute(
     const requiresMaterialization =
       protectedPublication && input.operation !== 'preflight' && input.operation !== 'uninstall';
     if (requiresMaterialization && !options.materializationControl) {
-      return jsonNoStore({ error: 'Protected materialization is not configured' }, 503);
+      return jsonNoStore({ error: 'Protected materialization is not configured', errorCode: 'MATERIALIZATION_NOT_CONFIGURED' }, 503);
     }
     if (!requiresMaterialization && input.operation !== 'uninstall' && !options.releasePins) {
-      return jsonNoStore({ error: 'Package delivery retention is not configured' }, 503);
+      return jsonNoStore({ error: 'Package delivery retention is not configured', errorCode: 'DELIVERY_RETENTION_NOT_CONFIGURED' }, 503);
     }
     const identityFields = [
       authentication.buyerId,
@@ -966,7 +966,7 @@ export function createPackageInstallSessionRoute(
           generation: exchange.generation,
         });
       }
-      return jsonNoStore({ error: 'Package delivery authorization could not be issued' }, 503);
+      return jsonNoStore({ error: 'Package delivery authorization could not be issued', errorCode: 'DELIVERY_AUTHORIZATION_UNAVAILABLE' }, 503);
     }
     const grantTokenSha256 = createHash('sha256').update(issued.deliveryGrant).digest('hex');
     if (exchange.status === 'ready' && exchange.grantTokenSha256 !== grantTokenSha256) {
@@ -992,7 +992,7 @@ export function createPackageInstallSessionRoute(
           capabilityId: capability.capabilityId,
           generation: exchange.generation,
         });
-        return jsonNoStore({ error: 'Package delivery retention could not be reserved' }, 503);
+        return jsonNoStore({ error: 'Package delivery retention could not be reserved', errorCode: 'DELIVERY_RETENTION_UNAVAILABLE' }, 503);
       }
     }
     if (exchange.status === 'claimed' && materializationJobId && options.materializationControl) {
@@ -1020,7 +1020,7 @@ export function createPackageInstallSessionRoute(
           capabilityId: capability.capabilityId,
           generation: exchange.generation,
         });
-        return jsonNoStore({ error: 'Protected materialization job could not be created' }, 503);
+        return jsonNoStore({ error: 'Protected materialization job could not be created', errorCode: 'MATERIALIZATION_JOB_UNAVAILABLE' }, 503);
       }
     }
     if (
@@ -1045,7 +1045,7 @@ export function createPackageInstallSessionRoute(
         capabilityId: capability.capabilityId,
         generation: exchange.generation,
       });
-      return jsonNoStore({ error: 'Package operation outcome could not be persisted' }, 503);
+      return jsonNoStore({ error: 'Package operation outcome could not be persisted', errorCode: 'OPERATION_OUTCOME_PERSIST_FAILED' }, 503);
     }
     return jsonNoStore({
       deliveryGrant: Buffer.from(issued.deliveryGrant).toString('base64url'),
@@ -1435,7 +1435,7 @@ export function createPackageMaterializationStatusRoute(options: {
         })
       );
     } catch {
-      return jsonNoStore({ error: 'Materialization status is unavailable' }, 503);
+      return jsonNoStore({ error: 'Materialization status is unavailable', errorCode: 'MATERIALIZATION_STATUS_UNAVAILABLE' }, 503);
     }
   };
 }
