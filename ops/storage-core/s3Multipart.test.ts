@@ -41,9 +41,7 @@ describe('S3 multipart file upload', () => {
           });
         }
         if (request.method === 'POST' && url.searchParams.has('uploadId')) {
-          // R2 shape: a decorative x-amz-version-id header alongside the real
-          // multipart ETag. If-match reads compare against the ETag, so adopting
-          // the version id would 412 on the very next head (prod incident 2026-07-30).
+          // R2 shape: a decorative x-amz-version-id header beside the real ETag.
           return new Response(
             '<CompleteMultipartUploadResult>' +
               `<ETag>&quot;${multipartEtag}&quot;</ETag>` +

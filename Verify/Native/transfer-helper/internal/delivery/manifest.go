@@ -42,9 +42,8 @@ type File struct {
 	Bytes          int64   `json:"bytes"`
 	Chunks         []Chunk `json:"chunks"`
 	Classification string  `json:"classification"`
-	// The server stamps protected entries with coupling routing metadata
-	// (lane plus PNG pixel bounds). The client never acts on them, but the
-	// strict decoder must know every published field.
+	// Server-stamped coupling routing metadata; unused here, but the strict
+	// decoder must know every published field.
 	CouplingLane   string  `json:"couplingLane,omitempty"`
 	Materializer   string  `json:"materializerType,omitempty"`
 	NormalizedPath string  `json:"normalizedPath"`

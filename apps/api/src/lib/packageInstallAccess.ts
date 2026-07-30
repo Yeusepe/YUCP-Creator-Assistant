@@ -110,11 +110,8 @@ function canonicalJson(value: unknown): string {
 }
 
 /**
- * Convex mirrors only the public protected-file projection (see
- * ops/catalog/convexPublish.ts requiredProtectedFiles); the catalog stamps extra
- * routing metadata (couplingLane, pixel dimensions) that never leaves the
- * authority. Compare exactly the mirrored fields so authority-only additions
- * cannot break publication matching.
+ * Convex mirrors only these four fields (ops/catalog/convexPublish.ts); the catalog
+ * additionally stamps coupling routing metadata that never leaves the authority.
  */
 function publicProtectedFilesProjection(value: unknown): unknown {
   if (!Array.isArray(value)) {

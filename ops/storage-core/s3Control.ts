@@ -155,10 +155,8 @@ async function signedRequest(input: SignedRequestInput): Promise<Response> {
       response = await client.fetch(url, {
         body: input.body,
         headers: {
-          // Cloudflare's edge gzips compressible content types (e.g. JSON) on the
-          // fly, which weakens the ETag to W/"..." and drops the content length —
-          // breaking exact-version identity checks. Identity encoding keeps every
-          // response byte-exact as stored.
+          // Cloudflare's edge gzips compressible bodies on the fly, which weakens the
+          // ETag and drops the content length, breaking exact-version identity.
           'accept-encoding': 'identity',
           ...input.headers,
         },
@@ -319,8 +317,8 @@ export type S3ExactObjectHead = S3ExactObjectVersion & {
 };
 
 function normalizeS3Etag(etag: string | null | undefined): string | null {
-  // A weak validator prefix (W/"...") carries the same stored identity — Cloudflare's
-  // edge weakens the ETag when it transforms a response, without changing the value.
+  // A weak validator (W/"...") keeps the stored value; Cloudflare's edge adds the
+  // prefix when it transforms a response.
   const value = etag
     ?.trim()
     .replace(/^W\//i, '')
@@ -339,12 +337,9 @@ function exactEtagVersionFromResponse(response: Response, etag: string): S3Exact
 }
 
 /**
- * The ETag is the universal physical identity for exact versions. R2 mints an
- * x-amz-version-id on every PUT but returns 501 for all ?versionId= reads and deletes
- * (verified empirically against production R2), and its 32-hex shape is
- * indistinguishable from an ETag — so version-id headers are deliberately ignored.
- * If-Match reads enforce exactly the same immutability guarantee for this write-once
- * workload on every provider.
+ * The ETag is the only usable identity: R2 mints an x-amz-version-id on every PUT but
+ * returns 501 for every ?versionId= read and delete, and its 32-hex shape is
+ * indistinguishable from an ETag. If-Match reads give the same immutability guarantee.
  */
 function exactVersionFromResponse(
   response: Response,
@@ -608,10 +603,8 @@ export async function putS3FileVersioned(input: {
     if (/<Error(?:\s|>)/.test(completedXml)) {
       throw new S3MultipartCompletionUncertainError(input.key, uploadId);
     }
-    // The completed object is identified only by its (opaque) multipart ETag from the
-    // completion XML. x-amz-version-id is deliberately ignored here like everywhere else:
-    // every exact read enforces identity with if-match, which compares against the ETag,
-    // so adopting R2's decorative version id guarantees a 412 on the very next head.
+    // Identity comes from the multipart ETag in the completion XML, never the
+    // x-amz-version-id header: if-match reads compare against the ETag.
     const encodedEtag = completedXml.match(/<ETag>([\s\S]*?)<\/ETag>/)?.[1];
     const etag = normalizeS3Etag(encodedEtag ? xmlDecode(encodedEtag) : null);
     if (!etag) {

@@ -195,8 +195,7 @@ describe('package install access', () => {
             logicalBytes: 1024,
             logicalFiles: 2,
             manifestSha256: '44'.repeat(32),
-            // The catalog stamps routing metadata the Convex mirror never carries
-            // (prod incident 2026-07-30: every install 404'd as unpublished).
+            // Routing metadata the Convex mirror never carries.
             protectedFiles: [
               {
                 ...publicFile,
