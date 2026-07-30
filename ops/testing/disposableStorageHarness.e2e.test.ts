@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { openCatalogDatabase } from '../catalog';
-import {
-  getS3BucketVersioning,
-  getS3Object,
-  getS3ObjectLockConfiguration,
-  listS3Objects,
-  putS3Object,
-} from '../storage-core/s3Control';
+import { getS3Object, listS3Objects, putS3Object } from '../storage-core/s3Control';
 import {
   type DisposableStorageHarness,
   STORAGE_ROLES,
@@ -73,7 +67,6 @@ describe.serial('disposable storage harness', () => {
 
         for (const role of STORAGE_ROLES) {
           const config = harness.buckets[role];
-          expect(await getS3BucketVersioning(config)).toBe('Enabled');
           await putS3Object({
             body: `${harness.runId}:${role}`,
             config,
@@ -83,9 +76,6 @@ describe.serial('disposable storage harness', () => {
           expect(await (await getS3Object(config, 'probe.txt')).text()).toBe(
             `${harness.runId}:${role}`
           );
-        }
-        for (const role of ['common', 'protected', 'metadata'] as const) {
-          expect(await getS3ObjectLockConfiguration(harness.buckets[role])).toBe('Enabled');
         }
       }
 

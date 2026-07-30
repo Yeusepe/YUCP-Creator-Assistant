@@ -48,6 +48,7 @@ import {
   type InteractiveStorageHarness,
   startInteractiveStorageHarness,
 } from './testing/interactiveStorageHarness';
+import { type LocalWorkerR2Mirror, startLocalWorkerR2Mirror } from './testing/localWorkerR2Mirror';
 
 const execFileAsync = promisify(execFile);
 const ROOT_DIR = process.cwd();
@@ -352,19 +353,12 @@ export function buildDevCommands(
       name: 'delivery',
       color: 'magenta',
       command: 'bun x tsx watch services/delivery-worker/testDevServer.ts',
+      // Storage reaches these workers through their native local R2 bucket bindings,
+      // which the shared YUCP_WRANGLER_PERSIST_PATH root in baseEnv keeps coupled to
+      // the MinIO-backed pipeline via the local worker R2 mirror.
       env: {
         BUYER_FLOW_COMMON_CHUNK_PREFIX: baseEnv.COMMON_CHUNK_PREFIX ?? 'chunks/',
-        BUYER_FLOW_COMMON_S3_BUCKET: baseEnv.COMMON_S3_BUCKET,
-        BUYER_FLOW_COMMON_S3_ENDPOINT: baseEnv.COMMON_S3_ENDPOINT,
-        BUYER_FLOW_COMMON_S3_READONLY_ACCESS_KEY_ID: baseEnv.COMMON_S3_ACCESS_KEY_ID,
-        BUYER_FLOW_COMMON_S3_READONLY_SECRET_ACCESS_KEY: baseEnv.COMMON_S3_SECRET_ACCESS_KEY,
-        BUYER_FLOW_COMMON_S3_REGION: baseEnv.COMMON_S3_REGION,
         BUYER_FLOW_METADATA_INDEX_PREFIX: baseEnv.METADATA_INDEX_PREFIX ?? 'indexes/',
-        BUYER_FLOW_METADATA_S3_BUCKET: baseEnv.METADATA_S3_BUCKET,
-        BUYER_FLOW_METADATA_S3_ENDPOINT: baseEnv.METADATA_S3_ENDPOINT,
-        BUYER_FLOW_METADATA_S3_READONLY_ACCESS_KEY_ID: baseEnv.METADATA_S3_ACCESS_KEY_ID,
-        BUYER_FLOW_METADATA_S3_READONLY_SECRET_ACCESS_KEY: baseEnv.METADATA_S3_SECRET_ACCESS_KEY,
-        BUYER_FLOW_METADATA_S3_REGION: baseEnv.METADATA_S3_REGION,
         BUYER_FLOW_PACKAGE_DELIVERY_AUDIENCE: baseEnv.PACKAGE_DELIVERY_AUDIENCE,
         BUYER_FLOW_PACKAGE_INSTALL_ISSUER: baseEnv.PACKAGE_INSTALL_ISSUER,
         BUYER_FLOW_PACKAGE_INSTALL_SIGNING_KEY_ID: baseEnv.PACKAGE_INSTALL_SIGNING_KEY_ID,
@@ -397,13 +391,6 @@ export function buildDevCommands(
       command: 'bun x tsx watch services/materialization-source-worker/testDevServer.ts',
       env: {
         MATERIALIZATION_SOURCE_WORKER_COMMON_CHUNK_PREFIX: baseEnv.COMMON_CHUNK_PREFIX ?? 'chunks/',
-        MATERIALIZATION_SOURCE_WORKER_COMMON_S3_BUCKET: baseEnv.COMMON_S3_BUCKET,
-        MATERIALIZATION_SOURCE_WORKER_COMMON_S3_ENDPOINT: baseEnv.COMMON_S3_ENDPOINT,
-        MATERIALIZATION_SOURCE_WORKER_COMMON_S3_READONLY_ACCESS_KEY_ID:
-          baseEnv.COMMON_S3_ACCESS_KEY_ID,
-        MATERIALIZATION_SOURCE_WORKER_COMMON_S3_READONLY_SECRET_ACCESS_KEY:
-          baseEnv.COMMON_S3_SECRET_ACCESS_KEY,
-        MATERIALIZATION_SOURCE_WORKER_COMMON_S3_REGION: baseEnv.COMMON_S3_REGION,
         MATERIALIZATION_SOURCE_WORKER_DELIVERY_GRANT_ISSUER:
           baseEnv.MATERIALIZATION_SOURCE_GRANT_ISSUER,
         MATERIALIZATION_SOURCE_WORKER_DELIVERY_GRANT_KEY_ID:
@@ -415,23 +402,9 @@ export function buildDevCommands(
           baseEnv.MATERIALIZATION_SOURCE_GRANT_AUDIENCE,
         MATERIALIZATION_SOURCE_WORKER_METADATA_INDEX_PREFIX:
           baseEnv.METADATA_INDEX_PREFIX ?? 'indexes/',
-        MATERIALIZATION_SOURCE_WORKER_METADATA_S3_BUCKET: baseEnv.METADATA_S3_BUCKET,
-        MATERIALIZATION_SOURCE_WORKER_METADATA_S3_ENDPOINT: baseEnv.METADATA_S3_ENDPOINT,
-        MATERIALIZATION_SOURCE_WORKER_METADATA_S3_READONLY_ACCESS_KEY_ID:
-          baseEnv.METADATA_S3_ACCESS_KEY_ID,
-        MATERIALIZATION_SOURCE_WORKER_METADATA_S3_READONLY_SECRET_ACCESS_KEY:
-          baseEnv.METADATA_S3_SECRET_ACCESS_KEY,
-        MATERIALIZATION_SOURCE_WORKER_METADATA_S3_REGION: baseEnv.METADATA_S3_REGION,
         MATERIALIZATION_SOURCE_WORKER_PORT: String(ports.materializationSource),
         MATERIALIZATION_SOURCE_WORKER_PROTECTED_CHUNK_PREFIX:
           baseEnv.PROTECTED_CHUNK_PREFIX ?? 'chunks/',
-        MATERIALIZATION_SOURCE_WORKER_PROTECTED_S3_BUCKET: baseEnv.PROTECTED_S3_BUCKET,
-        MATERIALIZATION_SOURCE_WORKER_PROTECTED_S3_ENDPOINT: baseEnv.PROTECTED_S3_ENDPOINT,
-        MATERIALIZATION_SOURCE_WORKER_PROTECTED_S3_READONLY_ACCESS_KEY_ID:
-          baseEnv.PROTECTED_S3_ACCESS_KEY_ID,
-        MATERIALIZATION_SOURCE_WORKER_PROTECTED_S3_READONLY_SECRET_ACCESS_KEY:
-          baseEnv.PROTECTED_S3_SECRET_ACCESS_KEY,
-        MATERIALIZATION_SOURCE_WORKER_PROTECTED_S3_REGION: baseEnv.PROTECTED_S3_REGION,
         MATERIALIZATION_SOURCE_WORKER_STORAGE_FORMAT_VERSION: DESYNC_STORAGE_FORMAT_VERSION,
       },
     }
@@ -1217,6 +1190,10 @@ export function applyLocalStorageProfile(
     VPM_PUBLIC_INDEX_URL: `${publicVpmUrl}/index.json`,
     YUCP_COUPLING_SERVICE_BASE_URL: couplingUrl,
     YUCP_COUPLING_SERVICE_SHARED_SECRET: secrets.couplingServiceSharedSecret,
+    // One shared wrangler persistence root couples the R2-native workers and the local
+    // storage mirror to the same simulated buckets (disposable: cleaned with the scratch
+    // tree; interactive: lives beside the persistent profile and is rebuilt by the mirror).
+    YUCP_WRANGLER_PERSIST_PATH: path.join(path.dirname(storage.uploadDir), 'wrangler-r2'),
     ...(storageProfile === 'disposable' ? { YUCP_DISPOSABLE_RUN_ID: storage.runId } : {}),
     YUCP_STORAGE_EPOCH: storage.runId,
     YUCP_STORAGE_PROFILE: storageProfile,
@@ -1408,6 +1385,7 @@ async function startDevRuntime(
   }
 
   let localNativeRuntimeRelease: LocalNativeRuntimeRelease | undefined;
+  let workerStorageMirror: LocalWorkerR2Mirror | undefined;
   try {
     const stableSecrets = interactiveRuntimeSecrets(storage);
     const installSigningPrivateKey = stableSecrets
@@ -1509,6 +1487,24 @@ async function startDevRuntime(
       ports,
       storageProfile
     );
+    const workerPersistPath = env.YUCP_WRANGLER_PERSIST_PATH;
+    if (!workerPersistPath) {
+      throw new Error('The local storage profile emitted no wrangler persistence root');
+    }
+    workerStorageMirror = await startLocalWorkerR2Mirror({
+      buckets: {
+        common: storage.buckets.common,
+        metadata: storage.buckets.metadata,
+        protected: storage.buckets.protected,
+      },
+      configPath: path.join(
+        ROOT_DIR,
+        'services',
+        'materialization-source-worker',
+        'wrangler.jsonc'
+      ),
+      persistPath: workerPersistPath,
+    });
     const defaultCommands = buildDevCommands(
       env,
       infisical && convexProfile === 'development',
@@ -1539,6 +1535,11 @@ async function startDevRuntime(
           const failures: unknown[] = [];
           try {
             await supervisor.shutdown(signal);
+          } catch (error) {
+            failures.push(error);
+          }
+          try {
+            await workerStorageMirror?.stop();
           } catch (error) {
             failures.push(error);
           }
@@ -1603,6 +1604,7 @@ async function startDevRuntime(
       },
     };
   } catch (error) {
+    await workerStorageMirror?.stop().catch(() => undefined);
     await localNativeRuntimeRelease?.cleanup().catch(() => undefined);
     await storage.stop();
     if (ownsSelfHostedConvex) {

@@ -1,0 +1,27 @@
+-- Exact versions on providers without bucket versioning mint their identity from the
+-- object ETag, which is a content MD5 (see s3Control.ts exactVersionFromResponse). That
+-- makes file_identifier content-derived: two byte-identical objects stored at different
+-- keys in one bucket legitimately share it, and a UNIQUE key over
+-- (storage_role, bucket_name, file_identifier) rejects the second commit.
+--
+-- The constraint dated from versioning providers, whose version identifiers are globally
+-- unique per physical object, where it was a free integrity check. The real physical
+-- identity invariant is UNIQUE (storage_role, bucket_name, object_key, provider_version),
+-- which remains in place. Every reader (durable read-back verification, GC deletion, the
+-- TUF record/fence functions) matches file_identifier per row alongside the object key
+-- and provider version; none relies on bucket-wide uniqueness.
+--
+-- Lock impact: DROP CONSTRAINT takes a brief ACCESS EXCLUSIVE lock; it is metadata-only
+-- (no table scan, no rewrite).
+--
+-- Rollback: ALTER TABLE storage_object_versions
+--   ADD CONSTRAINT storage_object_versions_storage_role_bucket_name_file_ident_key
+--   UNIQUE (storage_role, bucket_name, file_identifier);
+-- This fails if byte-identical objects were committed at different keys while the
+-- constraint was absent (the exact situation the drop permits); in that case roll
+-- forward. Duplicate check before any rollback (must return 0 rows):
+--   SELECT storage_role, bucket_name, file_identifier
+--   FROM storage_object_versions
+--   GROUP BY 1, 2, 3 HAVING count(*) > 1;
+ALTER TABLE storage_object_versions
+  DROP CONSTRAINT storage_object_versions_storage_role_bucket_name_file_ident_key;

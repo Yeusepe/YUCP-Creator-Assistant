@@ -38,6 +38,8 @@ export interface QuarantineStoragePort {
     contentType: string;
     objectKey: string;
     path: string;
+    /** True when sha256 was already computed from this exact file by the caller. */
+    precomputedSha256?: boolean;
     sha256: string;
   }): Promise<QuarantineExactVersion>;
 }
@@ -137,6 +139,9 @@ export async function persistCompletedUpload(input: {
         contentType: input.contentType,
         objectKey,
         path: input.path,
+        // The digest above came from hashing this exact file; skip the storage-layer
+        // precondition re-hash of the whole artifact.
+        precomputedSha256: true,
         sha256,
       });
     } catch (error) {
@@ -292,6 +297,7 @@ export function createS3QuarantineStorage(config: CasConfig): QuarantineStorageP
         contentType: file.contentType,
         objectKey: file.objectKey,
         path: file.path,
+        ...(file.precomputedSha256 ? { precomputedSha256: true } : {}),
         role: 'quarantine',
         sha256: file.sha256,
       });

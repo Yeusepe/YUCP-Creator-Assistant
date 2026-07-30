@@ -16,23 +16,28 @@
       "head_sampling_rate": 0.01
     }
   },
+  "r2_buckets": [
+    {
+      "binding": "COMMON_BUCKET",
+      "bucket_name": "yucp-common"
+    },
+    {
+      "binding": "METADATA_BUCKET",
+      "bucket_name": "yucp-metadata"
+    },
+    {
+      "binding": "PROTECTED_BUCKET",
+      "bucket_name": "yucp-protected"
+    }
+  ],
   "vars": {
     "COMMON_CHUNK_PREFIX": "chunks/",
-    "COMMON_S3_BUCKET": "configure-through-deployment",
-    "COMMON_S3_ENDPOINT": "https://s3.us-west-004.backblazeb2.com",
-    "COMMON_S3_REGION": "us-west-004",
     "DELIVERY_GRANT_ISSUER": "https://api.example.invalid",
     "DELIVERY_GRANT_KEY_ID": "configure-through-deployment",
     "DELIVERY_GRANT_PUBLIC_KEY": "configure-through-deployment",
     "MATERIALIZATION_SOURCE_AUDIENCE": "https://source.example.invalid",
     "METADATA_INDEX_PREFIX": "indexes/",
-    "METADATA_S3_BUCKET": "configure-through-deployment",
-    "METADATA_S3_ENDPOINT": "https://s3.us-west-004.backblazeb2.com",
-    "METADATA_S3_REGION": "us-west-004",
     "PROTECTED_CHUNK_PREFIX": "chunks/",
-    "PROTECTED_S3_BUCKET": "configure-through-deployment",
-    "PROTECTED_S3_ENDPOINT": "https://s3.us-west-004.backblazeb2.com",
-    "PROTECTED_S3_REGION": "us-west-004",
     "STORAGE_FORMAT_VERSION": "desync-uncompressed-sha256-v1"
   }
 }

@@ -1,17 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join, parse, resolve } from 'node:path';
-import {
-  createS3Bucket,
-  getS3BucketVersioning,
-  getS3ObjectLockConfiguration,
-} from '../storage-core/s3Control';
+import { createS3Bucket, listS3ObjectPage } from '../storage-core/s3Control';
 import {
   createStorageRoleCredential,
   type DisposableStorageHarness,
   loadStorageRoleConfig,
   MINIO_IMAGE,
-  OBJECT_LOCK_ROLES,
   POSTGRES_17_IMAGE,
   publishedStoragePort,
   requireStorageDocker,
@@ -263,7 +258,7 @@ async function createOwnedVolume(volumeName: string, epoch: string): Promise<voi
 
 async function bucketExists(config: ReturnType<typeof loadStorageRoleConfig>): Promise<boolean> {
   try {
-    await getS3BucketVersioning(config);
+    await listS3ObjectPage(config, { maxKeys: 1, prefix: '' });
     return true;
   } catch (error) {
     if (error instanceof Error && error.message.includes('HTTP status 404')) {
@@ -448,13 +443,7 @@ export async function startInteractiveStorageHarness(
         secretAccessKey: profile.minioRoot.secretAccessKey,
       });
       if (!(await bucketExists(rootConfig))) {
-        await createS3Bucket(rootConfig, { objectLockEnabled: OBJECT_LOCK_ROLES.has(role) });
-      }
-      if ((await getS3BucketVersioning(rootConfig)) !== 'Enabled') {
-        throw new Error(`Interactive ${role} bucket versioning is not enabled`);
-      }
-      if (OBJECT_LOCK_ROLES.has(role)) {
-        await getS3ObjectLockConfiguration(rootConfig);
+        await createS3Bucket(rootConfig);
       }
       const credential = await createStorageRoleCredential({
         bucket: profile.bucketNames[role],

@@ -1,4 +1,3 @@
-import { AwsClient } from 'aws4fetch';
 import {
   type DeliveryManifest,
   deliveryManifestObjectId,
@@ -13,24 +12,13 @@ import {
   verifyDeliveryGrantV2,
 } from '../../../ops/storage-core/packageContractsV2';
 import { createLogicalReleasePublicationV4 } from '../../../ops/storage-core/releasePublication';
-import { buildS3ObjectUrl } from '../../../ops/storage-core/s3ObjectUrl';
-import { fetchWithSlowDownBackoff } from '../../../ops/storage-core/storageBackoff';
 
-// Cloudflare Workers support response streaming, but origin subrequests stay bounded.
-// Reference: https://developers.cloudflare.com/workers/platform/limits/
+// Storage reads go through native R2 bucket bindings; there is no SigV4 signing,
+// endpoint configuration, or SlowDown backoff on this path anymore.
+// Reference: https://developers.cloudflare.com/r2/api/workers/workers-api-reference/
 
 const REQUIRED_BINDINGS = [
-  'COMMON_S3_ENDPOINT',
-  'COMMON_S3_REGION',
-  'COMMON_S3_BUCKET',
-  'COMMON_S3_READONLY_ACCESS_KEY_ID',
-  'COMMON_S3_READONLY_SECRET_ACCESS_KEY',
   'COMMON_CHUNK_PREFIX',
-  'METADATA_S3_ENDPOINT',
-  'METADATA_S3_REGION',
-  'METADATA_S3_BUCKET',
-  'METADATA_S3_READONLY_ACCESS_KEY_ID',
-  'METADATA_S3_READONLY_SECRET_ACCESS_KEY',
   'METADATA_INDEX_PREFIX',
   'STORAGE_FORMAT_VERSION',
   'PACKAGE_INSTALL_SIGNING_KEY_ID',
@@ -38,6 +26,7 @@ const REQUIRED_BINDINGS = [
   'PACKAGE_INSTALL_SIGNING_PUBLIC_KEY',
   'PACKAGE_DELIVERY_AUDIENCE',
 ] as const;
+const REQUIRED_BUCKETS = ['COMMON_BUCKET', 'METADATA_BUCKET'] as const;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
 const CHUNK_ID = /^[0-9a-f]{64}$/;
 const DELIVERY_PATH = /^\/v2\/delivery\/([^/]+)\/(manifest|chunks\/([^/]+))$/;
@@ -45,7 +34,6 @@ const MAX_GRANT_BYTES = 64 * 1024;
 const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
 const MAX_DELIVERY_CHUNKS = 100_000;
 const MAX_CHUNK_BYTES = 1024 * 1024;
-const ORIGIN_TIMEOUT_MS = 30_000;
 const MAX_DPOP_REPLAY_ENTRIES = 8_192;
 const DPOP_REPLAY_SWEEP_LIMIT = 128;
 const MANIFEST_CACHE_MAX_BODY_BYTES = 8 * 1024 * 1024;
@@ -69,16 +57,10 @@ const manifestCache = new BoundedManifestCache({
 const inflightManifestLoads = new Map<string, Promise<CachedManifest>>();
 
 type BindingName = (typeof REQUIRED_BINDINGS)[number];
-type S3ReadRole = {
-  accessKeyId: string;
-  bucket: string;
-  endpoint: string;
-  region: string;
-  secretAccessKey: string;
-};
+type BucketName = (typeof REQUIRED_BUCKETS)[number];
 type DeliveryConfig = {
-  common: S3ReadRole & { chunkPrefix: string };
-  metadata: S3ReadRole & { indexPrefix: string };
+  common: { bucket: R2Bucket; chunkPrefix: string };
+  metadata: { bucket: R2Bucket; indexPrefix: string };
   packageDeliveryAudience: string;
   packageInstallIssuer: string;
   packageInstallSigningKeyId: string;
@@ -101,12 +83,26 @@ class HttpError extends Error {
   }
 }
 
+function missingBinding(name: string): HttpError {
+  // Binding names are deploy configuration detail; log them, never echo to clients.
+  console.error(JSON.stringify({ binding: name, event: 'delivery.binding.missing' }));
+  return new HttpError(500, 'Delivery worker is misconfigured');
+}
+
 function requireBinding(env: Env, name: BindingName): string {
   const value = Reflect.get(env, name);
   if (typeof value !== 'string' || !value.trim()) {
-    throw new HttpError(500, `Missing required Worker binding: ${name}`);
+    throw missingBinding(name);
   }
   return value.trim();
+}
+
+function requireBucket(env: Env, name: BucketName): R2Bucket {
+  const value = Reflect.get(env, name) as R2Bucket | undefined;
+  if (!value || typeof value.get !== 'function') {
+    throw missingBinding(name);
+  }
+  return value;
 }
 
 function normalizePrefix(value: string, name: string): string {
@@ -124,61 +120,17 @@ function normalizePrefix(value: string, name: string): string {
   return `${segments.join('/')}/`;
 }
 
-function loadRole(input: {
-  accessKeyId: string;
-  bucket: string;
-  endpoint: string;
-  name: string;
-  region: string;
-  secretAccessKey: string;
-}): S3ReadRole {
-  const endpoint = new URL(input.endpoint);
-  if (
-    !['http:', 'https:'].includes(endpoint.protocol) ||
-    endpoint.username ||
-    endpoint.password ||
-    endpoint.pathname !== '/' ||
-    endpoint.search ||
-    endpoint.hash ||
-    input.bucket.includes('/') ||
-    input.bucket.includes('\\')
-  ) {
-    throw new HttpError(500, `${input.name} storage configuration is invalid`);
-  }
-  return {
-    accessKeyId: input.accessKeyId,
-    bucket: input.bucket,
-    endpoint: endpoint.origin,
-    region: input.region,
-    secretAccessKey: input.secretAccessKey,
-  };
-}
-
 function loadEnv(env: Env): DeliveryConfig {
   const values = Object.fromEntries(
     REQUIRED_BINDINGS.map((name) => [name, requireBinding(env, name)])
   ) as Record<BindingName, string>;
   return {
     common: {
-      ...loadRole({
-        accessKeyId: values.COMMON_S3_READONLY_ACCESS_KEY_ID,
-        bucket: values.COMMON_S3_BUCKET,
-        endpoint: values.COMMON_S3_ENDPOINT,
-        name: 'Common',
-        region: values.COMMON_S3_REGION,
-        secretAccessKey: values.COMMON_S3_READONLY_SECRET_ACCESS_KEY,
-      }),
+      bucket: requireBucket(env, 'COMMON_BUCKET'),
       chunkPrefix: normalizePrefix(values.COMMON_CHUNK_PREFIX, 'COMMON_CHUNK_PREFIX'),
     },
     metadata: {
-      ...loadRole({
-        accessKeyId: values.METADATA_S3_READONLY_ACCESS_KEY_ID,
-        bucket: values.METADATA_S3_BUCKET,
-        endpoint: values.METADATA_S3_ENDPOINT,
-        name: 'Metadata',
-        region: values.METADATA_S3_REGION,
-        secretAccessKey: values.METADATA_S3_READONLY_SECRET_ACCESS_KEY,
-      }),
+      bucket: requireBucket(env, 'METADATA_BUCKET'),
       indexPrefix: normalizePrefix(values.METADATA_INDEX_PREFIX, 'METADATA_INDEX_PREFIX'),
     },
     packageDeliveryAudience: values.PACKAGE_DELIVERY_AUDIENCE,
@@ -202,72 +154,18 @@ function decodeBase64Url(value: string, name: string): Uint8Array {
   }
 }
 
-function createStorageClient(role: S3ReadRole): AwsClient {
-  return new AwsClient({
-    accessKeyId: role.accessKeyId,
-    secretAccessKey: role.secretAccessKey,
-    region: role.region,
-    service: 's3',
-    retries: 0,
-  });
-}
-
 // Chunk bytes are only ever cached after verification via caches.default in
-// loadChunk; an origin-level cf cache was rejected because a corrupted upstream
-// 200 under the third-party Backblaze hostname could not be purged.
+// loadChunk; R2 get() returns null for a missing object and throws on failure.
 async function getStorageObject(
-  aws: AwsClient,
-  role: S3ReadRole,
+  bucket: R2Bucket,
   key: string,
   stage: DenialStage = 'manifest'
-): Promise<Response> {
-  const url = buildS3ObjectUrl({ bucket: role.bucket, endpoint: role.endpoint }, key);
+): Promise<R2ObjectBody | null> {
   try {
-    return await fetchWithSlowDownBackoff(() =>
-      aws.fetch(url, {
-        method: 'GET',
-        signal: AbortSignal.timeout(ORIGIN_TIMEOUT_MS),
-      })
-    );
-  } catch (error) {
-    if (error instanceof HttpError) {
-      throw error;
-    }
-    // Persistent network failures are storage outages, not authorization denials.
+    return await bucket.get(key);
+  } catch {
+    // Persistent storage failures are outages, not authorization denials.
     throw new HttpError(502, 'Storage request failed', 1, stage);
-  }
-}
-
-async function readLimitedText(response: Response, limit: number): Promise<string> {
-  const declaredLength = response.headers.get('content-length');
-  if (declaredLength !== null && Number(declaredLength) > limit) {
-    throw new HttpError(502, 'Delivery manifest exceeded its size limit', 1);
-  }
-  if (!response.body) {
-    throw new HttpError(502, 'Delivery manifest has no body', 1);
-  }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let received = 0;
-  let text = '';
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) {
-        text += decoder.decode();
-        return text;
-      }
-      if (!value) {
-        continue;
-      }
-      received += value.byteLength;
-      if (received > limit) {
-        throw new HttpError(502, 'Delivery manifest exceeded its size limit', 1);
-      }
-      text += decoder.decode(value, { stream: true });
-    }
-  } finally {
-    reader.releaseLock();
   }
 }
 
@@ -279,22 +177,21 @@ function manifestMatchesGrant(entry: CachedManifest, grant: DeliveryGrantV2): bo
 }
 
 async function loadManifestFromStorage(
-  aws: AwsClient,
   config: DeliveryConfig,
   versionId: string
 ): Promise<CachedManifest> {
   const key = `${config.metadata.indexPrefix}${deliveryManifestObjectId(versionId)}`;
-  const response = await getStorageObject(aws, config.metadata, key);
-  if (response.status === 404) {
+  const object = await getStorageObject(config.metadata.bucket, key);
+  if (!object) {
     throw new HttpError(404, 'Package version was not found', 1, 'manifest');
   }
-  if (!response.ok) {
-    throw new HttpError(502, 'Delivery manifest storage request failed', 1, 'manifest');
+  if (object.size > MAX_MANIFEST_BYTES) {
+    throw new HttpError(502, 'Delivery manifest exceeded its size limit', 1);
   }
   let body: string;
   let manifest: DeliveryManifest;
   try {
-    body = await readLimitedText(response, MAX_MANIFEST_BYTES);
+    body = await object.text();
     manifest = parseDeliveryManifest(JSON.parse(body));
   } catch (error) {
     if (error instanceof HttpError) {
@@ -327,16 +224,12 @@ async function loadManifestFromStorage(
   return entry;
 }
 
-function loadManifestShared(
-  aws: AwsClient,
-  config: DeliveryConfig,
-  versionId: string
-): Promise<CachedManifest> {
+function loadManifestShared(config: DeliveryConfig, versionId: string): Promise<CachedManifest> {
   const pending = inflightManifestLoads.get(versionId);
   if (pending) {
     return pending;
   }
-  const load = loadManifestFromStorage(aws, config, versionId);
+  const load = loadManifestFromStorage(config, versionId);
   inflightManifestLoads.set(versionId, load);
   const cleanup = () => {
     if (inflightManifestLoads.get(versionId) === load) {
@@ -348,7 +241,6 @@ function loadManifestShared(
 }
 
 async function loadManifest(
-  aws: AwsClient,
   config: DeliveryConfig,
   grant: DeliveryGrantV2,
   versionId: string
@@ -366,7 +258,7 @@ async function loadManifest(
   }
   if (!entry) {
     manifestSource = 'storage';
-    entry = await loadManifestShared(aws, config, versionId);
+    entry = await loadManifestShared(config, versionId);
   }
   if (entry.manifest.packageId !== grant.productId) {
     throw new HttpError(502, 'Delivery manifest is not accepted', 1, 'manifest');
@@ -513,10 +405,10 @@ function chunkCacheRequest(request: Request, chunkId: string): Request {
 }
 
 async function readVerifiedChunk(
-  response: Response,
+  source: { arrayBuffer(): Promise<ArrayBuffer> },
   chunk: { id: string; sha256: string; size: number }
 ) {
-  const bytes = new Uint8Array(await response.arrayBuffer());
+  const bytes = new Uint8Array(await source.arrayBuffer());
   if (bytes.byteLength !== chunk.size || (await sha256Hex(bytes)) !== chunk.sha256) {
     throw new HttpError(502, 'Common chunk failed verification', 0, 'chunk');
   }
@@ -524,7 +416,6 @@ async function readVerifiedChunk(
 }
 
 async function loadChunk(input: {
-  aws: AwsClient;
   chunk: { id: string; sha256: string; size: number };
   config: DeliveryConfig;
   request: Request;
@@ -541,16 +432,15 @@ async function loadChunk(input: {
       }
     }
   }
-  const response = await getStorageObject(
-    input.aws,
-    input.config.common,
+  const object = await getStorageObject(
+    input.config.common.bucket,
     chunkObjectKey(input.config, input.chunk.id),
     'chunk'
   );
-  if (!response.ok) {
+  if (!object) {
     throw new HttpError(502, 'Common chunk storage request failed', 1, 'chunk');
   }
-  const bytes = await readVerifiedChunk(response, input.chunk);
+  const bytes = await readVerifiedChunk(object, input.chunk);
   if (cache) {
     await cache.put(
       cacheRequest,
@@ -585,8 +475,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     }
     const config = loadEnv(env);
     const grant = await authorize({ config, request, versionId });
-    const metadata = createStorageClient(config.metadata);
-    const loaded = await loadManifest(metadata, config, grant, versionId);
+    const loaded = await loadManifest(config, grant, versionId);
 
     if (match[2] === 'manifest') {
       return noStoreResponse(loaded.body, 200, loaded.storageFetches, {
@@ -604,7 +493,6 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
       throw new HttpError(403, 'Forbidden', loaded.storageFetches, 'membership');
     }
     const loadedChunk = await loadChunk({
-      aws: createStorageClient(config.common),
       chunk,
       config,
       request,

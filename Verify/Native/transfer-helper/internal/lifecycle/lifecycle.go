@@ -368,7 +368,31 @@ func Execute(
 	); err != nil {
 		return Result{}, err
 	}
-	staged, err := delivery.StageCommonTree(ctx, delivery.StageCommonConfig{
+	protectedCount := 0
+	var commonBytes int64
+	for _, file := range manifest.Files {
+		if file.Classification == "protected" {
+			protectedCount++
+		} else {
+			commonBytes += file.Bytes
+		}
+	}
+	renditionConfig := delivery.ProtectedRenditionConfig{
+		DownloadRoot:     request.StateRoot,
+		Grant:            grant,
+		GrantSource:      source,
+		PrivateKey:       identity.PrivateKey,
+		ReceiptAuthority: trustDocument.MaterializationReceipt,
+		Session:          session,
+	}
+	// downloadTotal is the manifest byte total until a v3 coupled receipt
+	// arrives; the coupled outputs then replace the manifest's protected
+	// byte estimate with the receipt's signed totals.
+	downloadTotal := totalBytes
+	var encodedReceipt string
+	var receipt packagecontract.MaterializationReceipt
+	var coupledFiles []delivery.StagedFile
+	stageConfig := delivery.StageCommonConfig{
 		CacheRoot:   filepath.Join(request.StateRoot, "chunk-cache"),
 		Destination: stagingTree,
 		GrantSource: source,
@@ -383,68 +407,119 @@ func Execute(
 				totalBytes,
 			)
 		},
-	})
+	}
+	if protectedCount > 0 {
+		materializationCompletedBytes := commonBytes
+		awaitConfig := renditionConfig
+		// The receipt version is unknown while the job is still pending, so
+		// the v2 stage-ratio estimate covers the wait for both versions;
+		// coupled v3 downloads then report real byte counts.
+		awaitConfig.Progress = func(progress delivery.ProtectedRenditionProgress) error {
+			materializationCompletedBytes = protectedMaterializationCompletedBytes(
+				commonBytes,
+				totalBytes,
+				materializationCompletedBytes,
+				progress,
+			)
+			return report(
+				reportProgress,
+				"downloading",
+				materializationCompletedBytes,
+				totalBytes,
+			)
+		}
+		stageConfig.Populate = func(
+			hookCtx context.Context,
+			stageRoot *os.Root,
+		) error {
+			awaited, awaitedReceipt, awaitErr := delivery.AwaitMaterializationReceipt(
+				hookCtx,
+				awaitConfig,
+			)
+			if awaitErr != nil {
+				return awaitErr
+			}
+			encodedReceipt = awaited
+			receipt = awaitedReceipt
+			if receipt.HasRendition() {
+				return nil
+			}
+			if validateErr := delivery.ValidateCoupledReceipt(
+				manifest,
+				receipt,
+			); validateErr != nil {
+				return validateErr
+			}
+			var coupledTotal int64
+			for _, file := range receipt.OutputFiles {
+				coupledTotal += file.Bytes
+			}
+			downloadTotal = commonBytes + coupledTotal
+			files, coupledErr := delivery.FetchCoupledFiles(hookCtx, delivery.CoupledFetchConfig{
+				Audience:    session.Audience,
+				CacheRoot:   filepath.Join(request.StateRoot, "coupled-cache"),
+				GrantSource: source,
+				JobID:       grant.MaterializationJobID(),
+				PrivateKey:  identity.PrivateKey,
+				Progress: func(completedBytes int64, _ int64) error {
+					return report(
+						reportProgress,
+						"downloading",
+						commonBytes+completedBytes,
+						downloadTotal,
+					)
+				},
+				Receipt:   receipt,
+				StageRoot: stageRoot,
+			})
+			if coupledErr != nil {
+				return coupledErr
+			}
+			coupledFiles = files
+			return nil
+		}
+	}
+	staged, err := delivery.StageCommonTree(ctx, stageConfig)
 	if err != nil {
 		return Result{}, err
 	}
 	allFiles := append([]delivery.StagedFile(nil), staged.Files...)
-	protectedCount := 0
-	for _, file := range manifest.Files {
-		if file.Classification == "protected" {
-			protectedCount++
-		}
-	}
 	if protectedCount > 0 {
-		materializationCompletedBytes := staged.LogicalBytes
-		rendition, receipt, renditionErr := delivery.FetchProtectedRendition(
-			ctx,
-			delivery.ProtectedRenditionConfig{
-				DownloadRoot: request.StateRoot,
-				Grant:        grant,
-				GrantSource:  source,
-				PrivateKey:   identity.PrivateKey,
-				Progress: func(progress delivery.ProtectedRenditionProgress) error {
-					materializationCompletedBytes = protectedMaterializationCompletedBytes(
-						staged.LogicalBytes,
-						totalBytes,
-						materializationCompletedBytes,
-						progress,
-					)
-					return report(
-						reportProgress,
-						"downloading",
-						materializationCompletedBytes,
-						totalBytes,
-					)
-				},
-				ReceiptAuthority: trustDocument.MaterializationReceipt,
-				Session:          session,
-			},
-		)
-		if renditionErr != nil {
-			return Result{}, renditionErr
-		}
-		protectedFiles, mergeErr := delivery.MergeProtectedRendition(
-			stagingTree,
-			manifest,
-			rendition.Path,
-			receipt,
-		)
-		if mergeErr != nil {
-			return Result{}, mergeErr
+		if receipt.HasRendition() {
+			rendition, renditionErr := delivery.DownloadProtectedRendition(
+				ctx,
+				renditionConfig,
+				encodedReceipt,
+				receipt,
+			)
+			if renditionErr != nil {
+				return Result{}, renditionErr
+			}
+			protectedFiles, mergeErr := delivery.MergeProtectedRendition(
+				stagingTree,
+				manifest,
+				rendition.Path,
+				receipt,
+			)
+			if mergeErr != nil {
+				return Result{}, mergeErr
+			}
+			allFiles = append(allFiles, protectedFiles...)
+		} else {
+			allFiles = append(allFiles, coupledFiles...)
 		}
 		receiptPath, persistErr := persistReceipt(
 			request.StateRoot,
 			receipt.ReceiptID,
-			rendition.SignedReceipt,
+			encodedReceipt,
 		)
 		if persistErr != nil {
 			return Result{}, persistErr
 		}
 		baseResult.ReceiptID = receipt.ReceiptID
 		baseResult.ReceiptPath = receiptPath
-		allFiles = append(allFiles, protectedFiles...)
 	}
+	totalBytes = downloadTotal
 	if err := report(
 		reportProgress,
 		"downloading",
@@ -493,14 +568,22 @@ func Execute(
 	); err != nil {
 		return Result{}, err
 	}
-	cleanupAfterInstall(request.StateRoot, grant.MaterializationJobID(), manifest)
+	cleanupAfterInstall(request.StateRoot, grant.MaterializationJobID(), manifest, receipt)
 	return baseResult, nil
 }
 
-const chunkCacheMaximumBytes = 2 << 30
+const (
+	chunkCacheMaximumBytes   = 2 << 30
+	coupledCacheMaximumBytes = 2 << 30
+)
 
 // Cleanup is best-effort after the verified staging tree is durable.
-func cleanupAfterInstall(stateRoot string, jobID string, manifest delivery.Manifest) {
+func cleanupAfterInstall(
+	stateRoot string,
+	jobID string,
+	manifest delivery.Manifest,
+	receipt packagecontract.MaterializationReceipt,
+) {
 	if safeIdentifier.MatchString(jobID) {
 		_ = os.RemoveAll(filepath.Join(stateRoot, "renditions", jobID))
 	}
@@ -514,6 +597,15 @@ func cleanupAfterInstall(stateRoot string, jobID string, manifest delivery.Manif
 		filepath.Join(stateRoot, "chunk-cache"),
 		chunkCacheMaximumBytes,
 		referenced,
+	)
+	referencedCoupled := make(map[string]struct{}, len(receipt.OutputFiles))
+	for _, file := range receipt.OutputFiles {
+		referencedCoupled[hex.EncodeToString(file.SHA256[:])] = struct{}{}
+	}
+	pruneChunkCache(
+		filepath.Join(stateRoot, "coupled-cache"),
+		coupledCacheMaximumBytes,
+		referencedCoupled,
 	)
 }
 

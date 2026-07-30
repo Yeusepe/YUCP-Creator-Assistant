@@ -19,16 +19,43 @@ import {
 } from '../../ops/storage-core/releasePublication';
 import worker from './src/index';
 
-const originalFetch = globalThis.fetch;
 const originalWarn = console.warn;
 const grantPrivateKey = new Uint8Array(32).fill(0x39);
 const grantKeyId = packageContractKeyId('delivery-grant-test-2026-01');
 type ProofKeyPair = { privateKey: KeyObject; publicKey: KeyObject };
 
 afterEach(() => {
-  globalThis.fetch = originalFetch;
   console.warn = originalWarn;
 });
+
+function r2Object(value: Uint8Array | string): R2ObjectBody {
+  const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
+  return {
+    size: bytes.byteLength,
+    async arrayBuffer() {
+      return bytes.buffer.slice(
+        bytes.byteOffset,
+        bytes.byteOffset + bytes.byteLength
+      ) as ArrayBuffer;
+    },
+    async text() {
+      return new TextDecoder().decode(bytes);
+    },
+  };
+}
+
+function bucketStub(
+  lookup: (
+    key: string
+  ) => Uint8Array | string | undefined | Promise<Uint8Array | string | undefined>
+): R2Bucket {
+  return {
+    async get(key: string) {
+      const value = await lookup(key);
+      return value === undefined ? null : r2Object(value);
+    },
+  };
+}
 
 function encodeJson(value: unknown): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
@@ -186,20 +213,12 @@ async function createAuthorization(input: {
   };
 }
 
-async function testEnv() {
+async function testEnv(buckets: { common: R2Bucket; metadata: R2Bucket }) {
   return {
+    COMMON_BUCKET: buckets.common,
     COMMON_CHUNK_PREFIX: 'chunks/',
-    COMMON_S3_BUCKET: 'common-test',
-    COMMON_S3_ENDPOINT: 'http://127.0.0.1:9000',
-    COMMON_S3_READONLY_ACCESS_KEY_ID: 'common-read-access',
-    COMMON_S3_READONLY_SECRET_ACCESS_KEY: 'common-read-secret',
-    COMMON_S3_REGION: 'us-east-1',
+    METADATA_BUCKET: buckets.metadata,
     METADATA_INDEX_PREFIX: 'indexes/',
-    METADATA_S3_BUCKET: 'metadata-test',
-    METADATA_S3_ENDPOINT: 'http://127.0.0.1:9000',
-    METADATA_S3_READONLY_ACCESS_KEY_ID: 'metadata-read-access',
-    METADATA_S3_READONLY_SECRET_ACCESS_KEY: 'metadata-read-secret',
-    METADATA_S3_REGION: 'us-east-1',
     PACKAGE_DELIVERY_AUDIENCE: 'https://delivery.example.test',
     PACKAGE_INSTALL_ISSUER: 'https://api.example.test',
     PACKAGE_INSTALL_SIGNING_KEY_ID: 'delivery-grant-test-2026-01',
@@ -217,14 +236,14 @@ describe('common package delivery Worker', () => {
       warnings.push(message);
     });
     let storageFetches = 0;
-    globalThis.fetch = mock(async () => {
+    const deny = bucketStub(() => {
       storageFetches += 1;
-      throw new Error('must not fetch');
-    }) as unknown as typeof fetch;
+      throw new Error('must not read storage');
+    });
     const versionId = randomUUID();
     const response = await worker.fetch(
       new Request(`https://delivery.example.test/v2/delivery/${versionId}/manifest`),
-      await testEnv()
+      await testEnv({ common: deny, metadata: deny })
     );
 
     expect(response.status).toBe(403);
@@ -235,31 +254,24 @@ describe('common package delivery Worker', () => {
     expect(warnings[0]).not.toContain('Authorization');
   });
 
-  it('uses isolated metadata and common credentials for a verified release', async () => {
+  it('uses isolated metadata and common buckets for a verified release', async () => {
     const versionId = randomUUID();
     const chunkBytes = new TextEncoder().encode('verified common chunk');
     const fixture = commonManifest(versionId, chunkBytes);
+    const chunkId = fixture.manifest.files[0]?.chunks[0]?.id as string;
     const storageRoles: string[] = [];
-    globalThis.fetch = mock(async (input: string | URL | Request) => {
-      const request = new Request(input);
-      const origin = new URL(request.url);
-      if (origin.pathname.startsWith('/metadata-test/')) {
-        storageRoles.push('metadata');
-        expect(request.headers.get('authorization')).toContain('Credential=metadata-read-access/');
-        return new Response(fixture.body, {
-          headers: {
-            'Content-Length': String(Buffer.byteLength(fixture.body)),
-            'Content-Type': 'application/json',
-          },
-        });
-      }
-      if (origin.pathname.startsWith('/common-test/')) {
+    const env = await testEnv({
+      common: bucketStub((key) => {
         storageRoles.push('common');
-        expect(request.headers.get('authorization')).toContain('Credential=common-read-access/');
-        return new Response(chunkBytes);
-      }
-      return new Response(null, { status: 404 });
-    }) as unknown as typeof fetch;
+        expect(key).toBe(`chunks/${chunkId.slice(0, 4)}/${chunkId}`);
+        return chunkBytes;
+      }),
+      metadata: bucketStub((key) => {
+        storageRoles.push('metadata');
+        expect(key.startsWith('indexes/')).toBe(true);
+        return fixture.body;
+      }),
+    });
 
     const manifestUrl = `https://delivery.example.test/v2/delivery/${versionId}/manifest`;
     const manifestResponse = await worker.fetch(
@@ -272,12 +284,11 @@ describe('common package delivery Worker', () => {
           versionId,
         }),
       }),
-      await testEnv()
+      env
     );
     expect(manifestResponse.status).toBe(200);
     expect((await manifestResponse.json()) as unknown).toEqual(fixture.manifest);
 
-    const chunkId = fixture.manifest.files[0]?.chunks[0]?.id as string;
     const chunkUrl = `https://delivery.example.test/v2/delivery/${versionId}/chunks/${chunkId}`;
     const chunkResponse = await worker.fetch(
       new Request(chunkUrl, {
@@ -289,7 +300,7 @@ describe('common package delivery Worker', () => {
           versionId,
         }),
       }),
-      await testEnv()
+      env
     );
     expect(chunkResponse.status).toBe(200);
     expect(new Uint8Array(await chunkResponse.arrayBuffer())).toEqual(chunkBytes);
@@ -303,19 +314,14 @@ describe('common package delivery Worker', () => {
     const versionId = randomUUID();
     const chunkBytes = new TextEncoder().encode('denial stage release');
     const fixture = commonManifest(versionId, chunkBytes);
-    globalThis.fetch = mock(async (input: string | URL | Request) => {
-      const origin = new URL(new Request(input).url);
-      if (origin.pathname.startsWith('/metadata-test/')) {
-        return new Response(fixture.body, {
-          headers: { 'Content-Length': String(Buffer.byteLength(fixture.body)) },
-        });
-      }
-      return new Response(null, { status: 404 });
-    }) as unknown as typeof fetch;
+    const env = await testEnv({
+      common: bucketStub(() => undefined),
+      metadata: bucketStub(() => fixture.body),
+    });
 
     const unauthorized = await worker.fetch(
       new Request(`https://delivery.example.test/v2/delivery/${versionId}/manifest`),
-      await testEnv()
+      env
     );
     expect(unauthorized.status).toBe(403);
     expect(unauthorized.headers.get('x-yucp-denial-stage')).toBe('authorization');
@@ -331,7 +337,7 @@ describe('common package delivery Worker', () => {
           versionId,
         }),
       }),
-      await testEnv()
+      env
     );
     expect(membership.status).toBe(403);
     expect(membership.headers.get('x-yucp-denial-stage')).toBe('membership');
@@ -342,20 +348,14 @@ describe('common package delivery Worker', () => {
     const chunkBytes = new TextEncoder().encode('single-flight release');
     const fixture = commonManifest(versionId, chunkBytes);
     let manifestFetches = 0;
-    globalThis.fetch = mock(async (input: string | URL | Request) => {
-      const origin = new URL(new Request(input).url);
-      if (origin.pathname.startsWith('/metadata-test/')) {
+    const env = await testEnv({
+      common: bucketStub(() => chunkBytes),
+      metadata: bucketStub(async () => {
         manifestFetches += 1;
         await new Promise((resolve) => setTimeout(resolve, 10));
-        return new Response(fixture.body, {
-          headers: { 'Content-Length': String(Buffer.byteLength(fixture.body)) },
-        });
-      }
-      if (origin.pathname.startsWith('/common-test/')) {
-        return new Response(chunkBytes);
-      }
-      return new Response(null, { status: 404 });
-    }) as unknown as typeof fetch;
+        return fixture.body;
+      }),
+    });
 
     const chunkId = fixture.manifest.files[0]?.chunks[0]?.id as string;
     const chunkUrl = `https://delivery.example.test/v2/delivery/${versionId}/chunks/${chunkId}`;
@@ -370,7 +370,7 @@ describe('common package delivery Worker', () => {
             versionId,
           }),
         }),
-        await testEnv()
+        env
       );
 
     const [first, second] = await Promise.all([request(), request()]);
@@ -382,10 +382,10 @@ describe('common package delivery Worker', () => {
 
   it('rejects a grant for a different version before storage', async () => {
     let storageFetches = 0;
-    globalThis.fetch = mock(async () => {
+    const deny = bucketStub(() => {
       storageFetches += 1;
-      throw new Error('must not fetch');
-    }) as unknown as typeof fetch;
+      throw new Error('must not read storage');
+    });
     const requestedVersion = randomUUID();
     const grantedVersion = randomUUID();
     const url = `https://delivery.example.test/v2/delivery/${requestedVersion}/manifest`;
@@ -399,7 +399,7 @@ describe('common package delivery Worker', () => {
           versionId: grantedVersion,
         }),
       }),
-      await testEnv()
+      await testEnv({ common: deny, metadata: deny })
     );
 
     expect(response.status).toBe(403);
@@ -412,12 +412,13 @@ describe('common package delivery Worker', () => {
     const chunkBytes = new TextEncoder().encode('replay-protected common chunk');
     const fixture = commonManifest(versionId, chunkBytes);
     let storageFetches = 0;
-    globalThis.fetch = mock(async () => {
-      storageFetches += 1;
-      return new Response(fixture.body, {
-        headers: { 'Content-Length': String(Buffer.byteLength(fixture.body)) },
-      });
-    }) as unknown as typeof fetch;
+    const env = await testEnv({
+      common: bucketStub(() => undefined),
+      metadata: bucketStub(() => {
+        storageFetches += 1;
+        return fixture.body;
+      }),
+    });
     const url = `https://delivery.example.test/v2/delivery/${versionId}/manifest`;
     const headers = await createAuthorization({
       bindingRoot: fixture.bindingRoot,
@@ -428,8 +429,8 @@ describe('common package delivery Worker', () => {
       versionId,
     });
 
-    const first = await worker.fetch(new Request(url, { headers }), await testEnv());
-    const replay = await worker.fetch(new Request(url, { headers }), await testEnv());
+    const first = await worker.fetch(new Request(url, { headers }), env);
+    const replay = await worker.fetch(new Request(url, { headers }), env);
 
     expect(first.status).toBe(200);
     expect(replay.status).toBe(403);
@@ -441,10 +442,13 @@ describe('common package delivery Worker', () => {
     const versionId = randomUUID();
     const fixture = commonManifest(versionId, new TextEncoder().encode('distinct-device-keys'));
     let storageFetches = 0;
-    globalThis.fetch = mock(async () => {
-      storageFetches += 1;
-      return new Response(fixture.body);
-    }) as unknown as typeof fetch;
+    const env = await testEnv({
+      common: bucketStub(() => undefined),
+      metadata: bucketStub(() => {
+        storageFetches += 1;
+        return fixture.body;
+      }),
+    });
     const url = `https://delivery.example.test/v2/delivery/${versionId}/manifest`;
     const common = {
       bindingRoot: fixture.bindingRoot,
@@ -457,11 +461,11 @@ describe('common package delivery Worker', () => {
 
     const first = await worker.fetch(
       new Request(url, { headers: await createAuthorization(common) }),
-      await testEnv()
+      env
     );
     const second = await worker.fetch(
       new Request(url, { headers: await createAuthorization(common) }),
-      await testEnv()
+      env
     );
 
     expect(first.status).toBe(200);
@@ -474,10 +478,13 @@ describe('common package delivery Worker', () => {
     const fixture = commonManifest(versionId, new TextEncoder().encode('fresh-proof-identifiers'));
     const proofKey = generateKeyPairSync('ec', { namedCurve: 'P-256' });
     let storageFetches = 0;
-    globalThis.fetch = mock(async () => {
-      storageFetches += 1;
-      return new Response(fixture.body);
-    }) as unknown as typeof fetch;
+    const env = await testEnv({
+      common: bucketStub(() => undefined),
+      metadata: bucketStub(() => {
+        storageFetches += 1;
+        return fixture.body;
+      }),
+    });
     const url = `https://delivery.example.test/v2/delivery/${versionId}/manifest`;
     const common = {
       bindingRoot: fixture.bindingRoot,
@@ -492,13 +499,13 @@ describe('common package delivery Worker', () => {
       new Request(url, {
         headers: await createAuthorization({ ...common, proofJti: 'fresh-proof-1' }),
       }),
-      await testEnv()
+      env
     );
     const second = await worker.fetch(
       new Request(url, {
         headers: await createAuthorization({ ...common, proofJti: 'fresh-proof-2' }),
       }),
-      await testEnv()
+      env
     );
 
     expect(first.status).toBe(200);
@@ -511,10 +518,13 @@ describe('common package delivery Worker', () => {
     const fixture = commonManifest(versionId, new TextEncoder().encode('unpoisoned-replay-cache'));
     const proofKey = generateKeyPairSync('ec', { namedCurve: 'P-256' });
     let storageFetches = 0;
-    globalThis.fetch = mock(async () => {
-      storageFetches += 1;
-      return new Response(fixture.body);
-    }) as unknown as typeof fetch;
+    const env = await testEnv({
+      common: bucketStub(() => undefined),
+      metadata: bucketStub(() => {
+        storageFetches += 1;
+        return fixture.body;
+      }),
+    });
     const url = `https://delivery.example.test/v2/delivery/${versionId}/manifest`;
     const validHeaders = await createAuthorization({
       bindingRoot: fixture.bindingRoot,
@@ -543,18 +553,15 @@ describe('common package delivery Worker', () => {
       new Request(url, {
         headers: { Authorization: validHeaders.Authorization, DPoP: invalidProof },
       }),
-      await testEnv()
+      env
     );
     const invalidGrantResponse = await worker.fetch(
       new Request(url, {
         headers: { Authorization: `DPoP ${invalidGrant}`, DPoP: invalidGrantProof },
       }),
-      await testEnv()
+      env
     );
-    const validResponse = await worker.fetch(
-      new Request(url, { headers: validHeaders }),
-      await testEnv()
-    );
+    const validResponse = await worker.fetch(new Request(url, { headers: validHeaders }), env);
 
     expect(invalidProofResponse.status).toBe(403);
     expect(invalidGrantResponse.status).toBe(403);
@@ -569,19 +576,13 @@ describe('common package delivery Worker', () => {
     const freshFixture = commonManifest(versionId, freshChunkBytes);
     let servedManifestBody = staleFixture.body;
     let manifestFetches = 0;
-    globalThis.fetch = mock(async (input: string | URL | Request) => {
-      const origin = new URL(new Request(input).url);
-      if (origin.pathname.startsWith('/metadata-test/')) {
+    const env = await testEnv({
+      common: bucketStub(() => freshChunkBytes),
+      metadata: bucketStub(() => {
         manifestFetches += 1;
-        return new Response(servedManifestBody, {
-          headers: { 'Content-Length': String(Buffer.byteLength(servedManifestBody)) },
-        });
-      }
-      if (origin.pathname.startsWith('/common-test/')) {
-        return new Response(freshChunkBytes);
-      }
-      return new Response(null, { status: 404 });
-    }) as unknown as typeof fetch;
+        return servedManifestBody;
+      }),
+    });
 
     const manifestUrl = `https://delivery.example.test/v2/delivery/${versionId}/manifest`;
     const staleResponse = await worker.fetch(
@@ -594,7 +595,7 @@ describe('common package delivery Worker', () => {
           versionId,
         }),
       }),
-      await testEnv()
+      env
     );
     expect(staleResponse.status).toBe(200);
 
@@ -611,7 +612,7 @@ describe('common package delivery Worker', () => {
           versionId,
         }),
       }),
-      await testEnv()
+      env
     );
 
     expect(chunkResponse.status).toBe(200);
@@ -619,19 +620,15 @@ describe('common package delivery Worker', () => {
     expect(manifestFetches).toBe(2);
   });
 
-  it('retries a rate limited storage read before serving the manifest', async () => {
+  it('maps a storage read failure to a 502 outage, not an authorization denial', async () => {
     const versionId = randomUUID();
-    const fixture = commonManifest(versionId, new TextEncoder().encode('rate limited release'));
-    let manifestFetches = 0;
-    globalThis.fetch = mock(async () => {
-      manifestFetches += 1;
-      if (manifestFetches === 1) {
-        return new Response('slow down', { headers: { 'retry-after': '0' }, status: 503 });
-      }
-      return new Response(fixture.body, {
-        headers: { 'Content-Length': String(Buffer.byteLength(fixture.body)) },
-      });
-    }) as unknown as typeof fetch;
+    const fixture = commonManifest(versionId, new TextEncoder().encode('storage outage release'));
+    const env = await testEnv({
+      common: bucketStub(() => undefined),
+      metadata: bucketStub(() => {
+        throw new Error('r2 unavailable');
+      }),
+    });
     const url = `https://delivery.example.test/v2/delivery/${versionId}/manifest`;
 
     const response = await worker.fetch(
@@ -644,11 +641,10 @@ describe('common package delivery Worker', () => {
           versionId,
         }),
       }),
-      await testEnv()
+      env
     );
 
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe(fixture.body);
-    expect(manifestFetches).toBe(2);
+    expect(response.status).toBe(502);
+    expect(response.headers.get('x-delivery-storage-fetches')).toBe('1');
   });
 });

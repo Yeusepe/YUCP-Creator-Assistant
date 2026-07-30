@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { loadCasConfig } from './config';
 import {
   copyS3ObjectVersion,
   deleteS3ObjectVersion,
   getS3ObjectRetention,
+  getS3ObjectVersion,
+  headS3ObjectVersion,
   putS3ObjectVersioned,
   resolveSignedRequestTimeoutMs,
   throttleRetryDelayMs,
@@ -26,43 +29,46 @@ function config(bucket: string) {
 }
 
 describe('S3 exact version operations', () => {
-  it('copies one named source version and returns the destination version', async () => {
+  it('copies an ETag-pinned source and returns the destination ETag identity', async () => {
+    const destinationEtag = 'b1946ac92492d2347c6235b4d2611184';
     let request: Request | undefined;
     globalThis.fetch = mock(async (input: string | URL | Request) => {
       request = new Request(input);
-      return new Response('<CopyObjectResult><ETag>"etag"</ETag></CopyObjectResult>', {
-        headers: {
-          'x-amz-copy-source-version-id': 'source-version',
-          'x-amz-version-id': 'destination-version',
-        },
-      });
+      return new Response(
+        `<CopyObjectResult><ETag>"${destinationEtag}"</ETag></CopyObjectResult>`,
+        { headers: { 'x-amz-version-id': 'destination-version' } }
+      );
     }) as unknown as typeof fetch;
 
+    const sourceEtag = '9b2cf535f27731c974343645a3985328';
     const result = await copyS3ObjectVersion({
       destination: config('common'),
       destinationKey: 'v2/common/chunks/abcd',
       source: config('quarantine'),
       sourceKey: 'candidates/chunk',
-      sourceVersionId: 'source-version',
+      sourceVersionId: sourceEtag,
     });
 
-    expect(result.versionId).toBe('destination-version');
-    expect(request?.headers.get('x-amz-copy-source')).toBe(
-      '/quarantine/candidates/chunk?versionId=source-version'
-    );
+    expect(result.versionId).toBe(destinationEtag);
+    expect(request?.headers.get('x-amz-copy-source')).toBe('/quarantine/candidates/chunk');
+    expect(request?.headers.get('x-amz-copy-source-if-match')).toBe(`"${sourceEtag}"`);
   });
 
-  it('deletes only the requested provider version', async () => {
+  it('deletes the exact version with a plain DELETE', async () => {
     let request: Request | undefined;
     globalThis.fetch = mock(async (input: string | URL | Request) => {
       request = new Request(input);
       return new Response(null, { status: 204 });
     }) as unknown as typeof fetch;
 
-    await deleteS3ObjectVersion(config('common'), 'v2/common/chunks/abcd', 'version-to-delete');
+    await deleteS3ObjectVersion(
+      config('common'),
+      'v2/common/chunks/abcd',
+      '9b2cf535f27731c974343645a3985328'
+    );
 
     expect(request?.method).toBe('DELETE');
-    expect(new URL(request?.url ?? '').searchParams.get('versionId')).toBe('version-to-delete');
+    expect(new URL(request?.url ?? '').searchParams.has('versionId')).toBeFalse();
   });
 
   it('reads retention for the requested provider version', async () => {
@@ -88,6 +94,138 @@ describe('S3 exact version operations', () => {
     const url = new URL(request?.url ?? '');
     expect(url.searchParams.get('versionId')).toBe('version-retained');
     expect(url.searchParams.has('retention')).toBeTrue();
+  });
+});
+
+describe('S3 exact ETag versions without provider versioning', () => {
+  const body = Uint8Array.from([7, 6, 5]);
+  const bodyMd5 = createHash('md5').update(body).digest('hex');
+  const digest = createHash('sha256').update(body).digest('hex');
+
+  it('mints the write ETag as the exact version and verifies it against the body MD5', async () => {
+    globalThis.fetch = mock(async () => {
+      return new Response(null, { headers: { etag: `"${bodyMd5}"` } });
+    }) as unknown as typeof fetch;
+
+    const result = await putS3ObjectVersioned({
+      body,
+      config: config('metadata'),
+      contentType: 'application/json',
+      key: 'v2/metadata/etag-write.json',
+    });
+
+    expect(result).toEqual({
+      bytes: body.byteLength,
+      fileIdentifier: bodyMd5,
+      sha256: digest,
+      versionId: bodyMd5,
+    });
+  });
+
+  it('rejects a write whose ETag does not match the body MD5', async () => {
+    globalThis.fetch = mock(async () => {
+      return new Response(null, { headers: { etag: '"dddddddddddddddddddddddddddddddd"' } });
+    }) as unknown as typeof fetch;
+
+    await expect(
+      putS3ObjectVersioned({
+        body,
+        config: config('metadata'),
+        contentType: 'application/json',
+        key: 'v2/metadata/etag-mismatch.json',
+      })
+    ).rejects.toThrow('does not match the body MD5');
+  });
+
+  it('rejects a write that reports neither a version id nor an ETag', async () => {
+    globalThis.fetch = mock(async () => new Response(null)) as unknown as typeof fetch;
+
+    await expect(
+      putS3ObjectVersioned({
+        body,
+        config: config('metadata'),
+        contentType: 'application/json',
+        key: 'v2/metadata/etag-missing.json',
+      })
+    ).rejects.toThrow('omitted its exact version identifier');
+  });
+
+  it('heads an ETag version with If-Match and no versionId query', async () => {
+    let request: Request | undefined;
+    globalThis.fetch = mock(async (input: string | URL | Request) => {
+      request = new Request(input);
+      return new Response(null, {
+        headers: {
+          'content-length': String(body.byteLength),
+          'content-type': 'application/octet-stream',
+          etag: `"${bodyMd5}"`,
+          'x-amz-meta-yucp-sha256': digest,
+        },
+      });
+    }) as unknown as typeof fetch;
+
+    const head = await headS3ObjectVersion(config('common'), 'v2/common/chunks/abcd', bodyMd5);
+
+    expect(head.fileIdentifier).toBe(bodyMd5);
+    expect(head.versionId).toBe(bodyMd5);
+    expect(head.contentLength).toBe(body.byteLength);
+    expect(head.metadata['yucp-sha256']).toBe(digest);
+    expect(request?.method).toBe('HEAD');
+    expect(request?.headers.get('if-match')).toBe(`"${bodyMd5}"`);
+    expect(new URL(request?.url ?? '').searchParams.has('versionId')).toBeFalse();
+  });
+
+  it('treats a changed object as a missing exact version on a 412 read', async () => {
+    globalThis.fetch = mock(
+      async () => new Response(null, { status: 412 })
+    ) as unknown as typeof fetch;
+
+    await expect(
+      getS3ObjectVersion(config('common'), 'v2/common/chunks/abcd', bodyMd5)
+    ).rejects.toThrow('HTTP status 412');
+  });
+
+  it('rejects an ETag read whose returned ETag differs from the requested version', async () => {
+    globalThis.fetch = mock(async () => {
+      return new Response(body, { headers: { etag: '"dddddddddddddddddddddddddddddddd"' } });
+    }) as unknown as typeof fetch;
+
+    await expect(
+      getS3ObjectVersion(config('common'), 'v2/common/chunks/abcd', bodyMd5)
+    ).rejects.toThrow('different object version');
+  });
+
+  it('deletes an ETag version with a plain DELETE', async () => {
+    let request: Request | undefined;
+    globalThis.fetch = mock(async (input: string | URL | Request) => {
+      request = new Request(input);
+      return new Response(null, { status: 204 });
+    }) as unknown as typeof fetch;
+
+    await deleteS3ObjectVersion(config('common'), 'v2/common/chunks/abcd', bodyMd5);
+
+    expect(request?.method).toBe('DELETE');
+    expect(new URL(request?.url ?? '').searchParams.has('versionId')).toBeFalse();
+  });
+
+  it('copies an ETag-pinned source and returns the destination ETag version', async () => {
+    let request: Request | undefined;
+    globalThis.fetch = mock(async (input: string | URL | Request) => {
+      request = new Request(input);
+      return new Response(`<CopyObjectResult><ETag>"${bodyMd5}"</ETag></CopyObjectResult>`);
+    }) as unknown as typeof fetch;
+
+    const result = await copyS3ObjectVersion({
+      destination: config('common'),
+      destinationKey: 'v2/common/chunks/abcd',
+      source: config('quarantine'),
+      sourceKey: 'candidates/chunk',
+      sourceVersionId: bodyMd5,
+    });
+
+    expect(result).toEqual({ fileIdentifier: bodyMd5, versionId: bodyMd5 });
+    expect(request?.headers.get('x-amz-copy-source')).toBe('/quarantine/candidates/chunk');
+    expect(request?.headers.get('x-amz-copy-source-if-match')).toBe(`"${bodyMd5}"`);
   });
 });
 
@@ -130,7 +268,9 @@ describe('signed request retries', () => {
       if (calls === 1) {
         throw Object.assign(new Error('The operation timed out.'), { name: 'TimeoutError' });
       }
-      return new Response(null, { headers: { 'x-amz-version-id': 'retried-version' } });
+      return new Response(null, {
+        headers: { etag: `"${createHash('md5').update(Uint8Array.from([7, 7, 7])).digest('hex')}"` },
+      });
     }) as unknown as typeof fetch;
 
     const result = await putS3ObjectVersioned({
@@ -141,7 +281,7 @@ describe('signed request retries', () => {
     });
 
     expect(calls).toBe(2);
-    expect(result.versionId).toBe('retried-version');
+    expect(result.versionId).toBe(createHash('md5').update(Uint8Array.from([7, 7, 7])).digest('hex'));
   });
 
   it('retries a throttled response and gives up with its status', async () => {
@@ -169,7 +309,9 @@ describe('signed request retries', () => {
       if (calls <= 4) {
         return new Response(null, { headers: { 'retry-after': '0' }, status: 503 });
       }
-      return new Response(null, { headers: { 'x-amz-version-id': 'after-throttle' } });
+      return new Response(null, {
+        headers: { etag: `"${createHash('md5').update(Uint8Array.from([1])).digest('hex')}"` },
+      });
     }) as unknown as typeof fetch;
 
     const result = await putS3ObjectVersioned({
@@ -180,7 +322,7 @@ describe('signed request retries', () => {
     });
 
     expect(calls).toBe(5);
-    expect(result.versionId).toBe('after-throttle');
+    expect(result.versionId).toBe(createHash('md5').update(Uint8Array.from([1])).digest('hex'));
   });
 
   it('does not retry a client error', async () => {

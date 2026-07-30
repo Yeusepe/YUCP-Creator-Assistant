@@ -185,44 +185,64 @@ function assertIntentMatches(
   }
 }
 
+export type BeginWriteIntentInput = {
+  bucketName: string;
+  contentType: string;
+  expectedBytes: number;
+  expectedSha256: string;
+  idempotencyKey: string;
+  leaseGeneration?: number;
+  objectKey: string;
+  operation: StorageWriteOperation;
+  ownerId: string;
+  ownerKind: StorageWriteIntent['ownerKind'];
+  storageDomain?: string;
+  storageRole: StorageRole;
+};
+
+function normalizeWriteIntentInput(input: BeginWriteIntentInput): BeginWriteIntentInput & {
+  expectedSha256: string;
+  leaseGeneration: number;
+} {
+  if (
+    !Number.isSafeInteger(input.expectedBytes) ||
+    input.expectedBytes < 0 ||
+    input.expectedBytes > 64 * 1024 ** 3 ||
+    !Number.isSafeInteger(input.leaseGeneration ?? 0) ||
+    (input.leaseGeneration ?? 0) < 0
+  ) {
+    throw new Error('Storage write intent bounds are invalid');
+  }
+  return {
+    ...input,
+    bucketName: requiredText(input.bucketName, 'Storage bucket name', 255),
+    contentType: requiredText(input.contentType, 'Storage content type', 255),
+    expectedSha256: assertSha256(input.expectedSha256),
+    idempotencyKey: requiredText(input.idempotencyKey, 'Storage idempotency key', 512),
+    leaseGeneration: input.leaseGeneration ?? 0,
+    objectKey: requiredText(input.objectKey, 'Storage object key', 2048),
+    ownerId: requiredText(input.ownerId, 'Storage owner identifier', 512),
+    storageDomain: input.storageDomain
+      ? requiredText(input.storageDomain, 'Storage domain', 512)
+      : undefined,
+  };
+}
+
+/** Upper bound for every batched catalog call; callers must chunk larger inputs. */
+export const MAX_STORAGE_BATCH_ITEMS = 1_024;
+
+function assertBatchSize(length: number): void {
+  if (length > MAX_STORAGE_BATCH_ITEMS) {
+    throw new Error('Storage batch exceeds its size limit');
+  }
+}
+
 export class ExactStorageCatalog {
   constructor(private readonly sql: CatalogDatabase) {}
 
-  async beginWriteIntent(input: {
-    bucketName: string;
-    contentType: string;
-    expectedBytes: number;
-    expectedSha256: string;
-    idempotencyKey: string;
-    leaseGeneration?: number;
-    objectKey: string;
-    operation: StorageWriteOperation;
-    ownerId: string;
-    ownerKind: StorageWriteIntent['ownerKind'];
-    storageDomain?: string;
-    storageRole: StorageRole;
-  }): Promise<StorageWriteIntent> {
-    if (
-      !Number.isSafeInteger(input.expectedBytes) ||
-      input.expectedBytes < 0 ||
-      input.expectedBytes > 64 * 1024 ** 3 ||
-      !Number.isSafeInteger(input.leaseGeneration ?? 0) ||
-      (input.leaseGeneration ?? 0) < 0
-    ) {
-      throw new Error('Storage write intent bounds are invalid');
-    }
-    const expectedSha256 = assertSha256(input.expectedSha256);
-    const values = {
-      ...input,
-      bucketName: requiredText(input.bucketName, 'Storage bucket name', 255),
-      contentType: requiredText(input.contentType, 'Storage content type', 255),
-      idempotencyKey: requiredText(input.idempotencyKey, 'Storage idempotency key', 512),
-      objectKey: requiredText(input.objectKey, 'Storage object key', 2048),
-      ownerId: requiredText(input.ownerId, 'Storage owner identifier', 512),
-      storageDomain: input.storageDomain
-        ? requiredText(input.storageDomain, 'Storage domain', 512)
-        : undefined,
-    };
+  async beginWriteIntent(input: BeginWriteIntentInput): Promise<StorageWriteIntent> {
+    const values = normalizeWriteIntentInput(input);
+    const expectedSha256 = values.expectedSha256;
     const rows = await this.sql<StorageWriteIntentRow[]>`
       INSERT INTO storage_write_intents (
         id,
@@ -287,6 +307,123 @@ export class ExactStorageCatalog {
       return refreshed;
     }
     return intent;
+  }
+
+  /**
+   * Multi-row beginWriteIntent with identical per-row semantics: idempotent on the
+   * idempotency key, verifies matching parameters, revives ABORTED intents, and returns
+   * each row's existing-intent state in input order.
+   */
+  async beginWriteIntentBatch(
+    inputs: readonly BeginWriteIntentInput[]
+  ): Promise<StorageWriteIntent[]> {
+    if (inputs.length === 0) {
+      return [];
+    }
+    assertBatchSize(inputs.length);
+    const values = inputs.map((input) => normalizeWriteIntentInput(input));
+    const keys = values.map((value) => value.idempotencyKey);
+    if (new Set(keys).size !== keys.length) {
+      throw new Error('Storage write intent batch has duplicate idempotency keys');
+    }
+    await this.sql`
+      INSERT INTO storage_write_intents (
+        id,
+        idempotency_key,
+        owner_kind,
+        owner_id,
+        lease_generation,
+        operation,
+        storage_role,
+        storage_domain,
+        bucket_name,
+        object_key,
+        expected_sha256,
+        expected_bytes,
+        content_type,
+        state
+      )
+      SELECT
+        batch.id,
+        batch.idempotency_key,
+        batch.owner_kind,
+        batch.owner_id,
+        batch.lease_generation,
+        batch.operation,
+        batch.storage_role,
+        batch.storage_domain,
+        batch.bucket_name,
+        batch.object_key,
+        decode(batch.expected_sha256, 'hex'),
+        batch.expected_bytes,
+        batch.content_type,
+        'ISSUED'
+      FROM unnest(
+        ${values.map(() => randomUUID())}::uuid[],
+        ${keys}::text[],
+        ${values.map((value) => value.ownerKind)}::text[],
+        ${values.map((value) => value.ownerId)}::text[],
+        ${values.map((value) => value.leaseGeneration)}::int[],
+        ${values.map((value) => value.operation)}::text[],
+        ${values.map((value) => value.storageRole)}::text[],
+        ${values.map((value) => value.storageDomain ?? null)}::text[],
+        ${values.map((value) => value.bucketName)}::text[],
+        ${values.map((value) => value.objectKey)}::text[],
+        ${values.map((value) => value.expectedSha256)}::text[],
+        ${values.map((value) => value.expectedBytes)}::bigint[],
+        ${values.map((value) => value.contentType)}::text[]
+      ) AS batch(
+        id,
+        idempotency_key,
+        owner_kind,
+        owner_id,
+        lease_generation,
+        operation,
+        storage_role,
+        storage_domain,
+        bucket_name,
+        object_key,
+        expected_sha256,
+        expected_bytes,
+        content_type
+      )
+      ON CONFLICT (idempotency_key) DO NOTHING
+    `;
+    const load = async (): Promise<Map<string, StorageWriteIntent>> => {
+      const rows = await this.sql<StorageWriteIntentRow[]>`
+        SELECT *
+        FROM storage_write_intents
+        WHERE idempotency_key = ANY(${keys}::text[])
+      `;
+      return new Map(rows.map((row) => [row.idempotency_key, toIntent(row)]));
+    };
+    let byKey = await load();
+    for (const value of values) {
+      const intent = byKey.get(value.idempotencyKey);
+      if (!intent) {
+        throw new Error('Storage write intent was not returned');
+      }
+      assertIntentMatches(intent, value);
+    }
+    const abortedIds = values
+      .map((value) => byKey.get(value.idempotencyKey) as StorageWriteIntent)
+      .filter((intent) => intent.state === 'ABORTED')
+      .map((intent) => intent.id);
+    if (abortedIds.length > 0) {
+      await this.sql`
+        UPDATE storage_write_intents
+        SET state = 'ISSUED', updated_at = clock_timestamp()
+        WHERE id = ANY(${abortedIds}::uuid[]) AND state = 'ABORTED'
+      `;
+      byKey = await load();
+    }
+    return values.map((value) => {
+      const intent = byKey.get(value.idempotencyKey);
+      if (!intent) {
+        throw new Error('Storage write intent was not returned');
+      }
+      return intent;
+    });
   }
 
   async getWriteIntentByIdempotencyKey(idempotencyKey: string): Promise<StorageWriteIntent | null> {
@@ -730,6 +867,435 @@ export class ExactStorageCatalog {
         );
       }
       return object;
+    });
+  }
+
+  /**
+   * Multi-row findVerifiedCanonical: one locked lookup for every (sha256, bytes) pair and
+   * one reservation update for the matched intents. Returns matches in input order, null
+   * where no verified canonical object exists.
+   */
+  async findVerifiedCanonicalBatch(input: {
+    items: ReadonlyArray<{ bytes: number; intentId: string; sha256: string }>;
+    storageDomain: string;
+    storageRole: Extract<StorageRole, 'common' | 'metadata' | 'protected'>;
+  }): Promise<Array<StorageObjectVersion | null>> {
+    if (input.items.length === 0) {
+      return [];
+    }
+    assertBatchSize(input.items.length);
+    const items = input.items.map((item) => {
+      if (!Number.isSafeInteger(item.bytes) || item.bytes < 0) {
+        throw new Error('Storage write intent bounds are invalid');
+      }
+      return {
+        bytes: item.bytes,
+        intentId: assertUuid(item.intentId, 'Storage write intent id'),
+        sha256: assertSha256(item.sha256),
+      };
+    });
+    const lookupIntentIds = items.map((item) => item.intentId);
+    if (new Set(lookupIntentIds).size !== lookupIntentIds.length) {
+      throw new Error('Verified canonical storage lookup batch has duplicate intents');
+    }
+    const storageDomain = requiredText(input.storageDomain, 'Storage domain', 512);
+    return this.sql.begin(async (transaction) => {
+      const rows = await transaction<Array<StorageObjectVersionRow & { ordinal: number }>>`
+        SELECT batch.ordinal, object.*
+        FROM unnest(
+          ${items.map((_, index) => index)}::int[],
+          ${items.map((item) => item.sha256)}::text[],
+          ${items.map((item) => item.bytes)}::bigint[]
+        ) AS batch(ordinal, sha256, bytes)
+        JOIN canonical_storage_objects canonical
+          ON canonical.storage_role = ${input.storageRole}
+          AND canonical.storage_domain = ${storageDomain}
+          AND canonical.sha256 = decode(batch.sha256, 'hex')
+          AND canonical.bytes = batch.bytes
+        JOIN storage_object_versions object
+          ON object.id = canonical.object_version_id
+        LEFT JOIN storage_gc_candidates candidate
+          ON candidate.object_version_id = object.id
+        WHERE object.verification_state = 'VERIFIED'
+          AND (
+            candidate.state IS NULL
+            OR candidate.state NOT IN ('DELETING', 'DELETED')
+          )
+        ORDER BY object.id
+        FOR UPDATE OF object
+      `;
+      const found: Array<StorageObjectVersion | null> = items.map(() => null);
+      for (const row of rows) {
+        found[row.ordinal] = toObjectVersion(row);
+      }
+      const matched = items
+        .map((item, index) => ({ item, object: found[index] }))
+        .filter((entry): entry is { item: (typeof items)[number]; object: StorageObjectVersion } =>
+          Boolean(entry.object)
+        );
+      if (matched.length > 0) {
+        const reserved = await transaction<{ id: string }[]>`
+          UPDATE storage_write_intents intent
+          SET
+            candidate_object_version_id = batch.object_version_id,
+            updated_at = clock_timestamp()
+          FROM unnest(
+            ${matched.map((entry) => entry.item.intentId)}::uuid[],
+            ${matched.map((entry) => entry.object.id)}::uuid[],
+            ${matched.map((entry) => entry.item.sha256)}::text[],
+            ${matched.map((entry) => entry.item.bytes)}::bigint[]
+          ) AS batch(intent_id, object_version_id, sha256, bytes)
+          WHERE intent.id = batch.intent_id
+            AND intent.state IN ('ISSUED', 'RETRYING', 'UNCERTAIN')
+            AND intent.storage_role = ${input.storageRole}
+            AND intent.storage_domain = ${storageDomain}
+            AND intent.expected_sha256 = decode(batch.sha256, 'hex')
+            AND intent.expected_bytes = batch.bytes
+          RETURNING intent.id
+        `;
+        if (reserved.length !== matched.length) {
+          throw new Error(
+            'Verified canonical storage reservation requires one matching write intent'
+          );
+        }
+      }
+      return found;
+    });
+  }
+
+  /**
+   * Multi-row commitVerifiedObject plus release links in one transaction. Entries whose
+   * intent is already COMMITTED are verified against their recorded object (idempotent
+   * re-commit); every other entry must be ISSUED or UNCERTAIN. Reconciliation-claimed
+   * (RETRYING) intents must use the single-row commit with their claim token.
+   */
+  async commitVerifiedObjectsBatch(input: {
+    entries: ReadonlyArray<{
+      fileIdentifier: string;
+      intentId: string;
+      providerVersion: string;
+      releaseLink?: {
+        logicalDigest: string;
+        logicalKind: PackageReleaseStorageLogicalKind;
+      };
+    }>;
+    packageVersionId?: string;
+  }): Promise<Array<{ intentId: string; object: StorageObjectVersion }>> {
+    if (input.entries.length === 0) {
+      return [];
+    }
+    assertBatchSize(input.entries.length);
+    const entries = input.entries.map((entry) => ({
+      fileIdentifier: requiredText(entry.fileIdentifier, 'Storage file identifier', 512),
+      intentId: assertUuid(entry.intentId, 'Storage write intent id'),
+      providerVersion: requiredText(entry.providerVersion, 'Storage provider version', 512),
+      releaseLink: entry.releaseLink
+        ? {
+            logicalDigest: assertSha256(entry.releaseLink.logicalDigest),
+            logicalKind: entry.releaseLink.logicalKind,
+          }
+        : undefined,
+    }));
+    const intentIds = entries.map((entry) => entry.intentId);
+    if (new Set(intentIds).size !== intentIds.length) {
+      throw new Error('Storage write commit batch has duplicate intents');
+    }
+    const packageVersionId =
+      entries.some((entry) => entry.releaseLink) && input.packageVersionId
+        ? assertUuid(input.packageVersionId, 'Package version id')
+        : input.packageVersionId;
+    if (entries.some((entry) => entry.releaseLink) && !packageVersionId) {
+      throw new Error('Storage release links require a package version id');
+    }
+    return this.sql.begin(async (transaction) => {
+      const intentRows = await transaction<StorageWriteIntentRow[]>`
+        SELECT *
+        FROM storage_write_intents
+        WHERE id = ANY(${intentIds}::uuid[])
+        ORDER BY id
+        FOR UPDATE
+      `;
+      const intentById = new Map(intentRows.map((row) => [row.id, toIntent(row)]));
+      const resolved = entries.map((entry) => {
+        const intent = intentById.get(entry.intentId);
+        if (!intent) {
+          throw new Error('Storage write intent was not found');
+        }
+        if (intent.state === 'RETRYING') {
+          throw new Error('Storage write intent lost commit ownership');
+        }
+        if (
+          intent.state !== 'COMMITTED' &&
+          intent.state !== 'ISSUED' &&
+          intent.state !== 'UNCERTAIN'
+        ) {
+          throw new Error('Storage write intent cannot commit');
+        }
+        return { entry, intent };
+      });
+      const pending = resolved.filter(({ intent }) => intent.state !== 'COMMITTED');
+      // Committed intents resolve by their recorded object id, mirroring the single-row
+      // path, so an idempotent re-commit survives soft-deleted or GC-marked objects.
+      const recordedIds = resolved
+        .filter(({ intent }) => intent.state === 'COMMITTED')
+        .map(({ intent }) => intent.objectVersionId as string);
+      const recordedById = new Map(
+        recordedIds.length > 0
+          ? (
+              await transaction<StorageObjectVersionRow[]>`
+                SELECT *
+                FROM storage_object_versions
+                WHERE id = ANY(${recordedIds}::uuid[])
+              `
+            ).map((row) => [row.id, toObjectVersion(row)] as const)
+          : []
+      );
+      if (pending.length > 0) {
+        await transaction`
+          INSERT INTO storage_object_versions (
+            id,
+            storage_role,
+            bucket_name,
+            object_key,
+            provider_version,
+            file_identifier,
+            sha256,
+            bytes,
+            content_type,
+            verification_state,
+            verified_at
+          )
+          SELECT
+            batch.id,
+            batch.storage_role,
+            batch.bucket_name,
+            batch.object_key,
+            batch.provider_version,
+            batch.file_identifier,
+            decode(batch.sha256, 'hex'),
+            batch.bytes,
+            batch.content_type,
+            'VERIFIED',
+            clock_timestamp()
+          FROM unnest(
+            ${pending.map(() => randomUUID())}::uuid[],
+            ${pending.map(({ intent }) => intent.storageRole)}::text[],
+            ${pending.map(({ intent }) => intent.bucketName)}::text[],
+            ${pending.map(({ intent }) => intent.objectKey)}::text[],
+            ${pending.map(({ entry }) => entry.providerVersion)}::text[],
+            ${pending.map(({ entry }) => entry.fileIdentifier)}::text[],
+            ${pending.map(({ intent }) => intent.expectedSha256)}::text[],
+            ${pending.map(({ intent }) => intent.expectedBytes)}::bigint[],
+            ${pending.map(({ intent }) => intent.contentType)}::text[]
+          ) AS batch(
+            id,
+            storage_role,
+            bucket_name,
+            object_key,
+            provider_version,
+            file_identifier,
+            sha256,
+            bytes,
+            content_type
+          )
+          ON CONFLICT (storage_role, bucket_name, object_key, provider_version)
+          DO NOTHING
+        `;
+      }
+      const objectRows = await transaction<Array<StorageObjectVersionRow & { ordinal: number }>>`
+        SELECT batch.ordinal, object.*
+        FROM unnest(
+          ${resolved.map((_, index) => index)}::int[],
+          ${resolved.map(({ intent }) => intent.storageRole)}::text[],
+          ${resolved.map(({ intent }) => intent.bucketName)}::text[],
+          ${resolved.map(({ intent }) => intent.objectKey)}::text[],
+          ${resolved.map(({ entry }) => entry.providerVersion)}::text[]
+        ) AS batch(ordinal, storage_role, bucket_name, object_key, provider_version)
+        JOIN storage_object_versions object
+          ON object.storage_role = batch.storage_role
+          AND object.bucket_name = batch.bucket_name
+          AND object.object_key = batch.object_key
+          AND object.provider_version = batch.provider_version
+        LEFT JOIN storage_gc_candidates candidate
+          ON candidate.object_version_id = object.id
+        WHERE object.verification_state = 'VERIFIED'
+          AND (
+            candidate.state IS NULL
+            OR candidate.state NOT IN ('DELETING', 'DELETED')
+          )
+        ORDER BY object.id
+        FOR UPDATE OF object
+      `;
+      const objectByOrdinal = new Map<number, StorageObjectVersion>();
+      for (const row of objectRows) {
+        objectByOrdinal.set(row.ordinal, toObjectVersion(row));
+      }
+      const objects = resolved.map(({ entry, intent }, index) => {
+        const object = objectByOrdinal.get(index);
+        if (intent.state === 'COMMITTED') {
+          const recorded = recordedById.get(intent.objectVersionId as string);
+          if (
+            !recorded ||
+            recorded.providerVersion !== entry.providerVersion ||
+            recorded.fileIdentifier !== entry.fileIdentifier
+          ) {
+            throw new Error('Committed storage write intent is immutable');
+          }
+          return recorded;
+        }
+        if (!object) {
+          throw new Error('Exact storage object version was not returned');
+        }
+        if (
+          object.fileIdentifier !== entry.fileIdentifier ||
+          object.sha256 !== intent.expectedSha256 ||
+          object.bytes !== intent.expectedBytes ||
+          object.contentType !== intent.contentType ||
+          object.verificationState !== 'VERIFIED'
+        ) {
+          throw new Error('Exact storage object conflicts with the write intent');
+        }
+        return object;
+      });
+      if (pending.length > 0) {
+        const pendingObjects = resolved
+          .map((row, index) => ({ ...row, object: objects[index] as StorageObjectVersion }))
+          .filter(({ intent }) => intent.state !== 'COMMITTED');
+        const committed = await transaction<{ id: string }[]>`
+          UPDATE storage_write_intents intent
+          SET
+            state = 'COMMITTED',
+            object_version_id = batch.object_version_id,
+            retry_claim_token = NULL,
+            retry_claim_expires_at = NULL,
+            updated_at = clock_timestamp()
+          FROM unnest(
+            ${pendingObjects.map(({ intent }) => intent.id)}::uuid[],
+            ${pendingObjects.map(({ object }) => object.id)}::uuid[]
+          ) AS batch(intent_id, object_version_id)
+          WHERE intent.id = batch.intent_id
+            AND intent.state IN ('ISSUED', 'UNCERTAIN')
+          RETURNING intent.id
+        `;
+        if (committed.length !== pendingObjects.length) {
+          throw new Error('Storage write intent lost commit ownership');
+        }
+        const canonicalRows = new Map<
+          string,
+          {
+            bytes: number;
+            objectVersionId: string;
+            sha256: string;
+            storageDomain: string;
+            storageRole: string;
+          }
+        >();
+        for (const { intent, object } of pendingObjects) {
+          if (
+            intent.storageDomain &&
+            (intent.storageRole === 'common' ||
+              intent.storageRole === 'metadata' ||
+              intent.storageRole === 'protected')
+          ) {
+            const key = `${intent.storageRole}\0${intent.storageDomain}\0${intent.expectedSha256}\0${intent.expectedBytes}`;
+            canonicalRows.set(key, {
+              bytes: intent.expectedBytes,
+              objectVersionId: object.id,
+              sha256: intent.expectedSha256,
+              storageDomain: intent.storageDomain,
+              storageRole: intent.storageRole,
+            });
+          }
+        }
+        if (canonicalRows.size > 0) {
+          const rows = Array.from(canonicalRows.values());
+          await transaction`
+            INSERT INTO canonical_storage_objects (
+              storage_role,
+              storage_domain,
+              sha256,
+              bytes,
+              object_version_id
+            )
+            SELECT
+              batch.storage_role,
+              batch.storage_domain,
+              decode(batch.sha256, 'hex'),
+              batch.bytes,
+              batch.object_version_id
+            FROM unnest(
+              ${rows.map((row) => row.storageRole)}::text[],
+              ${rows.map((row) => row.storageDomain)}::text[],
+              ${rows.map((row) => row.sha256)}::text[],
+              ${rows.map((row) => row.bytes)}::bigint[],
+              ${rows.map((row) => row.objectVersionId)}::uuid[]
+            ) AS batch(storage_role, storage_domain, sha256, bytes, object_version_id)
+            ON CONFLICT (storage_role, storage_domain, sha256, bytes)
+            DO UPDATE SET
+              object_version_id = EXCLUDED.object_version_id,
+              updated_at = clock_timestamp()
+          `;
+        }
+      }
+      const links = new Map<
+        string,
+        {
+          logicalDigest: string;
+          logicalKind: PackageReleaseStorageLogicalKind;
+          objectVersionId: string;
+        }
+      >();
+      resolved.forEach(({ entry }, index) => {
+        if (!entry.releaseLink) {
+          return;
+        }
+        const object = objects[index] as StorageObjectVersion;
+        if (object.sha256 !== entry.releaseLink.logicalDigest) {
+          throw new Error(
+            'Package release storage link requires one available verified exact object'
+          );
+        }
+        const key = `${entry.releaseLink.logicalKind}\0${entry.releaseLink.logicalDigest}\0${object.id}`;
+        links.set(key, {
+          logicalDigest: entry.releaseLink.logicalDigest,
+          logicalKind: entry.releaseLink.logicalKind,
+          objectVersionId: object.id,
+        });
+      });
+      if (links.size > 0) {
+        const rows = Array.from(links.values());
+        await transaction`
+          INSERT INTO package_release_storage_objects (
+            package_version_id,
+            logical_kind,
+            logical_digest,
+            object_version_id
+          )
+          SELECT
+            ${packageVersionId as string},
+            batch.logical_kind,
+            decode(batch.logical_digest, 'hex'),
+            batch.object_version_id
+          FROM unnest(
+            ${rows.map((row) => row.logicalKind)}::text[],
+            ${rows.map((row) => row.logicalDigest)}::text[],
+            ${rows.map((row) => row.objectVersionId)}::uuid[]
+          ) AS batch(logical_kind, logical_digest, object_version_id)
+          ON CONFLICT (
+            package_version_id,
+            logical_kind,
+            logical_digest,
+            object_version_id
+          )
+          DO UPDATE SET object_version_id = EXCLUDED.object_version_id
+        `;
+      }
+      // Returning the intent id per row makes result alignment verifiable at the
+      // caller instead of an assumed positional contract.
+      return resolved.map(({ entry }, index) => ({
+        intentId: entry.intentId,
+        object: objects[index] as StorageObjectVersion,
+      }));
     });
   }
 }

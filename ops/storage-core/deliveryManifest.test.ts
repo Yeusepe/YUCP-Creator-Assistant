@@ -6,6 +6,28 @@ import {
 } from './deliveryManifest';
 import { ACTIVE_PROTECTION_POLICY_ID } from './protectionPolicyId';
 
+function couplingManifest(file: Record<string, unknown>) {
+  return {
+    activeContentDigest: '44'.repeat(32),
+    activePolicyVersion: 'active-content-policy-v1',
+    chunkAvgKib: 256,
+    commonRoot: '55'.repeat(32),
+    files: [file],
+    normalizationPolicyVersion: 'package-normalization-policy-v2',
+    packageId: 'com.yucp.example',
+    protectedSourceRoot: '66'.repeat(32),
+    protectionPolicyDigest: '77'.repeat(32),
+    protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
+    releaseRoot: '33'.repeat(32),
+    schemaVersion: 4,
+    storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
+    version: '1.2.3',
+    versionId: 'version-1',
+    vpmDependencies: {},
+    vpmRepositories: {},
+  };
+}
+
 describe('logical tree delivery manifest', () => {
   test('binds sorted file recipes and active-content policy', () => {
     const manifest = createDeliveryManifest({
@@ -201,6 +223,91 @@ describe('logical tree delivery manifest', () => {
     });
 
     expect(manifest.files[0]?.chunks).toHaveLength(1);
+  });
+
+  test('round-trips coupling lane and pixel dimensions on protected files', () => {
+    const manifest = parseDeliveryManifest(
+      couplingManifest({
+        bytes: 4096,
+        chunks: [{ id: '22'.repeat(32), sha256: '11'.repeat(32), size: 4096 }],
+        classification: 'protected',
+        couplingLane: 'worker',
+        materializerType: 'png',
+        normalizedPath: 'Assets/Jammr/texture.png',
+        pixelHeight: 32,
+        pixelWidth: 64,
+        sha256: '11'.repeat(32),
+      })
+    );
+    expect(manifest.files[0]).toMatchObject({
+      couplingLane: 'worker',
+      pixelHeight: 32,
+      pixelWidth: 64,
+    });
+    expect(parseDeliveryManifest(JSON.parse(JSON.stringify(manifest))).files).toEqual(
+      manifest.files
+    );
+  });
+
+  test('keeps legacy files without coupling fields valid', () => {
+    const manifest = parseDeliveryManifest(
+      couplingManifest({
+        bytes: 4096,
+        chunks: [{ id: '22'.repeat(32), sha256: '11'.repeat(32), size: 4096 }],
+        classification: 'protected',
+        materializerType: 'fbx',
+        normalizedPath: 'Assets/Jammr/model.fbx',
+        sha256: '11'.repeat(32),
+      })
+    );
+    expect(manifest.files[0]?.couplingLane).toBeUndefined();
+    expect(manifest.files[0]?.pixelWidth).toBeUndefined();
+  });
+
+  test('rejects invalid coupling fields', () => {
+    const protectedFile = {
+      bytes: 4096,
+      chunks: [{ id: '22'.repeat(32), sha256: '11'.repeat(32), size: 4096 }],
+      classification: 'protected',
+      materializerType: 'png',
+      normalizedPath: 'Assets/Jammr/texture.png',
+      sha256: '11'.repeat(32),
+    };
+    expect(() =>
+      parseDeliveryManifest(
+        couplingManifest({
+          ...protectedFile,
+          classification: 'common',
+          couplingLane: 'worker',
+          materializerType: undefined,
+        })
+      )
+    ).toThrow('couplingLane');
+    expect(() =>
+      parseDeliveryManifest(couplingManifest({ ...protectedFile, couplingLane: 'gpu' }))
+    ).toThrow('couplingLane');
+    expect(() =>
+      parseDeliveryManifest(couplingManifest({ ...protectedFile, pixelHeight: 32, pixelWidth: 0 }))
+    ).toThrow('pixelWidth');
+    expect(() =>
+      parseDeliveryManifest(
+        couplingManifest({ ...protectedFile, pixelHeight: 1.5, pixelWidth: 32 })
+      )
+    ).toThrow('pixelHeight');
+    expect(() =>
+      parseDeliveryManifest(couplingManifest({ ...protectedFile, pixelWidth: 32 }))
+    ).toThrow('unpaired pixel dimensions');
+    expect(() =>
+      parseDeliveryManifest(
+        couplingManifest({
+          ...protectedFile,
+          classification: 'common',
+          materializerType: undefined,
+          pixelHeight: 32,
+          pixelWidth: 32,
+        })
+      )
+    ).toThrow('pixelWidth');
   });
 
   test('rejects a removed protection policy', () => {

@@ -13,6 +13,8 @@ import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId'
 import { waitForPostgres } from '../testing/postgresReadiness';
 import type { MaterializationKeyBrokerPort } from './keyBrokerClient';
 import { MaterializationBroker, type MaterializationClaimResult } from './materializationBroker';
+import { PostgresMaterializationDispatchOutboxRepository } from './materializationDispatch';
+import { verifyMaterializationReceiptV3 } from './materializationReceiptV3';
 
 const postgresImage =
   'postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193';
@@ -814,6 +816,299 @@ describe.serial('PostgreSQL materialization capability broker', () => {
       receiptId: expect.any(String),
       success: true,
     });
+  }, 20_000);
+
+  it('signs a v3 coupled receipt for a per-file completion and keeps retries idempotent', async () => {
+    const broker = createBroker();
+    await broker.createInstallJob({
+      bindingRoot: new Uint8Array(32).fill(0x23),
+      buyerId: 'buyer-coupled',
+      creatorId: 'creator-1',
+      grantJti: 'grant-coupled',
+      id: 'job-coupled',
+      keyEpoch: 7,
+      materializationAlgorithm: 'png-dct-qim-v2',
+      outputFormat: 'zip',
+      pluginVersion: 'png-plugin-2',
+      productId: 'com.yucp.materialization-test',
+      protectedSourceRoot: new Uint8Array(32).fill(0x22),
+      releaseRoot: new Uint8Array(32).fill(0x11),
+      sourceLogicalBytes: 4_096,
+      sourceLogicalFiles: 2,
+      sourceManifestSha256: new Uint8Array(32).fill(0x88),
+      sourceVersionId,
+      traceId: 'trace-coupled',
+    });
+    const claim = await broker.claimNextJob({
+      leaseDurationMs: 600_000,
+      leaseOwner: 'data-node-coupled',
+      now: new Date(nowSeconds * 1_000),
+    });
+    if (claim.status !== 'claimed') {
+      throw new Error('Expected the coupled job to be claimed');
+    }
+    const signed = await broker.issueCapability({
+      jobId: claim.jobId,
+      keyId: capabilityKeyId,
+      leaseGeneration: claim.leaseGeneration,
+      leaseOwner: 'data-node-coupled',
+      lifetimeSeconds: 300,
+      now: new Date(nowSeconds * 1_000),
+      privateKey: capabilityPrivateKey,
+      proofKeyThumbprint: new Uint8Array(32).fill(0x66),
+    });
+    const capabilityPublicKey = await ed25519.getPublicKeyAsync(capabilityPrivateKey);
+    await broker.consumeCapability({
+      coseSign1: signed.coseSign1,
+      expectedKeyId: capabilityKeyId,
+      materializerId: 'data-node-coupled',
+      now: new Date((nowSeconds + 1) * 1_000),
+      publicKey: capabilityPublicKey,
+      proofJti: 'proof-coupled-consume',
+      traceId: 'trace-coupled',
+      verifiedProofKeyThumbprint: new Uint8Array(32).fill(0x66),
+    });
+    const personalizedBytes = new TextEncoder().encode('coupled personalized bytes');
+    const outputSha256 = createHash('sha256').update(personalizedBytes).digest();
+    const outputTreeRoot = Buffer.from(
+      computeOutputTreeRootV2([
+        {
+          attributionId: 'attribution-coupled',
+          normalizedPath: 'Assets/Product/a.png',
+          outputBytes: personalizedBytes.byteLength,
+          outputSha256,
+        },
+      ])
+    ).toString('hex');
+    const coupledCompletion = {
+      attributionRecords: [
+        {
+          attributionId: 'attribution-coupled',
+          attributionTokenHash: '55'.repeat(32),
+          normalizedPath: 'Assets/Product/a.png',
+          sourceSha256: '41'.repeat(32),
+        },
+      ],
+      builds: {
+        codec: 'png-codec-build-2',
+        helper: 'materializer-host-2',
+        runtime: 'coupling-runtime-sha256:test',
+      },
+      capabilityId: signed.capability.capabilityId,
+      completionSchema: 'v3' as const,
+      coseSign1: signed.coseSign1,
+      coupledJobManifestKey: 'coupled-jobs/job-coupled.v1.json',
+      jobId: 'job-coupled',
+      leaseGeneration: claim.leaseGeneration,
+      materializerId: 'data-node-coupled',
+      now: new Date((nowSeconds + 3) * 1_000),
+      outputFiles: [
+        {
+          attributionId: 'attribution-coupled',
+          normalizedPath: 'Assets/Product/a.png',
+          outputBytes: personalizedBytes.byteLength,
+          outputSha256: outputSha256.toString('hex'),
+        },
+      ],
+      outputTreeRoot,
+      proofJti: 'proof-coupled-complete',
+      traceId: 'trace-coupled',
+      verifiedProofKeyThumbprint: new Uint8Array(32).fill(0x66),
+    };
+
+    let manifestKeyError: unknown;
+    try {
+      await broker.completeRendition({
+        ...coupledCompletion,
+        coupledJobManifestKey: 'coupled-jobs/another-job.v1.json',
+      });
+    } catch (error) {
+      manifestKeyError = error;
+    }
+    expect(manifestKeyError).toBeInstanceOf(Error);
+    expect((manifestKeyError as Error).message).toContain('Coupled completion request is invalid');
+
+    const completed = await broker.completeRendition(coupledCompletion);
+    expect(completed.success).toBeTrue();
+    const receiptPublicKey = await ed25519.getPublicKeyAsync(receiptPrivateKey);
+    const receipt = await verifyMaterializationReceiptV3({
+      coseSign1: Buffer.from(completed.receipt, 'base64url'),
+      expectedKeyId: receiptKeyId,
+      publicKey: receiptPublicKey,
+    });
+    expect(receipt).not.toHaveProperty('rendition');
+    expect(receipt.jobId).toBe('job-coupled');
+    expect(receipt.grantId).toBe('grant-coupled');
+    expect(receipt.capabilityId).toBe(signed.capability.capabilityId);
+    expect(receipt.createdPaths).toEqual(['Assets/Product/a.png']);
+    expect(Buffer.from(receipt.outputTreeRoot).toString('hex')).toBe(outputTreeRoot);
+
+    const rows = await requireSql()<
+      Array<{
+        fileIdentifier: string | null;
+        objectBytes: number | null;
+        objectSha256: Buffer | null;
+        outputTreeRoot: Buffer;
+      }>
+    >`
+      SELECT
+        file_identifier AS "fileIdentifier",
+        object_bytes::float8 AS "objectBytes",
+        object_sha256 AS "objectSha256",
+        output_tree_root AS "outputTreeRoot"
+      FROM materialization_receipts
+      WHERE job_id = 'job-coupled'
+    `;
+    expect(rows[0]?.fileIdentifier).toBeNull();
+    expect(rows[0]?.objectBytes).toBeNull();
+    expect(rows[0]?.objectSha256).toBeNull();
+    expect(Buffer.from(rows[0]?.outputTreeRoot ?? Buffer.alloc(0)).toString('hex')).toBe(
+      outputTreeRoot
+    );
+
+    expect(
+      await broker.completeRendition({
+        ...coupledCompletion,
+        now: new Date((nowSeconds + 5) * 1_000),
+        proofJti: 'proof-coupled-retry',
+      })
+    ).toEqual(completed);
+
+    let downgradeError: unknown;
+    try {
+      await broker.completeRendition({
+        ...coupledCompletion,
+        completionSchema: undefined,
+        coupledJobManifestKey: undefined,
+        now: new Date((nowSeconds + 6) * 1_000),
+        proofJti: 'proof-coupled-downgrade',
+        renditionBytes: 100,
+        renditionSha256: '61'.repeat(32),
+      });
+    } catch (error) {
+      downgradeError = error;
+    }
+    expect(downgradeError).toBeInstanceOf(Error);
+    expect((downgradeError as Error).message).toContain('does not match this request');
+  }, 20_000);
+
+  it('hands each outbox entry to exactly one concurrent claimer', async () => {
+    const broker = createBroker();
+    const jobIds = Array.from({ length: 6 }, (_, index) => `job-claim-race-${index}`);
+    for (const [index, id] of jobIds.entries()) {
+      await broker.createInstallJob({
+        bindingRoot: new Uint8Array(32).fill(0x23),
+        buyerId: `buyer-claim-${index}`,
+        creatorId: 'creator-1',
+        grantJti: `grant-claim-${index}`,
+        id,
+        keyEpoch: 7,
+        materializationAlgorithm: 'png-dct-qim-v2',
+        outputFormat: 'zip' as const,
+        pluginVersion: 'png-plugin-2',
+        productId: 'com.yucp.materialization-test',
+        protectedSourceRoot: new Uint8Array(32).fill(0x22),
+        releaseRoot: new Uint8Array(32).fill(0x11),
+        sourceLogicalBytes: 4_096,
+        sourceLogicalFiles: 2,
+        sourceManifestSha256: new Uint8Array(32).fill(0x88),
+        sourceVersionId,
+        traceId: `trace-claim-${index}`,
+      });
+    }
+    const repository = new PostgresMaterializationDispatchOutboxRepository(requireSql());
+    const [first, second] = await Promise.all([repository.claim(10), repository.claim(10)]);
+    const combined = [...first, ...second].map((entry) => entry.jobId);
+    // No entry is double-claimed, and together the claimers drain the outbox.
+    expect(new Set(combined).size).toBe(combined.length);
+    expect([...combined].sort()).toEqual([...jobIds].sort());
+    // A third claim finds nothing left.
+    expect(await repository.claim(10)).toEqual([]);
+  }, 20_000);
+
+  it('marks dispatch entries with couplingMode only when every protected file is worker-lane', async () => {
+    const broker = createBroker();
+    const workerVersionId = randomUUID();
+    await requireSql()`
+      INSERT INTO package_versions (
+        id, package_id, version, source_format, release_root, assembly_object_id,
+        common_root, protected_source_root, binding_root, manifest_sha256,
+        active_content_digest, active_policy_version, protection_policy_id,
+        protection_policy_digest, logical_bytes, logical_files, protected_files, state
+      )
+      VALUES (
+        ${workerVersionId}, 'com.yucp.materialization-test', '9.9.9-lane-test', 'zip',
+        ${'71'.repeat(32)}, 'assemblies/worker-lane.logical-tree-manifest-v4.cbor',
+        ${'73'.repeat(32)}, ${'72'.repeat(32)}, ${'74'.repeat(32)}, ${'78'.repeat(32)},
+        ${'75'.repeat(32)}, 'active-content-v1', ${ACTIVE_PROTECTION_POLICY_ID},
+        ${'55'.repeat(32)}, 4096, 2,
+        ${requireSql().json([
+          {
+            couplingLane: 'worker',
+            materializerType: 'png',
+            normalizedPath: 'Assets/Product/w.png',
+            required: false,
+            sourceSha256: '42'.repeat(32),
+          },
+        ])},
+        'READY'
+      )
+      ON CONFLICT (id) DO NOTHING
+    `;
+    const baseJob = {
+      buyerId: 'buyer-lane',
+      creatorId: 'creator-1',
+      keyEpoch: 7,
+      materializationAlgorithm: 'png-dct-qim-v2',
+      outputFormat: 'zip' as const,
+      pluginVersion: 'png-plugin-2',
+      productId: 'com.yucp.materialization-test',
+      sourceLogicalBytes: 4_096,
+      sourceLogicalFiles: 2,
+    };
+    await broker.createInstallJob({
+      ...baseJob,
+      bindingRoot: new Uint8Array(32).fill(0x23),
+      grantJti: 'grant-lane-default',
+      id: 'job-lane-default',
+      protectedSourceRoot: new Uint8Array(32).fill(0x22),
+      releaseRoot: new Uint8Array(32).fill(0x11),
+      sourceManifestSha256: new Uint8Array(32).fill(0x88),
+      sourceVersionId,
+      traceId: 'trace-lane-default',
+    });
+    await broker.createInstallJob({
+      ...baseJob,
+      bindingRoot: new Uint8Array(32).fill(0x74),
+      grantJti: 'grant-lane-worker',
+      id: 'job-lane-worker',
+      protectedSourceRoot: new Uint8Array(32).fill(0x72),
+      releaseRoot: new Uint8Array(32).fill(0x71),
+      sourceManifestSha256: new Uint8Array(32).fill(0x78),
+      sourceVersionId: workerVersionId,
+      traceId: 'trace-lane-worker',
+    });
+
+    const repository = new PostgresMaterializationDispatchOutboxRepository(requireSql());
+    try {
+      const entries = await repository.claim(10);
+      const byJob = new Map(entries.map((entry) => [entry.jobId, entry]));
+      expect(byJob.get('job-lane-default')).toBeDefined();
+      expect(byJob.get('job-lane-default')?.couplingMode).toBeUndefined();
+      expect(byJob.get('job-lane-worker')?.couplingMode).toBe('worker');
+    } finally {
+      await requireSql()`
+        TRUNCATE TABLE
+          materialization_attribution_records,
+          materialization_capabilities,
+          materialization_jobs
+        CASCADE
+      `;
+      await requireSql()`
+        DELETE FROM storage_gc_release_pins WHERE package_version_id = ${workerVersionId}
+      `;
+      await requireSql()`DELETE FROM package_versions WHERE id = ${workerVersionId}`;
+    }
   }, 20_000);
 
   it('keeps a second large job queued while the fixed node lane is occupied', async () => {

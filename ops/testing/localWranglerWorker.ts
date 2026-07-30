@@ -25,13 +25,17 @@ export async function startLocalWranglerWorker(input: {
   port: number;
   vars: Readonly<Record<string, string>>;
 }): Promise<LocalWranglerWorker> {
+  // The dev supervisor exports YUCP_WRANGLER_PERSIST_PATH so every spawned worker and the
+  // local R2 storage mirror share one wrangler persistence root (like `wrangler dev
+  // --persist-to`). Without it, state stays in-memory as before.
+  const persistPath = process.env.YUCP_WRANGLER_PERSIST_PATH?.trim();
   const worker = await unstable_startWorker({
     bindings: plainTextBindings(input.vars),
     config: input.config,
     dev: {
       inspector: false,
       logLevel: 'none',
-      persist: false,
+      persist: persistPath || false,
       remote: false,
       server: {
         hostname: '127.0.0.1',

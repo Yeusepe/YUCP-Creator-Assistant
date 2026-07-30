@@ -19,15 +19,42 @@ import {
 } from '../../ops/storage-core/releasePublication';
 import worker from './src/index';
 
-const originalFetch = globalThis.fetch;
 const originalConsoleError = console.error;
 const grantPrivateKey = new Uint8Array(32).fill(0x29);
 const grantKeyId = packageContractKeyId('source-grant-test-2026-01');
 
 afterEach(() => {
-  globalThis.fetch = originalFetch;
   console.error = originalConsoleError;
 });
+
+function r2Object(value: Uint8Array | string): R2ObjectBody {
+  const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
+  return {
+    size: bytes.byteLength,
+    async arrayBuffer() {
+      return bytes.buffer.slice(
+        bytes.byteOffset,
+        bytes.byteOffset + bytes.byteLength
+      ) as ArrayBuffer;
+    },
+    async text() {
+      return new TextDecoder().decode(bytes);
+    },
+  };
+}
+
+function bucketStub(
+  lookup: (
+    key: string
+  ) => Uint8Array | string | undefined | Promise<Uint8Array | string | undefined>
+): R2Bucket {
+  return {
+    async get(key: string) {
+      const value = await lookup(key);
+      return value === undefined ? null : r2Object(value);
+    },
+  };
+}
 
 function encodeJson(value: unknown): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
@@ -192,32 +219,20 @@ async function createAuthorization(input: {
   };
 }
 
-async function testEnv() {
+async function testEnv(buckets: { common: R2Bucket; metadata: R2Bucket; protected: R2Bucket }) {
   return {
+    COMMON_BUCKET: buckets.common,
     COMMON_CHUNK_PREFIX: 'chunks/',
-    COMMON_S3_BUCKET: 'common-test',
-    COMMON_S3_ENDPOINT: 'http://127.0.0.1:9000',
-    COMMON_S3_READONLY_ACCESS_KEY_ID: 'common-read-access',
-    COMMON_S3_READONLY_SECRET_ACCESS_KEY: 'common-read-secret',
-    COMMON_S3_REGION: 'us-east-1',
     DELIVERY_GRANT_ISSUER: 'https://api.example.test',
     DELIVERY_GRANT_KEY_ID: 'source-grant-test-2026-01',
     DELIVERY_GRANT_PUBLIC_KEY: Buffer.from(
       await ed25519.getPublicKeyAsync(grantPrivateKey)
     ).toString('base64url'),
     MATERIALIZATION_SOURCE_AUDIENCE: 'https://source.example.test',
+    METADATA_BUCKET: buckets.metadata,
     METADATA_INDEX_PREFIX: 'indexes/',
-    METADATA_S3_BUCKET: 'metadata-test',
-    METADATA_S3_ENDPOINT: 'http://127.0.0.1:9000',
-    METADATA_S3_READONLY_ACCESS_KEY_ID: 'metadata-read-access',
-    METADATA_S3_READONLY_SECRET_ACCESS_KEY: 'metadata-read-secret',
-    METADATA_S3_REGION: 'us-east-1',
+    PROTECTED_BUCKET: buckets.protected,
     PROTECTED_CHUNK_PREFIX: 'chunks/',
-    PROTECTED_S3_BUCKET: 'protected-test',
-    PROTECTED_S3_ENDPOINT: 'http://127.0.0.1:9000',
-    PROTECTED_S3_READONLY_ACCESS_KEY_ID: 'protected-read-access',
-    PROTECTED_S3_READONLY_SECRET_ACCESS_KEY: 'protected-read-secret',
-    PROTECTED_S3_REGION: 'us-east-1',
     STORAGE_FORMAT_VERSION: DESYNC_STORAGE_FORMAT_VERSION,
   };
 }
@@ -225,16 +240,16 @@ async function testEnv() {
 describe('materialization source Worker', () => {
   it('rejects an unauthorized source request before any storage read', async () => {
     let storageFetches = 0;
-    globalThis.fetch = mock(async () => {
+    const deny = bucketStub(() => {
       storageFetches += 1;
-      throw new Error('must not fetch');
-    }) as unknown as typeof fetch;
+      throw new Error('must not read storage');
+    });
     const versionId = randomUUID();
     const response = await worker.fetch(
       new Request(
         `https://source.example.test/v2/internal/materialization-sources/${versionId}/manifest`
       ),
-      await testEnv()
+      await testEnv({ common: deny, metadata: deny, protected: deny })
     );
 
     expect(response.status).toBe(403);
@@ -242,36 +257,28 @@ describe('materialization source Worker', () => {
     expect(storageFetches).toBe(0);
   });
 
-  it('uses isolated metadata, common, and protected credentials for source members', async () => {
+  it('uses isolated metadata, common, and protected buckets for source members', async () => {
     const versionId = randomUUID();
     const chunkBytes = new TextEncoder().encode('verified protected chunk');
     const fixture = protectedManifest(versionId, chunkBytes);
     const storageRoles: string[] = [];
-    globalThis.fetch = mock(async (input: string | URL | Request) => {
-      const request = new Request(input);
-      const origin = new URL(request.url);
-      if (origin.pathname.startsWith('/metadata-test/')) {
-        storageRoles.push('metadata');
-        expect(request.headers.get('authorization')).toContain('Credential=metadata-read-access/');
-        return new Response(fixture.body, {
-          headers: {
-            'Content-Length': String(Buffer.byteLength(fixture.body)),
-            'Content-Type': 'application/json',
-          },
-        });
-      }
-      if (origin.pathname.startsWith('/common-test/')) {
+    const env = await testEnv({
+      common: bucketStub((key) => {
         storageRoles.push('common');
-        expect(request.headers.get('authorization')).toContain('Credential=common-read-access/');
-        return new Response(new TextEncoder().encode('verified common chunk'));
-      }
-      if (origin.pathname.startsWith('/protected-test/')) {
+        expect(key.startsWith('chunks/')).toBe(true);
+        return new TextEncoder().encode('verified common chunk');
+      }),
+      metadata: bucketStub((key) => {
+        storageRoles.push('metadata');
+        expect(key.startsWith('indexes/')).toBe(true);
+        return fixture.body;
+      }),
+      protected: bucketStub((key) => {
         storageRoles.push('protected');
-        expect(request.headers.get('authorization')).toContain('Credential=protected-read-access/');
-        return new Response(chunkBytes);
-      }
-      return new Response(null, { status: 404 });
-    }) as unknown as typeof fetch;
+        expect(key.startsWith('chunks/')).toBe(true);
+        return chunkBytes;
+      }),
+    });
 
     const manifestUrl = `https://source.example.test/v2/internal/materialization-sources/${versionId}/manifest`;
     const manifestResponse = await worker.fetch(
@@ -283,7 +290,7 @@ describe('materialization source Worker', () => {
           versionId,
         }),
       }),
-      await testEnv()
+      env
     );
     expect(manifestResponse.status).toBe(200);
     expect(await manifestResponse.text()).toBe(fixture.body);
@@ -300,7 +307,7 @@ describe('materialization source Worker', () => {
           versionId,
         }),
       }),
-      await testEnv()
+      env
     );
     expect(commonChunkResponse.status).toBe(200);
     expect(new TextDecoder().decode(await commonChunkResponse.arrayBuffer())).toBe(
@@ -320,7 +327,7 @@ describe('materialization source Worker', () => {
           versionId,
         }),
       }),
-      await testEnv()
+      env
     );
     expect(chunkResponse.status).toBe(200);
     expect(new Uint8Array(await chunkResponse.arrayBuffer())).toEqual(chunkBytes);
@@ -336,12 +343,15 @@ describe('materialization source Worker', () => {
     console.error = mock((message: string) => {
       diagnostics.push(message);
     });
-    globalThis.fetch = mock(async () =>
-      Response.json({
-        privateMarker,
-        schemaVersion: 4,
-      })
-    ) as unknown as typeof fetch;
+    const invalidBody = JSON.stringify({
+      privateMarker,
+      schemaVersion: 4,
+    });
+    const env = await testEnv({
+      common: bucketStub(() => undefined),
+      metadata: bucketStub(() => invalidBody),
+      protected: bucketStub(() => undefined),
+    });
     const url = `https://source.example.test/v2/internal/materialization-sources/${versionId}/manifest`;
 
     const response = await worker.fetch(
@@ -353,7 +363,7 @@ describe('materialization source Worker', () => {
           versionId,
         }),
       }),
-      await testEnv()
+      env
     );
 
     expect(response.status).toBe(502);
@@ -377,7 +387,11 @@ describe('materialization source Worker', () => {
     console.error = mock((message: string) => {
       diagnostics.push(message);
     });
-    globalThis.fetch = mock(async () => new Response(fixture.body)) as unknown as typeof fetch;
+    const env = await testEnv({
+      common: bucketStub(() => undefined),
+      metadata: bucketStub(() => fixture.body),
+      protected: bucketStub(() => undefined),
+    });
     const missingChunkId = 'f'.repeat(64);
     const url =
       `https://source.example.test/v2/internal/materialization-sources/${versionId}/chunks/` +
@@ -392,7 +406,7 @@ describe('materialization source Worker', () => {
           versionId,
         }),
       }),
-      await testEnv()
+      env
     );
 
     expect(response.status).toBe(403);
@@ -425,7 +439,7 @@ describe('materialization source Worker', () => {
           versionId,
         }),
       }),
-      await testEnv()
+      env
     );
     expect(cachedMissResponse.status).toBe(403);
     expect(cachedMissResponse.headers.get('x-delivery-storage-fetches')).toBe('0');
@@ -434,10 +448,10 @@ describe('materialization source Worker', () => {
 
   it('rejects a source grant for a different version before storage', async () => {
     let storageFetches = 0;
-    globalThis.fetch = mock(async () => {
+    const deny = bucketStub(() => {
       storageFetches += 1;
-      throw new Error('must not fetch');
-    }) as unknown as typeof fetch;
+      throw new Error('must not read storage');
+    });
     const requestedVersion = randomUUID();
     const grantedVersion = randomUUID();
     const url = `https://source.example.test/v2/internal/materialization-sources/${requestedVersion}/manifest`;
@@ -450,7 +464,7 @@ describe('materialization source Worker', () => {
           versionId: grantedVersion,
         }),
       }),
-      await testEnv()
+      await testEnv({ common: deny, metadata: deny, protected: deny })
     );
 
     expect(response.status).toBe(403);
@@ -464,15 +478,14 @@ describe('materialization source Worker', () => {
     const fixture = protectedManifest(versionId, chunkBytes);
     const url = `https://source.example.test/v2/internal/materialization-sources/${versionId}/manifest`;
     let storageFetches = 0;
-    globalThis.fetch = mock(async () => {
-      storageFetches += 1;
-      return new Response(fixture.body, {
-        headers: {
-          'Content-Length': String(Buffer.byteLength(fixture.body)),
-          'Content-Type': 'application/json',
-        },
-      });
-    }) as unknown as typeof fetch;
+    const env = await testEnv({
+      common: bucketStub(() => undefined),
+      metadata: bucketStub(() => {
+        storageFetches += 1;
+        return fixture.body;
+      }),
+      protected: bucketStub(() => undefined),
+    });
     const headers = await createAuthorization({
       bindingRoot: fixture.bindingRoot,
       proofJti: 'replayed-materialization-source-proof',
@@ -481,8 +494,8 @@ describe('materialization source Worker', () => {
       versionId,
     });
 
-    const first = await worker.fetch(new Request(url, { headers }), await testEnv());
-    const replay = await worker.fetch(new Request(url, { headers }), await testEnv());
+    const first = await worker.fetch(new Request(url, { headers }), env);
+    const replay = await worker.fetch(new Request(url, { headers }), env);
 
     expect(first.status).toBe(200);
     expect(replay.status).toBe(403);
@@ -495,23 +508,14 @@ describe('materialization source Worker', () => {
     const chunkBytes = new TextEncoder().encode('edge cached protected chunk');
     const fixture = protectedManifest(versionId, chunkBytes);
     let chunkStorageFetches = 0;
-    globalThis.fetch = mock(async (input: string | URL | Request) => {
-      const request = new Request(input);
-      const origin = new URL(request.url);
-      if (origin.pathname.startsWith('/metadata-test/')) {
-        return new Response(fixture.body, {
-          headers: {
-            'Content-Length': String(Buffer.byteLength(fixture.body)),
-            'Content-Type': 'application/json',
-          },
-        });
-      }
-      if (origin.pathname.startsWith('/protected-test/')) {
+    const env = await testEnv({
+      common: bucketStub(() => undefined),
+      metadata: bucketStub(() => fixture.body),
+      protected: bucketStub(() => {
         chunkStorageFetches += 1;
-        return new Response(chunkBytes);
-      }
-      return new Response(null, { status: 404 });
-    }) as unknown as typeof fetch;
+        return chunkBytes;
+      }),
+    });
 
     const cacheStore = new Map<string, Response>();
     const fakeCaches = {
@@ -539,7 +543,7 @@ describe('materialization source Worker', () => {
               versionId,
             }),
           }),
-          await testEnv()
+          env
         );
 
       const first = await fetchChunk();

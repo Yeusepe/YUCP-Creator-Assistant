@@ -19,8 +19,11 @@ export type DeliveryManifestFile = {
   bytes: number;
   chunks: DeliveryManifestChunk[];
   classification: 'common' | 'protected';
+  couplingLane?: 'container' | 'worker';
   materializerType?: string;
   normalizedPath: string;
+  pixelHeight?: number;
+  pixelWidth?: number;
   sha256: string;
 };
 
@@ -112,6 +115,25 @@ function parseFile(value: unknown, index: number): DeliveryManifestFile {
   ) {
     throw new Error(`Delivery manifest file ${index} has an invalid materializerType`);
   }
+  if (
+    value.couplingLane !== undefined &&
+    ((value.couplingLane !== 'worker' && value.couplingLane !== 'container') ||
+      value.classification !== 'protected')
+  ) {
+    throw new Error(`Delivery manifest file ${index} has an invalid couplingLane`);
+  }
+  for (const dimension of ['pixelWidth', 'pixelHeight'] as const) {
+    const dim = value[dimension];
+    if (
+      dim !== undefined &&
+      (!Number.isSafeInteger(dim) || (dim as number) <= 0 || value.classification !== 'protected')
+    ) {
+      throw new Error(`Delivery manifest file ${index} has an invalid ${dimension}`);
+    }
+  }
+  if ((value.pixelWidth === undefined) !== (value.pixelHeight === undefined)) {
+    throw new Error(`Delivery manifest file ${index} has unpaired pixel dimensions`);
+  }
   if (typeof value.sha256 !== 'string' || !SHA256_PATTERN.test(value.sha256)) {
     throw new Error(`Delivery manifest file ${index} has an invalid sha256`);
   }
@@ -141,8 +163,13 @@ function parseFile(value: unknown, index: number): DeliveryManifestFile {
     bytes: value.bytes as number,
     chunks,
     classification: value.classification,
+    ...(value.couplingLane !== undefined
+      ? { couplingLane: value.couplingLane as 'container' | 'worker' }
+      : {}),
     ...(materializerType ? { materializerType } : {}),
     normalizedPath,
+    ...(value.pixelHeight !== undefined ? { pixelHeight: value.pixelHeight as number } : {}),
+    ...(value.pixelWidth !== undefined ? { pixelWidth: value.pixelWidth as number } : {}),
     sha256: value.sha256,
   };
 }

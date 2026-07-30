@@ -22,7 +22,6 @@ export const STORAGE_ROLES = [
 
 export type StorageRole = (typeof STORAGE_ROLES)[number];
 
-export const OBJECT_LOCK_ROLES = new Set<StorageRole>(['common', 'protected', 'metadata']);
 const ROLE_CODES: Record<StorageRole, string> = {
   quarantine: 'q',
   common: 'c',
@@ -400,7 +399,7 @@ export async function startDisposableStorageHarness(): Promise<DisposableStorage
         endpoint,
         secretAccessKey: rootSecretKey,
       });
-      await createS3Bucket(rootConfig, { objectLockEnabled: OBJECT_LOCK_ROLES.has(role) });
+      await createS3Bucket(rootConfig);
       const credential = await createStorageRoleCredential({
         bucket,
         containerName: minioContainerName,

@@ -42,6 +42,12 @@ export type ExactImmutableObjectVersion = ExactObjectVersion & {
   bytes: number;
   sha256: string;
   status: 'created' | 'existing';
+  /**
+   * True when the write response itself proved the stored bytes (ETag == body MD5, or a
+   * versioning provider echoed the new version id). Absent or false means the caller must
+   * keep its own read-back verification.
+   */
+  writeProven?: boolean;
 };
 
 export type ExactVersionedObjectVersion = ExactObjectVersion & {
@@ -107,6 +113,7 @@ export interface ExactStoragePort {
     contentType: string;
     objectKey: string;
     path: string;
+    precomputedSha256?: boolean;
     role: StorageRole;
     sha256: string;
   }): Promise<ExactFileVersion>;
@@ -268,6 +275,7 @@ export class S3ExactStoragePort implements ExactStoragePort {
     contentType: string;
     objectKey: string;
     path: string;
+    precomputedSha256?: boolean;
     role: StorageRole;
     sha256: string;
   }): Promise<ExactFileVersion> {
@@ -278,6 +286,7 @@ export class S3ExactStoragePort implements ExactStoragePort {
       expectedSha256: input.sha256,
       key: input.objectKey,
       path: input.path,
+      ...(input.precomputedSha256 ? { precomputedSha256: true } : {}),
     });
     return {
       ...this.#version(input.role, input.objectKey, version),
@@ -303,6 +312,7 @@ export class S3ExactStoragePort implements ExactStoragePort {
       bytes: version.bytes,
       sha256: version.sha256,
       status: version.status,
+      writeProven: version.writeProven,
     };
   }
 

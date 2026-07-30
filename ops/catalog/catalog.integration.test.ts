@@ -1206,6 +1206,175 @@ describe.serial('PostgreSQL catalog integration', () => {
     ]);
   });
 
+  it('commits batched exact objects with single-write semantics', async () => {
+    const storage = new ExactStorageCatalog(requireSql());
+    const ownerId = await createUploadingVersion('exact-storage-batch-owner');
+    const shas = ['1'.repeat(64), '2'.repeat(64), '3'.repeat(64)];
+    const inputs = shas.map((sha, index) => ({
+      bucketName: 'common',
+      contentType: 'application/octet-stream',
+      expectedBytes: 1_024 + index,
+      expectedSha256: sha,
+      idempotencyKey: `package-version:${ownerId}:chunk:common:batch-${sha}`,
+      objectKey: `v2/common/chunks/batch/${sha}`,
+      operation: 'PUT' as const,
+      ownerId,
+      ownerKind: 'package-version' as const,
+      storageDomain: 'common:global:v2',
+      storageRole: 'common' as const,
+    }));
+
+    await expect(
+      storage.beginWriteIntentBatch([...inputs, inputs[0] as (typeof inputs)[number]])
+    ).rejects.toThrow('duplicate idempotency keys');
+
+    const intents = await storage.beginWriteIntentBatch(inputs);
+    expect(intents.map((intent) => intent.state)).toEqual(['ISSUED', 'ISSUED', 'ISSUED']);
+    expect(intents.map((intent) => intent.expectedSha256)).toEqual(shas);
+    expect(intents.map((intent) => intent.expectedBytes)).toEqual([1_024, 1_025, 1_026]);
+
+    await requireSql()`
+      UPDATE storage_write_intents
+      SET state = 'ABORTED', updated_at = clock_timestamp()
+      WHERE id = ${intents[2]?.id as string}
+    `;
+    const again = await storage.beginWriteIntentBatch(inputs);
+    expect(again.map((intent) => intent.id)).toEqual(intents.map((intent) => intent.id));
+    expect(again.map((intent) => intent.state)).toEqual(['ISSUED', 'ISSUED', 'ISSUED']);
+
+    expect(
+      await storage.findVerifiedCanonicalBatch({
+        items: intents.map((intent, index) => ({
+          bytes: 1_024 + index,
+          intentId: intent.id,
+          sha256: shas[index] as string,
+        })),
+        storageDomain: 'common:global:v2',
+        storageRole: 'common',
+      })
+    ).toEqual([null, null, null]);
+
+    const objects = await storage.commitVerifiedObjectsBatch({
+      entries: intents.slice(0, 2).map((intent, index) => ({
+        fileIdentifier: `batch-file-${index}`,
+        intentId: intent.id,
+        providerVersion: `batch-provider-${index}`,
+        releaseLink: { logicalDigest: shas[index] as string, logicalKind: 'chunk' as const },
+      })),
+      packageVersionId: ownerId,
+    });
+    expect(objects.map((row) => row.intentId)).toEqual(
+      intents.slice(0, 2).map((intent) => intent.id)
+    );
+    expect(objects.map((row) => row.object.sha256)).toEqual(shas.slice(0, 2));
+    expect(objects.map((row) => row.object.verificationState)).toEqual(['VERIFIED', 'VERIFIED']);
+    expect(await storage.getCommittedObjectForIntent(inputs[0]?.idempotencyKey as string)).toEqual(
+      objects[0]?.object as StorageObjectVersion
+    );
+
+    expect(
+      await storage.commitVerifiedObjectsBatch({
+        entries: intents.slice(0, 2).map((intent, index) => ({
+          fileIdentifier: `batch-file-${index}`,
+          intentId: intent.id,
+          providerVersion: `batch-provider-${index}`,
+        })),
+      })
+    ).toEqual(objects);
+    await expect(
+      storage.commitVerifiedObjectsBatch({
+        entries: [
+          {
+            fileIdentifier: 'batch-file-0',
+            intentId: intents[0]?.id as string,
+            providerVersion: 'different-provider',
+          },
+        ],
+      })
+    ).rejects.toThrow('Committed storage write intent is immutable');
+    const mixed = await storage.commitVerifiedObjectsBatch({
+      entries: [
+        {
+          fileIdentifier: 'batch-file-0',
+          intentId: intents[0]?.id as string,
+          providerVersion: 'batch-provider-0',
+        },
+        {
+          fileIdentifier: 'batch-file-2',
+          intentId: intents[2]?.id as string,
+          providerVersion: 'batch-provider-2',
+          releaseLink: { logicalDigest: shas[2] as string, logicalKind: 'chunk' as const },
+        },
+      ],
+      packageVersionId: ownerId,
+    });
+    expect(mixed[0]).toEqual(objects[0] as (typeof objects)[number]);
+    expect(mixed[1]?.intentId).toBe(intents[2]?.id as string);
+    expect(mixed[1]?.object).toMatchObject({ sha256: shas[2], verificationState: 'VERIFIED' });
+
+    const dedupIntents = await storage.beginWriteIntentBatch(
+      inputs.map((input) => ({ ...input, idempotencyKey: `${input.idempotencyKey}:dedup` }))
+    );
+    const canonical = await storage.findVerifiedCanonicalBatch({
+      items: dedupIntents.map((intent, index) => ({
+        bytes: 1_024 + index,
+        intentId: intent.id,
+        sha256: shas[index] as string,
+      })),
+      storageDomain: 'common:global:v2',
+      storageRole: 'common',
+    });
+    expect(canonical.map((object) => object?.sha256)).toEqual(shas);
+    const reserved = await requireSql()<{ candidate_object_version_id: string | null }[]>`
+      SELECT candidate_object_version_id
+      FROM storage_write_intents
+      WHERE id = ${dedupIntents[0]?.id as string}
+    `;
+    expect(reserved[0]?.candidate_object_version_id).toBe(
+      (canonical[0] as StorageObjectVersion).id
+    );
+
+    const links = await requireSql()<{ logical_digest: string }[]>`
+      SELECT encode(logical_digest, 'hex') AS logical_digest
+      FROM package_release_storage_objects
+      WHERE package_version_id = ${ownerId} AND logical_kind = 'chunk'
+      ORDER BY logical_digest
+    `;
+    expect(links.map((link) => link.logical_digest)).toEqual(shas);
+  });
+
+  it('commits identical content at two keys sharing one ETag-derived file identifier', async () => {
+    const storage = new ExactStorageCatalog(requireSql());
+    const ownerId = await createUploadingVersion('exact-storage-etag-identity-owner');
+    const sha = '4'.repeat(64);
+    const etag = 'c'.repeat(32);
+    const commits = [];
+    for (const objectKey of ['v2/metadata/etag/first.json', 'v2/metadata/etag/second.json']) {
+      const intent = await storage.beginWriteIntent({
+        bucketName: 'metadata',
+        contentType: 'application/json',
+        expectedBytes: 512,
+        expectedSha256: sha,
+        idempotencyKey: `package-version:${ownerId}:metadata:${objectKey}`,
+        objectKey,
+        operation: 'PUT',
+        ownerId,
+        ownerKind: 'package-version',
+        storageRole: 'metadata',
+      });
+      commits.push(
+        await storage.commitVerifiedObject({
+          fileIdentifier: etag,
+          intentId: intent.id,
+          providerVersion: etag,
+        })
+      );
+    }
+    expect(commits.map((object) => object.fileIdentifier)).toEqual([etag, etag]);
+    expect(commits.map((object) => object.verificationState)).toEqual(['VERIFIED', 'VERIFIED']);
+    expect(commits[0]?.id).not.toBe(commits[1]?.id);
+  });
+
   it('fences one retry claimant for an uncertain exact storage write', async () => {
     const storage = new ExactStorageCatalog(requireSql());
     const ownerId = await createUploadingVersion('exact-storage-retry-owner');
@@ -1928,7 +2097,6 @@ describe.serial('PostgreSQL catalog integration', () => {
     const aborted = await storage.getWriteIntentByIdempotencyKey(idempotencyKey);
     expect(aborted).toMatchObject({ objectVersionId: null, state: 'ABORTED' });
 
-    // Identical content coming back revives the intent for a fresh write instead of jamming.
     const revived = await storage.beginWriteIntent({
       bucketName: 'common',
       contentType: 'application/octet-stream',
@@ -1965,16 +2133,12 @@ describe.serial('PostgreSQL catalog integration', () => {
     });
     await activeCatalog.markFailed(versionId, 'upload interrupted');
 
-    // Redrive-style retry keeps the quarantine row: it is the provenance of the
-    // artifacts being re-promoted.
     await activeCatalog.advanceVersion(versionId, 'UPLOADING', {
       event: { type: 'catalog.version.retrying' },
     });
     expect(await activeCatalog.getQuarantineObject(versionId)).not.toBeNull();
 
     await activeCatalog.markFailed(versionId, 'upload interrupted again');
-    // A creator re-upload replaces the bytes, so the pinned intent must go: left
-    // in place it rejects any file that differs from the failed attempt.
     await activeCatalog.transition(versionId, 'UPLOADING', {
       event: { type: 'catalog.version.uploading' },
       replacesUpload: true,

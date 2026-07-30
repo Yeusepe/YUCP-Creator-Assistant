@@ -23,6 +23,14 @@ const REQUIRED_BINDINGS = [
   'MATERIALIZER_RENDITION_SHARED_SECRET',
 ] as const;
 const RENDITION_PATH = /^\/v2\/renditions\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})$/;
+const COUPLED_PATH = /^\/v2\/coupled\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})\/([0-9a-f]{64})$/;
+const COUPLED_PASSTHROUGH_STATUSES = new Set([200, 206, 404, 416]);
+const COUPLED_PASSTHROUGH_HEADERS = [
+  'accept-ranges',
+  'content-length',
+  'content-range',
+  'content-type',
+] as const;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
 const MAX_GRANT_BYTES = 256 * 1024;
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
@@ -299,8 +307,9 @@ async function getExactRendition(
       )
     );
   } catch {
-    // Persistent origin failures are outages, not authorization denials.
-    throw new HttpError(502, 'Rendition origin request failed', 1);
+    // Persistent origin failures are outages, not authorization denials. No response
+    // came back, so this is not counted as a storage fetch.
+    throw new HttpError(502, 'Rendition origin request failed', 0);
   }
 }
 
@@ -335,12 +344,71 @@ function noStoreResponse(
   });
 }
 
+async function serveCoupledOutput(input: {
+  config: RenditionEnv;
+  jobId: string;
+  outputSha256: string;
+  request: Request;
+}): Promise<Response> {
+  if (input.request.method !== 'GET') {
+    throw new HttpError(405, 'Method not allowed');
+  }
+  await authorize({
+    config: input.config,
+    jobId: input.jobId,
+    request: input.request,
+  });
+  const range = input.request.headers.get('range');
+  let origin: Response;
+  try {
+    // ponytail: no SlowDown backoff here by contract — coupled reads are
+    // per-file and the client retries.
+    origin = await fetchWithResponseHeaderTimeout(
+      fetch,
+      `${input.config.MATERIALIZER_ORIGIN_URL}/v2/internal/coupled-outputs/${input.jobId}/${input.outputSha256}`,
+      {
+        headers: {
+          authorization: `Bearer ${input.config.MATERIALIZER_RENDITION_SHARED_SECRET}`,
+          ...(range ? { range } : {}),
+        },
+        method: 'GET',
+      },
+      ORIGIN_HEADER_TIMEOUT_MS
+    );
+  } catch {
+    // Persistent origin failures are outages, not authorization denials. No response
+    // came back, so this is not counted as a storage fetch.
+    throw new HttpError(502, 'Coupled output origin request failed', 0);
+  }
+  if (!COUPLED_PASSTHROUGH_STATUSES.has(origin.status)) {
+    throw new HttpError(502, 'Coupled output origin request failed', 1);
+  }
+  const headers: Record<string, string> = {};
+  for (const name of COUPLED_PASSTHROUGH_HEADERS) {
+    const value = origin.headers.get(name);
+    if (value !== null) {
+      headers[name] = value;
+    }
+  }
+  return noStoreResponse(origin.body, origin.status, 1, headers);
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     let storageFetches = 0;
     try {
       const config = loadEnv(env);
-      const pathMatch = RENDITION_PATH.exec(new URL(request.url).pathname);
+      const pathname = new URL(request.url).pathname;
+      const coupledMatch = COUPLED_PATH.exec(pathname);
+      if (coupledMatch?.[1] && coupledMatch[2]) {
+        return await serveCoupledOutput({
+          config,
+          jobId: coupledMatch[1],
+          outputSha256: coupledMatch[2],
+          request,
+        });
+      }
+      const pathMatch = RENDITION_PATH.exec(pathname);
       if (!pathMatch?.[1]) {
         throw new HttpError(404, 'Not found');
       }

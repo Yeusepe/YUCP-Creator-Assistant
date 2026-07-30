@@ -37,8 +37,12 @@ type StageCommonConfig struct {
 	GrantSource GrantSource
 	Manifest    Manifest
 	ManifestURL string
-	PrivateKey  *ecdsa.PrivateKey
-	Progress    func(completedBytes int64, totalBytes int64) error
+	// Populate, when set, runs after every common file is staged and before
+	// the staging tree is atomically published, so extra files (protected
+	// coupled outputs) land inside the crash-safe pre-rename tree.
+	Populate   func(ctx context.Context, stageRoot *os.Root) error
+	PrivateKey *ecdsa.PrivateKey
+	Progress   func(completedBytes int64, totalBytes int64) error
 }
 
 type StagedFile struct {
@@ -201,6 +205,7 @@ func StageCommonTree(ctx context.Context, cfg StageCommonConfig) (StageCommonRes
 		cacheRoot,
 		destination,
 		commonFiles,
+		cfg.Populate,
 		cfg.Progress,
 	)
 }
@@ -414,6 +419,7 @@ func reconstructCommonTree(
 	cacheRoot string,
 	destination string,
 	files []File,
+	populate func(ctx context.Context, stageRoot *os.Root) error,
 	reportProgress func(completedBytes int64, totalBytes int64) error,
 ) (StageCommonResult, error) {
 	parent := filepath.Dir(destination)
@@ -469,6 +475,12 @@ func reconstructCommonTree(
 					err,
 				)
 			}
+		}
+	}
+	if populate != nil {
+		if err := populate(ctx, stageRoot); err != nil {
+			_ = stageRoot.Close()
+			return StageCommonResult{}, err
 		}
 	}
 	if err := stageRoot.Close(); err != nil {

@@ -1,17 +1,12 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { loadCasConfig } from './config';
-import {
-  putS3ObjectImmutable,
-  putS3ObjectVersioned,
-  resetConditionalWriteCapabilityForTests,
-} from './s3Control';
+import { putS3ObjectImmutable, putS3ObjectVersioned } from './s3Control';
 
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  resetConditionalWriteCapabilityForTests();
 });
 
 function config() {
@@ -28,11 +23,12 @@ describe('S3 immutable exact versions', () => {
   it('creates a replaceable exact version with verifiable content metadata', async () => {
     const body = Uint8Array.from([4, 3, 2, 1]);
     const digest = createHash('sha256').update(body).digest('hex');
+    const bodyMd5 = createHash('md5').update(body).digest('hex');
     let request: Request | undefined;
     globalThis.fetch = mock(async (input: string | URL | Request) => {
       request = new Request(input);
       return new Response(null, {
-        headers: { 'x-amz-version-id': 'version-replaceable' },
+        headers: { etag: `"${bodyMd5}"`, 'x-amz-version-id': 'ignored-version' },
       });
     }) as unknown as typeof fetch;
 
@@ -45,99 +41,12 @@ describe('S3 immutable exact versions', () => {
 
     expect(result).toEqual({
       bytes: body.byteLength,
-      fileIdentifier: 'version-replaceable',
+      fileIdentifier: bodyMd5,
       sha256: digest,
-      versionId: 'version-replaceable',
+      versionId: bodyMd5,
     });
     expect(request?.headers.get('if-none-match')).toBeNull();
     expect(request?.headers.get('x-amz-meta-yucp-sha256')).toBe(digest);
-  });
-
-  it('returns the exact version created by a conditional immutable put', async () => {
-    const body = Uint8Array.from([1, 2, 3, 4]);
-    let request: Request | undefined;
-    globalThis.fetch = mock(async (input: string | URL | Request) => {
-      request = new Request(input);
-      return new Response(null, {
-        headers: { 'x-amz-version-id': 'version-created' },
-      });
-    }) as unknown as typeof fetch;
-
-    const result = await putS3ObjectImmutable({
-      body,
-      config: config(),
-      contentType: 'application/octet-stream',
-      key: 'v2/common/chunks/abcd',
-    });
-
-    expect(result).toEqual({
-      bytes: body.byteLength,
-      fileIdentifier: 'version-created',
-      sha256: createHash('sha256').update(body).digest('hex'),
-      status: 'created',
-      versionId: 'version-created',
-    });
-    expect(request?.headers.get('if-none-match')).toBe('*');
-    expect(request?.headers.get('x-amz-meta-yucp-sha256')).toBe(result.sha256);
-  });
-
-  it('adopts one byte-exact existing version and never reads the latest key', async () => {
-    const body = Uint8Array.from([9, 8, 7]);
-    const digest = createHash('sha256').update(body).digest('hex');
-    const requests: Array<{ method: string; url: string }> = [];
-    globalThis.fetch = mock(async (input: string | URL | Request) => {
-      const request = new Request(input);
-      requests.push({ method: request.method, url: request.url });
-      const url = new URL(request.url);
-      if (request.method === 'PUT') {
-        return new Response(null, { status: 412 });
-      }
-      if (url.searchParams.has('versions')) {
-        return new Response(
-          '<ListVersionsResult>' +
-            '<IsTruncated>false</IsTruncated>' +
-            '<Version>' +
-            '<Key>v2/common/chunks/abcd</Key>' +
-            '<VersionId>version-existing</VersionId>' +
-            '<IsLatest>true</IsLatest>' +
-            '<LastModified>2026-07-24T00:00:00.000Z</LastModified>' +
-            '<Size>3</Size>' +
-            '</Version>' +
-            '</ListVersionsResult>'
-        );
-      }
-      if (url.searchParams.get('versionId') === 'version-existing') {
-        return new Response(body, {
-          headers: {
-            'content-length': String(body.byteLength),
-            'content-type': 'application/octet-stream',
-            'x-amz-meta-yucp-sha256': digest,
-            'x-amz-version-id': 'version-existing',
-          },
-        });
-      }
-      throw new Error('Unexpected latest-key read');
-    }) as unknown as typeof fetch;
-
-    const result = await putS3ObjectImmutable({
-      body,
-      config: config(),
-      contentType: 'application/octet-stream',
-      key: 'v2/common/chunks/abcd',
-    });
-
-    expect(result.status).toBe('existing');
-    expect(result.versionId).toBe('version-existing');
-    expect(
-      requests.some((entry) => {
-        const url = new URL(entry.url);
-        return (
-          entry.method === 'GET' &&
-          url.pathname.endsWith('/v2/common/chunks/abcd') &&
-          url.search === ''
-        );
-      })
-    ).toBeFalse();
   });
 
   it('fails closed when an immutable key has multiple physical versions', async () => {
@@ -174,86 +83,97 @@ describe('S3 immutable exact versions', () => {
     ).rejects.toThrow('multiple physical versions');
   });
 
-  it('writes without the conditional header when the store answers 501', async () => {
-    const body = Uint8Array.from([9, 9, 9]);
-    const digest = createHash('sha256').update(body).digest('hex');
-    const conditionalHeaders: (string | null)[] = [];
-
+  it('mints the ETag identity when the store has no versioning', async () => {
+    const body = Uint8Array.from([1, 2, 3, 4]);
+    const bodyMd5 = createHash('md5').update(body).digest('hex');
+    let request: Request | undefined;
     globalThis.fetch = mock(async (input: string | URL | Request) => {
-      const request = new Request(input);
-      const url = new URL(request.url);
-      if (request.method === 'PUT') {
-        const ifNoneMatch = request.headers.get('if-none-match');
-        conditionalHeaders.push(ifNoneMatch);
-        if (ifNoneMatch) {
-          return new Response(null, { status: 501 });
-        }
-        return new Response(null, { headers: { 'x-amz-version-id': 'plain-version' } });
-      }
-      if (url.searchParams.has('versions')) {
-        return new Response(
-          '<ListVersionsResult><IsTruncated>false</IsTruncated></ListVersionsResult>'
-        );
-      }
-      throw new Error('Unexpected exact read');
+      request = new Request(input);
+      return new Response(null, { headers: { etag: `"${bodyMd5}"` } });
     }) as unknown as typeof fetch;
 
     const result = await putS3ObjectImmutable({
       body,
       config: config(),
       contentType: 'application/octet-stream',
-      key: 'v2/common/chunks/b2fallback',
+      key: 'v2/common/chunks/abcd',
     });
 
-    expect(conditionalHeaders).toEqual(['*', null]);
     expect(result).toEqual({
       bytes: body.byteLength,
-      fileIdentifier: 'plain-version',
-      sha256: digest,
+      fileIdentifier: bodyMd5,
+      sha256: createHash('sha256').update(body).digest('hex'),
       status: 'created',
-      versionId: 'plain-version',
+      versionId: bodyMd5,
+      writeProven: true,
     });
+    expect(request?.headers.get('if-none-match')).toBe('*');
   });
 
-  it('reuses the existing object when the store answers 501 and the bytes already match', async () => {
-    const body = Uint8Array.from([9, 9, 9]);
-    const digest = createHash('sha256').update(body).digest('hex');
-    let plainPutCount = 0;
+  it('fails closed when the write ETag does not match the body MD5', async () => {
+    globalThis.fetch = mock(async () => {
+      return new Response(null, { headers: { etag: '"cccccccccccccccccccccccccccccccc"' } });
+    }) as unknown as typeof fetch;
 
+    await expect(
+      putS3ObjectImmutable({
+        body: Uint8Array.from([1, 2, 3, 4]),
+        config: config(),
+        contentType: 'application/octet-stream',
+        key: 'v2/common/chunks/abcd',
+      })
+    ).rejects.toThrow('does not match the body MD5');
+  });
+
+  it('adopts one byte-exact existing ETag version when ListObjectVersions is unimplemented', async () => {
+    const body = Uint8Array.from([9, 8, 7]);
+    const bodyMd5 = createHash('md5').update(body).digest('hex');
+    const digest = createHash('sha256').update(body).digest('hex');
+    const objectHeaders = {
+      'content-length': String(body.byteLength),
+      'content-type': 'application/octet-stream',
+      etag: `"${bodyMd5}"`,
+      'x-amz-meta-yucp-sha256': digest,
+    };
+    const gets: string[] = [];
     globalThis.fetch = mock(async (input: string | URL | Request) => {
       const request = new Request(input);
       const url = new URL(request.url);
       if (request.method === 'PUT') {
-        if (request.headers.get('if-none-match')) {
-          return new Response(null, { status: 501 });
-        }
-        plainPutCount += 1;
-        return new Response(null, { headers: { 'x-amz-version-id': 'unexpected' } });
+        return new Response(null, { status: 412 });
       }
       if (url.searchParams.has('versions')) {
+        return new Response(null, { status: 501 });
+      }
+      if (url.searchParams.get('list-type') === '2') {
         return new Response(
-          '<ListVersionsResult>' +
+          '<ListBucketResult>' +
             '<IsTruncated>false</IsTruncated>' +
-            '<Version><Key>v2/common/chunks/b2existing</Key><VersionId>existing</VersionId>' +
-            '<IsLatest>true</IsLatest><LastModified>2026-07-24T00:00:00.000Z</LastModified>' +
-            '<Size>3</Size></Version>' +
-            '</ListVersionsResult>'
+            '<Contents>' +
+            '<Key>v2/common/chunks/abcd</Key>' +
+            '<Size>3</Size>' +
+            '<LastModified>2026-07-24T00:00:00.000Z</LastModified>' +
+            '</Contents>' +
+            '</ListBucketResult>'
         );
       }
-      return new Response(body, {
-        headers: { 'x-amz-meta-yucp-sha256': digest, 'x-amz-version-id': 'existing' },
-      });
+      if (request.method === 'HEAD') {
+        return new Response(null, { headers: objectHeaders });
+      }
+      gets.push(request.headers.get('if-match') ?? '');
+      return new Response(body, { headers: objectHeaders });
     }) as unknown as typeof fetch;
 
     const result = await putS3ObjectImmutable({
       body,
       config: config(),
       contentType: 'application/octet-stream',
-      key: 'v2/common/chunks/b2existing',
+      key: 'v2/common/chunks/abcd',
     });
 
-    expect(plainPutCount).toBe(0);
     expect(result.status).toBe('existing');
-    expect(result.versionId).toBe('existing');
+    expect(result.versionId).toBe(bodyMd5);
+    expect(result.fileIdentifier).toBe(bodyMd5);
+    expect(gets).toEqual([`"${bodyMd5}"`]);
   });
 });

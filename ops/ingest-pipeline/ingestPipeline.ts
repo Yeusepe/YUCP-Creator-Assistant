@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, rename, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import {
   Catalog,
@@ -12,6 +12,17 @@ import {
   ACTIVE_CONTENT_POLICY_VERSION,
   createActiveContentInventory,
 } from '../storage-core/activeContentInventory';
+import {
+  LOGICAL_FILE_INGEST_CONCURRENCY,
+  mapBoundedOrdered,
+} from '../storage-core/boundedOrderedBatch';
+import {
+  type CouplingLane,
+  type CouplingLaneLimits,
+  PNG_HEADER_BYTES,
+  readPngCouplingMetadata,
+  resolveCouplingLane,
+} from '../storage-core/couplingLane';
 import {
   createDeliveryManifest,
   DESYNC_CHUNK_AVG_KIB,
@@ -125,12 +136,59 @@ export function protectedMaterializationFiles(input: {
         throw new Error(`Protected file ${file.normalizedPath} has no materializer type`);
       }
       return {
+        // The coupling lane rides along so dispatch can route pure worker-lane
+        // packages straight to worker coupling; it never enters the capability
+        // contract (restoreProtectedFiles picks its fields explicitly).
+        ...(file.couplingLane ? { couplingLane: file.couplingLane } : {}),
         materializerType: file.materializerType,
         normalizedPath: file.normalizedPath,
         required: false,
         sourceSha256: file.sha256,
       };
     });
+}
+
+async function readFileHeader(path: string, length: number): Promise<Uint8Array> {
+  const handle = await open(path, 'r');
+  try {
+    const buffer = Buffer.alloc(length);
+    const { bytesRead } = await handle.read(buffer, 0, length, 0);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
+export async function resolveProtectedFileCoupling(
+  input: {
+    bytes: number;
+    materializerType: string;
+    path: string;
+  },
+  limits?: CouplingLaneLimits
+): Promise<{ couplingLane: CouplingLane; pixelHeight?: number; pixelWidth?: number }> {
+  const pngMetadata =
+    input.materializerType === 'png'
+      ? readPngCouplingMetadata(await readFileHeader(input.path, PNG_HEADER_BYTES))
+      : null;
+  const couplingLane = resolveCouplingLane(
+    {
+      bytes: input.bytes,
+      materializerType: input.materializerType,
+      ...(pngMetadata
+        ? {
+            pngHeight: pngMetadata.height,
+            pngStreamingSupported: pngMetadata.streamingSupported,
+            pngWidth: pngMetadata.width,
+          }
+        : {}),
+    },
+    limits
+  );
+  return {
+    couplingLane,
+    ...(pngMetadata ? { pixelHeight: pngMetadata.height, pixelWidth: pngMetadata.width } : {}),
+  };
 }
 
 type ResolvedAssemblyStorage = {
@@ -472,30 +530,44 @@ async function prepareLogicalAssembly(
     versionId: input.version.id,
   });
   const active = createActiveContentInventory(classified.files);
-  const files = [];
   const creatorDomain = createHash('sha256')
     .update('yucp:creator-domain:v2\0', 'utf8')
     .update(input.creatorId, 'utf8')
     .digest('hex');
-  for (const file of classified.files) {
-    signal?.throwIfAborted();
-    files.push({
-      ...(await storeLogicalFile({
-        bytes: file.bytes,
-        domain:
-          file.classification === 'protected'
-            ? `protected:creator:${creatorDomain}:v2`
-            : 'common:global:v2',
-        path: file.path,
-        sha256: file.sha256,
-        store: file.classification === 'protected' ? input.protectedStore : input.commonStore,
-        ownerId: input.version.id,
-      })),
-      classification: file.classification,
-      ...(file.materializerType ? { materializerType: file.materializerType } : {}),
-      normalizedPath: file.normalizedPath,
-    });
-  }
+  // Files are stored concurrently; mapBoundedOrdered assembles results by input index, so
+  // the manifest files[] order is identical to the sequential implementation.
+  const files = await mapBoundedOrdered(
+    classified.files,
+    async (file) => {
+      signal?.throwIfAborted();
+      return {
+        ...(await storeLogicalFile({
+          bytes: file.bytes,
+          domain:
+            file.classification === 'protected'
+              ? `protected:creator:${creatorDomain}:v2`
+              : 'common:global:v2',
+          path: file.path,
+          // The normalizer hashed every logical file while copying it into the tree.
+          precomputedSha256: true,
+          sha256: file.sha256,
+          store: file.classification === 'protected' ? input.protectedStore : input.commonStore,
+          ownerId: input.version.id,
+        })),
+        classification: file.classification,
+        ...(file.classification === 'protected' && file.materializerType
+          ? await resolveProtectedFileCoupling({
+              bytes: file.bytes,
+              materializerType: file.materializerType,
+              path: file.path,
+            })
+          : {}),
+        ...(file.materializerType ? { materializerType: file.materializerType } : {}),
+        normalizedPath: file.normalizedPath,
+      };
+    },
+    LOGICAL_FILE_INGEST_CONCURRENCY
+  );
   const manifest = createDeliveryManifest({
     activeContentDigest: active.digest,
     activePolicyVersion: ACTIVE_CONTENT_POLICY_VERSION,

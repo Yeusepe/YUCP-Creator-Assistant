@@ -396,6 +396,178 @@ describe('materialization control-plane HTTP boundary', () => {
     expect(calls).toEqual(['complete:proof-complete-1']);
   });
 
+  it('accepts v3 coupled completions without weakening v2 validation', async () => {
+    const completionEndpoint =
+      'https://control.example.test/v2/internal/materialization-renditions/complete';
+    const inputs: unknown[] = [];
+    const handler = createMaterializationControlPlaneHandler({
+      broker: {
+        claimNextJob: async () => {
+          throw new Error('must not run');
+        },
+        completeRendition: async (input) => {
+          inputs.push(input);
+          return {
+            receipt: 'signed-coupled-receipt',
+            receiptId: 'receipt-coupled-1',
+            success: true,
+          };
+        },
+        consumeCapability: async () => {
+          throw new Error('must not run');
+        },
+        createInstallJob: async () => {
+          throw new Error('must not run');
+        },
+        renewClaimLease: async () => {
+          throw new Error('must not run');
+        },
+        failCapabilityJob: async () => {
+          throw new Error('must not run');
+        },
+        getJobStatus: async () => {
+          throw new Error('must not run');
+        },
+        issueCapability: async () => {
+          throw new Error('must not run');
+        },
+      },
+      apiSharedSecret: apiSecret,
+      capabilityKeyId: new Uint8Array([1]),
+      capabilityLifetimeSeconds: 300,
+      capabilityPrivateKey: signingPrivateKey,
+      capabilityPublicKey: new Uint8Array(32).fill(0x22),
+      keyEpoch: 1,
+      materializationAlgorithm: 'png-dct-qim-v2',
+      materializerSharedSecret: materializerSecret,
+      now: () => new Date(now * 1_000),
+      pluginVersion: 'png-plugin-2',
+      publicBaseUrl: 'https://control.example.test',
+    });
+    const post = (body: Record<string, unknown>) =>
+      handler(
+        new Request(completionEndpoint, {
+          body: JSON.stringify(body),
+          headers: {
+            Authorization: `Bearer ${materializerSecret}`,
+            'Content-Type': 'application/json',
+          },
+          method: 'POST',
+        })
+      );
+    const v2Fields = {
+      attributionRecords: [
+        {
+          attributionId: 'attribution-1',
+          attributionTokenHash: 'b'.repeat(64),
+          normalizedPath: 'Assets/Product/a.png',
+          sourceSha256: 'c'.repeat(64),
+        },
+      ],
+      builds: { codec: 'codec-2', helper: 'host-2', runtime: 'runtime-2' },
+      capability: capabilityToken,
+      capabilityId: 'capability-1',
+      jobId: 'job-1',
+      leaseGeneration: 1,
+      materializerId: 'data-node-1',
+      outputFiles: [
+        {
+          attributionId: 'attribution-1',
+          normalizedPath: 'Assets/Product/a.png',
+          outputBytes: 20,
+          outputSha256: 'd'.repeat(64),
+        },
+      ],
+      outputTreeRoot: 'e'.repeat(64),
+    };
+
+    const coupled = await post({
+      ...v2Fields,
+      completionSchema: 'v3',
+      coupledJobManifestKey: 'coupled-jobs/job-1.v1.json',
+      proof: createProof(completionEndpoint, 'proof-coupled-1'),
+    });
+    expect(coupled.status).toBe(200);
+    expect(await coupled.json()).toEqual({
+      receipt: 'signed-coupled-receipt',
+      receiptId: 'receipt-coupled-1',
+      success: true,
+    });
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]).toMatchObject({
+      completionSchema: 'v3',
+      coupledJobManifestKey: 'coupled-jobs/job-1.v1.json',
+      jobId: 'job-1',
+    });
+    expect(inputs[0]).not.toHaveProperty('renditionBytes');
+    expect(inputs[0]).not.toHaveProperty('renditionSha256');
+
+    const v2MissingRendition = await post({
+      ...v2Fields,
+      proof: createProof(completionEndpoint, 'proof-coupled-2'),
+    });
+    expect(v2MissingRendition.status).toBe(400);
+    expect(await v2MissingRendition.json()).toEqual({ error: 'body_fields_invalid' });
+
+    const coupledWithRendition = await post({
+      ...v2Fields,
+      completionSchema: 'v3',
+      coupledJobManifestKey: 'coupled-jobs/job-1.v1.json',
+      proof: createProof(completionEndpoint, 'proof-coupled-3'),
+      renditionBytes: 100,
+      renditionSha256: 'a'.repeat(64),
+    });
+    expect(coupledWithRendition.status).toBe(400);
+    expect(await coupledWithRendition.json()).toEqual({ error: 'body_fields_invalid' });
+
+    const invalidSchema = await post({
+      ...v2Fields,
+      completionSchema: 'v2',
+      coupledJobManifestKey: 'coupled-jobs/job-1.v1.json',
+      proof: createProof(completionEndpoint, 'proof-coupled-4'),
+    });
+    expect(invalidSchema.status).toBe(400);
+    expect(await invalidSchema.json()).toEqual({ error: 'completion_schema_invalid' });
+
+    const manyFiles = Array.from({ length: 600 }, (_, index) => ({
+      attributionId: `attribution-${index.toString(16).padStart(4, '0')}`,
+      normalizedPath: `Assets/Product/${index.toString(16).padStart(4, '0')}.png`,
+      outputBytes: 20,
+      outputSha256: 'd'.repeat(64),
+    }));
+    const largeCoupled = await post({
+      ...v2Fields,
+      attributionRecords: manyFiles.map((file) => ({
+        attributionId: file.attributionId,
+        attributionTokenHash: 'b'.repeat(64),
+        normalizedPath: file.normalizedPath,
+        sourceSha256: 'c'.repeat(64),
+      })),
+      completionSchema: 'v3',
+      coupledJobManifestKey: 'coupled-jobs/job-1.v1.json',
+      outputFiles: manyFiles,
+      proof: createProof(completionEndpoint, 'proof-coupled-5'),
+    });
+    expect(largeCoupled.status).toBe(200);
+
+    const largeV2 = await post({
+      ...v2Fields,
+      attributionRecords: manyFiles.map((file) => ({
+        attributionId: file.attributionId,
+        attributionTokenHash: 'b'.repeat(64),
+        normalizedPath: file.normalizedPath,
+        sourceSha256: 'c'.repeat(64),
+      })),
+      outputFiles: manyFiles,
+      proof: createProof(completionEndpoint, 'proof-coupled-6'),
+      renditionBytes: 100,
+      renditionSha256: 'a'.repeat(64),
+    });
+    expect(largeV2.status).toBe(400);
+    expect(await largeV2.json()).toEqual({ error: 'attribution_records_invalid' });
+    expect(inputs).toHaveLength(2);
+  });
+
   it('separates API job control from Linux materializer work claims', async () => {
     const createEndpoint = 'https://control.example.test/v2/internal/materialization-jobs/create';
     const claimEndpoint = 'https://control.example.test/v2/internal/materialization-jobs/claim';

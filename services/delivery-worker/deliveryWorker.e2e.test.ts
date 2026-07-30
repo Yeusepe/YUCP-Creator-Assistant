@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createHash, generateKeyPairSync, type KeyObject, randomUUID, sign } from 'node:crypto';
+import { resolve } from 'node:path';
 import * as ed25519 from '@noble/ed25519';
+import { getPlatformProxy, type PlatformProxy } from 'wrangler';
 import {
   createDeliveryManifest,
   DESYNC_STORAGE_FORMAT_VERSION,
@@ -18,18 +20,19 @@ import {
   createLogicalReleasePublicationV4,
   createLogicalReleaseRootV4,
 } from '../../ops/storage-core/releasePublication';
-import { putS3Object } from '../../ops/storage-core/s3Control';
-import {
-  type DisposableStorageHarness,
-  startDisposableStorageHarness,
-} from '../../ops/testing/disposableStorageHarness';
 import worker from './src/index';
 
 const grantPrivateKey = new Uint8Array(32).fill(0x39);
 const grantKeyId = 'delivery-grant-e2e-2026-01';
 const issuer = 'https://api.example.test';
 const audience = 'https://delivery.example.test';
-let harness: DisposableStorageHarness;
+
+type SeedableBucket = R2Bucket & {
+  put(key: string, value: ArrayBuffer | Uint8Array | string): Promise<unknown>;
+};
+let proxy: PlatformProxy<Record<string, unknown>>;
+let commonBucket: SeedableBucket;
+let metadataBucket: SeedableBucket;
 
 function encodeJson(value: unknown): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
@@ -176,21 +179,11 @@ async function authorization(input: {
 }
 
 async function deliveryEnv() {
-  const common = harness.buckets.common;
-  const metadata = harness.buckets.metadata;
   return {
-    COMMON_CHUNK_PREFIX: common.chunkPrefix,
-    COMMON_S3_BUCKET: common.bucket,
-    COMMON_S3_ENDPOINT: common.endpoint,
-    COMMON_S3_READONLY_ACCESS_KEY_ID: common.accessKeyId,
-    COMMON_S3_READONLY_SECRET_ACCESS_KEY: common.secretAccessKey,
-    COMMON_S3_REGION: common.region,
-    METADATA_INDEX_PREFIX: metadata.indexPrefix,
-    METADATA_S3_BUCKET: metadata.bucket,
-    METADATA_S3_ENDPOINT: metadata.endpoint,
-    METADATA_S3_READONLY_ACCESS_KEY_ID: metadata.accessKeyId,
-    METADATA_S3_READONLY_SECRET_ACCESS_KEY: metadata.secretAccessKey,
-    METADATA_S3_REGION: metadata.region,
+    COMMON_BUCKET: commonBucket,
+    COMMON_CHUNK_PREFIX: 'chunks/',
+    METADATA_BUCKET: metadataBucket,
+    METADATA_INDEX_PREFIX: 'indexes/',
     PACKAGE_DELIVERY_AUDIENCE: audience,
     PACKAGE_INSTALL_ISSUER: issuer,
     PACKAGE_INSTALL_SIGNING_KEY_ID: grantKeyId,
@@ -202,33 +195,26 @@ async function deliveryEnv() {
 }
 
 beforeAll(async () => {
-  harness = await startDisposableStorageHarness();
+  proxy = await getPlatformProxy({
+    configPath: resolve(import.meta.dir, 'wrangler.jsonc'),
+    persist: false,
+  });
+  commonBucket = proxy.env.COMMON_BUCKET as SeedableBucket;
+  metadataBucket = proxy.env.METADATA_BUCKET as SeedableBucket;
 }, 300_000);
 
 afterAll(async () => {
-  await harness?.stop();
+  await proxy?.dispose();
 }, 300_000);
 
-describe('common package delivery Worker against disposable MinIO', () => {
-  test('reads metadata and common chunks from separate versioned buckets', async () => {
+describe('common package delivery Worker against local R2 bindings', () => {
+  test('reads metadata and common chunks from separate buckets', async () => {
     const versionId = randomUUID();
-    const chunkBytes = new TextEncoder().encode('real MinIO delivery chunk');
+    const chunkBytes = new TextEncoder().encode('real R2 delivery chunk');
     const fixture = buildManifest(versionId, chunkBytes);
-    const common = harness.buckets.common;
-    const metadata = harness.buckets.metadata;
-    await putS3Object({
-      body: fixture.body,
-      config: metadata,
-      contentType: 'application/json',
-      key: `${metadata.indexPrefix}${deliveryManifestObjectId(versionId)}`,
-    });
+    await metadataBucket.put(`indexes/${deliveryManifestObjectId(versionId)}`, fixture.body);
     const chunkId = fixture.manifest.files[0]?.chunks[0]?.id as string;
-    await putS3Object({
-      body: chunkBytes,
-      config: common,
-      contentType: 'application/octet-stream',
-      key: `${common.chunkPrefix}${chunkId.slice(0, 4)}/${chunkId}`,
-    });
+    await commonBucket.put(`chunks/${chunkId.slice(0, 4)}/${chunkId}`, chunkBytes);
 
     const manifestUrl = `${audience}/v2/delivery/${versionId}/manifest`;
     const manifestResponse = await worker.fetch(
@@ -259,6 +245,25 @@ describe('common package delivery Worker against disposable MinIO', () => {
     );
     expect(chunkResponse.status).toBe(200);
     expect(new Uint8Array(await chunkResponse.arrayBuffer())).toEqual(chunkBytes);
+  }, 120_000);
+
+  test('returns 404 for a version that is missing from the metadata bucket', async () => {
+    const versionId = randomUUID();
+    const fixture = buildManifest(versionId, new TextEncoder().encode('unseeded release'));
+    const url = `${audience}/v2/delivery/${versionId}/manifest`;
+    const response = await worker.fetch(
+      new Request(url, {
+        headers: await authorization({
+          bindingRoot: fixture.bindingRoot,
+          releaseRoot: fixture.manifest.releaseRoot,
+          url,
+          versionId,
+        }),
+      }),
+      await deliveryEnv()
+    );
+    expect(response.status).toBe(404);
+    expect(response.headers.get('x-delivery-storage-fetches')).toBe('1');
   }, 120_000);
 
   test('performs no storage request for an unauthorized caller', async () => {

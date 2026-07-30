@@ -13,11 +13,17 @@ import {
   type MaterializationReceiptV2,
   type MaterializedFileV2,
   PACKAGE_CONTRACT_PURPOSES,
+  type PackageContractPurpose,
   signPackageContract,
   validateMaterializationCapabilityV2,
   verifyMaterializationCapabilityV2,
 } from '../storage-core/packageContractsV2';
 import type { MaterializationKeyBrokerPort } from './keyBrokerClient';
+import {
+  encodeMaterializationReceiptV3,
+  MATERIALIZATION_RECEIPT_V3_MAX_OUTPUT_FILES,
+  MATERIALIZATION_RECEIPT_V3_PURPOSE,
+} from './materializationReceiptV3';
 
 export type DeclaredMaterializedFile = {
   attributionId: string;
@@ -427,10 +433,11 @@ function requireSha256Hex(value: string, name: string): Buffer {
 }
 
 function normalizeMaterializedFiles(
-  files: readonly DeclaredMaterializedFile[]
+  files: readonly DeclaredMaterializedFile[],
+  maxFiles: number
 ): MaterializedFileV2[] {
-  if (files.length < 1 || files.length > 512) {
-    throw new Error('Materialized output file count must be between 1 and 512');
+  if (files.length < 1 || files.length > maxFiles) {
+    throw new Error(`Materialized output file count must be between 1 and ${maxFiles}`);
   }
   return files.map((file, index) => {
     const normalizedPath = requireText(file.normalizedPath, 'normalizedPath', 1_024);
@@ -2108,7 +2115,9 @@ export class MaterializationBroker {
       runtime: string;
     };
     capabilityId: string;
+    completionSchema?: 'v3';
     coseSign1: Uint8Array;
+    coupledJobManifestKey?: string;
     jobId: string;
     leaseGeneration: number;
     materializerId: string;
@@ -2116,8 +2125,8 @@ export class MaterializationBroker {
     outputFiles: readonly DeclaredMaterializedFile[];
     outputTreeRoot: string;
     proofJti: string;
-    renditionBytes: number;
-    renditionSha256: string;
+    renditionBytes?: number;
+    renditionSha256?: string;
     traceId: string;
     verifiedProofKeyThumbprint: Uint8Array;
   }): Promise<CompletedRendition> {
@@ -2125,17 +2134,45 @@ export class MaterializationBroker {
     const materializerId = requireText(input.materializerId, 'materializerId', 512);
     const jobId = requireText(input.jobId, 'jobId', 128);
     const capabilityId = requireText(input.capabilityId, 'capabilityId', 128);
-    const fileIdentifier = `${jobId}.zip`;
-    const renditionSha256 = requireSha256Hex(input.renditionSha256, 'renditionSha256');
-    if (
-      !Number.isSafeInteger(input.renditionBytes) ||
-      input.renditionBytes < 1 ||
-      input.renditionBytes > 5 * 1024 ** 3
-    ) {
-      throw new Error('Rendition completion request is invalid');
+    const coupled = input.completionSchema === 'v3';
+    if (input.completionSchema !== undefined && input.completionSchema !== 'v3') {
+      throw new Error('Rendition completion schema is invalid');
+    }
+    let fileIdentifier: string;
+    let renditionSha256: Buffer | undefined;
+    if (coupled) {
+      // v3 coupled completions carry no monolithic rendition object; the
+      // outputs are served per file from the materializer's coupled-job store.
+      if (
+        input.renditionBytes !== undefined ||
+        input.renditionSha256 !== undefined ||
+        input.coupledJobManifestKey !== `coupled-jobs/${jobId}.v1.json`
+      ) {
+        throw new Error('Coupled completion request is invalid');
+      }
+      fileIdentifier = input.coupledJobManifestKey;
+    } else {
+      if (input.coupledJobManifestKey !== undefined) {
+        throw new Error('Rendition completion request is invalid');
+      }
+      fileIdentifier = `${jobId}.zip`;
+      if (typeof input.renditionSha256 !== 'string') {
+        throw new Error('Rendition completion request is invalid');
+      }
+      renditionSha256 = requireSha256Hex(input.renditionSha256, 'renditionSha256');
+      if (
+        !Number.isSafeInteger(input.renditionBytes) ||
+        (input.renditionBytes as number) < 1 ||
+        (input.renditionBytes as number) > 5 * 1024 ** 3
+      ) {
+        throw new Error('Rendition completion request is invalid');
+      }
     }
     requireText(input.traceId, 'traceId', 512);
-    const outputFiles = normalizeMaterializedFiles(input.outputFiles);
+    const outputFiles = normalizeMaterializedFiles(
+      input.outputFiles,
+      coupled ? MATERIALIZATION_RECEIPT_V3_MAX_OUTPUT_FILES : 512
+    );
     const declaredOutputTreeRoot = requireSha256Hex(input.outputTreeRoot, 'outputTreeRoot');
     const builds = {
       codec: requireText(input.builds.codec, 'codecBuild', 512),
@@ -2164,9 +2201,9 @@ export class MaterializationBroker {
         {
           capabilityId: string;
           consumedBy: string;
-          fileIdentifier: string;
-          objectBytes: number;
-          objectSha256: Buffer;
+          fileIdentifier: string | null;
+          objectBytes: number | null;
+          objectSha256: Buffer | null;
           receiptId: string;
           signedReceipt: Buffer;
         }[]
@@ -2186,11 +2223,19 @@ export class MaterializationBroker {
       if (!existingReceipt[0]) {
         throw new Error('Completed rendition receipt disappeared');
       }
+      // A coupled (v3) row stores NULL rendition identity; a retry must present the
+      // same schema and, for v2, the same rendition object.
+      const renditionMatches = coupled
+        ? existingReceipt[0].fileIdentifier === null &&
+          existingReceipt[0].objectBytes === null &&
+          existingReceipt[0].objectSha256 === null
+        : existingReceipt[0].fileIdentifier === fileIdentifier &&
+          existingReceipt[0].objectBytes === input.renditionBytes &&
+          existingReceipt[0].objectSha256 !== null &&
+          bytesEqual(existingReceipt[0].objectSha256, renditionSha256 as Buffer);
       if (
         existingReceipt[0].capabilityId !== capabilityId ||
-        existingReceipt[0].fileIdentifier !== fileIdentifier ||
-        existingReceipt[0].objectBytes !== input.renditionBytes ||
-        !bytesEqual(existingReceipt[0].objectSha256, renditionSha256) ||
+        !renditionMatches ||
         existingReceipt[0].consumedBy !== materializerId
       ) {
         throw new Error('Completed rendition does not match this request');
@@ -2285,7 +2330,7 @@ export class MaterializationBroker {
     const issuedAt = toEpochSeconds(now);
     const expiresAt = issuedAt + this.receiptSigning.lifetimeSeconds;
     const receiptId = randomUUID();
-    const receipt: MaterializationReceiptV2 = {
+    const receiptBase = {
       buyerSubjectPseudonym: job.buyerSubjectPseudonym,
       capabilityId,
       codecBuild: builds.codec,
@@ -2308,20 +2353,31 @@ export class MaterializationBroker {
       pseudonymMethod: job.pseudonymMethod,
       receiptId,
       releaseRoot: job.releaseRoot,
-      rendition: {
-        fileIdentifier,
-        objectBytes: input.renditionBytes,
-        objectSha256: renditionSha256,
-      },
       runtimeBuild: builds.runtime,
       traceId: job.traceId,
     };
-    const signed = await signPackageContract({
-      keyId: this.receiptSigning.keyId,
-      payload: encodeMaterializationReceiptV2(receipt),
-      privateKey: this.receiptSigning.privateKey,
-      purpose: PACKAGE_CONTRACT_PURPOSES.materializationReceipt,
-    });
+    const signed = coupled
+      ? await signPackageContract({
+          keyId: this.receiptSigning.keyId,
+          payload: encodeMaterializationReceiptV3(receiptBase),
+          privateKey: this.receiptSigning.privateKey,
+          // The purpose union lives in the frozen storage-core module; the
+          // string is the fixed cross-repo contract value.
+          purpose: MATERIALIZATION_RECEIPT_V3_PURPOSE as PackageContractPurpose,
+        })
+      : await signPackageContract({
+          keyId: this.receiptSigning.keyId,
+          payload: encodeMaterializationReceiptV2({
+            ...receiptBase,
+            rendition: {
+              fileIdentifier,
+              objectBytes: input.renditionBytes as number,
+              objectSha256: renditionSha256 as Buffer,
+            },
+          } satisfies MaterializationReceiptV2),
+          privateKey: this.receiptSigning.privateKey,
+          purpose: PACKAGE_CONTRACT_PURPOSES.materializationReceipt,
+        });
     const signedDigest = createHash('sha256').update(signed.coseSign1).digest();
 
     await this.sql.begin(async (transaction) => {
@@ -2339,6 +2395,8 @@ export class MaterializationBroker {
       if (!fence[0]) {
         throw new Error('Rendition completion lost its durable fence');
       }
+      // v3 coupled completions carry no monolithic rendition object; the rendition
+      // identity columns are NULL for them (migration 0031 enforces all-or-nothing).
       await transaction`
         INSERT INTO materialization_receipts (
           receipt_id,
@@ -2360,10 +2418,10 @@ export class MaterializationBroker {
           ${jobId},
           ${capabilityId},
           ${input.leaseGeneration},
-          ${receipt.outputTreeRoot},
-          ${receipt.rendition.objectSha256},
-          ${receipt.rendition.objectBytes},
-          ${fileIdentifier},
+          ${declaredOutputTreeRoot},
+          ${coupled ? null : (renditionSha256 as Buffer)},
+          ${coupled ? null : (input.renditionBytes as number)},
+          ${coupled ? null : fileIdentifier},
           ${signed.coseSign1},
           ${signedDigest},
           ${new Date(issuedAt * 1_000)},

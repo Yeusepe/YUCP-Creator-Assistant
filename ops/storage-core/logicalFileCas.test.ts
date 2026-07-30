@@ -152,10 +152,14 @@ describe('logical file CAS', () => {
     await verifyDesyncCli();
     const root = await createScratch();
     const sourcePath = join(root, 'publication.asset');
-    const bytes = new Uint8Array(4 * 1024 * 1024);
-    for (let index = 0; index < bytes.byteLength; index += 1) {
-      bytes[index] = (index * 47 + Math.floor(index / 4096)) % 251;
-    }
+    // The fixture must produce more chunks than the widened chunk I/O pool so the
+    // concurrency assertions below saturate the bound. Pseudorandom bytes keep the CDC
+    // chunker near its average chunk size instead of collapsing to max-size chunks.
+    const bytes = new Uint8Array(
+      createHash('shake256', { outputLength: 24 * 1024 * 1024 })
+        .update('bounded-batch-publication-fixture')
+        .digest()
+    );
     await writeFile(sourcePath, bytes);
     let active = 0;
     let maximumActive = 0;

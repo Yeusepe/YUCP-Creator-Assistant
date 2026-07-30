@@ -66,7 +66,7 @@ type materializationFailedError struct {
 }
 
 func (err *materializationFailedError) Error() string {
-	return fmt.Sprintf("materialization failed with stable error code %s", err.code)
+	return fmt.Sprintf("materialization failed with stable error code %s", err.StableCode())
 }
 
 var safeStableCodePattern = regexp.MustCompile(`^[A-Z0-9_]{1,64}$`)
@@ -124,50 +124,51 @@ func FetchProtectedRendition(
 	ctx context.Context,
 	cfg ProtectedRenditionConfig,
 ) (DownloadedRendition, packagecontract.MaterializationReceipt, error) {
+	encodedReceipt, receipt, err := AwaitMaterializationReceipt(ctx, cfg)
+	if err != nil {
+		return DownloadedRendition{}, packagecontract.MaterializationReceipt{}, err
+	}
+	downloaded, err := DownloadProtectedRendition(ctx, cfg, encodedReceipt, receipt)
+	if err != nil {
+		return DownloadedRendition{}, packagecontract.MaterializationReceipt{}, err
+	}
+	return downloaded, receipt, nil
+}
+
+// AwaitMaterializationReceipt polls the materialization status endpoint until
+// the job succeeds, then verifies and binds the signed receipt. Receipts
+// signed for materialization-receipt-v3 (coupled per-file delivery) are
+// preferred; materialization-receipt-v2 (exact rendition ZIP) remains
+// accepted while the server rolls v3 out.
+func AwaitMaterializationReceipt(
+	ctx context.Context,
+	cfg ProtectedRenditionConfig,
+) (string, packagecontract.MaterializationReceipt, error) {
 	if ctx == nil || cfg.PrivateKey == nil || cfg.GrantSource == nil {
-		return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
+		return "", packagecontract.MaterializationReceipt{},
 			fmt.Errorf("protected rendition credentials are required")
 	}
 	jobID := cfg.Grant.MaterializationJobID()
 	if jobID == "" {
-		return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
+		return "", packagecontract.MaterializationReceipt{},
 			fmt.Errorf("delivery grant has no materialization scope")
-	}
-	downloadRoot, err := requireAbsolutePath(cfg.DownloadRoot, "rendition download root")
-	if err != nil {
-		return DownloadedRendition{}, packagecontract.MaterializationReceipt{}, err
 	}
 	statusURL, err := endpointURL(
 		cfg.Session.Issuer,
 		"/api/v2/package-installs/materialization-status",
 	)
 	if err != nil {
-		return DownloadedRendition{}, packagecontract.MaterializationReceipt{}, err
+		return "", packagecontract.MaterializationReceipt{}, err
 	}
 	interval := cfg.PollInterval
 	if interval <= 0 {
 		interval = 500 * time.Millisecond
 	}
 	if interval > 10*time.Second {
-		return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
+		return "", packagecontract.MaterializationReceipt{},
 			fmt.Errorf("materialization poll interval exceeds its limit")
 	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.ResponseHeaderTimeout = 30 * time.Second
-	client := &http.Client{
-		Transport: transport,
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-	idleTimeout := cfg.DownloadIdleTimeout
-	if idleTimeout <= 0 {
-		idleTimeout = defaultRenditionIdleTimeout
-	}
-	if idleTimeout > maxRenditionIdleTimeout {
-		return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
-			fmt.Errorf("rendition idle timeout exceeds its limit")
-	}
+	client := protectedDeliveryClient()
 	var encodedReceipt string
 	consecutiveStatusFailures := 0
 	for {
@@ -181,14 +182,14 @@ func FetchProtectedRendition(
 		)
 		if statusErr != nil {
 			if !isRetryableMaterializationStatusError(statusErr) {
-				return DownloadedRendition{}, packagecontract.MaterializationReceipt{}, statusErr
+				return "", packagecontract.MaterializationReceipt{}, statusErr
 			}
 			consecutiveStatusFailures++
 			if waitErr := waitForMaterializationPoll(
 				ctx,
 				materializationStatusRetryDelay(interval, consecutiveStatusFailures),
 			); waitErr != nil {
-				return DownloadedRendition{}, packagecontract.MaterializationReceipt{}, waitErr
+				return "", packagecontract.MaterializationReceipt{}, waitErr
 			}
 			continue
 		}
@@ -196,19 +197,19 @@ func FetchProtectedRendition(
 		switch status.Status {
 		case "succeeded":
 			if status.Receipt == "" || status.ReceiptID == "" {
-				return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
+				return "", packagecontract.MaterializationReceipt{},
 					fmt.Errorf("materialization status returned no signed receipt")
 			}
 			encodedReceipt = status.Receipt
 		case "failed":
-			return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
+			return "", packagecontract.MaterializationReceipt{},
 				&materializationFailedError{code: status.ErrorCode}
 		case "pending":
 			if status.QueuePosition < 0 ||
 				(status.State != "MATERIALIZING" &&
 					status.State != "QUEUED" &&
 					status.State != "VERIFYING") {
-				return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
+				return "", packagecontract.MaterializationReceipt{},
 					fmt.Errorf("materialization pending status is invalid")
 			}
 			progress := ProtectedRenditionProgress{
@@ -229,7 +230,7 @@ func FetchProtectedRendition(
 						status.Progress.CompletedLogicalBytes > status.Progress.TotalLogicalBytes) ||
 					!validMaterializationProgressStage(status.Progress.Stage) ||
 					!validMaterializationProgressStatus(status.Progress.Status) {
-					return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
+					return "", packagecontract.MaterializationReceipt{},
 						fmt.Errorf("materialization progress is invalid")
 				}
 				progress.CompletedFiles = status.Progress.CompletedFiles
@@ -243,39 +244,50 @@ func FetchProtectedRendition(
 			}
 			if cfg.Progress != nil {
 				if progressErr := cfg.Progress(progress); progressErr != nil {
-					return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
+					return "", packagecontract.MaterializationReceipt{},
 						fmt.Errorf("publish materialization progress: %w", progressErr)
 				}
 			}
 		default:
-			return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
+			return "", packagecontract.MaterializationReceipt{},
 				fmt.Errorf("materialization status is invalid")
 		}
 		if encodedReceipt != "" {
 			break
 		}
 		if waitErr := waitForMaterializationPoll(ctx, interval); waitErr != nil {
-			return DownloadedRendition{}, packagecontract.MaterializationReceipt{}, waitErr
+			return "", packagecontract.MaterializationReceipt{}, waitErr
 		}
 	}
 	receiptEnvelope, err := base64.RawURLEncoding.DecodeString(encodedReceipt)
 	if err != nil {
-		return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
+		return "", packagecontract.MaterializationReceipt{},
 			fmt.Errorf("decode materialization receipt: %w", err)
 	}
-	receiptPayload, err := packagecontract.VerifySign1(
+	var receipt packagecontract.MaterializationReceipt
+	receiptPayload, v3Err := packagecontract.VerifySign1(
 		receiptEnvelope,
 		cfg.ReceiptAuthority.PublicKey,
 		cfg.ReceiptAuthority.KeyID,
-		packagecontract.MaterializationReceiptPurpose,
+		packagecontract.MaterializationReceiptPurposeV3,
 	)
-	if err != nil {
-		return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
-			fmt.Errorf("verify materialization receipt: %w", err)
+	if v3Err == nil {
+		receipt, err = packagecontract.ParseMaterializationReceiptV3(receiptPayload)
+	} else {
+		receiptPayload, err = packagecontract.VerifySign1(
+			receiptEnvelope,
+			cfg.ReceiptAuthority.PublicKey,
+			cfg.ReceiptAuthority.KeyID,
+			packagecontract.MaterializationReceiptPurpose,
+		)
+		if err != nil {
+			return "", packagecontract.MaterializationReceipt{},
+				fmt.Errorf("verify materialization receipt: %w", err)
+		}
+		receipt, err = packagecontract.ParseMaterializationReceipt(receiptPayload)
 	}
-	receipt, err := packagecontract.ParseMaterializationReceipt(receiptPayload)
 	if err != nil {
-		return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
+		return "", packagecontract.MaterializationReceipt{},
 			fmt.Errorf("parse materialization receipt: %w", err)
 	}
 	if err := packagecontract.ValidateMaterializationReceipt(
@@ -289,18 +301,50 @@ func FetchProtectedRendition(
 			ReleaseRoot: cfg.Session.ReleaseRoot[:],
 		},
 	); err != nil {
-		return DownloadedRendition{}, packagecontract.MaterializationReceipt{}, err
+		return "", packagecontract.MaterializationReceipt{}, err
+	}
+	return encodedReceipt, receipt, nil
+}
+
+// DownloadProtectedRendition downloads the exact rendition ZIP named by an
+// awaited v2 receipt. Coupled v3 receipts have no rendition object and use
+// FetchCoupledFiles instead.
+func DownloadProtectedRendition(
+	ctx context.Context,
+	cfg ProtectedRenditionConfig,
+	encodedReceipt string,
+	receipt packagecontract.MaterializationReceipt,
+) (DownloadedRendition, error) {
+	if ctx == nil || cfg.PrivateKey == nil || cfg.GrantSource == nil {
+		return DownloadedRendition{}, fmt.Errorf("protected rendition credentials are required")
+	}
+	jobID := cfg.Grant.MaterializationJobID()
+	if jobID == "" {
+		return DownloadedRendition{}, fmt.Errorf("delivery grant has no materialization scope")
+	}
+	if !receipt.HasRendition() {
+		return DownloadedRendition{}, fmt.Errorf(
+			"materialization receipt names no exact rendition object",
+		)
+	}
+	downloadRoot, err := requireAbsolutePath(cfg.DownloadRoot, "rendition download root")
+	if err != nil {
+		return DownloadedRendition{}, err
+	}
+	idleTimeout, err := protectedIdleTimeout(cfg.DownloadIdleTimeout)
+	if err != nil {
+		return DownloadedRendition{}, err
 	}
 	renditionURL, err := endpointURL(
 		cfg.Session.Audience,
 		"/v2/renditions/"+url.PathEscape(jobID),
 	)
 	if err != nil {
-		return DownloadedRendition{}, packagecontract.MaterializationReceipt{}, err
+		return DownloadedRendition{}, err
 	}
-	downloaded, err := downloadRendition(
+	return downloadRendition(
 		ctx,
-		client,
+		protectedDeliveryClient(),
 		renditionURL,
 		jobID,
 		encodedReceipt,
@@ -310,10 +354,27 @@ func FetchProtectedRendition(
 		receipt,
 		idleTimeout,
 	)
-	if err != nil {
-		return DownloadedRendition{}, packagecontract.MaterializationReceipt{}, err
+}
+
+func protectedDeliveryClient() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = 30 * time.Second
+	return &http.Client{
+		Transport: transport,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
-	return downloaded, receipt, nil
+}
+
+func protectedIdleTimeout(configured time.Duration) (time.Duration, error) {
+	if configured <= 0 {
+		return defaultRenditionIdleTimeout, nil
+	}
+	if configured > maxRenditionIdleTimeout {
+		return 0, fmt.Errorf("rendition idle timeout exceeds its limit")
+	}
+	return configured, nil
 }
 
 func isRetryableMaterializationStatusError(err error) bool {
@@ -510,6 +571,7 @@ func downloadRendition(
 		response, nextGrant, requestErr := requestRenditionRange(
 			ctx,
 			client,
+			http.MethodPost,
 			endpoint,
 			body,
 			grant,
@@ -615,6 +677,7 @@ func isResumableRenditionReadError(err error) bool {
 func requestRenditionRange(
 	ctx context.Context,
 	client *http.Client,
+	method string,
 	endpoint string,
 	body []byte,
 	grant string,
@@ -626,7 +689,7 @@ func requestRenditionRange(
 	for authorizationAttempt := 0; authorizationAttempt < 2; authorizationAttempt++ {
 		proof, err := dpop.CreateProof(
 			privateKey,
-			http.MethodPost,
+			method,
 			endpoint,
 			grant,
 			time.Now(),
@@ -634,17 +697,23 @@ func requestRenditionRange(
 		if err != nil {
 			return nil, grant, fmt.Errorf("create rendition delivery proof: %w", err)
 		}
+		var requestBody io.Reader
+		if body != nil {
+			requestBody = bytes.NewReader(body)
+		}
 		request, err := http.NewRequestWithContext(
 			ctx,
-			http.MethodPost,
+			method,
 			endpoint,
-			bytes.NewReader(body),
+			requestBody,
 		)
 		if err != nil {
 			return nil, grant, fmt.Errorf("create rendition request: %w", err)
 		}
 		request.Header.Set("Authorization", "DPoP "+grant)
-		request.Header.Set("Content-Type", "application/json")
+		if body != nil {
+			request.Header.Set("Content-Type", "application/json")
+		}
 		request.Header.Set("DPoP", proof)
 		if offset > 0 {
 			request.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))

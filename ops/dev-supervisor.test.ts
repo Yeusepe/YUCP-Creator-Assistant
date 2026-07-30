@@ -165,6 +165,7 @@ describe('DevSupervisor', () => {
     expect(runtime.env.PROTECTED_S3_BUCKET).toBe(runtime.storage.buckets.protected.bucket);
     expect(runtime.env.QUARANTINE_S3_BUCKET).toBe(runtime.storage.buckets.quarantine.bucket);
     expect(runtime.env.RENDITION_S3_BUCKET).toBeUndefined();
+    expect(runtime.env.YUCP_WRANGLER_PERSIST_PATH).toBe(path.join(storageRoot, 'wrangler-r2'));
     expect(runtime.env.MATERIALIZER_ORIGIN_URL).toBe('http://127.0.0.1:8788');
     const importerLedger = JSON.parse(runtime.env.VPM_IMPORTER_RELEASE_LEDGER_JSON ?? 'null') as {
       releases?: Record<string, { sha256?: string }>;
@@ -595,21 +596,12 @@ describe('DevSupervisor', () => {
     expect(
       commands.some((command) => command.cwd?.replaceAll('\\', '/').endsWith('/ca-coupling'))
     ).toBeFalse();
-    expect(commands.find((command) => command.name === 'delivery')).toMatchObject({
+    const deliveryCommand = commands.find((command) => command.name === 'delivery');
+    expect(deliveryCommand).toMatchObject({
       command: 'bun x tsx watch services/delivery-worker/testDevServer.ts',
       env: {
         BUYER_FLOW_COMMON_CHUNK_PREFIX: 'chunks/',
-        BUYER_FLOW_COMMON_S3_BUCKET: 'local-common',
-        BUYER_FLOW_COMMON_S3_ENDPOINT: 'http://127.0.0.1:49152',
-        BUYER_FLOW_COMMON_S3_READONLY_ACCESS_KEY_ID: 'local-common-key',
-        BUYER_FLOW_COMMON_S3_READONLY_SECRET_ACCESS_KEY: 'local-common-secret',
-        BUYER_FLOW_COMMON_S3_REGION: 'us-east-1',
         BUYER_FLOW_METADATA_INDEX_PREFIX: 'indexes/',
-        BUYER_FLOW_METADATA_S3_BUCKET: 'local-metadata',
-        BUYER_FLOW_METADATA_S3_ENDPOINT: 'http://127.0.0.1:49152',
-        BUYER_FLOW_METADATA_S3_READONLY_ACCESS_KEY_ID: 'local-metadata-key',
-        BUYER_FLOW_METADATA_S3_READONLY_SECRET_ACCESS_KEY: 'local-metadata-secret',
-        BUYER_FLOW_METADATA_S3_REGION: 'us-east-1',
         BUYER_FLOW_PACKAGE_DELIVERY_AUDIENCE: 'http://127.0.0.1:3003',
         BUYER_FLOW_PACKAGE_INSTALL_ISSUER: 'http://127.0.0.1:3001',
         BUYER_FLOW_PACKAGE_INSTALL_SIGNING_KEY_ID: 'local-install-key',
@@ -619,6 +611,14 @@ describe('DevSupervisor', () => {
         BUYER_FLOW_STORAGE_FORMAT_VERSION: 'desync-uncompressed-sha256-v1',
       },
     });
+    const materializationSourceCommand = commands.find(
+      (command) => command.name === 'materialization-source'
+    );
+    for (const workerCommand of [deliveryCommand, materializationSourceCommand]) {
+      expect(Object.keys(workerCommand?.env ?? {}).filter((name) => name.includes('_S3_'))).toEqual(
+        []
+      );
+    }
     expect(commands.find((command) => command.name === 'vpm-public')).toMatchObject({
       command: 'bun run ops/importer/localVpmServer.ts',
       env: { PORT: '3004' },
@@ -724,6 +724,7 @@ describe('DevSupervisor', () => {
       VPM_BASE_URL: 'http://127.0.0.1:3001',
       VPM_PUBLIC_INDEX_URL: 'http://127.0.0.1:3004/index.json',
       YUCP_STORAGE_PROFILE: 'disposable',
+      YUCP_WRANGLER_PERSIST_PATH: path.join('C:/tmp', 'wrangler-r2'),
     });
     expect(env).not.toHaveProperty('VPM_TOKEN_KEY');
     const interactiveEnv = applyLocalStorageProfile(

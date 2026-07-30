@@ -5,18 +5,10 @@ import {
 } from '../../ops/testing/localWranglerWorker';
 import { type LocalDeliveryProxy, startLocalDeliveryProxy } from './localDevProxy';
 
+// Storage is served by the r2_buckets bindings in wrangler.jsonc (local R2
+// simulation under wrangler dev); only non-storage vars are injected here.
 const VAR_NAMES = [
-  'COMMON_S3_ENDPOINT',
-  'COMMON_S3_REGION',
-  'COMMON_S3_BUCKET',
-  'COMMON_S3_READONLY_ACCESS_KEY_ID',
-  'COMMON_S3_READONLY_SECRET_ACCESS_KEY',
   'COMMON_CHUNK_PREFIX',
-  'METADATA_S3_ENDPOINT',
-  'METADATA_S3_REGION',
-  'METADATA_S3_BUCKET',
-  'METADATA_S3_READONLY_ACCESS_KEY_ID',
-  'METADATA_S3_READONLY_SECRET_ACCESS_KEY',
   'METADATA_INDEX_PREFIX',
   'PACKAGE_DELIVERY_AUDIENCE',
   'PACKAGE_INSTALL_ISSUER',

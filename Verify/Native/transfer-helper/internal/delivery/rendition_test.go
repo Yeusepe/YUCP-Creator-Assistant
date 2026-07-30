@@ -428,6 +428,7 @@ func TestRequestRenditionRangeRejectsOverlappingResponseWithoutRetry(t *testing.
 	response, _, err := requestRenditionRange(
 		context.Background(),
 		&http.Client{},
+		http.MethodPost,
 		server.URL,
 		[]byte("{}"),
 		"grant-range",

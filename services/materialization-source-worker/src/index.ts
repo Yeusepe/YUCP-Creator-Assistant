@@ -1,4 +1,3 @@
-import { AwsClient } from 'aws4fetch';
 import {
   type DeliveryManifest,
   deliveryManifestObjectId,
@@ -13,32 +12,14 @@ import {
   verifyDeliveryGrantV2,
 } from '../../../ops/storage-core/packageContractsV2';
 import { createLogicalReleasePublicationV4 } from '../../../ops/storage-core/releasePublication';
-import { buildS3ObjectUrl } from '../../../ops/storage-core/s3ObjectUrl';
-import { fetchWithSlowDownBackoff } from '../../../ops/storage-core/storageBackoff';
 
-// Cloudflare Workers support response streaming, but origin subrequests stay bounded.
-// Reference: https://developers.cloudflare.com/workers/platform/limits/
-// Backblaze B2 S3-compatible API:
-// https://www.backblaze.com/docs/cloud-storage-s3-compatible-api
+// Storage reads go through native R2 bucket bindings; there is no SigV4 signing,
+// endpoint configuration, or SlowDown backoff on this path anymore.
+// Reference: https://developers.cloudflare.com/r2/api/workers/workers-api-reference/
 
 const REQUIRED_BINDINGS = [
-  'COMMON_S3_ENDPOINT',
-  'COMMON_S3_REGION',
-  'COMMON_S3_BUCKET',
-  'COMMON_S3_READONLY_ACCESS_KEY_ID',
-  'COMMON_S3_READONLY_SECRET_ACCESS_KEY',
   'COMMON_CHUNK_PREFIX',
-  'METADATA_S3_ENDPOINT',
-  'METADATA_S3_REGION',
-  'METADATA_S3_BUCKET',
-  'METADATA_S3_READONLY_ACCESS_KEY_ID',
-  'METADATA_S3_READONLY_SECRET_ACCESS_KEY',
   'METADATA_INDEX_PREFIX',
-  'PROTECTED_S3_ENDPOINT',
-  'PROTECTED_S3_REGION',
-  'PROTECTED_S3_BUCKET',
-  'PROTECTED_S3_READONLY_ACCESS_KEY_ID',
-  'PROTECTED_S3_READONLY_SECRET_ACCESS_KEY',
   'PROTECTED_CHUNK_PREFIX',
   'STORAGE_FORMAT_VERSION',
   'DELIVERY_GRANT_KEY_ID',
@@ -46,6 +27,7 @@ const REQUIRED_BINDINGS = [
   'DELIVERY_GRANT_PUBLIC_KEY',
   'MATERIALIZATION_SOURCE_AUDIENCE',
 ] as const;
+const REQUIRED_BUCKETS = ['COMMON_BUCKET', 'METADATA_BUCKET', 'PROTECTED_BUCKET'] as const;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
 const CHUNK_ID = /^[0-9a-f]{64}$/;
 const SOURCE_PATH =
@@ -54,7 +36,6 @@ const MAX_GRANT_BYTES = 64 * 1024;
 const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
 const MAX_SOURCE_CHUNKS = 100_000;
 const MAX_CHUNK_BYTES = 1024 * 1024;
-const ORIGIN_TIMEOUT_MS = 30_000;
 const MAX_DPOP_REPLAY_ENTRIES = 8_192;
 const DPOP_REPLAY_SWEEP_LIMIT = 128;
 const DPOP_REPLAY_WINDOW_MS = 5 * 60 * 1_000;
@@ -79,21 +60,16 @@ const manifestCache = new BoundedManifestCache({
 const inflightManifestLoads = new Map<string, Promise<CachedManifest>>();
 
 type BindingName = (typeof REQUIRED_BINDINGS)[number];
-type S3ReadRole = {
-  accessKeyId: string;
-  bucket: string;
-  endpoint: string;
-  region: string;
-  secretAccessKey: string;
-};
+type BucketName = (typeof REQUIRED_BUCKETS)[number];
+type SourceRole = { bucket: R2Bucket; chunkPrefix: string };
 type SourceConfig = {
-  common: S3ReadRole & { chunkPrefix: string };
+  common: SourceRole;
   deliveryGrantIssuer: string;
   deliveryGrantKeyId: string;
   deliveryGrantPublicKey: string;
   materializationSourceAudience: string;
-  metadata: S3ReadRole & { indexPrefix: string };
-  protected: S3ReadRole & { chunkPrefix: string };
+  metadata: { bucket: R2Bucket; indexPrefix: string };
+  protected: SourceRole;
   storageFormatVersion: string;
 };
 
@@ -120,6 +96,14 @@ function requireBinding(env: Env, name: BindingName): string {
   return value.trim();
 }
 
+function requireBucket(env: Env, name: BucketName): R2Bucket {
+  const value = Reflect.get(env, name) as R2Bucket | undefined;
+  if (!value || typeof value.get !== 'function') {
+    throw new HttpError(500, `Missing required Worker binding: ${name}`);
+  }
+  return value;
+}
+
 function normalizePrefix(value: string, name: string): string {
   const normalized = value.replace(/^\/+/, '');
   const segments = normalized.split('/').filter(Boolean);
@@ -135,50 +119,13 @@ function normalizePrefix(value: string, name: string): string {
   return `${segments.join('/')}/`;
 }
 
-function loadRole(input: {
-  accessKeyId: string;
-  bucket: string;
-  endpoint: string;
-  name: string;
-  region: string;
-  secretAccessKey: string;
-}): S3ReadRole {
-  const endpoint = new URL(input.endpoint);
-  if (
-    !['http:', 'https:'].includes(endpoint.protocol) ||
-    endpoint.username ||
-    endpoint.password ||
-    endpoint.pathname !== '/' ||
-    endpoint.search ||
-    endpoint.hash ||
-    input.bucket.includes('/') ||
-    input.bucket.includes('\\')
-  ) {
-    throw new HttpError(500, `${input.name} storage configuration is invalid`);
-  }
-  return {
-    accessKeyId: input.accessKeyId,
-    bucket: input.bucket,
-    endpoint: endpoint.origin,
-    region: input.region,
-    secretAccessKey: input.secretAccessKey,
-  };
-}
-
 function loadEnv(env: Env): SourceConfig {
   const values = Object.fromEntries(
     REQUIRED_BINDINGS.map((name) => [name, requireBinding(env, name)])
   ) as Record<BindingName, string>;
   return {
     common: {
-      ...loadRole({
-        accessKeyId: values.COMMON_S3_READONLY_ACCESS_KEY_ID,
-        bucket: values.COMMON_S3_BUCKET,
-        endpoint: values.COMMON_S3_ENDPOINT,
-        name: 'Common',
-        region: values.COMMON_S3_REGION,
-        secretAccessKey: values.COMMON_S3_READONLY_SECRET_ACCESS_KEY,
-      }),
+      bucket: requireBucket(env, 'COMMON_BUCKET'),
       chunkPrefix: normalizePrefix(values.COMMON_CHUNK_PREFIX, 'COMMON_CHUNK_PREFIX'),
     },
     deliveryGrantIssuer: values.DELIVERY_GRANT_ISSUER,
@@ -186,25 +133,11 @@ function loadEnv(env: Env): SourceConfig {
     deliveryGrantPublicKey: values.DELIVERY_GRANT_PUBLIC_KEY,
     materializationSourceAudience: values.MATERIALIZATION_SOURCE_AUDIENCE,
     metadata: {
-      ...loadRole({
-        accessKeyId: values.METADATA_S3_READONLY_ACCESS_KEY_ID,
-        bucket: values.METADATA_S3_BUCKET,
-        endpoint: values.METADATA_S3_ENDPOINT,
-        name: 'Metadata',
-        region: values.METADATA_S3_REGION,
-        secretAccessKey: values.METADATA_S3_READONLY_SECRET_ACCESS_KEY,
-      }),
+      bucket: requireBucket(env, 'METADATA_BUCKET'),
       indexPrefix: normalizePrefix(values.METADATA_INDEX_PREFIX, 'METADATA_INDEX_PREFIX'),
     },
     protected: {
-      ...loadRole({
-        accessKeyId: values.PROTECTED_S3_READONLY_ACCESS_KEY_ID,
-        bucket: values.PROTECTED_S3_BUCKET,
-        endpoint: values.PROTECTED_S3_ENDPOINT,
-        name: 'Protected',
-        region: values.PROTECTED_S3_REGION,
-        secretAccessKey: values.PROTECTED_S3_READONLY_SECRET_ACCESS_KEY,
-      }),
+      bucket: requireBucket(env, 'PROTECTED_BUCKET'),
       chunkPrefix: normalizePrefix(values.PROTECTED_CHUNK_PREFIX, 'PROTECTED_CHUNK_PREFIX'),
     },
     storageFormatVersion: values.STORAGE_FORMAT_VERSION,
@@ -224,79 +157,17 @@ function decodeBase64Url(value: string, name: string): Uint8Array {
   }
 }
 
-function createStorageClient(role: S3ReadRole): AwsClient {
-  return new AwsClient({
-    accessKeyId: role.accessKeyId,
-    secretAccessKey: role.secretAccessKey,
-    region: role.region,
-    service: 's3',
-    retries: 0,
-  });
-}
-
+// R2 get() returns null for a missing object and throws on failure.
 async function getStorageObject(
-  aws: AwsClient,
-  role: S3ReadRole,
+  bucket: R2Bucket,
   key: string,
   stage: DenialStage = 'manifest'
-): Promise<Response> {
-  const url = buildS3ObjectUrl({ bucket: role.bucket, endpoint: role.endpoint }, key);
+): Promise<R2ObjectBody | null> {
   try {
-    return await fetchWithSlowDownBackoff(() =>
-      aws.fetch(url, {
-        method: 'GET',
-        signal: AbortSignal.timeout(ORIGIN_TIMEOUT_MS),
-      })
-    );
-  } catch (error) {
-    if (error instanceof HttpError) {
-      throw error;
-    }
-    // Persistent network failures are storage outages, not authorization denials.
+    return await bucket.get(key);
+  } catch {
+    // Persistent storage failures are outages, not authorization denials.
     throw new HttpError(502, 'Storage request failed', 1, stage);
-  }
-}
-
-async function readLimitedText(response: Response, limit: number): Promise<string> {
-  const declaredLength = response.headers.get('content-length');
-  if (declaredLength !== null && Number(declaredLength) > limit) {
-    throw new HttpError(
-      502,
-      'Materialization source manifest exceeded its size limit',
-      1,
-      'manifest'
-    );
-  }
-  if (!response.body) {
-    throw new HttpError(502, 'Materialization source manifest has no body', 1, 'manifest');
-  }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let received = 0;
-  let text = '';
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) {
-        text += decoder.decode();
-        return text;
-      }
-      if (!value) {
-        continue;
-      }
-      received += value.byteLength;
-      if (received > limit) {
-        throw new HttpError(
-          502,
-          'Materialization source manifest exceeded its size limit',
-          1,
-          'manifest'
-        );
-      }
-      text += decoder.decode(value, { stream: true });
-    }
-  } finally {
-    reader.releaseLock();
   }
 }
 
@@ -348,20 +219,19 @@ function manifestMatchesGrant(entry: CachedManifest, grant: DeliveryGrantV2): bo
 }
 
 async function loadManifestFromStorage(
-  aws: AwsClient,
   config: SourceConfig,
   diagnosticJobId: string,
   versionId: string
 ): Promise<CachedManifest> {
   const key = `${config.metadata.indexPrefix}${deliveryManifestObjectId(versionId)}`;
-  const response = await getStorageObject(aws, config.metadata, key);
-  if (response.status === 404) {
+  const object = await getStorageObject(config.metadata.bucket, key);
+  if (!object) {
     throw new HttpError(404, 'Materialization source version was not found', 1, 'manifest');
   }
-  if (!response.ok) {
+  if (object.size > MAX_MANIFEST_BYTES) {
     throw new HttpError(
       502,
-      'Materialization source manifest storage request failed',
+      'Materialization source manifest exceeded its size limit',
       1,
       'manifest'
     );
@@ -369,7 +239,7 @@ async function loadManifestFromStorage(
   let body: string;
   let manifest: DeliveryManifest;
   try {
-    body = await readLimitedText(response, MAX_MANIFEST_BYTES);
+    body = await object.text();
   } catch (error) {
     if (error instanceof HttpError) {
       throw error;
@@ -429,7 +299,6 @@ async function loadManifestFromStorage(
 }
 
 function loadManifestShared(
-  aws: AwsClient,
   config: SourceConfig,
   diagnosticJobId: string,
   versionId: string
@@ -438,7 +307,7 @@ function loadManifestShared(
   if (pending) {
     return pending;
   }
-  const load = loadManifestFromStorage(aws, config, diagnosticJobId, versionId);
+  const load = loadManifestFromStorage(config, diagnosticJobId, versionId);
   inflightManifestLoads.set(versionId, load);
   const cleanup = () => {
     if (inflightManifestLoads.get(versionId) === load) {
@@ -450,7 +319,6 @@ function loadManifestShared(
 }
 
 async function loadManifest(
-  aws: AwsClient,
   config: SourceConfig,
   grant: DeliveryGrantV2,
   versionId: string
@@ -468,7 +336,7 @@ async function loadManifest(
   }
   if (!entry) {
     manifestSource = 'storage';
-    entry = await loadManifestShared(aws, config, grant.installSessionId, versionId);
+    entry = await loadManifestShared(config, grant.installSessionId, versionId);
   }
   if (entry.manifest.packageId !== grant.productId) {
     throw new HttpError(502, 'Materialization source manifest is not accepted', 1, 'manifest');
@@ -586,7 +454,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
   ).join('');
 }
 
-function chunkObjectKey(role: S3ReadRole & { chunkPrefix: string }, chunkId: string): string {
+function chunkObjectKey(role: SourceRole, chunkId: string): string {
   return `${role.chunkPrefix}${chunkId.slice(0, 4)}/${chunkId}`;
 }
 
@@ -691,8 +559,7 @@ async function handleRequest(
     }
     const config = loadEnv(env);
     const grant = await authorize({ config, request, versionId });
-    const metadata = createStorageClient(config.metadata);
-    const loaded = await loadManifest(metadata, config, grant, versionId);
+    const loaded = await loadManifest(config, grant, versionId);
 
     if (match[2] === 'manifest') {
       return noStoreResponse(loaded.body, 200, loaded.storageFetches, {
@@ -730,20 +597,29 @@ async function handleRequest(
     let storageFetches = loaded.storageFetches;
     if (!bytes) {
       chunkSource = 'storage';
-      const response = await getStorageObject(
-        createStorageClient(sourceRole),
-        sourceRole,
-        chunkObjectKey(sourceRole, chunkId)
+      const object = await getStorageObject(
+        sourceRole.bucket,
+        chunkObjectKey(sourceRole, chunkId),
+        'chunk'
       );
       storageFetches += 1;
-      if (!response.ok) {
+      if (!object) {
         throw new HttpError(
           502,
           'Materialization source chunk storage request failed',
-          storageFetches
+          storageFetches,
+          'chunk'
         );
       }
-      const fetched = new Uint8Array(await response.arrayBuffer());
+      if (object.size !== chunk.size) {
+        throw new HttpError(
+          502,
+          'Materialization source chunk failed verification',
+          storageFetches,
+          'chunk'
+        );
+      }
+      const fetched = new Uint8Array(await object.arrayBuffer());
       if (fetched.byteLength !== chunk.size || (await sha256Hex(fetched)) !== chunk.sha256) {
         throw new HttpError(
           502,
@@ -757,13 +633,18 @@ async function handleRequest(
         storeVerifiedChunk(ctx, cache, cacheKey, bytes);
       }
     }
-    return noStoreResponse(bytes, 200, storageFetches, {
-      'content-length': String(bytes.byteLength),
-      'content-type': 'application/octet-stream',
-      etag: `"${chunk.id}"`,
-      'x-yucp-chunk-source': chunkSource,
-      'x-yucp-manifest-source': loaded.manifestSource,
-    });
+    return noStoreResponse(
+      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+      200,
+      storageFetches,
+      {
+        'content-length': String(bytes.byteLength),
+        'content-type': 'application/octet-stream',
+        etag: `"${chunk.id}"`,
+        'x-yucp-chunk-source': chunkSource,
+        'x-yucp-manifest-source': loaded.manifestSource,
+      }
+    );
   } catch (error) {
     const httpError = error instanceof HttpError ? error : new HttpError(403, 'Forbidden');
     return noStoreResponse(httpError.message, httpError.status, httpError.storageFetches, {

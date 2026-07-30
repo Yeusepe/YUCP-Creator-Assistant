@@ -78,8 +78,11 @@ describe('completed upload quarantine', () => {
           calls.push('list');
           return [];
         },
-        async putFile() {
+        async putFile(input) {
           calls.push('put');
+          // The upload was already hashed once; the storage layer must not re-hash it.
+          expect(input.precomputedSha256).toBeTrue();
+          expect(input.sha256).toBe(sha256);
           return {
             fileIdentifier: 'file-1',
             providerVersion: 'version-1',

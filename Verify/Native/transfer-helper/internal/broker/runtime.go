@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/yucp/transfer-helper/internal/deviceidentity"
@@ -300,6 +301,15 @@ func failedOperationResult(
 	request OperationRequest,
 	operationErr error,
 ) OperationResult {
+	// The result carries only a stable code and a user-safe message; without
+	// this line the underlying cause is unrecoverable from any log.
+	fmt.Fprintf(
+		os.Stderr,
+		"package operation failed run=%s trace=%s: %v\n",
+		request.RunID,
+		request.Traceparent,
+		operationErr,
+	)
 	code := lifecycle.ErrorCode(operationErr)
 	message := "Package delivery failed. Try again. If the problem continues, contact support."
 	switch {

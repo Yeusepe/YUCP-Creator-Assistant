@@ -215,90 +215,16 @@ function isReplayableBody(body: BodyInit | undefined): boolean {
 
 /**
  * CreateBucket reference: https://docs.aws.amazon.com/AmazonS3/latest/API/API_CreateBucket.html
- * PutBucketVersioning reference:
- * https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutBucketVersioning.html
  *
- * Object Lock must be enabled when older S3-compatible providers cannot enable it later.
- * Every created bucket enables and verifies versioning before this function returns.
+ * Bucket versioning is a provider capability, not a requirement: R2 has none, so exact
+ * version identity falls back to the object ETag observed on each write response.
  */
-export async function createS3Bucket(
-  config: CasConfig,
-  options: { objectLockEnabled?: boolean } = {}
-): Promise<void> {
+export async function createS3Bucket(config: CasConfig): Promise<void> {
   await signedRequest({
     config,
-    headers: options.objectLockEnabled
-      ? {
-          'x-amz-bucket-object-lock-enabled': 'true',
-        }
-      : undefined,
     method: 'PUT',
     operation: 'CreateBucket',
   });
-  await enableS3BucketVersioning(config);
-  if ((await getS3BucketVersioning(config)) !== 'Enabled') {
-    throw new Error('S3 bucket versioning was not enabled after bucket creation');
-  }
-}
-
-/**
- * PutBucketVersioning reference:
- * https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutBucketVersioning.html
- */
-export async function enableS3BucketVersioning(config: CasConfig): Promise<void> {
-  const body =
-    '<?xml version="1.0" encoding="UTF-8"?>' +
-    '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">' +
-    '<Status>Enabled</Status>' +
-    '</VersioningConfiguration>';
-  await signedRequest({
-    body,
-    config,
-    headers: {
-      'content-md5': createHash('md5').update(body).digest('base64'),
-      'content-type': 'application/xml',
-    },
-    method: 'PUT',
-    operation: 'PutBucketVersioning',
-    query: { versioning: '' },
-  });
-}
-
-/**
- * GetBucketVersioning reference:
- * https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetBucketVersioning.html
- */
-export async function getS3BucketVersioning(config: CasConfig): Promise<'Enabled' | 'Suspended'> {
-  const response = await signedRequest({
-    config,
-    method: 'GET',
-    operation: 'GetBucketVersioning',
-    query: { versioning: '' },
-  });
-  const xml = await response.text();
-  const status = xml.match(/<Status>(Enabled|Suspended)<\/Status>/)?.[1];
-  if (status !== 'Enabled' && status !== 'Suspended') {
-    throw new Error('S3 GetBucketVersioning returned no supported status');
-  }
-  return status;
-}
-
-/**
- * GetObjectLockConfiguration reference:
- * https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObjectLockConfiguration.html
- */
-export async function getS3ObjectLockConfiguration(config: CasConfig): Promise<'Enabled'> {
-  const response = await signedRequest({
-    config,
-    method: 'GET',
-    operation: 'GetObjectLockConfiguration',
-    query: { 'object-lock': '' },
-  });
-  const xml = await response.text();
-  if (!/<ObjectLockEnabled>Enabled<\/ObjectLockEnabled>/.test(xml)) {
-    throw new Error('S3 GetObjectLockConfiguration returned no enabled state');
-  }
-  return 'Enabled';
 }
 
 /** GetObject reference: https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html */
@@ -343,6 +269,12 @@ export type S3ImmutableObjectVersion = S3ExactObjectVersion & {
   bytes: number;
   sha256: string;
   status: 'created' | 'existing';
+  /**
+   * True when the write response itself proved the stored bytes: the ETag matched the
+   * local body MD5 on stores without versioning, or a versioning store echoed the new
+   * version id for the exact request body. Callers may skip a read-back HEAD when set.
+   */
+  writeProven: boolean;
 };
 
 export type S3VersionedObjectVersion = S3ExactObjectVersion & {
@@ -379,14 +311,43 @@ export type S3ExactObjectHead = S3ExactObjectVersion & {
   metadata: Record<string, string>;
 };
 
-function exactVersionFromResponse(response: Response): S3ExactObjectVersion {
-  const versionId = response.headers.get('x-amz-version-id')?.trim();
-  if (!versionId || versionId === 'null') {
-    throw new Error('S3 versioned object response omitted its exact version identifier');
+function normalizeS3Etag(etag: string | null | undefined): string | null {
+  const value = etag?.trim().replace(/^"|"$/g, '');
+  return value ? value : null;
+}
+
+function exactEtagVersionFromResponse(response: Response, etag: string): S3ExactObjectVersion {
+  if (normalizeS3Etag(response.headers.get('etag')) !== etag) {
+    throw new Error('S3 exact-version read returned a different object version');
   }
   return {
-    fileIdentifier: versionId,
-    versionId,
+    fileIdentifier: etag,
+    versionId: etag,
+  };
+}
+
+/**
+ * The ETag is the universal physical identity for exact versions. R2 mints an
+ * x-amz-version-id on every PUT but returns 501 for all ?versionId= reads and deletes
+ * (verified empirically against production R2), and its 32-hex shape is
+ * indistinguishable from an ETag — so version-id headers are deliberately ignored.
+ * If-Match reads enforce exactly the same immutability guarantee for this write-once
+ * workload on every provider.
+ */
+function exactVersionFromResponse(
+  response: Response,
+  options: { bodyMd5Hex?: string } = {}
+): S3ExactObjectVersion {
+  const etag = normalizeS3Etag(response.headers.get('etag'));
+  if (!etag) {
+    throw new Error('S3 versioned object response omitted its exact version identifier');
+  }
+  if (options.bodyMd5Hex !== undefined && etag !== options.bodyMd5Hex) {
+    throw new Error('S3 object write returned an ETag that does not match the body MD5');
+  }
+  return {
+    fileIdentifier: etag,
+    versionId: etag,
   };
 }
 
@@ -416,7 +377,8 @@ export async function putS3ObjectVersioned(input: {
       key: input.key,
       method: 'PUT',
       operation: 'PutObject',
-    })
+    }),
+    { bodyMd5Hex: createHash('md5').update(body).digest('hex') }
   );
   return {
     ...version,
@@ -498,6 +460,11 @@ export async function putS3FileVersioned(input: {
   key: string;
   partBytes?: number;
   path: string;
+  /**
+   * True when the caller already computed expectedSha256 from this exact file, so the
+   * precondition hash of the whole source is redundant and skipped.
+   */
+  precomputedSha256?: boolean;
 }): Promise<S3ExactFileVersion> {
   const partBytes = input.partBytes ?? 100 * 1024 * 1024;
   if (
@@ -514,7 +481,7 @@ export async function putS3FileVersioned(input: {
   if (!details.isFile() || details.size !== input.expectedBytes) {
     throw new Error('S3 file upload source length is invalid');
   }
-  if ((await sha256File(input.path)) !== input.expectedSha256) {
+  if (!input.precomputedSha256 && (await sha256File(input.path)) !== input.expectedSha256) {
     throw new Error('S3 file upload source digest is invalid');
   }
   if (input.expectedBytes <= partBytes) {
@@ -532,7 +499,8 @@ export async function putS3FileVersioned(input: {
         key: input.key,
         method: 'PUT',
         operation: 'PutObject',
-      })
+      }),
+      { bodyMd5Hex: createHash('md5').update(bytes).digest('hex') }
     );
     return { ...version, multipart: false, parts: 1 };
   }
@@ -628,8 +596,22 @@ export async function putS3FileVersioned(input: {
     if (/<Error(?:\s|>)/.test(completedXml)) {
       throw new S3MultipartCompletionUncertainError(input.key, uploadId);
     }
+    const completedVersionId = completed.headers.get('x-amz-version-id')?.trim();
+    let version: S3ExactObjectVersion;
+    if (completedVersionId && completedVersionId !== 'null') {
+      version = { fileIdentifier: completedVersionId, versionId: completedVersionId };
+    } else {
+      // Providers without versioning report the completed object only through the
+      // (opaque) multipart ETag inside the completion XML.
+      const encodedEtag = completedXml.match(/<ETag>([\s\S]*?)<\/ETag>/)?.[1];
+      const etag = normalizeS3Etag(encodedEtag ? xmlDecode(encodedEtag) : null);
+      if (!etag) {
+        throw new S3MultipartCompletionUncertainError(input.key, uploadId);
+      }
+      version = { fileIdentifier: etag, versionId: etag };
+    }
     return {
-      ...exactVersionFromResponse(completed),
+      ...version,
       multipart: true,
       parts: completedParts.length,
     };
@@ -671,13 +653,10 @@ export async function getS3ObjectVersion(
     key,
     method: 'GET',
     operation: 'GetObjectVersion',
-    query: { versionId },
+    headers: { 'if-match': `"${versionId}"` },
     ...(options.expectedBytes ? { expectedResponseBytes: options.expectedBytes } : {}),
   });
-  const returnedVersion = exactVersionFromResponse(response);
-  if (returnedVersion.versionId !== versionId) {
-    throw new Error('S3 exact-version read returned a different object version');
-  }
+  exactEtagVersionFromResponse(response, versionId);
   return response;
 }
 
@@ -698,12 +677,9 @@ export async function headS3ObjectVersion(
     key,
     method: 'HEAD',
     operation: 'HeadObjectVersion',
-    query: { versionId },
+    headers: { 'if-match': `"${versionId}"` },
   });
-  const returnedVersion = exactVersionFromResponse(response);
-  if (returnedVersion.versionId !== versionId) {
-    throw new Error('S3 exact-version head returned a different object version');
-  }
+  const returnedVersion = exactEtagVersionFromResponse(response, versionId);
   const contentLength = Number(response.headers.get('content-length'));
   if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
     throw new Error('S3 exact-version head returned an invalid content length');
@@ -723,13 +699,15 @@ export async function headS3ObjectVersion(
   };
 }
 
-function copySourceHeader(input: { bucket: string; key: string; versionId: string }): string {
-  if (!input.bucket.trim() || !input.key || !input.versionId.trim()) {
+function copySourceHeader(input: { bucket: string; key: string; versionId?: string }): string {
+  if (!input.bucket.trim() || !input.key || input.versionId?.trim() === '') {
     throw new Error('S3 exact copy source is invalid');
   }
   const bucket = encodeURIComponent(input.bucket);
   const key = input.key.split('/').map(encodeURIComponent).join('/');
-  return `/${bucket}/${key}?versionId=${encodeURIComponent(input.versionId)}`;
+  return input.versionId
+    ? `/${bucket}/${key}?versionId=${encodeURIComponent(input.versionId)}`
+    : `/${bucket}/${key}`;
 }
 
 /**
@@ -752,11 +730,12 @@ export async function copyS3ObjectVersion(input: {
   const response = await signedRequest({
     config: input.destination,
     headers: {
+      // The source is pinned by its ETag; version ids are never used on the wire.
       'x-amz-copy-source': copySourceHeader({
         bucket: input.source.bucket,
         key: input.sourceKey,
-        versionId: input.sourceVersionId,
       }),
+      'x-amz-copy-source-if-match': `"${input.sourceVersionId}"`,
       'x-amz-metadata-directive': 'COPY',
     },
     key: input.destinationKey,
@@ -768,11 +747,12 @@ export async function copyS3ObjectVersion(input: {
   if (/<Error(?:\s|>)/.test(body)) {
     throw new Error('S3 exact copy returned an embedded error');
   }
-  const copiedSourceVersion = response.headers.get('x-amz-copy-source-version-id')?.trim();
-  if (copiedSourceVersion !== input.sourceVersionId) {
-    throw new Error('S3 exact copy used a different source version');
+  const encodedEtag = body.match(/<ETag>([\s\S]*?)<\/ETag>/)?.[1];
+  const etag = normalizeS3Etag(encodedEtag ? xmlDecode(encodedEtag) : null);
+  if (!etag) {
+    throw new Error('S3 exact copy omitted its destination version identifier');
   }
-  return exactVersionFromResponse(response);
+  return { fileIdentifier: etag, versionId: etag };
 }
 
 /**
@@ -816,12 +796,13 @@ export async function deleteS3ObjectVersion(
   if (!versionId.trim()) {
     throw new Error('S3 deletion version identifier must not be empty');
   }
+  // ETag identity means the provider keeps exactly one physical version per key, so a
+  // plain DELETE removes that exact version (version-id query forms are never used).
   await signedRequest({
     config,
     key,
     method: 'DELETE',
     operation: 'DeleteObjectVersion',
-    query: { versionId },
     retries: 0,
   });
 }
@@ -892,16 +873,6 @@ export async function createS3PutObjectUploadTicket(input: {
   };
 }
 
-const endpointsWithoutConditionalWrites = new Set<string>();
-
-function conditionalWriteCapabilityKey(config: CasConfig): string {
-  return `${config.endpoint}/${config.bucket}`;
-}
-
-export function resetConditionalWriteCapabilityForTests(): void {
-  endpointsWithoutConditionalWrites.clear();
-}
-
 /**
  * Conditional PutObject reference:
  * https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html
@@ -917,80 +888,45 @@ export async function putS3ObjectImmutable(input: {
       ? Uint8Array.from(Buffer.from(input.body))
       : Uint8Array.from(input.body);
   const sha256 = createHash('sha256').update(body).digest('hex');
-
-  const capabilityKey = conditionalWriteCapabilityKey(input.config);
+  const bodyMd5Hex = createHash('md5').update(body).digest('hex');
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const skipConditional = endpointsWithoutConditionalWrites.has(capabilityKey);
-    const response = skipConditional
-      ? undefined
-      : await signedRequest({
-          allowedStatuses: [409, 412, 501],
-          body,
-          config: input.config,
-          headers: {
-            'content-type': input.contentType,
-            'if-none-match': '*',
-            'x-amz-meta-yucp-sha256': sha256,
-          },
-          key: input.key,
-          method: 'PUT',
-          operation: 'PutObject',
-          retries: 0,
-        });
+    const response = await signedRequest({
+      allowedStatuses: [409, 412],
+      body,
+      config: input.config,
+      headers: {
+        'content-type': input.contentType,
+        'if-none-match': '*',
+        'x-amz-meta-yucp-sha256': sha256,
+      },
+      key: input.key,
+      method: 'PUT',
+      operation: 'PutObject',
+      retries: 0,
+    });
 
-    if (response?.ok) {
+    if (response.ok) {
       return {
-        ...exactVersionFromResponse(response),
+        ...exactVersionFromResponse(response, { bodyMd5Hex }),
         bytes: body.byteLength,
         sha256,
         status: 'created',
+        writeProven: true,
       };
     }
-    if (response?.status === 409) {
+    if (response.status === 409) {
       continue;
     }
 
-    const conditionalWritesUnsupported = skipConditional || response?.status === 501;
-    if (conditionalWritesUnsupported && !skipConditional) {
-      endpointsWithoutConditionalWrites.add(capabilityKey);
-      console.warn(
-        JSON.stringify({
-          event: 's3.conditional_write_unsupported',
-          endpoint: capabilityKey,
-          message:
-            'Store answered 501 for If-None-Match; writing without it for the rest of this process.',
-        })
-      );
-    }
+    // 412: the key already holds an object; adopt it only when it is byte-exact.
     const versions = (await listS3ObjectVersions(input.config, input.key)).filter(
       (version) => !version.deleteMarker && version.key === input.key
     );
-
-    if (conditionalWritesUnsupported && versions.length === 0) {
-      const plainResponse = await signedRequest({
-        body,
-        config: input.config,
-        headers: {
-          'content-type': input.contentType,
-          'x-amz-meta-yucp-sha256': sha256,
-        },
-        key: input.key,
-        method: 'PUT',
-        operation: 'PutObject',
-      });
-      return {
-        ...exactVersionFromResponse(plainResponse),
-        bytes: body.byteLength,
-        sha256,
-        status: 'created',
-      };
-    }
-
     if (versions.length === 0) {
       throw new Error('Immutable S3 object has no physical version');
     }
-    if (versions.length > 1 && !conditionalWritesUnsupported) {
+    if (versions.length > 1) {
       throw new Error('Immutable S3 object has multiple physical versions');
     }
     const existingVersion = versions[0];
@@ -1014,6 +950,9 @@ export async function putS3ObjectImmutable(input: {
       fileIdentifier: existingVersion.versionId,
       sha256,
       status: 'existing',
+      // The adopted bytes were verified, but this response never proved content type or
+      // metadata the way a fresh write does; callers keep their read-back verification.
+      writeProven: false,
       versionId: existingVersion.versionId,
     };
   }
@@ -1064,6 +1003,51 @@ export async function listS3Objects(config: CasConfig, prefix?: string): Promise
   return objects;
 }
 
+async function headS3ObjectEtag(config: CasConfig, key: string): Promise<string> {
+  const response = await signedRequest({
+    config,
+    key,
+    method: 'HEAD',
+    operation: 'HeadObject',
+  });
+  const etag = normalizeS3Etag(response.headers.get('etag'));
+  if (!etag) {
+    throw new Error('S3 HeadObject returned no ETag for an exact version identity');
+  }
+  return etag;
+}
+
+/**
+ * Non-versioned equivalent of ListObjectVersions: every key has exactly one physical
+ * version, identified by its ETag.
+ */
+async function listS3ObjectVersionsByEtag(
+  config: CasConfig,
+  prefix?: string
+): Promise<S3ObjectVersion[]> {
+  const versions: S3ObjectVersion[] = [];
+  let continuationToken: string | undefined;
+  do {
+    const page = await listS3ObjectPage(config, {
+      maxKeys: 1000,
+      prefix: prefix ?? '',
+      ...(continuationToken ? { continuationToken } : {}),
+    });
+    for (const object of page.objects) {
+      versions.push({
+        deleteMarker: false,
+        isLatest: true,
+        key: object.key,
+        lastModified: object.lastModified,
+        size: object.size,
+        versionId: await headS3ObjectEtag(config, object.key),
+      });
+    }
+    continuationToken = page.nextContinuationToken;
+  } while (continuationToken);
+  return versions;
+}
+
 /**
  * ListObjectVersions reference:
  * https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectVersions.html
@@ -1088,11 +1072,16 @@ export async function listS3ObjectVersions(
       query['version-id-marker'] = versionIdMarker;
     }
     const response = await signedRequest({
+      allowedStatuses: [501],
       config,
       method: 'GET',
       operation: 'ListObjectVersions',
       query,
     });
+    if (response.status === 501) {
+      // R2 does not implement ListObjectVersions; fall back to the ETag identity view.
+      return listS3ObjectVersionsByEtag(config, prefix);
+    }
     const xml = await response.text();
     for (const match of xml.matchAll(/<(Version|DeleteMarker)>([\s\S]*?)<\/\1>/g)) {
       const deleteMarker = match[1] === 'DeleteMarker';
@@ -1143,13 +1132,30 @@ export async function listS3ObjectVersions(
     const nextVersionIdMarker = xml.match(
       /<NextVersionIdMarker>([\s\S]*?)<\/NextVersionIdMarker>/
     )?.[1];
-    if (!nextKeyMarker || !nextVersionIdMarker) {
+    if (!nextKeyMarker) {
       throw new Error('S3 ListObjectVersions omitted its continuation markers');
     }
-    keyMarker = xmlDecode(nextKeyMarker);
-    versionIdMarker = xmlDecode(nextVersionIdMarker);
+    const nextKey = xmlDecode(nextKeyMarker);
+    // Unversioned buckets paginate by key alone: the version-id marker is absent (or the
+    // "null" sentinel) because every object has exactly one version.
+    const nextVersion =
+      nextVersionIdMarker && nextVersionIdMarker !== 'null'
+        ? xmlDecode(nextVersionIdMarker)
+        : undefined;
+    if (nextKey === keyMarker && nextVersion === versionIdMarker) {
+      throw new Error('S3 ListObjectVersions returned a non-advancing continuation marker');
+    }
+    keyMarker = nextKey;
+    versionIdMarker = nextVersion;
   } while (keyMarker);
 
+  // Unversioned buckets on versioning-capable stores (for example MinIO) report the
+  // sentinel "null" version; resolve it to the same ETag identity the write produced.
+  for (const version of versions) {
+    if (!version.deleteMarker && version.versionId === 'null') {
+      version.versionId = await headS3ObjectEtag(config, version.key);
+    }
+  }
   return versions;
 }
 
@@ -1249,21 +1255,8 @@ export async function deleteS3Objects(config: CasConfig, keys: string[]): Promis
       if (versions.length === 0) {
         continue;
       }
-      if (versions.some((version) => version.versionId === 'null')) {
-        await signedRequest({ config, method: 'DELETE', operation: 'DeleteObject', key });
-      }
-      for (const version of versions) {
-        if (version.versionId === 'null') {
-          continue;
-        }
-        await signedRequest({
-          config,
-          key,
-          method: 'DELETE',
-          operation: 'DeleteObjectVersion',
-          query: { versionId: version.versionId },
-        });
-      }
+      // ETag identity: one physical version per key, one plain DELETE removes it.
+      await signedRequest({ config, method: 'DELETE', operation: 'DeleteObject', key });
     }
   });
   await Promise.all(workers);

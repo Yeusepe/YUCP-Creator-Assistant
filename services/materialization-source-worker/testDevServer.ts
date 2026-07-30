@@ -1,29 +1,16 @@
 import { resolve } from 'node:path';
 import { startLocalWranglerWorker } from '../../ops/testing/localWranglerWorker';
 
+// Storage is served by the r2_buckets bindings in wrangler.jsonc (local R2
+// simulation under wrangler dev); only non-storage vars are injected here.
 const VARIABLE_NAMES = [
   'COMMON_CHUNK_PREFIX',
-  'COMMON_S3_BUCKET',
-  'COMMON_S3_ENDPOINT',
-  'COMMON_S3_READONLY_ACCESS_KEY_ID',
-  'COMMON_S3_READONLY_SECRET_ACCESS_KEY',
-  'COMMON_S3_REGION',
   'DELIVERY_GRANT_ISSUER',
   'DELIVERY_GRANT_KEY_ID',
   'DELIVERY_GRANT_PUBLIC_KEY',
   'MATERIALIZATION_SOURCE_AUDIENCE',
   'METADATA_INDEX_PREFIX',
-  'METADATA_S3_BUCKET',
-  'METADATA_S3_ENDPOINT',
-  'METADATA_S3_READONLY_ACCESS_KEY_ID',
-  'METADATA_S3_READONLY_SECRET_ACCESS_KEY',
-  'METADATA_S3_REGION',
   'PROTECTED_CHUNK_PREFIX',
-  'PROTECTED_S3_BUCKET',
-  'PROTECTED_S3_ENDPOINT',
-  'PROTECTED_S3_READONLY_ACCESS_KEY_ID',
-  'PROTECTED_S3_READONLY_SECRET_ACCESS_KEY',
-  'PROTECTED_S3_REGION',
   'STORAGE_FORMAT_VERSION',
 ] as const;
 

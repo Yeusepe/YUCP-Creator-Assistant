@@ -6,9 +6,15 @@ import type {
   StorageWriteIntent,
   StorageWriteOperation,
 } from '../catalog/exactStorageCatalog';
+import { withChunkIoPermit } from './boundedOrderedBatch';
 import type { ExactObjectHead, ExactStoragePort, StorageRole } from './exactStorage';
 
 const EXACT_WRITE_RETRY_CLAIM_MS = 15 * 60 * 1_000;
+
+export type ExactStorageCatalogBatchPort = Pick<
+  ExactStorageCatalog,
+  'beginWriteIntentBatch' | 'commitVerifiedObjectsBatch' | 'findVerifiedCanonicalBatch'
+>;
 
 export type ExactStorageCatalogPort = Pick<
   ExactStorageCatalog,
@@ -21,7 +27,21 @@ export type ExactStorageCatalogPort = Pick<
   | 'linkPackageReleaseObject'
   | 'markWriteIntentUncertain'
   | 'reopenLostObjectWriteIntent'
->;
+> &
+  Partial<ExactStorageCatalogBatchPort>;
+
+export type ImmutableWriteBatchItem = {
+  bytes: number;
+  idempotencyKey: string;
+  /** Loaded lazily inside the chunk I/O pool so at most pool-width bodies exist at once. */
+  loadBody: () => Promise<Uint8Array>;
+  objectKey: string;
+  releaseLink?: {
+    logicalDigest: string;
+    logicalKind: PackageReleaseStorageLogicalKind;
+  };
+  sha256: string;
+};
 
 function verifyHead(object: StorageObjectVersion, head: ExactObjectHead): void {
   if (
@@ -372,18 +392,26 @@ export class DurableExactStorage {
           objectKey: input.objectKey,
           role: input.storageRole,
         });
-        const head = await this.storage.headExactVersion({
-          objectKey: exact.objectKey,
-          providerVersion: exact.providerVersion,
-          role: exact.storageRole,
-        });
-        if (
-          head.fileIdentifier !== exact.fileIdentifier ||
-          head.contentLength !== body.byteLength ||
-          head.contentType !== input.contentType ||
-          head.metadata['yucp-sha256'] !== sha256
-        ) {
+        if (exact.bytes !== body.byteLength || exact.sha256 !== sha256) {
           throw new Error('Exact storage write failed read-back verification');
+        }
+        // A proven single-part write (ETag == body MD5, or a versioned provider echoing
+        // the new version id) needs no extra HEAD round trip. Unproven results (adopted
+        // pre-existing objects) keep the read-back verification.
+        if (!exact.writeProven) {
+          const head = await this.storage.headExactVersion({
+            objectKey: exact.objectKey,
+            providerVersion: exact.providerVersion,
+            role: exact.storageRole,
+          });
+          if (
+            head.fileIdentifier !== exact.fileIdentifier ||
+            head.contentLength !== body.byteLength ||
+            head.contentType !== input.contentType ||
+            head.metadata['yucp-sha256'] !== sha256
+          ) {
+            throw new Error('Exact storage write failed read-back verification');
+          }
         }
         committedObject = await this.catalog.commitVerifiedObject({
           fileIdentifier: exact.fileIdentifier,
@@ -425,6 +453,263 @@ export class DurableExactStorage {
       throw new Error('Storage write did not produce an exact object version');
     }
     return this.#linkRelease(input.ownerId, input.releaseLink, committedObject);
+  }
+
+  /**
+   * Marks the given intents UNCERTAIN after a failed batch stage, mirroring the
+   * single-write failure semantics. Intents that reconciled to a committed object are
+   * left alone. Returns the error the caller must throw.
+   */
+  async #markBatchWritesUncertain(
+    entries: ReadonlyArray<{ idempotencyKey: string; intentId: string }>,
+    failure: unknown
+  ): Promise<unknown> {
+    const markErrors: unknown[] = [];
+    for (const entry of entries) {
+      try {
+        const committed = await this.catalog.getCommittedObjectForIntent(entry.idempotencyKey);
+        if (committed) {
+          continue;
+        }
+        await this.catalog.markWriteIntentUncertain(entry.intentId);
+      } catch (markError) {
+        markErrors.push(markError);
+      }
+    }
+    return markErrors.length > 0
+      ? new AggregateError(
+          [failure, ...markErrors],
+          'Storage write failed and its intent could not become uncertain'
+        )
+      : failure;
+  }
+
+  /**
+   * Batched immutable writes for one owner: one begin-intent query, one canonical lookup,
+   * bounded provider puts through the shared chunk I/O pool, and one commit+link
+   * transaction. Intents found in reconciliation states fall back to the single-write
+   * path, which keeps the exactly-once semantics of the idempotency keys.
+   */
+  async putImmutableBatch(input: {
+    contentType: string;
+    items: readonly ImmutableWriteBatchItem[];
+    leaseGeneration?: number;
+    ownerId: string;
+    ownerKind: StorageWriteIntent['ownerKind'];
+    storageDomain?: string;
+    storageRole: Extract<StorageRole, 'common' | 'metadata' | 'protected'>;
+  }): Promise<StorageObjectVersion[]> {
+    if (
+      !this.catalog.beginWriteIntentBatch ||
+      !this.catalog.commitVerifiedObjectsBatch ||
+      !this.catalog.findVerifiedCanonicalBatch
+    ) {
+      throw new Error('Exact storage catalog does not support batched writes');
+    }
+    const catalog = this.catalog as ExactStorageCatalogPort & ExactStorageCatalogBatchPort;
+    if (input.items.length === 0) {
+      return [];
+    }
+    if (new Set(input.items.map((item) => item.idempotencyKey)).size !== input.items.length) {
+      throw new Error('Batched storage writes require unique idempotency keys');
+    }
+    const bucketName = this.storage.bucketName(input.storageRole);
+    const intents = await catalog.beginWriteIntentBatch(
+      input.items.map((item) => ({
+        bucketName,
+        contentType: input.contentType,
+        expectedBytes: item.bytes,
+        expectedSha256: item.sha256,
+        idempotencyKey: item.idempotencyKey,
+        leaseGeneration: input.leaseGeneration,
+        objectKey: item.objectKey,
+        operation: 'PUT' as StorageWriteOperation,
+        ownerId: input.ownerId,
+        ownerKind: input.ownerKind,
+        storageDomain: input.storageDomain,
+        storageRole: input.storageRole,
+      }))
+    );
+
+    const results: Array<StorageObjectVersion | null> = input.items.map(() => null);
+    const fresh: Array<{
+      commit?: { fileIdentifier: string; providerVersion: string };
+      index: number;
+      intent: StorageWriteIntent;
+      item: ImmutableWriteBatchItem;
+      putStarted: boolean;
+    }> = [];
+    const fallbackIndexes: number[] = [];
+    intents.forEach((intent, index) => {
+      if (intent.state === 'ISSUED') {
+        fresh.push({
+          index,
+          intent,
+          item: input.items[index] as ImmutableWriteBatchItem,
+          putStarted: false,
+        });
+      } else {
+        fallbackIndexes.push(index);
+      }
+    });
+
+    // Intents left over from an interrupted run reconcile through the single-write path.
+    await Promise.all(
+      fallbackIndexes.map(async (index) => {
+        const item = input.items[index] as ImmutableWriteBatchItem;
+        results[index] = await withChunkIoPermit(async () =>
+          this.putImmutable({
+            body: await item.loadBody(),
+            contentType: input.contentType,
+            idempotencyKey: item.idempotencyKey,
+            ...(input.leaseGeneration === undefined
+              ? {}
+              : { leaseGeneration: input.leaseGeneration }),
+            objectKey: item.objectKey,
+            ownerId: input.ownerId,
+            ownerKind: input.ownerKind,
+            ...(item.releaseLink ? { releaseLink: item.releaseLink } : {}),
+            ...(input.storageDomain ? { storageDomain: input.storageDomain } : {}),
+            storageRole: input.storageRole,
+          })
+        );
+      })
+    );
+
+    const canonicalByIndex = new Map<number, StorageObjectVersion>();
+    if (input.storageDomain && fresh.length > 0) {
+      const found = await catalog.findVerifiedCanonicalBatch({
+        items: fresh.map((entry) => ({
+          bytes: entry.item.bytes,
+          intentId: entry.intent.id,
+          sha256: entry.item.sha256,
+        })),
+        storageDomain: input.storageDomain,
+        storageRole: input.storageRole,
+      });
+      fresh.forEach((entry, position) => {
+        const canonical = found[position];
+        if (
+          canonical &&
+          canonical.bucketName === bucketName &&
+          canonical.objectKey === entry.item.objectKey &&
+          canonical.contentType === input.contentType
+        ) {
+          canonicalByIndex.set(entry.index, canonical);
+        }
+      });
+    }
+
+    const outcomes = await Promise.allSettled(
+      fresh.map((entry) =>
+        withChunkIoPermit(async () => {
+          const canonical = canonicalByIndex.get(entry.index);
+          if (canonical) {
+            try {
+              await this.#verify(canonical);
+              entry.commit = {
+                fileIdentifier: canonical.fileIdentifier,
+                providerVersion: canonical.providerVersion,
+              };
+              return;
+            } catch {
+              // The canonical object disappeared; fall through to a fresh provider write.
+            }
+          }
+          const body = await entry.item.loadBody();
+          if (
+            body.byteLength !== entry.item.bytes ||
+            createHash('sha256').update(body).digest('hex') !== entry.item.sha256
+          ) {
+            throw new Error('Batched storage write body failed digest verification');
+          }
+          entry.putStarted = true;
+          const exact = await this.storage.putImmutable({
+            body,
+            contentType: input.contentType,
+            objectKey: entry.item.objectKey,
+            role: input.storageRole,
+          });
+          if (exact.bytes !== body.byteLength || exact.sha256 !== entry.item.sha256) {
+            throw new Error('Exact storage write failed read-back verification');
+          }
+          if (!exact.writeProven) {
+            const head = await this.storage.headExactVersion({
+              objectKey: exact.objectKey,
+              providerVersion: exact.providerVersion,
+              role: exact.storageRole,
+            });
+            if (
+              head.fileIdentifier !== exact.fileIdentifier ||
+              head.contentLength !== entry.item.bytes ||
+              head.contentType !== input.contentType ||
+              head.metadata['yucp-sha256'] !== entry.item.sha256
+            ) {
+              throw new Error('Exact storage write failed read-back verification');
+            }
+          }
+          entry.commit = {
+            fileIdentifier: exact.fileIdentifier,
+            providerVersion: exact.providerVersion,
+          };
+        })
+      )
+    );
+    const failed = outcomes.find(
+      (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected'
+    );
+    if (failed) {
+      throw await this.#markBatchWritesUncertain(
+        fresh
+          .filter((entry) => entry.putStarted)
+          .map((entry) => ({
+            idempotencyKey: entry.item.idempotencyKey,
+            intentId: entry.intent.id,
+          })),
+        failed.reason
+      );
+    }
+
+    let committed: Array<{ intentId: string; object: StorageObjectVersion }>;
+    try {
+      committed = await catalog.commitVerifiedObjectsBatch({
+        entries: fresh.map((entry) => {
+          if (!entry.commit) {
+            throw new Error('Storage write did not produce an exact object version');
+          }
+          return {
+            fileIdentifier: entry.commit.fileIdentifier,
+            intentId: entry.intent.id,
+            providerVersion: entry.commit.providerVersion,
+            ...(entry.item.releaseLink ? { releaseLink: entry.item.releaseLink } : {}),
+          };
+        }),
+        packageVersionId: input.ownerId,
+      });
+    } catch (error) {
+      throw await this.#markBatchWritesUncertain(
+        fresh.map((entry) => ({
+          idempotencyKey: entry.item.idempotencyKey,
+          intentId: entry.intent.id,
+        })),
+        error
+      );
+    }
+    // Never trust positional alignment: verify the row count and bind results by
+    // the intent id the commit transaction returned.
+    const committedByIntent = new Map(committed.map((row) => [row.intentId, row.object]));
+    if (committed.length !== fresh.length || committedByIntent.size !== fresh.length) {
+      throw new Error('Batched storage commit returned an unexpected row count');
+    }
+    for (const entry of fresh) {
+      results[entry.index] = committedByIntent.get(entry.intent.id) ?? null;
+    }
+    return results.map((object) => {
+      if (!object) {
+        throw new Error('Storage write did not produce an exact object version');
+      }
+      return object;
+    });
   }
 
   async putVersioned(input: {

@@ -8,7 +8,13 @@ import (
 	"time"
 )
 
-const MaterializationReceiptPurpose = "materialization-receipt-v2"
+const (
+	MaterializationReceiptPurpose   = "materialization-receipt-v2"
+	MaterializationReceiptPurposeV3 = "materialization-receipt-v3"
+
+	maxOutputFilesV2 = 512
+	maxOutputFilesV3 = 4096
+)
 
 type MaterializedFile struct {
 	AttributionID  string
@@ -38,6 +44,12 @@ type MaterializationReceipt struct {
 	TraceID        string
 }
 
+// HasRendition reports whether the receipt carries an exact rendition object
+// (v2 receipts always do; v3 coupled receipts never do).
+func (receipt MaterializationReceipt) HasRendition() bool {
+	return receipt.Rendition.ObjectBytes > 0
+}
+
 type ReceiptValidationContext struct {
 	CreatorID   string
 	GrantID     string
@@ -48,35 +60,57 @@ type ReceiptValidationContext struct {
 }
 
 func ParseMaterializationReceipt(payload []byte) (MaterializationReceipt, error) {
+	return parseMaterializationReceipt(payload, false)
+}
+
+// ParseMaterializationReceiptV3 parses a materialization-receipt-v3 payload:
+// the exact v2 label set minus label 14 (the rendition object), with the
+// output-file cap raised to 4096. All other bindings are identical to v2.
+func ParseMaterializationReceiptV3(payload []byte) (MaterializationReceipt, error) {
+	return parseMaterializationReceipt(payload, true)
+}
+
+func parseMaterializationReceipt(payload []byte, v3 bool) (MaterializationReceipt, error) {
+	name := "MaterializationReceiptV2"
+	maxOutputFiles := maxOutputFilesV2
+	if v3 {
+		name = "MaterializationReceiptV3"
+		maxOutputFiles = maxOutputFilesV3
+	}
 	decoded, err := DecodeCanonical(payload)
 	if err != nil {
 		return MaterializationReceipt{}, err
 	}
-	mapped, err := requireMap(decoded, "MaterializationReceiptV2")
+	mapped, err := requireMap(decoded, name)
 	if err != nil {
 		return MaterializationReceipt{}, err
 	}
-	labels := make([]int64, 26)
-	for index := range labels {
-		labels[index] = int64(index)
+	labels := make([]int64, 0, 26)
+	for label := int64(0); label < 26; label++ {
+		if v3 && label == 14 {
+			continue
+		}
+		labels = append(labels, label)
 	}
-	if err := requireExactIntegerLabels(mapped, labels, "MaterializationReceiptV2"); err != nil {
+	if err := requireExactIntegerLabels(mapped, labels, name); err != nil {
 		return MaterializationReceipt{}, err
 	}
-	version, err := requireInt(mapped[int64(0)], "MaterializationReceiptV2.schemaVersion")
-	if err != nil || version != 2 {
-		return MaterializationReceipt{}, fmt.Errorf("MaterializationReceiptV2 schema version is invalid")
+	version, err := requireInt(mapped[int64(0)], name+".schemaVersion")
+	// ponytail: the v3 wire contract fixes the label set and COSE purpose but
+	// not the label-0 value; accept 2 or 3 until the server side settles it.
+	if err != nil || (!v3 && version != 2) || (v3 && version != 2 && version != 3) {
+		return MaterializationReceipt{}, fmt.Errorf("%s schema version is invalid", name)
 	}
-	outputValues, err := requireArray(mapped[int64(10)], "MaterializationReceiptV2.outputFiles")
-	if err != nil || len(outputValues) == 0 || len(outputValues) > 512 {
-		return MaterializationReceipt{}, fmt.Errorf("MaterializationReceiptV2 output file count is invalid")
+	outputValues, err := requireArray(mapped[int64(10)], name+".outputFiles")
+	if err != nil || len(outputValues) == 0 || len(outputValues) > maxOutputFiles {
+		return MaterializationReceipt{}, fmt.Errorf("%s output file count is invalid", name)
 	}
 	outputFiles := make([]MaterializedFile, 0, len(outputValues))
 	var previousPath string
 	for index, value := range outputValues {
 		fileMap, fileErr := requireMap(
 			value,
-			fmt.Sprintf("MaterializationReceiptV2.outputFiles[%d]", index),
+			fmt.Sprintf("%s.outputFiles[%d]", name, index),
 		)
 		if fileErr != nil {
 			return MaterializationReceipt{}, fileErr
@@ -84,45 +118,48 @@ func ParseMaterializationReceipt(payload []byte) (MaterializationReceipt, error)
 		if fileErr := requireExactIntegerLabels(
 			fileMap,
 			[]int64{0, 1, 2, 3},
-			fmt.Sprintf("MaterializationReceiptV2.outputFiles[%d]", index),
+			fmt.Sprintf("%s.outputFiles[%d]", name, index),
 		); fileErr != nil {
 			return MaterializationReceipt{}, fileErr
 		}
 		normalizedPath, fileErr := requireString(
 			fileMap[int64(0)],
-			fmt.Sprintf("MaterializationReceiptV2.outputFiles[%d].normalizedPath", index),
+			fmt.Sprintf("%s.outputFiles[%d].normalizedPath", name, index),
 		)
 		if fileErr != nil || ValidateNormalizedPath(normalizedPath) != nil ||
 			(index > 0 && previousPath >= normalizedPath) {
 			return MaterializationReceipt{}, fmt.Errorf(
-				"MaterializationReceiptV2 output file %d path is invalid",
+				"%s output file %d path is invalid",
+				name,
 				index,
 			)
 		}
 		digest, fileErr := requireDigest(
 			fileMap[int64(1)],
-			fmt.Sprintf("MaterializationReceiptV2.outputFiles[%d].outputSha256", index),
+			fmt.Sprintf("%s.outputFiles[%d].outputSha256", name, index),
 		)
 		if fileErr != nil {
 			return MaterializationReceipt{}, fileErr
 		}
 		fileBytes, fileErr := requireInt(
 			fileMap[int64(2)],
-			fmt.Sprintf("MaterializationReceiptV2.outputFiles[%d].outputBytes", index),
+			fmt.Sprintf("%s.outputFiles[%d].outputBytes", name, index),
 		)
 		if fileErr != nil || fileBytes < 0 {
 			return MaterializationReceipt{}, fmt.Errorf(
-				"MaterializationReceiptV2 output file %d byte count is invalid",
+				"%s output file %d byte count is invalid",
+				name,
 				index,
 			)
 		}
 		attributionID, fileErr := requireString(
 			fileMap[int64(3)],
-			fmt.Sprintf("MaterializationReceiptV2.outputFiles[%d].attributionId", index),
+			fmt.Sprintf("%s.outputFiles[%d].attributionId", name, index),
 		)
 		if fileErr != nil || len([]byte(attributionID)) > 512 {
 			return MaterializationReceipt{}, fmt.Errorf(
-				"MaterializationReceiptV2 output file %d attribution is invalid",
+				"%s output file %d attribution is invalid",
+				name,
 				index,
 			)
 		}
@@ -136,63 +173,65 @@ func ParseMaterializationReceipt(payload []byte) (MaterializationReceipt, error)
 	}
 	createdPaths, err := requireStringArray(
 		mapped[int64(21)],
-		"MaterializationReceiptV2.createdPaths",
-		512,
+		name+".createdPaths",
+		maxOutputFiles,
 	)
 	if err != nil || len(createdPaths) != len(outputFiles) {
-		return MaterializationReceipt{}, fmt.Errorf("MaterializationReceiptV2 created paths are invalid")
+		return MaterializationReceipt{}, fmt.Errorf("%s created paths are invalid", name)
 	}
 	for index, path := range createdPaths {
 		if path != outputFiles[index].NormalizedPath {
 			return MaterializationReceipt{}, fmt.Errorf(
-				"MaterializationReceiptV2 created paths do not match output files",
+				"%s created paths do not match output files",
+				name,
 			)
 		}
 	}
-	renditionMap, err := requireMap(
-		mapped[int64(14)],
-		"MaterializationReceiptV2.rendition",
-	)
-	if err != nil {
-		return MaterializationReceipt{}, err
-	}
-	if err := requireExactIntegerLabels(
-		renditionMap,
-		[]int64{0, 1, 2},
-		"MaterializationReceiptV2.rendition",
-	); err != nil {
-		return MaterializationReceipt{}, err
-	}
-	renditionFileIdentifier, err := requireString(
-		renditionMap[int64(0)],
-		"MaterializationReceiptV2.rendition.fileIdentifier",
-	)
-	if err != nil || len([]byte(renditionFileIdentifier)) > 512 {
-		return MaterializationReceipt{}, fmt.Errorf(
-			"MaterializationReceiptV2 rendition file identifier is invalid",
+	receipt := MaterializationReceipt{OutputFiles: outputFiles}
+	if !v3 {
+		renditionMap, renditionErr := requireMap(
+			mapped[int64(14)],
+			name+".rendition",
 		)
-	}
-	renditionDigest, err := requireDigest(
-		renditionMap[int64(1)],
-		"MaterializationReceiptV2.rendition.objectSha256",
-	)
-	if err != nil {
-		return MaterializationReceipt{}, err
-	}
-	renditionBytes, err := requireInt(
-		renditionMap[int64(2)],
-		"MaterializationReceiptV2.rendition.objectBytes",
-	)
-	if err != nil || renditionBytes <= 0 {
-		return MaterializationReceipt{}, fmt.Errorf("MaterializationReceiptV2 rendition bytes are invalid")
-	}
-	receipt := MaterializationReceipt{
-		OutputFiles: outputFiles,
-		Rendition: ExactRendition{
+		if renditionErr != nil {
+			return MaterializationReceipt{}, renditionErr
+		}
+		if renditionErr := requireExactIntegerLabels(
+			renditionMap,
+			[]int64{0, 1, 2},
+			name+".rendition",
+		); renditionErr != nil {
+			return MaterializationReceipt{}, renditionErr
+		}
+		renditionFileIdentifier, renditionErr := requireString(
+			renditionMap[int64(0)],
+			name+".rendition.fileIdentifier",
+		)
+		if renditionErr != nil || len([]byte(renditionFileIdentifier)) > 512 {
+			return MaterializationReceipt{}, fmt.Errorf(
+				"%s rendition file identifier is invalid",
+				name,
+			)
+		}
+		renditionDigest, renditionErr := requireDigest(
+			renditionMap[int64(1)],
+			name+".rendition.objectSha256",
+		)
+		if renditionErr != nil {
+			return MaterializationReceipt{}, renditionErr
+		}
+		renditionBytes, renditionErr := requireInt(
+			renditionMap[int64(2)],
+			name+".rendition.objectBytes",
+		)
+		if renditionErr != nil || renditionBytes <= 0 {
+			return MaterializationReceipt{}, fmt.Errorf("%s rendition bytes are invalid", name)
+		}
+		receipt.Rendition = ExactRendition{
 			FileIdentifier: renditionFileIdentifier,
 			ObjectBytes:    renditionBytes,
 			ObjectSHA256:   renditionDigest,
-		},
+		}
 	}
 	for field, destination := range map[int64]*string{
 		1:  &receipt.ReceiptID,
@@ -204,11 +243,12 @@ func ParseMaterializationReceipt(payload []byte) (MaterializationReceipt, error)
 	} {
 		value, fieldErr := requireString(
 			mapped[field],
-			fmt.Sprintf("MaterializationReceiptV2.%d", field),
+			fmt.Sprintf("%s.%d", name, field),
 		)
 		if fieldErr != nil || len([]byte(value)) > 512 {
 			return MaterializationReceipt{}, fmt.Errorf(
-				"MaterializationReceiptV2 text claim %d is invalid",
+				"%s text claim %d is invalid",
+				name,
 				field,
 			)
 		}
@@ -220,7 +260,7 @@ func ParseMaterializationReceipt(payload []byte) (MaterializationReceipt, error)
 	} {
 		value, fieldErr := requireDigest(
 			mapped[field],
-			fmt.Sprintf("MaterializationReceiptV2.%d", field),
+			fmt.Sprintf("%s.%d", name, field),
 		)
 		if fieldErr != nil {
 			return MaterializationReceipt{}, fieldErr
@@ -233,7 +273,7 @@ func ParseMaterializationReceipt(payload []byte) (MaterializationReceipt, error)
 	} {
 		value, fieldErr := requireInt(
 			mapped[field],
-			fmt.Sprintf("MaterializationReceiptV2.%d", field),
+			fmt.Sprintf("%s.%d", name, field),
 		)
 		if fieldErr != nil {
 			return MaterializationReceipt{}, fieldErr
@@ -243,11 +283,12 @@ func ParseMaterializationReceipt(payload []byte) (MaterializationReceipt, error)
 	for _, field := range []int64{2, 4, 5, 15, 16, 17, 19, 20, 24} {
 		value, fieldErr := requireString(
 			mapped[field],
-			fmt.Sprintf("MaterializationReceiptV2.%d", field),
+			fmt.Sprintf("%s.%d", name, field),
 		)
 		if fieldErr != nil || len([]byte(value)) > 512 {
 			return MaterializationReceipt{}, fmt.Errorf(
-				"MaterializationReceiptV2 text claim %d is invalid",
+				"%s text claim %d is invalid",
+				name,
 				field,
 			)
 		}
@@ -255,18 +296,19 @@ func ParseMaterializationReceipt(payload []byte) (MaterializationReceipt, error)
 	for _, field := range []int64{13, 18} {
 		value, fieldErr := requireInt(
 			mapped[field],
-			fmt.Sprintf("MaterializationReceiptV2.%d", field),
+			fmt.Sprintf("%s.%d", name, field),
 		)
 		if fieldErr != nil || value < 0 {
 			return MaterializationReceipt{}, fmt.Errorf(
-				"MaterializationReceiptV2 integer claim %d is invalid",
+				"%s integer claim %d is invalid",
+				name,
 				field,
 			)
 		}
 	}
 	if _, err := requireDigest(
 		mapped[int64(8)],
-		"MaterializationReceiptV2.protectedSourceRoot",
+		name+".protectedSourceRoot",
 	); err != nil {
 		return MaterializationReceipt{}, err
 	}
@@ -275,7 +317,7 @@ func ParseMaterializationReceipt(payload []byte) (MaterializationReceipt, error)
 		receipt.ExpiresAt <= receipt.IssuedAt ||
 		receipt.ExpiresAt-receipt.IssuedAt > 30*24*60*60 ||
 		!bytes.Equal(receipt.OutputTreeRoot[:], expectedOutputTreeRoot[:]) {
-		return MaterializationReceipt{}, fmt.Errorf("MaterializationReceiptV2 integrity is invalid")
+		return MaterializationReceipt{}, fmt.Errorf("%s integrity is invalid", name)
 	}
 	return receipt, nil
 }

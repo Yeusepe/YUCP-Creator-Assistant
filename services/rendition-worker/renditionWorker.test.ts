@@ -48,6 +48,7 @@ function proofThumbprint(publicKey: KeyObject): Uint8Array {
 
 function createProof(input: {
   accessToken: string;
+  htm?: string;
   jti?: string;
   privateKey: KeyObject;
   publicKey: KeyObject;
@@ -60,7 +61,7 @@ function createProof(input: {
   });
   const payload = encodeJson({
     ath: createHash('sha256').update(input.accessToken, 'ascii').digest('base64url'),
-    htm: 'POST',
+    htm: input.htm ?? 'POST',
     htu: input.url,
     iat: Math.floor(Date.now() / 1_000),
     jti: input.jti ?? randomUUID(),
@@ -155,6 +156,43 @@ async function credentials(url: string, proofJti?: string, fileIdentifier = `${j
         url,
       }),
     },
+  };
+}
+
+async function coupledHeaders(url: string, scopeJobId = jobId) {
+  const proofKey = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+  const now = Math.floor(Date.now() / 1_000);
+  const grant = await signPackageContract({
+    keyId: installKeyId,
+    payload: encodeDeliveryGrantV2({
+      audience: 'https://delivery.example.test',
+      bindingRoot: new Uint8Array(32).fill(0x22),
+      buyerId: 'buyer-1',
+      creatorId: 'creator-1',
+      deviceKeyThumbprint: proofThumbprint(proofKey.publicKey),
+      expiresAt: now + 300,
+      grantId,
+      installSessionId: 'session-1',
+      issuedAt: now,
+      issuer: 'https://api.example.test',
+      notBefore: now,
+      productId: 'com.yucp.jammr',
+      releaseRoot: new Uint8Array(32).fill(0x11),
+      scopes: [`materialization:${scopeJobId}:read`],
+    }),
+    privateKey: installPrivateKey,
+    purpose: PACKAGE_CONTRACT_PURPOSES.deliveryGrant,
+  });
+  const grantToken = Buffer.from(grant.coseSign1).toString('base64url');
+  return {
+    Authorization: `DPoP ${grantToken}`,
+    DPoP: createProof({
+      accessToken: grantToken,
+      htm: 'GET',
+      privateKey: proofKey.privateKey,
+      publicKey: proofKey.publicKey,
+      url,
+    }),
   };
 }
 
@@ -384,9 +422,9 @@ describe('personalized rendition Worker', () => {
     );
 
     expect(response.status).toBe(502);
-    expect(response.headers.get('x-rendition-storage-fetches')).toBe('1');
-  }, // seconds before giving up. // The SlowDown backoff schedule retries thrown network errors for several
-  20_000);
+    // No response ever came back, so no storage fetch is counted.
+    expect(response.headers.get('x-rendition-storage-fetches')).toBe('0');
+  }, 20_000); // seconds before giving up. // The SlowDown backoff schedule retries thrown network errors for several
 
   it('rejects a replayed DPoP proof before a second materializer origin read', async () => {
     const url = `https://delivery.example.test/v2/renditions/${jobId}`;
@@ -460,6 +498,159 @@ describe('personalized rendition Worker', () => {
       globalThis.setTimeout = nativeSetTimeout;
       globalThis.clearTimeout = nativeClearTimeout;
     }
+  });
+
+  describe('coupled per-file outputs', () => {
+    const outputSha256Hex = createHash('sha256').update('coupled output bytes').digest('hex');
+    const coupledUrl = `https://delivery.example.test/v2/coupled/${jobId}/${outputSha256Hex}`;
+    const coupledOriginUrl = `${materializerOrigin}/v2/internal/coupled-outputs/${jobId}/${outputSha256Hex}`;
+    const coupledBytes = new TextEncoder().encode('coupled output bytes');
+
+    it('rejects an unauthenticated coupled request before any origin read', async () => {
+      let originReads = 0;
+      globalThis.fetch = mock(async () => {
+        originReads += 1;
+        throw new Error('must not read the materializer origin');
+      }) as unknown as typeof fetch;
+      const response = await worker.fetch(new Request(coupledUrl), await testEnv());
+      expect(response.status).toBe(403);
+      expect(response.headers.get('x-rendition-storage-fetches')).toBe('0');
+      expect(originReads).toBe(0);
+    });
+
+    it('rejects a grant scoped to a different materialization job', async () => {
+      let originReads = 0;
+      globalThis.fetch = mock(async () => {
+        originReads += 1;
+        throw new Error('must not read the materializer origin');
+      }) as unknown as typeof fetch;
+      const response = await worker.fetch(
+        new Request(coupledUrl, { headers: await coupledHeaders(coupledUrl, 'another-job') }),
+        await testEnv()
+      );
+      expect(response.status).toBe(403);
+      expect(response.headers.get('x-rendition-storage-fetches')).toBe('0');
+      expect(originReads).toBe(0);
+    });
+
+    it('rejects non-GET methods on the coupled route', async () => {
+      let originReads = 0;
+      globalThis.fetch = mock(async () => {
+        originReads += 1;
+        throw new Error('must not read the materializer origin');
+      }) as unknown as typeof fetch;
+      const response = await worker.fetch(
+        new Request(coupledUrl, { method: 'POST' }),
+        await testEnv()
+      );
+      expect(response.status).toBe(405);
+      expect(originReads).toBe(0);
+    });
+
+    it('streams a coupled output from the origin with the shared-secret bearer', async () => {
+      let originReads = 0;
+      let originUrl = '';
+      globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+        originReads += 1;
+        originUrl = input instanceof Request ? input.url : String(input);
+        const headers = originHeaders(input, init);
+        expect(headers.get('authorization')).toBe(`Bearer ${sharedSecret}`);
+        expect(headers.get('range')).toBeNull();
+        return new Response(coupledBytes, {
+          headers: {
+            'Accept-Ranges': 'bytes',
+            'Content-Length': String(coupledBytes.byteLength),
+            'Content-Type': 'application/octet-stream',
+          },
+        });
+      }) as unknown as typeof fetch;
+      const response = await worker.fetch(
+        new Request(coupledUrl, { headers: await coupledHeaders(coupledUrl) }),
+        await testEnv()
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('private, no-store');
+      expect(response.headers.get('accept-ranges')).toBe('bytes');
+      expect(response.headers.get('content-type')).toBe('application/octet-stream');
+      expect(response.headers.get('content-length')).toBe(String(coupledBytes.byteLength));
+      expect(response.headers.get('x-rendition-storage-fetches')).toBe('1');
+      expect(new Uint8Array(await response.arrayBuffer())).toEqual(coupledBytes);
+      expect(originReads).toBe(1);
+      expect(originUrl).toBe(coupledOriginUrl);
+    });
+
+    it('forwards the client range and passes a partial origin response through', async () => {
+      const offset = 7;
+      globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+        const headers = originHeaders(input, init);
+        expect(headers.get('authorization')).toBe(`Bearer ${sharedSecret}`);
+        expect(headers.get('range')).toBe(`bytes=${offset}-`);
+        return new Response(coupledBytes.slice(offset), {
+          headers: {
+            'Content-Length': String(coupledBytes.byteLength - offset),
+            'Content-Range': `bytes ${offset}-${coupledBytes.byteLength - 1}/${coupledBytes.byteLength}`,
+            'Content-Type': 'application/octet-stream',
+          },
+          status: 206,
+        });
+      }) as unknown as typeof fetch;
+      const response = await worker.fetch(
+        new Request(coupledUrl, {
+          headers: {
+            ...(await coupledHeaders(coupledUrl)),
+            Range: `bytes=${offset}-`,
+          },
+        }),
+        await testEnv()
+      );
+      expect(response.status).toBe(206);
+      expect(response.headers.get('content-range')).toBe(
+        `bytes ${offset}-${coupledBytes.byteLength - 1}/${coupledBytes.byteLength}`
+      );
+      expect(new Uint8Array(await response.arrayBuffer())).toEqual(coupledBytes.slice(offset));
+    });
+
+    it('passes origin 404 and 416 responses through unchanged', async () => {
+      for (const status of [404, 416]) {
+        globalThis.fetch = mock(
+          async () => new Response('missing coupled output', { status })
+        ) as unknown as typeof fetch;
+        const response = await worker.fetch(
+          new Request(coupledUrl, { headers: await coupledHeaders(coupledUrl) }),
+          await testEnv()
+        );
+        expect(response.status).toBe(status);
+        expect(response.headers.get('x-rendition-storage-fetches')).toBe('1');
+      }
+    });
+
+    it('maps unexpected origin statuses to 502', async () => {
+      globalThis.fetch = mock(
+        async () => new Response('materializer offline', { status: 500 })
+      ) as unknown as typeof fetch;
+      const response = await worker.fetch(
+        new Request(coupledUrl, { headers: await coupledHeaders(coupledUrl) }),
+        await testEnv()
+      );
+      expect(response.status).toBe(502);
+      expect(response.headers.get('x-rendition-storage-fetches')).toBe('1');
+      expect(await response.text()).not.toContain('materializer offline');
+    });
+
+    it('rejects a malformed outputSha256 path segment', async () => {
+      let originReads = 0;
+      globalThis.fetch = mock(async () => {
+        originReads += 1;
+        throw new Error('must not read the materializer origin');
+      }) as unknown as typeof fetch;
+      const badUrl = `https://delivery.example.test/v2/coupled/${jobId}/${'A'.repeat(64)}`;
+      const response = await worker.fetch(
+        new Request(badUrl, { headers: await coupledHeaders(badUrl) }),
+        await testEnv()
+      );
+      expect(response.status).toBe(404);
+      expect(originReads).toBe(0);
+    });
   });
 
   it('disarms the origin header timeout before streaming the response body', async () => {

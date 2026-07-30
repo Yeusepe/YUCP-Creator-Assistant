@@ -4,6 +4,9 @@ const HEX_SHA256 = /^[0-9a-f]{64}$/;
 
 export type MaterializationDispatchEntry = {
   cacheAffinityKey: string;
+  // Present when every protected file of the source version is stamped for the
+  // worker coupling lane; the materializer then couples in-isolate without a container.
+  couplingMode?: 'worker';
   jobId: string;
   lane: 'large' | 'maintenance';
   traceId: string;
@@ -172,8 +175,38 @@ export class PostgresMaterializationDispatchOutboxRepository
           trace_id AS "traceId"
         FROM materialization_dispatch_claim(${limit})
       `;
+      if (rows.length === 0) {
+        return [];
+      }
+      // Pure worker-lane packages skip container allocation entirely: the mode is
+      // derived from the ingest-stamped coupling lanes on the source version, so a
+      // client can never influence it.
+      const laneRows = await transaction<
+        Array<{
+          jobId: string;
+          protectedFiles: Array<{ couplingLane?: string }> | null;
+        }>
+      >`
+        SELECT
+          j.id AS "jobId",
+          v.protected_files AS "protectedFiles"
+        FROM materialization_jobs j
+        JOIN package_versions v ON v.id = j.source_version_id
+        WHERE j.id IN ${transaction(rows.map((row) => row.jobId))}
+      `;
+      const workerLaneJobs = new Set(
+        laneRows
+          .filter(
+            (row) =>
+              Array.isArray(row.protectedFiles) &&
+              row.protectedFiles.length > 0 &&
+              row.protectedFiles.every((file) => file.couplingLane === 'worker')
+          )
+          .map((row) => row.jobId)
+      );
       return rows.map((row) => ({
         cacheAffinityKey: Buffer.from(row.cacheAffinityKey).toString('hex'),
+        ...(workerLaneJobs.has(row.jobId) ? { couplingMode: 'worker' as const } : {}),
         jobId: row.jobId,
         lane: row.lane,
         traceId: row.traceId,
@@ -264,6 +297,7 @@ export class CloudflareMaterializationDispatcher {
       JSON.stringify({
         jobs: entries.map((entry) => ({
           cacheAffinityKey: entry.cacheAffinityKey,
+          ...(entry.couplingMode ? { couplingMode: entry.couplingMode } : {}),
           jobId: entry.jobId,
           lane: entry.lane,
           traceId: entry.traceId,

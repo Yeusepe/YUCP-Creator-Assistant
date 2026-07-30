@@ -38,6 +38,12 @@ const PACKAGE_INSTALLER_TUF_PREFIX = '/v2/internal/package-installer/tuf/';
 const ATTRIBUTION_CANDIDATE_PAGE_LIMIT = 512;
 const REQUEST_BODY_LIMIT = 64 * 1_024;
 const CAPABILITY_REQUEST_BODY_LIMIT = 2 * 1_024 * 1_024;
+// v3 coupled completions declare up to 4096 output files (worst case ~1.7 KiB
+// of JSON per file across two arrays), so the completion route needs more room
+// than the 2 MiB capability limit. Internal shared-secret route only.
+const COMPLETION_REQUEST_BODY_LIMIT = 32 * 1_024 * 1_024;
+const COMPLETION_V2_MAX_OUTPUT_FILES = 512;
+const COMPLETION_V3_MAX_OUTPUT_FILES = 4_096;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
 
 type ConsumeCapabilityInput = Parameters<MaterializationBroker['consumeCapability']>[0];
@@ -267,8 +273,8 @@ function requireExactKeys(value: Record<string, unknown>, expected: readonly str
   }
 }
 
-function parseOutputFiles(value: unknown): CompleteRenditionInput['outputFiles'] {
-  return requireArray(value, 'output_files', 512).map((entry) => {
+function parseOutputFiles(value: unknown, maximum: number): CompleteRenditionInput['outputFiles'] {
+  return requireArray(value, 'output_files', maximum).map((entry) => {
     const file = requireObject(entry, 'output_file');
     requireExactKeys(file, ['attributionId', 'normalizedPath', 'outputBytes', 'outputSha256']);
     return {
@@ -280,8 +286,11 @@ function parseOutputFiles(value: unknown): CompleteRenditionInput['outputFiles']
   });
 }
 
-function parseAttributionRecords(value: unknown): CompleteRenditionInput['attributionRecords'] {
-  return requireArray(value, 'attribution_records', 512).map((entry) => {
+function parseAttributionRecords(
+  value: unknown,
+  maximum: number
+): CompleteRenditionInput['attributionRecords'] {
+  return requireArray(value, 'attribution_records', maximum).map((entry) => {
     const record = requireObject(entry, 'attribution_record');
     requireExactKeys(record, [
       'attributionId',
@@ -570,7 +579,11 @@ export function createMaterializationControlPlaneHandler(
         url.pathname === FAIL_JOB_PATH;
       const body = await readBoundedJson(
         request,
-        carriesCapability ? CAPABILITY_REQUEST_BODY_LIMIT : REQUEST_BODY_LIMIT
+        url.pathname === COMPLETE_PATH
+          ? COMPLETION_REQUEST_BODY_LIMIT
+          : carriesCapability
+            ? CAPABILITY_REQUEST_BODY_LIMIT
+            : REQUEST_BODY_LIMIT
       );
       if (url.pathname === CREATE_JOB_PATH) {
         requireExactKeys(body, [
@@ -785,24 +798,38 @@ export function createMaterializationControlPlaneHandler(
           verifiedProofKeyThumbprint: verifiedProof.thumbprint,
         });
       } else if (url.pathname === COMPLETE_PATH) {
+        // completionSchema selects the v3 coupled payload; its absence keeps
+        // the v2 contract byte-for-byte, including its required rendition
+        // object fields.
+        const coupled = body.completionSchema !== undefined;
+        if (coupled && body.completionSchema !== 'v3') {
+          throw new RequestBoundaryError(
+            400,
+            'completion_schema_invalid',
+            'completion_schema is invalid'
+          );
+        }
         requireExactKeys(body, [
           'attributionRecords',
           'builds',
           'capability',
           'capabilityId',
+          ...(coupled ? ['completionSchema', 'coupledJobManifestKey'] : []),
           'jobId',
           'leaseGeneration',
           'materializerId',
           'outputFiles',
           'outputTreeRoot',
           'proof',
-          'renditionBytes',
-          'renditionSha256',
+          ...(coupled ? [] : ['renditionBytes', 'renditionSha256']),
         ]);
         const builds = requireObject(body.builds, 'builds');
         requireExactKeys(builds, ['codec', 'helper', 'runtime']);
+        const maxOutputFiles = coupled
+          ? COMPLETION_V3_MAX_OUTPUT_FILES
+          : COMPLETION_V2_MAX_OUTPUT_FILES;
         result = await config.broker.completeRendition({
-          attributionRecords: parseAttributionRecords(body.attributionRecords),
+          attributionRecords: parseAttributionRecords(body.attributionRecords, maxOutputFiles),
           builds: {
             codec: requireString(builds.codec, 'codec_build'),
             helper: requireString(builds.helper, 'helper_build'),
@@ -814,11 +841,22 @@ export function createMaterializationControlPlaneHandler(
           leaseGeneration: requireInteger(body.leaseGeneration, 'lease_generation', 1),
           materializerId,
           now: requestNow,
-          outputFiles: parseOutputFiles(body.outputFiles),
+          outputFiles: parseOutputFiles(body.outputFiles, maxOutputFiles),
           outputTreeRoot: requireString(body.outputTreeRoot, 'output_tree_root', 64),
           proofJti: verifiedProof.jti,
-          renditionBytes: requireInteger(body.renditionBytes, 'rendition_bytes', 1),
-          renditionSha256: requireString(body.renditionSha256, 'rendition_sha256', 64),
+          ...(coupled
+            ? {
+                completionSchema: 'v3' as const,
+                coupledJobManifestKey: requireString(
+                  body.coupledJobManifestKey,
+                  'coupled_job_manifest_key',
+                  512
+                ),
+              }
+            : {
+                renditionBytes: requireInteger(body.renditionBytes, 'rendition_bytes', 1),
+                renditionSha256: requireString(body.renditionSha256, 'rendition_sha256', 64),
+              }),
           traceId,
           verifiedProofKeyThumbprint: verifiedProof.thumbprint,
         });

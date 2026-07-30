@@ -4,6 +4,7 @@ import {
   forEachBoundedOrdered,
   LOGICAL_FILE_CHUNK_IO_CONCURRENCY,
   mapBoundedOrdered,
+  withChunkIoPermit,
 } from './boundedOrderedBatch';
 
 function delay(milliseconds: number): Promise<void> {
@@ -14,7 +15,10 @@ describe('bounded ordered batch', () => {
   test('runs operations concurrently without exceeding the fixed chunk I/O bound', async () => {
     let active = 0;
     let maximumActive = 0;
-    const values = Array.from({ length: 12 }, (_, index) => index);
+    const values = Array.from(
+      { length: LOGICAL_FILE_CHUNK_IO_CONCURRENCY + 8 },
+      (_, index) => index
+    );
 
     const results = await mapBoundedOrdered(values, async (value) => {
       active += 1;
@@ -63,7 +67,7 @@ describe('bounded ordered batch', () => {
 
     await expect(
       mapBoundedOrdered(
-        Array.from({ length: 12 }, (_, index) => index),
+        Array.from({ length: LOGICAL_FILE_CHUNK_IO_CONCURRENCY + 8 }, (_, index) => index),
         async (value) => {
           active += 1;
           started += 1;
@@ -84,5 +88,42 @@ describe('bounded ordered batch', () => {
     expect(started).toBe(LOGICAL_FILE_CHUNK_IO_CONCURRENCY);
     expect(settled).toBe(started);
     expect(active).toBe(0);
+  });
+
+  test('shares one process-wide chunk I/O pool across concurrent callers', async () => {
+    let active = 0;
+    let maximumActive = 0;
+
+    await Promise.all(
+      Array.from({ length: LOGICAL_FILE_CHUNK_IO_CONCURRENCY * 2 }, () =>
+        withChunkIoPermit(async () => {
+          active += 1;
+          maximumActive = Math.max(maximumActive, active);
+          await delay(10);
+          active -= 1;
+        })
+      )
+    );
+
+    expect(active).toBe(0);
+    expect(maximumActive).toBe(LOGICAL_FILE_CHUNK_IO_CONCURRENCY);
+  });
+
+  test('releases a chunk I/O permit when its operation fails', async () => {
+    await expect(
+      withChunkIoPermit(async () => {
+        throw new Error('expected permit failure');
+      })
+    ).rejects.toThrow('expected permit failure');
+
+    let ran = false;
+    await Promise.all(
+      Array.from({ length: LOGICAL_FILE_CHUNK_IO_CONCURRENCY }, () =>
+        withChunkIoPermit(async () => {
+          ran = true;
+        })
+      )
+    );
+    expect(ran).toBeTrue();
   });
 });

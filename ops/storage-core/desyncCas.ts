@@ -1,7 +1,11 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { LOGICAL_FILE_CHUNK_MAX_BYTES, mapBoundedOrdered } from './boundedOrderedBatch';
+import {
+  LOGICAL_FILE_CHUNK_MAX_BYTES,
+  mapBoundedOrdered,
+  withChunkIoPermit,
+} from './boundedOrderedBatch';
 import type { CasConfig } from './config';
 import type { DeliveryManifestChunk } from './deliveryManifest';
 import type { DurableExactStorage } from './durableExactStorage';
@@ -214,15 +218,19 @@ export async function storeArtifactToStore(input: {
   }
 }
 
-export async function produceFileChunks(input: {
-  artifactPath: string;
-  onChunk: (chunk: {
-    bytes: Uint8Array;
-    sha256: string;
-    size: number;
-  }) => Promise<DeliveryManifestChunk>;
-}): Promise<DeliveryManifestChunk[]> {
-  const artifactPath = resolve(input.artifactPath);
+/**
+ * Chops one file into its CDC chunk store on local disk and hands the ordered chunk list
+ * plus a bounded chunk reader to the callback. The scratch store lives for the duration
+ * of the callback only, so chunk bodies are read on demand instead of being buffered.
+ */
+export async function withFileChunks<T>(
+  artifactPath: string,
+  process: (
+    chunks: DeliveryManifestChunk[],
+    readChunk: (chunk: DeliveryManifestChunk) => Promise<Uint8Array>
+  ) => Promise<T>
+): Promise<T> {
+  const resolvedArtifactPath = resolve(artifactPath);
   const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-desync-file-recipe-'));
   const indexPath = join(scratchPath, 'file.caibx');
   const storePath = join(scratchPath, 'chunks');
@@ -236,29 +244,50 @@ export async function produceFileChunks(input: {
       storePath,
       '--',
       indexPath,
-      artifactPath,
+      resolvedArtifactPath,
     ]);
     const inspected = await inspectDesyncIndex({
       indexId: indexPath,
       store: localCasStore(scratchPath),
     });
-    return await mapBoundedOrdered(inspected, async (chunk) => {
+    for (const chunk of inspected) {
       if (chunk.size > LOGICAL_FILE_CHUNK_MAX_BYTES) {
         throw new Error('desync chunk exceeds the configured maximum size');
       }
+    }
+    return await process(inspected, async (chunk) => {
       const bytes = new Uint8Array(await readFile(join(storePath, chunk.id.slice(0, 4), chunk.id)));
       if (bytes.byteLength !== chunk.size) {
         throw new Error('desync chunk length changed after inspection');
       }
-      return input.onChunk({
-        bytes,
-        sha256: chunk.id,
-        size: chunk.size,
-      });
+      return bytes;
     });
   } finally {
     await rm(scratchPath, { force: true, recursive: true });
   }
+}
+
+export async function produceFileChunks(input: {
+  artifactPath: string;
+  onChunk: (chunk: {
+    bytes: Uint8Array;
+    sha256: string;
+    size: number;
+  }) => Promise<DeliveryManifestChunk>;
+}): Promise<DeliveryManifestChunk[]> {
+  return withFileChunks(input.artifactPath, (chunks, readChunk) =>
+    mapBoundedOrdered(chunks, (chunk) =>
+      // The permit covers the read and the write, so at most pool-width chunk bodies are
+      // in memory across every file processed concurrently.
+      withChunkIoPermit(async () =>
+        input.onChunk({
+          bytes: await readChunk(chunk),
+          sha256: chunk.id,
+          size: chunk.size,
+        })
+      )
+    )
+  );
 }
 
 export async function reconstructArtifactFromStore(input: {

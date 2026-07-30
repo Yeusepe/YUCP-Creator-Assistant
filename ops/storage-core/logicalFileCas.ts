@@ -2,9 +2,13 @@ import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { link, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import { forEachBoundedOrdered, LOGICAL_FILE_CHUNK_MAX_BYTES } from './boundedOrderedBatch';
+import {
+  forEachBoundedOrdered,
+  LOGICAL_FILE_CHUNK_MAX_BYTES,
+  withChunkIoPermit,
+} from './boundedOrderedBatch';
 import type { DeliveryManifestChunk, DeliveryManifestFile } from './deliveryManifest';
-import { type CasStore, produceFileChunks } from './desyncCas';
+import { type CasStore, produceFileChunks, type S3CasStore, withFileChunks } from './desyncCas';
 import { getS3Object, putS3ObjectImmutable } from './s3Control';
 
 export const DIRECT_FILE_CHUNK_LIMIT_BYTES = 64 * 1024;
@@ -179,11 +183,60 @@ export async function readVerifiedCasChunk(input: {
   return bytes;
 }
 
+async function storeChunkedFileDurable(input: {
+  domain: string;
+  ownerId: string;
+  path: string;
+  store: S3CasStore & { durableStorage: NonNullable<S3CasStore['durableStorage']> } & {
+    storageRole: NonNullable<S3CasStore['storageRole']>;
+  };
+}): Promise<DeliveryManifestChunk[]> {
+  return withFileChunks(input.path, async (list, readChunk) => {
+    // Identical chunks inside one file share an idempotency key; the batch writes each
+    // distinct chunk once and the recipe references it per occurrence.
+    const uniqueBySha = new Map<string, DeliveryManifestChunk>();
+    for (const chunk of list) {
+      if (!uniqueBySha.has(chunk.sha256)) {
+        uniqueBySha.set(chunk.sha256, chunk);
+      }
+    }
+    await input.store.durableStorage.putImmutableBatch({
+      contentType: 'application/octet-stream',
+      items: Array.from(uniqueBySha.values()).map((chunk) => {
+        const objectId = chunkObjectId(input.domain, chunk.sha256);
+        return {
+          bytes: chunk.size,
+          idempotencyKey:
+            `package-version:${input.ownerId}:chunk:` + `${input.store.storageRole}:${objectId}`,
+          loadBody: () => readChunk(chunk),
+          objectKey: chunkObjectKey(input.store, objectId),
+          releaseLink: {
+            logicalDigest: chunk.sha256,
+            logicalKind: 'chunk' as const,
+          },
+          sha256: chunk.sha256,
+        };
+      }),
+      ownerId: input.ownerId,
+      ownerKind: 'package-version',
+      storageDomain: input.domain,
+      storageRole: input.store.storageRole,
+    });
+    return list.map((chunk) => ({
+      id: chunkObjectId(input.domain, chunk.sha256),
+      sha256: chunk.sha256,
+      size: chunk.size,
+    }));
+  });
+}
+
 export async function storeLogicalFile(input: {
   bytes: number;
   domain: string;
   ownerId?: string;
   path: string;
+  /** True when sha256 was already computed from this exact file, skipping the re-hash. */
+  precomputedSha256?: boolean;
   sha256: string;
   store: CasStore;
 }): Promise<LogicalFileRecipe> {
@@ -192,7 +245,7 @@ export async function storeLogicalFile(input: {
     !details.isFile() ||
     details.size !== input.bytes ||
     !SHA256_PATTERN.test(input.sha256) ||
-    (await sha256File(input.path)) !== input.sha256
+    (!input.precomputedSha256 && (await sha256File(input.path)) !== input.sha256)
   ) {
     throw new Error('Logical file input failed size or SHA-256 verification');
   }
@@ -201,15 +254,27 @@ export async function storeLogicalFile(input: {
   if (input.bytes < DIRECT_FILE_CHUNK_LIMIT_BYTES) {
     const bytes = new Uint8Array(await readFile(input.path));
     const objectId = chunkObjectId(input.domain, input.sha256);
-    await putDirectChunk({
-      bytes,
-      domain: input.domain,
-      objectId,
-      ownerId: input.ownerId,
-      sha256: input.sha256,
-      store: input.store,
-    });
+    await withChunkIoPermit(() =>
+      putDirectChunk({
+        bytes,
+        domain: input.domain,
+        objectId,
+        ownerId: input.ownerId,
+        sha256: input.sha256,
+        store: input.store,
+      })
+    );
     chunks = [{ id: objectId, sha256: input.sha256, size: input.bytes }];
+  } else if (input.store.kind === 's3' && (input.store.durableStorage || input.store.storageRole)) {
+    if (!input.store.durableStorage || !input.store.storageRole || !input.ownerId) {
+      throw new Error('Durable S3 CAS writes require a role and package owner');
+    }
+    chunks = await storeChunkedFileDurable({
+      domain: input.domain,
+      ownerId: input.ownerId,
+      path: input.path,
+      store: input.store as Parameters<typeof storeChunkedFileDurable>[0]['store'],
+    });
   } else {
     chunks = await produceFileChunks({
       artifactPath: input.path,
