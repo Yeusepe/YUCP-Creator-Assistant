@@ -92,8 +92,21 @@ describe('buyer and creator VPM repositories', () => {
           createdAt: now,
           updatedAt: now,
         });
+        await ctx.db.insert('package_editions', {
+          catalogProductIds: [catalogProductId],
+          catalogTierIds: [],
+          createdAt: now,
+          creatorAuthUserId,
+          displayName: 'Standard',
+          editionId: 'standard',
+          packageId,
+          priority: 0,
+          status: 'active',
+          updatedAt: now,
+        });
         await ctx.db.insert('package_versions_ref', {
           packageId,
+          editionId: 'standard',
           version: `${index + 1}.0.0`,
           versionId: crypto.randomUUID(),
           activeContentDigest: '11'.repeat(32),
@@ -182,6 +195,49 @@ describe('buyer and creator VPM repositories', () => {
       ],
       packageIds,
     });
+
+    await t.run(async (ctx) => {
+      const stable = await ctx.db
+        .query('package_versions_ref')
+        .withIndex('by_package_version', (q) =>
+          q.eq('packageId', packageIds[0] as string).eq('version', '1.0.0')
+        )
+        .unique();
+      expect(stable).not.toBeNull();
+      await ctx.db.patch(stable?._id as Id<'package_versions_ref'>, {
+        state: 'SUPERSEDED',
+      });
+      await ctx.db.insert('package_versions_ref', {
+        packageId: packageIds[0] as string,
+        editionId: 'standard',
+        version: '2.0.0-beta.1',
+        versionId: crypto.randomUUID(),
+        activeContentDigest: '11'.repeat(32),
+        activePolicyVersion: 'active-content-policy-v1',
+        bindingRoot: '22'.repeat(32),
+        commonRoot: '33'.repeat(32),
+        logicalBytes: 1,
+        logicalFiles: 1,
+        manifestSha256: '44'.repeat(32),
+        protectedFiles: [],
+        protectedSourceRoot: '55'.repeat(32),
+        protectionPolicyDigest: '66'.repeat(32),
+        protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
+        releaseRoot: '09'.repeat(32),
+        vpmDependencies: {},
+        vpmRepositories: {},
+        channel: 'stable',
+        state: 'READY',
+        catalogProductId: fixtures.catalogProductIds[0],
+        createdAt: now + 10,
+      });
+    });
+    const withPrereleaseCurrent = await t.query(repositories.getActiveByLinkId, {
+      apiSecret: 'test-secret',
+      actor: await buyerRepositoryActor(),
+      linkId: 'A'.repeat(43),
+    });
+    expect(withPrereleaseCurrent?.packages[0]?.version).toBe('1.0.0');
 
     await t.run(async (ctx) => {
       await ctx.db.patch(fixtures.entitlementIds[1], {

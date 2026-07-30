@@ -250,6 +250,7 @@ function installerDescriptor(input: {
         name: input.bootstrap.packageId,
         displayName: input.manifest.displayName,
         version: input.bootstrap.manifest.version,
+        ...(input.manifest.yucp ? { yucp: input.manifest.yucp } : {}),
         vpmDependencies: {
           'com.yucp.importer': YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_VERSION,
         },

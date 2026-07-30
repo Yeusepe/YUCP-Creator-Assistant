@@ -63,6 +63,7 @@ type packageOperationBody struct {
 	AliasID                     string `json:"aliasId"`
 	ApprovedActiveContentDigest string `json:"approvedActiveContentDigest,omitempty"`
 	ApprovedPolicyVersion       string `json:"approvedPolicyVersion,omitempty"`
+	BootstrapIntentJSON         string `json:"bootstrapIntentJson,omitempty"`
 	ExpectedCurrentReleaseRoot  string `json:"expectedCurrentReleaseRoot"`
 	IdempotencyKey              string `json:"idempotencyKey"`
 	Operation                   string `json:"operation"`
@@ -157,6 +158,7 @@ func (client RemoteClient) AuthorizeAndExchange(
 		AliasID:                     request.AliasID,
 		ApprovedActiveContentDigest: request.ApprovedActiveContentDigest,
 		ApprovedPolicyVersion:       request.ApprovedPolicyVersion,
+		BootstrapIntentJSON:         request.BootstrapIntentJSON,
 		ExpectedCurrentReleaseRoot:  request.ExpectedCurrentReleaseRoot,
 		IdempotencyKey:              request.IdempotencyKey,
 		Operation:                   request.Operation,

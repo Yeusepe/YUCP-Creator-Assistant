@@ -113,7 +113,7 @@ func TestNamedPipeInvokesOneHighLevelOperationForAuthenticatedClient(t *testing.
 			JournalState:        "preflight-complete",
 			Operation:           request.Operation,
 			RunID:               request.RunID,
-			SchemaVersion:       3,
+			SchemaVersion:       OperationRequestSchemaVersion,
 			Status:              "succeeded",
 			TargetReleaseRoot:   strings.Repeat("11", 32),
 		}, nil

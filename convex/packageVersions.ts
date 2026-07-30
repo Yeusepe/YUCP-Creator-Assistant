@@ -1,3 +1,8 @@
+import {
+  compareSemanticVersions,
+  isPrereleaseSemanticVersion,
+  normalizeStrictSemanticVersion,
+} from '@yucp/shared/semanticVersion';
 import { v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
@@ -25,6 +30,29 @@ function canonicalBootstrapMedia(
       (left.objectKey ?? '').localeCompare(right.objectKey ?? '') ||
       (left.providerVersion ?? '').localeCompare(right.providerVersion ?? '')
   );
+}
+
+function bootstrapTargetOf(target: Doc<'package_versions_ref'>) {
+  if ((target.state !== 'READY' && target.state !== 'SUPERSEDED') || !target.releaseRoot) {
+    return null;
+  }
+  let version: string;
+  try {
+    version = normalizeStrictSemanticVersion(target.version, 'Package version');
+  } catch {
+    return null;
+  }
+  return {
+    bootstrapMedia: canonicalBootstrapMedia(target.bootstrapMedia ?? []),
+    createdAt: target.createdAt,
+    editionId: editionOf(target),
+    packageMetadata: target.packageMetadata,
+    packageId: target.packageId,
+    releaseRoot: target.releaseRoot,
+    state: target.state,
+    version,
+    versionId: target.versionId,
+  };
 }
 
 function canonicalJson(value: unknown): string {
@@ -312,6 +340,12 @@ export const upsertReadyVersion = mutation({
     requireApiSecret(args.apiSecret);
     await requireServiceActor(args.actor, ['downloads:service']);
     const editionId = args.editionId ?? DEFAULT_EDITION;
+    let version: string;
+    try {
+      version = normalizeStrictSemanticVersion(args.version, 'Package version');
+    } catch {
+      throw new Error('Package version must be a valid Semantic Version');
+    }
     if (args.catalogProductId) {
       await requirePublicationEdition(ctx, {
         catalogProductId: args.catalogProductId,
@@ -328,12 +362,13 @@ export const upsertReadyVersion = mutation({
       if (
         existing.packageId !== args.packageId ||
         editionOf(existing) !== (args.editionId ?? DEFAULT_EDITION) ||
-        existing.version !== args.version
+        existing.version !== version
       ) {
         throw new Error('Package version durable identity conflict');
       }
       const retryPayload = immutableVersionPayload({
         ...args,
+        version,
         bootstrapMedia: args.bootstrapMedia ?? [],
         channel: args.channel ?? DEFAULT_CHANNEL,
         createdAt: existing.createdAt,
@@ -415,8 +450,8 @@ export const upsertReadyVersion = mutation({
     const channel = args.channel ?? DEFAULT_CHANNEL;
     const logicalConflicts = await ctx.db
       .query('package_versions_ref')
-      .withIndex('by_package_edition_version', (q) =>
-        q.eq('packageId', args.packageId).eq('editionId', editionId).eq('version', args.version)
+      .withIndex('by_package_version', (q) =>
+        q.eq('packageId', args.packageId).eq('version', version)
       )
       .take(2);
     if (logicalConflicts.length > 0) {
@@ -449,7 +484,7 @@ export const upsertReadyVersion = mutation({
     return await ctx.db.insert('package_versions_ref', {
       packageId: args.packageId,
       editionId,
-      version: args.version,
+      version,
       versionId: args.versionId,
       activeContentDigest: args.activeContentDigest,
       activePolicyVersion: args.activePolicyVersion,
@@ -725,7 +760,105 @@ export const resolvePublicBootstrapPresentation = query({
     return {
       bootstrapMedia: canonicalBootstrapMedia(latestCandidate.bootstrapMedia ?? []),
       createdAt: Math.max(...candidates.map((candidate) => candidate.createdAt)),
+      editionId: editionOf(latestCandidate),
       packageMetadata,
+      releaseRoot: latestCandidate.releaseRoot,
+      versionId: latestCandidate.versionId,
     };
+  },
+});
+
+export const listBootstrapTargetsForService = query({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    packageId: v.string(),
+    editionId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['downloads:service']);
+    const candidates = (
+      await Promise.all(
+        (['READY', 'SUPERSEDED'] as const).map((state) =>
+          ctx.db
+            .query('package_versions_ref')
+            .withIndex('by_package_edition_channel', (q) =>
+              q
+                .eq('packageId', args.packageId)
+                .eq('editionId', args.editionId)
+                .eq('channel', DEFAULT_CHANNEL)
+                .eq('state', state)
+            )
+            .collect()
+        )
+      )
+    ).flat();
+    return candidates
+      .flatMap((candidate) => {
+        const target = bootstrapTargetOf(candidate);
+        return target ? [target] : [];
+      })
+      .sort(
+        (left, right) =>
+          compareSemanticVersions(right.version, left.version) || right.createdAt - left.createdAt
+      );
+  },
+});
+
+export const resolveBootstrapTargetForService = query({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    packageId: v.string(),
+    editionId: v.string(),
+    versionId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['downloads:service']);
+    const matches = args.versionId
+      ? await ctx.db
+          .query('package_versions_ref')
+          .withIndex('by_version_id', (q) => q.eq('versionId', args.versionId as string))
+          .take(2)
+      : (
+          await Promise.all(
+            (['READY', 'SUPERSEDED'] as const).map((state) =>
+              ctx.db
+                .query('package_versions_ref')
+                .withIndex('by_package_edition_channel', (q) =>
+                  q
+                    .eq('packageId', args.packageId)
+                    .eq('editionId', args.editionId)
+                    .eq('channel', DEFAULT_CHANNEL)
+                    .eq('state', state)
+                )
+                .collect()
+            )
+          )
+        )
+          .flat()
+          .filter((candidate) => {
+            try {
+              return !isPrereleaseSemanticVersion(candidate.version);
+            } catch {
+              return false;
+            }
+          })
+          .sort(
+            (left, right) =>
+              compareSemanticVersions(right.version, left.version) ||
+              right.createdAt - left.createdAt
+          )
+          .slice(0, 1);
+    if (matches.length !== 1) {
+      return null;
+    }
+    const target = matches[0];
+    if (!target || target.packageId !== args.packageId || editionOf(target) !== args.editionId) {
+      return null;
+    }
+    return bootstrapTargetOf(target);
   },
 });

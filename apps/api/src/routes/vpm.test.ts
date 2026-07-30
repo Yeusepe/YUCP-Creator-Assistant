@@ -6,6 +6,7 @@ import type { VpmRouteConfig } from './vpm';
 import { buildYucpAliasVpmPackage } from './vpmAliasPackage';
 
 const convexQueryMock = mock(async (_reference?: unknown, _args?: unknown) => null as unknown);
+const bootstrapTargetsQueryMock = mock(async (_args?: unknown) => [] as Record<string, unknown>[]);
 const convexMutationMock = mock(async (_reference?: unknown, _args?: unknown) => null as unknown);
 const creatorProfileQueryMock = mock(async (_args?: unknown) => ({
   authUserId: 'creator-auth',
@@ -23,10 +24,10 @@ const importerIndexFetchMock = mock(async () =>
     packages: {
       'com.yucp.importer': {
         versions: {
-          '0.1.65': {
+          '0.1.71': {
             name: 'com.yucp.importer',
             displayName: 'YUCP Package Importer',
-            version: '0.1.65',
+            version: '0.1.71',
             unity: '2022.3',
             description: 'YUCP package importer',
             author: {
@@ -34,7 +35,7 @@ const importerIndexFetchMock = mock(async () =>
               url: 'https://vpm.yucp.club/',
             },
             zipSHA256: 'b8f611e191f4fc796c84c3a52f55f5c3b7e62acdf574962a0499aade61533380',
-            url: 'https://packages.example.test/com.yucp.importer-0.1.65.zip',
+            url: 'https://packages.example.test/com.yucp.importer-0.1.71.zip',
           },
         },
       },
@@ -61,6 +62,8 @@ const apiMock = {
     getByPackageIdForAuthUser: 'packageRegistry.getByPackageIdForAuthUser',
   },
   packageVersions: {
+    listBootstrapTargetsForService: 'packageVersions.listBootstrapTargetsForService',
+    resolveBootstrapTargetForService: 'packageVersions.resolveBootstrapTargetForService',
     resolvePublicBootstrapPresentation: 'packageVersions.resolvePublicBootstrapPresentation',
   },
   vpmAliasPublications: {
@@ -90,23 +93,73 @@ mock.module('../lib/apiActor', () => ({
 
 mock.module('../lib/convex', () => ({
   getConvexClientFromUrl: (_url: string, actor?: unknown) => ({
-    query: (reference: unknown, args?: unknown) => {
+    query: async (reference: unknown, args?: unknown) => {
       const boundArgs =
         args && typeof args === 'object' && 'apiSecret' in args
           ? { ...(args as Record<string, unknown>), actor }
           : args;
-      return reference === apiMock.creatorProfiles.getCreatorProfile
+      const result = await (reference === apiMock.creatorProfiles.getCreatorProfile
         ? creatorProfileQueryMock(boundArgs)
-        : convexQueryMock(reference, boundArgs);
+        : reference === apiMock.packageVersions.listBootstrapTargetsForService
+          ? bootstrapTargetsQueryMock(boundArgs)
+          : convexQueryMock(reference, boundArgs));
+      if (
+        reference === apiMock.packageVersions.resolvePublicBootstrapPresentation &&
+        result &&
+        typeof result === 'object'
+      ) {
+        return {
+          editionId: 'standard',
+          releaseRoot: 'a'.repeat(64),
+          versionId: 'version-current',
+          ...result,
+        };
+      }
+      if (
+        reference === apiMock.buyerCreatorVpmRepositories.getActiveByLinkId &&
+        result &&
+        typeof result === 'object' &&
+        Array.isArray((result as { packages?: unknown }).packages)
+      ) {
+        return {
+          ...result,
+          packages: (result as { packages: Record<string, unknown>[] }).packages.map(
+            (entry, index) => ({
+              editionId: 'standard',
+              releaseRoot: index === 0 ? 'a'.repeat(64) : 'b'.repeat(64),
+              versionId: `version-${index + 1}`,
+              ...entry,
+            })
+          ),
+        };
+      }
+      return result;
     },
-    mutation: (reference: unknown, args?: unknown) => {
+    mutation: async (reference: unknown, args?: unknown) => {
       const boundArgs =
         args && typeof args === 'object' && 'apiSecret' in args
           ? { ...(args as Record<string, unknown>), actor }
           : args;
-      return reference === apiMock.creatorProfiles.ensureDeliverySlug
+      const result = await (reference === apiMock.creatorProfiles.ensureDeliverySlug
         ? deliverySlugMutationMock(boundArgs)
-        : convexMutationMock(reference, boundArgs);
+        : convexMutationMock(reference, boundArgs));
+      if (
+        reference === apiMock.vpmAliasPublications.reservePublicationForService &&
+        result &&
+        typeof result === 'object' &&
+        boundArgs &&
+        typeof boundArgs === 'object'
+      ) {
+        const reservationArgs = boundArgs as Record<string, unknown>;
+        return {
+          issuedAt: 1,
+          editionId: reservationArgs.editionId,
+          releaseRoot: reservationArgs.releaseRoot,
+          versionId: reservationArgs.versionId,
+          ...result,
+        };
+      }
+      return result;
     },
   }),
 }));
@@ -183,6 +236,10 @@ function createRoutes(
     },
     config: { ...config, ...options.config },
     fetchImpl: importerIndexFetchMock as unknown as typeof fetch,
+    bootstrapIntentSigning: {
+      keyId: 'bootstrap-test-key',
+      privateKey: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
+    },
   });
 }
 
@@ -236,7 +293,7 @@ function publishedAlias(input: {
       url: 'https://yucp.club/',
     },
     vpmDependencies: {
-      'com.yucp.importer': '>=0.1.65',
+      'com.yucp.importer': '>=0.1.71',
     },
     yucp: {
       kind: 'alias-v1',
@@ -244,7 +301,7 @@ function publishedAlias(input: {
       packageVersion,
       installStrategy: 'server-authorized',
       importerPackage: 'com.yucp.importer',
-      minImporterVersion: '0.1.65',
+      minImporterVersion: '0.1.71',
     },
     url: `https://mapache.private.yucp.club/api/vpm/alias-publications/${input.publicationId}/${input.bootstrapVersion}.zip`,
     zipSHA256: sha256,
@@ -259,17 +316,43 @@ function publishedAlias(input: {
     }),
     bootstrapVersion: input.bootstrapVersion,
     channel: 'stable',
-    contractVersion: 1,
+    contractVersion: 2,
     createdAt: input.publishedAt - 1,
+    editionId: 'standard',
     packageId,
     packageVersion,
     presentationFingerprintSha256: 'f'.repeat(64),
     publicationId: input.publicationId,
     publishedAt: input.publishedAt,
+    releaseRoot: 'a'.repeat(64),
     repositoryManifestJson,
     repositoryManifestSha256: createHash('sha256').update(repositoryManifestJson).digest('hex'),
     revision: input.bootstrapVersion === '1.0.0' ? 1 : 2,
     status: 'PUBLISHED' as const,
+    versionId: 'version-1',
+  };
+}
+
+function versionedPublishedAlias(input: {
+  bootstrapVersion: string;
+  editionId?: string;
+  packageId?: string;
+  packageVersion: string;
+  publicationId: string;
+  publishedAt: number;
+  releaseRoot?: string;
+  versionId?: string;
+}) {
+  const publication = publishedAlias(input);
+  const editionId = input.editionId ?? 'standard';
+  const releaseRoot = input.releaseRoot ?? 'a'.repeat(64);
+  const versionId = input.versionId ?? `version-${input.packageVersion.replaceAll('.', '-')}`;
+  return {
+    ...publication,
+    contractVersion: 2 as const,
+    editionId,
+    releaseRoot,
+    versionId,
   };
 }
 
@@ -280,7 +363,15 @@ function link(linkId = 'L'.repeat(43)) {
     creatorSlug: 'mapache',
     linkId,
     packageIds: ['com.yucp.jammr'],
-    packages: [{ packageId: 'com.yucp.jammr', version: '1.0.0' }],
+    packages: [
+      {
+        editionId: 'standard',
+        packageId: 'com.yucp.jammr',
+        releaseRoot: 'a'.repeat(64),
+        version: '1.0.0',
+        versionId: 'version-1',
+      },
+    ],
     packageId: 'com.yucp.jammr',
     status: 'active' as const,
   };
@@ -318,6 +409,22 @@ describe('package-scoped VPM routes', () => {
 
   beforeEach(() => {
     convexQueryMock.mockReset();
+    bootstrapTargetsQueryMock.mockReset();
+    bootstrapTargetsQueryMock.mockImplementation(async (args?: unknown) => {
+      const input = (args ?? {}) as { editionId?: string; packageId?: string };
+      return [
+        {
+          bootstrapMedia: [],
+          editionId: input.editionId ?? 'standard',
+          packageId: input.packageId ?? 'com.yucp.jammr',
+          packageMetadata: { packageName: 'JAMMR', version: '1.0.0' },
+          releaseRoot: 'a'.repeat(64),
+          state: 'READY',
+          version: '1.0.0',
+          versionId: 'version-1',
+        },
+      ];
+    });
     convexMutationMock.mockReset();
     creatorProfileQueryMock.mockClear();
     deliverySlugMutationMock.mockClear();
@@ -1180,6 +1287,7 @@ describe('package-scoped VPM routes', () => {
         return link('N'.repeat(43));
       if (reference === apiMock.vpmAliasPublications.listPublishedForPackage) return [];
       if (reference === apiMock.vpmAliasPublications.getPresentationForService) return null;
+      if (reference === apiMock.packageVersions.resolveBootstrapTargetForService) return null;
       if (reference === apiMock.packageVersions.resolvePublicBootstrapPresentation) return null;
       throw new Error(`Unexpected query ${String(reference)}`);
     });
@@ -1192,21 +1300,58 @@ describe('package-scoped VPM routes', () => {
     expect(response.status).toBe(503);
   });
 
-  it('serves every immutable bootstrap revision under one package-scoped alias', async () => {
+  it('serves every immutable creator release under one package-scoped alias', async () => {
     const publications = [
-      publishedAlias({
+      versionedPublishedAlias({
         bootstrapVersion: '1.0.0',
+        packageVersion: '1.0.0',
         publicationId: '00000000-0000-4000-8000-000000000101',
         publishedAt: 100,
+        releaseRoot: 'a'.repeat(64),
+        versionId: 'version-1',
       }),
-      publishedAlias({
+      versionedPublishedAlias({
         bootstrapVersion: '1.0.1',
+        packageVersion: '1.0.1',
         publicationId: '00000000-0000-4000-8000-000000000102',
         publishedAt: 200,
+        releaseRoot: 'b'.repeat(64),
+        versionId: 'version-2',
       }),
     ];
+    bootstrapTargetsQueryMock.mockImplementation(async () => [
+      {
+        editionId: 'standard',
+        packageId: 'com.yucp.jammr',
+        releaseRoot: 'b'.repeat(64),
+        state: 'READY',
+        version: '1.0.1',
+        versionId: 'version-2',
+      },
+      {
+        editionId: 'standard',
+        packageId: 'com.yucp.jammr',
+        releaseRoot: 'a'.repeat(64),
+        state: 'SUPERSEDED',
+        version: '1.0.0',
+        versionId: 'version-1',
+      },
+    ]);
     convexQueryMock.mockImplementation(async (reference: unknown) => {
-      if (reference === apiMock.buyerCreatorVpmRepositories.getActiveByLinkId) return link();
+      if (reference === apiMock.buyerCreatorVpmRepositories.getActiveByLinkId) {
+        return {
+          ...link(),
+          packages: [
+            {
+              editionId: 'standard',
+              packageId: 'com.yucp.jammr',
+              releaseRoot: 'b'.repeat(64),
+              version: '1.0.1',
+              versionId: 'version-2',
+            },
+          ],
+        };
+      }
       if (reference === apiMock.vpmAliasPublications.listPublishedForPackage) {
         return publications;
       }
@@ -1239,12 +1384,30 @@ describe('package-scoped VPM routes', () => {
       publicationId: '00000000-0000-4000-8000-000000000121',
       publishedAt: 100,
     });
-    const second = publishedAlias({
-      bootstrapVersion: '1.0.0',
-      packageId: 'com.yucp.songthingextras',
-      packageVersion: '3.0.0',
-      publicationId: '00000000-0000-4000-8000-000000000122',
-      publishedAt: 100,
+    const second = {
+      ...publishedAlias({
+        bootstrapVersion: '1.0.0',
+        packageId: 'com.yucp.songthingextras',
+        packageVersion: '3.0.0',
+        publicationId: '00000000-0000-4000-8000-000000000122',
+        publishedAt: 100,
+      }),
+      releaseRoot: 'b'.repeat(64),
+      versionId: 'version-2',
+    };
+    bootstrapTargetsQueryMock.mockImplementation(async (args?: unknown) => {
+      const input = args as { editionId: string; packageId: string };
+      const isJammr = input.packageId === 'com.yucp.jammr';
+      return [
+        {
+          editionId: input.editionId,
+          packageId: input.packageId,
+          releaseRoot: (isJammr ? 'a' : 'b').repeat(64),
+          state: 'READY',
+          version: isJammr ? '2.0.0' : '3.0.0',
+          versionId: isJammr ? 'version-1' : 'version-2',
+        },
+      ];
     });
     convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
       if (reference === apiMock.buyerCreatorVpmRepositories.getActiveByLinkId) {
@@ -1306,13 +1469,25 @@ describe('package-scoped VPM routes', () => {
       channel: 'stable',
       description: 'Adds JAMMR after purchase verification.',
       media: [],
-      minImporterVersion: '0.1.65',
+      minImporterVersion: '0.1.71',
       packageId: 'com.yucp.jammr',
       packageName: 'JAMMR',
       presentationFingerprintSha256: 'f'.repeat(64),
       unityVersion: '2022.3',
     };
     let committed = false;
+    bootstrapTargetsQueryMock.mockImplementation(async () => [
+      {
+        bootstrapMedia: [],
+        editionId: 'standard',
+        packageId: 'com.yucp.jammr',
+        packageMetadata: { version: '2.0.0' },
+        releaseRoot: 'a'.repeat(64),
+        state: 'READY',
+        version: '2.0.0',
+        versionId: 'version-1',
+      },
+    ]);
     convexQueryMock.mockImplementation(async (reference: unknown) => {
       if (reference === apiMock.buyerCreatorVpmRepositories.getActiveByLinkId) {
         return {
@@ -1325,6 +1500,18 @@ describe('package-scoped VPM routes', () => {
       }
       if (reference === apiMock.vpmAliasPublications.getPresentationForService) {
         return presentation;
+      }
+      if (reference === apiMock.packageVersions.resolveBootstrapTargetForService) {
+        return {
+          bootstrapMedia: [],
+          editionId: 'standard',
+          packageId: 'com.yucp.jammr',
+          packageMetadata: { version: '2.0.0' },
+          releaseRoot: 'a'.repeat(64),
+          state: 'READY',
+          version: '2.0.0',
+          versionId: 'version-1',
+        };
       }
       if (reference === apiMock.packageVersions.resolvePublicBootstrapPresentation) {
         return { bootstrapMedia: [], packageMetadata: { version: '2.0' } };
@@ -1387,7 +1574,7 @@ describe('package-scoped VPM routes', () => {
       channel: 'stable',
       description: 'Stale description.',
       media: [],
-      minImporterVersion: '0.1.65',
+      minImporterVersion: '0.1.71',
       packageId: 'com.yucp.jammr',
       packageName: 'JAMMR',
       presentationFingerprintSha256: 'e'.repeat(64),
@@ -1408,6 +1595,23 @@ describe('package-scoped VPM routes', () => {
     let synced = false;
     let syncInput: Record<string, unknown> | undefined;
     let committed = false;
+    bootstrapTargetsQueryMock.mockImplementation(async () => [
+      {
+        bootstrapMedia: [],
+        editionId: 'standard',
+        packageId: 'com.yucp.jammr',
+        packageMetadata: {
+          author: 'YUCP Studio',
+          description: 'New description.',
+          packageName: 'JAMMR',
+          version: '2.0.0',
+        },
+        releaseRoot: 'a'.repeat(64),
+        state: 'READY',
+        version: '2.0.0',
+        versionId: 'version-1',
+      },
+    ]);
     convexQueryMock.mockImplementation(async (reference: unknown) => {
       if (reference === apiMock.buyerCreatorVpmRepositories.getActiveByLinkId) {
         return {
@@ -1420,6 +1624,23 @@ describe('package-scoped VPM routes', () => {
       }
       if (reference === apiMock.vpmAliasPublications.getPresentationForService) {
         return synced ? refreshedPresentation : stalePresentation;
+      }
+      if (reference === apiMock.packageVersions.resolveBootstrapTargetForService) {
+        return {
+          bootstrapMedia: [],
+          editionId: 'standard',
+          packageId: 'com.yucp.jammr',
+          packageMetadata: {
+            author: 'YUCP Studio',
+            description: 'New description.',
+            packageName: 'JAMMR',
+            version: '2.0.0',
+          },
+          releaseRoot: 'a'.repeat(64),
+          state: 'READY',
+          version: '2.0.0',
+          versionId: 'version-1',
+        };
       }
       if (reference === apiMock.packageVersions.resolvePublicBootstrapPresentation) {
         return {
@@ -1492,6 +1713,132 @@ describe('package-scoped VPM routes', () => {
       packageName: 'JAMMR',
     });
     expect(committed).toBe(true);
+  });
+
+  it('publishes every retained SemVer target into the authorized VCC index', async () => {
+    const current = versionedPublishedAlias({
+      bootstrapVersion: '1.0.2',
+      packageVersion: '2.0.0',
+      publicationId: '00000000-0000-4000-8000-000000000126',
+      publishedAt: 300,
+      releaseRoot: 'b'.repeat(64),
+      versionId: 'version-2',
+    });
+    const historical = versionedPublishedAlias({
+      bootstrapVersion: '1.0.3',
+      packageVersion: '1.0.0',
+      publicationId: '00000000-0000-4000-8000-000000000127',
+      publishedAt: 301,
+      releaseRoot: 'a'.repeat(64),
+      versionId: 'version-1',
+    });
+    const presentation = {
+      artifactBaseUrl: 'https://mapache.private.yucp.club',
+      artifactBucketName: 'metadata',
+      authorName: 'Mapache',
+      channel: 'stable',
+      description: 'Adds JAMMR after purchase verification.',
+      media: [],
+      minImporterVersion: '0.1.71',
+      packageId: 'com.yucp.jammr',
+      packageName: 'JAMMR',
+      presentationFingerprintSha256: 'f'.repeat(64),
+      unityVersion: '2022.3',
+    };
+    bootstrapTargetsQueryMock.mockImplementation(async () => [
+      {
+        bootstrapMedia: [],
+        editionId: 'standard',
+        packageId: 'com.yucp.jammr',
+        packageMetadata: { packageName: 'JAMMR', version: '2.0.0' },
+        releaseRoot: 'b'.repeat(64),
+        state: 'READY',
+        version: '2.0.0',
+        versionId: 'version-2',
+      },
+      {
+        bootstrapMedia: [],
+        editionId: 'standard',
+        packageId: 'com.yucp.jammr',
+        packageMetadata: { packageName: 'JAMMR', version: '1.0.0' },
+        releaseRoot: 'a'.repeat(64),
+        state: 'SUPERSEDED',
+        version: '1.0.0',
+        versionId: 'version-1',
+      },
+    ]);
+    let committed = false;
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.buyerCreatorVpmRepositories.getActiveByLinkId) {
+        return {
+          ...link(),
+          packages: [
+            {
+              editionId: 'standard',
+              packageId: 'com.yucp.jammr',
+              releaseRoot: 'b'.repeat(64),
+              version: '2.0.0',
+              versionId: 'version-2',
+            },
+          ],
+        };
+      }
+      if (reference === apiMock.vpmAliasPublications.listPublishedForPackage) {
+        return committed ? [current, historical] : [current];
+      }
+      if (reference === apiMock.vpmAliasPublications.getPresentationForService) {
+        return presentation;
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+    convexMutationMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.vpmAliasPublications.reservePublicationForService) {
+        return {
+          bootstrapVersion: historical.bootstrapVersion,
+          channel: 'stable',
+          created: true,
+          packageId: 'com.yucp.jammr',
+          packageVersion: '1.0.0',
+          presentationFingerprintSha256: 'f'.repeat(64),
+          publicationId: historical.publicationId,
+          revision: historical.revision,
+          status: 'PREPARING',
+        };
+      }
+      if (reference === apiMock.vpmAliasPublications.commitPublicationForService) {
+        committed = true;
+        return historical;
+      }
+      throw new Error(`Unexpected mutation ${String(reference)}`);
+    });
+
+    const response = await createRoutes(null, {
+      aliasArtifactStore: {
+        bucketName: 'metadata',
+        publish: async (input) => ({
+          ...artifactReference({
+            bootstrapVersion: input.bootstrapVersion,
+            publicationId: input.publicationId,
+            sha256: input.sha256,
+          }),
+          byteSize: input.body.byteLength,
+        }),
+        readExact: async () => new Uint8Array(),
+      },
+    }).serveCreatorLinkIndex(
+      new Request(`https://mapache.private.yucp.club/api/vpm/access/${'L'.repeat(43)}/index.json`),
+      'L'.repeat(43)
+    );
+    const body = (await response.json()) as {
+      packages: Record<string, { versions: Record<string, unknown> }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(committed).toBe(true);
+    expect(Object.keys(body.packages['com.yucp.jammr']?.versions ?? {}).sort()).toEqual([
+      '1.0.0',
+      '2.0.0',
+    ]);
   });
 
   it('binds a private repository index to the creator-owned request hostname', async () => {
@@ -1654,10 +2001,10 @@ describe('package-scoped VPM routes', () => {
           },
           'com.yucp.importer': {
             versions: {
-              '0.1.65': {
+              '0.1.71': {
                 name: 'com.yucp.importer',
                 displayName: 'YUCP Package Importer',
-                version: '0.1.65',
+                version: '0.1.71',
                 unity: '2022.3',
                 description: 'YUCP package importer',
                 author: {
@@ -1665,7 +2012,7 @@ describe('package-scoped VPM routes', () => {
                   url: 'https://vpm.yucp.club/',
                 },
                 zipSHA256: 'b8f611e191f4fc796c84c3a52f55f5c3b7e62acdf574962a0499aade61533380',
-                url: 'https://packages.example.test/com.yucp.importer-0.1.65.zip',
+                url: 'https://packages.example.test/com.yucp.importer-0.1.71.zip',
               },
             },
           },
@@ -1705,10 +2052,10 @@ describe('package-scoped VPM routes', () => {
         packages: {
           'com.yucp.importer': {
             versions: {
-              '0.1.65': {
+              '0.1.71': {
                 name: 'com.yucp.importer',
                 displayName: 'YUCP Package Importer',
-                version: '0.1.65',
+                version: '0.1.71',
                 unity: '2022.3',
                 description: 'YUCP package importer',
                 author: {
@@ -1716,7 +2063,7 @@ describe('package-scoped VPM routes', () => {
                   url: 'https://vpm.yucp.club/',
                 },
                 zipSHA256: 'd'.repeat(64),
-                url: 'http://127.0.0.1:3004/packages/com.yucp.importer-0.1.65.zip',
+                url: 'http://127.0.0.1:3004/packages/com.yucp.importer-0.1.71.zip',
               },
               '0.1.13': {
                 name: 'com.yucp.importer',
@@ -1752,7 +2099,7 @@ describe('package-scoped VPM routes', () => {
       packages?: Record<string, { versions?: Record<string, unknown> }>;
     };
     expect(response.status).toBe(200);
-    expect(Object.keys(body.packages?.['com.yucp.importer']?.versions ?? {})).toEqual(['0.1.65']);
+    expect(Object.keys(body.packages?.['com.yucp.importer']?.versions ?? {})).toEqual(['0.1.71']);
   });
 
   it('keeps the repository stable when storefront and edition state changes', async () => {
@@ -1783,17 +2130,33 @@ describe('package-scoped VPM routes', () => {
     expect(convexQueryMock.mock.calls.flat().join(' ')).not.toContain('packageRegistry');
   });
 
-  it('rebuilds the latest creator bootstrap from its current presentation', async () => {
-    const publication = publishedAlias({
+  it('mints a fresh Latest intent without pinning a target into the downloaded bootstrap', async () => {
+    const publication = versionedPublishedAlias({
       bootstrapVersion: '1.0.1',
+      packageVersion: '2.3.0',
       publicationId: '00000000-0000-4000-8000-000000000105',
       publishedAt: 200,
     });
-    const readExact = mock(async () => new Uint8Array());
     convexQueryMock.mockImplementation(async (reference: unknown) => {
       if (reference === apiMock.packageRegistry.getByPackageIdForAuthUser) return product();
-      if (reference === apiMock.vpmAliasPublications.getLatestPublishedForPackage) {
-        return publication;
+      if (reference === apiMock.packageVersions.resolveBootstrapTargetForService) {
+        return {
+          bootstrapMedia: [],
+          editionId: publication.editionId,
+          packageId: publication.packageId,
+          packageMetadata: {
+            author: 'Mapache',
+            description: 'Adds JAMMR after purchase verification.',
+            packageName: 'JAMMR',
+          },
+          releaseRoot: publication.releaseRoot,
+          state: 'READY',
+          version: publication.packageVersion,
+          versionId: publication.versionId,
+        };
+      }
+      if (reference === apiMock.vpmAliasPublications.listPublishedForPackage) {
+        return [publication];
       }
       if (reference === apiMock.vpmAliasPublications.getPresentationForService) {
         return {
@@ -1810,9 +2173,6 @@ describe('package-scoped VPM routes', () => {
           unityVersion: '2022.3',
         };
       }
-      if (reference === apiMock.packageVersions.resolvePublicBootstrapPresentation) {
-        return null;
-      }
       throw new Error(`Unexpected query ${String(reference)}`);
     });
 
@@ -1820,30 +2180,139 @@ describe('package-scoped VPM routes', () => {
       new Request('https://api.test/api/creator/packages/by-package/com.yucp.jammr/bootstrap'),
       'com.yucp.jammr'
     );
-    const response = await createRoutes('creator-auth', {
+    const routes = createRoutes('creator-auth', {
       aliasArtifactStore: {
         bucketName: 'metadata',
         publish: mock(async () => publication.artifact),
-        readExact,
+        readExact: mock(async () => new Uint8Array()),
       },
-    }).downloadCreatorBootstrap(
-      new Request('https://api.test/api/creator/packages/by-package/com.yucp.jammr/bootstrap'),
+    });
+    const requestUrl =
+      'https://api.test/api/creator/packages/by-package/com.yucp.jammr/bootstrap?mode=latest&editionId=standard';
+    const response = await routes.downloadCreatorBootstrap(
+      new Request(requestUrl),
+      'com.yucp.jammr'
+    );
+    const secondResponse = await routes.downloadCreatorBootstrap(
+      new Request(requestUrl),
       'com.yucp.jammr'
     );
 
     expect(unauthorized.status).toBe(401);
     expect(response.status).toBe(200);
-    const entries = unzipSync(new Uint8Array(await response.arrayBuffer()));
-    expect(entries['package.json']).toBeDefined();
-    expect(readExact).not.toHaveBeenCalled();
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    const firstManifest = JSON.parse(
+      new TextDecoder().decode(
+        unzipSync(new Uint8Array(await response.arrayBuffer()))['package.json']
+      )
+    );
+    const secondManifest = JSON.parse(
+      new TextDecoder().decode(
+        unzipSync(new Uint8Array(await secondResponse.arrayBuffer()))['package.json']
+      )
+    );
+    expect(firstManifest.version).toBe('2.3.0');
+    expect(firstManifest.yucp.kind).toBe('alias-v2');
+    expect(firstManifest.yucp.bootstrapIntent).toMatchObject({
+      editionId: 'standard',
+      keyId: 'bootstrap-test-key',
+      mode: 'latest',
+      schemaVersion: 1,
+    });
+    expect(firstManifest.yucp.bootstrapIntent).not.toHaveProperty('releaseRoot');
+    expect(firstManifest.yucp.bootstrapIntent.intentId).not.toBe(
+      secondManifest.yucp.bootstrapIntent.intentId
+    );
     expect(response.headers.get('content-disposition')).toBe(
-      'attachment; filename="jammr-bootstrap-1.0.1.zip"'
+      'attachment; filename="jammr-bootstrap-latest.zip"'
     );
   });
 
+  it('pins a Specific bootstrap to the selected immutable release', async () => {
+    const publication = versionedPublishedAlias({
+      bootstrapVersion: '1.0.2',
+      editionId: 'pro',
+      packageVersion: '2.4.0-beta.1',
+      publicationId: '00000000-0000-4000-8000-000000000115',
+      publishedAt: 210,
+      releaseRoot: 'b'.repeat(64),
+      versionId: 'version-beta-1',
+    });
+    convexQueryMock.mockImplementation(async (reference: unknown, args?: unknown) => {
+      if (reference === apiMock.packageRegistry.getByPackageIdForAuthUser) return product();
+      if (reference === apiMock.packageVersions.resolveBootstrapTargetForService) {
+        expect(args).toMatchObject({
+          editionId: 'pro',
+          versionId: 'version-beta-1',
+        });
+        return {
+          bootstrapMedia: [],
+          editionId: publication.editionId,
+          packageId: publication.packageId,
+          packageMetadata: { packageName: 'JAMMR Pro' },
+          releaseRoot: publication.releaseRoot,
+          state: 'READY',
+          version: publication.packageVersion,
+          versionId: publication.versionId,
+        };
+      }
+      if (reference === apiMock.vpmAliasPublications.listPublishedForPackage) return [publication];
+      if (reference === apiMock.vpmAliasPublications.getPresentationForService) return null;
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const response = await createRoutes('creator-auth', {
+      aliasArtifactStore: {
+        bucketName: 'metadata',
+        publish: mock(async () => publication.artifact),
+        readExact: mock(async () => new Uint8Array()),
+      },
+    }).downloadCreatorBootstrap(
+      new Request(
+        'https://api.test/api/creator/packages/by-package/com.yucp.jammr/bootstrap?mode=specific&editionId=pro&versionId=version-beta-1'
+      ),
+      'com.yucp.jammr'
+    );
+
+    expect(response.status).toBe(200);
+    const manifest = JSON.parse(
+      new TextDecoder().decode(
+        unzipSync(new Uint8Array(await response.arrayBuffer()))['package.json']
+      )
+    );
+    expect(manifest.yucp.bootstrapIntent).toMatchObject({
+      editionId: 'pro',
+      mode: 'specific',
+      releaseRoot: 'b'.repeat(64),
+      version: '2.4.0-beta.1',
+      versionId: 'version-beta-1',
+    });
+    expect(response.headers.get('content-disposition')).toBe(
+      'attachment; filename="jammr-bootstrap-2.4.0-beta.1.zip"'
+    );
+  });
+
+  it('rejects malformed bootstrap selectors before resolving a target', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.getByPackageIdForAuthUser) return product();
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const response = await createRoutes('creator-auth').downloadCreatorBootstrap(
+      new Request(
+        'https://api.test/api/creator/packages/by-package/com.yucp.jammr/bootstrap?mode=specific&editionId=standard'
+      ),
+      'com.yucp.jammr'
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'Specific bootstrap version is invalid' });
+  });
+
   it('rebuilds creator bootstrap downloads with the authoritative product media', async () => {
-    const publication = publishedAlias({
+    const publication = versionedPublishedAlias({
       bootstrapVersion: '1.0.1',
+      packageVersion: '1.0.1',
       publicationId: '00000000-0000-4000-8000-000000000112',
       publishedAt: 200,
     });
@@ -1871,8 +2340,25 @@ describe('package-scoped VPM routes', () => {
     };
     convexQueryMock.mockImplementation(async (reference: unknown) => {
       if (reference === apiMock.packageRegistry.getByPackageIdForAuthUser) return product();
-      if (reference === apiMock.vpmAliasPublications.getLatestPublishedForPackage) {
-        return publication;
+      if (reference === apiMock.vpmAliasPublications.listPublishedForPackage) {
+        return [publication];
+      }
+      if (reference === apiMock.packageVersions.resolveBootstrapTargetForService) {
+        return {
+          bootstrapMedia: [iconReference],
+          editionId: publication.editionId,
+          packageId: publication.packageId,
+          packageMetadata: {
+            author: 'Mapache',
+            description: 'Adds JAMMR after purchase verification.',
+            packageName: 'JAMMR',
+            version: publication.packageVersion,
+          },
+          releaseRoot: publication.releaseRoot,
+          state: 'READY',
+          version: publication.packageVersion,
+          versionId: publication.versionId,
+        };
       }
       if (reference === apiMock.vpmAliasPublications.getPresentationForService) {
         return {
@@ -1887,16 +2373,6 @@ describe('package-scoped VPM routes', () => {
           packageName: 'JAMMR',
           presentationFingerprintSha256: 'f'.repeat(64),
           unityVersion: '2022.3',
-        };
-      }
-      if (reference === apiMock.packageVersions.resolvePublicBootstrapPresentation) {
-        return {
-          bootstrapMedia: [iconReference],
-          packageMetadata: {
-            author: 'Mapache',
-            description: 'Adds JAMMR after purchase verification.',
-            packageName: 'JAMMR',
-          },
         };
       }
       throw new Error(`Unexpected query ${String(reference)}`);
@@ -1930,7 +2406,7 @@ describe('package-scoped VPM routes', () => {
     const unityBytes = new Uint8Array(await unityResponse.arrayBuffer());
     expect(unityResponse.status).toBe(200);
     expect(unityResponse.headers.get('content-disposition')).toBe(
-      'attachment; filename="jammr-bootstrap-1.0.1.unitypackage"'
+      'attachment; filename="jammr-bootstrap-latest.unitypackage"'
     );
     expect(unityBytes.slice(0, 2)).toEqual(Uint8Array.from([0x1f, 0x8b]));
   });

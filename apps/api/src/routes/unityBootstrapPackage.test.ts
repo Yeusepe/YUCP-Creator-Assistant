@@ -54,7 +54,7 @@ describe('YUCP bootstrap Unity package', () => {
     const runtime = await loadYucpBootstrapUnityPackageRuntime();
 
     expect(createHash('sha256').update(runtime.installerRuntime).digest('hex')).toBe(
-      '6bd2b176313ca9a7eae1665c284f78e0909ada0d7eb2468f3894662d69c1bbc6'
+      '2f7dabe3d8c4f771d64cdfecf0fe0c8389ccd5252c27bb51101b06a2a38242dc'
     );
     expect(new TextDecoder().decode(runtime.installerRuntimeMeta)).toContain(
       'guid: c0128f63522b4b0696235b4e328db9d2'
@@ -69,6 +69,18 @@ describe('YUCP bootstrap Unity package', () => {
       aliasId: 'com.yucp.jammr',
       artifactUrl: `https://vpm.test/api/vpm/alias-publications/${PUBLICATION_ID}/1.2.3.zip`,
       bootstrapVersion: '1.2.3',
+      bootstrapIntent: {
+        schemaVersion: 1,
+        intentId: '00000000-0000-4000-8000-000000000804',
+        mode: 'specific',
+        issuedAt: 1_775_000_000,
+        keyId: 'package-install-2026-01',
+        editionId: 'standard',
+        version: '1.2.3',
+        versionId: 'version-jammr-123',
+        releaseRoot: 'b'.repeat(64),
+        signature: 'AQID',
+      },
       packageMetadata: {
         author: 'Mapache',
         packageName: 'JAMMR',
@@ -150,11 +162,27 @@ describe('YUCP bootstrap Unity package', () => {
     );
     expect(descriptorEntry).toBeDefined();
     const descriptor = JSON.parse(new TextDecoder().decode(descriptorEntry?.[1])) as {
+      yucp: {
+        bootstrapIntent: {
+          intentId: string;
+          mode: string;
+          releaseRoot: string;
+        };
+        kind: string;
+      };
       vpmDependencies: Record<string, string>;
       vpmRepositories: Record<string, string>;
     };
+    expect(descriptor.yucp).toMatchObject({
+      kind: 'alias-v2',
+      bootstrapIntent: {
+        intentId: '00000000-0000-4000-8000-000000000804',
+        mode: 'specific',
+        releaseRoot: 'b'.repeat(64),
+      },
+    });
     expect(descriptor.vpmDependencies).toEqual({
-      'com.yucp.importer': '>=0.1.65',
+      'com.yucp.importer': '>=0.1.71',
     });
     expect(descriptor.vpmRepositories).toEqual({
       YUCP: 'https://vpm.yucp.club/index.json',

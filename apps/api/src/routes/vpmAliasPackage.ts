@@ -1,5 +1,9 @@
 import { createHash } from 'node:crypto';
-import { applyYucpAliasPackageManifestDefaults, mergeYucpAliasPackageMetadata } from '@yucp/shared';
+import {
+  applyYucpAliasPackageManifestDefaults,
+  mergeYucpAliasPackageMetadata,
+  type YucpBootstrapIntent,
+} from '@yucp/shared';
 import { strToU8, type Zippable, zipSync } from 'fflate';
 
 const MAX_ALIAS_ID_LENGTH = 512;
@@ -345,6 +349,7 @@ export function buildYucpAliasVpmPackage(input: {
   aliasId: string;
   artifactUrl: string;
   bootstrapVersion: string;
+  bootstrapIntent?: YucpBootstrapIntent;
   packageVersion?: string;
   vpmDependencies: Readonly<Record<string, string>>;
   packageMetadata?: YucpAliasPackageMetadataInput;
@@ -379,12 +384,13 @@ export function buildYucpAliasVpmPackage(input: {
           url: 'https://yucp.club/',
         },
         yucp: {
-          kind: 'alias-v1',
+          kind: input.bootstrapIntent ? 'alias-v2' : 'alias-v1',
           aliasId,
           packageVersion,
           packageDisplayName: displayName,
           installStrategy: 'server-authorized',
           importerPackage: 'com.yucp.importer',
+          ...(input.bootstrapIntent ? { bootstrapIntent: input.bootstrapIntent } : {}),
           ...(packageMetadata
             ? {
                 packageMetadata: {

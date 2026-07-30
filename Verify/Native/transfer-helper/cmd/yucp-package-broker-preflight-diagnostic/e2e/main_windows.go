@@ -16,7 +16,7 @@ import (
 
 const (
 	pipeName        = `\\.\pipe\yucp.package-broker.e2e`
-	aliasID         = "com.lunar.druffle"
+	aliasID         = "com.lunararray.druffle"
 	projectPath     = `E:\Unity\yucp-e2e`
 	projectIdentity = "018786cab94742abd3111d027746bd378e056f2dfa492180887d4a8b1dd58023"
 	zeroRoot        = "0000000000000000000000000000000000000000000000000000000000000000"

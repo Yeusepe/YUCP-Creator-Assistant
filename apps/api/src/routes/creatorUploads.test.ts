@@ -84,6 +84,22 @@ function authorizeRequest(body: Record<string, unknown>): Request {
 }
 
 describe('creator upload authorization', () => {
+  it('rejects release labels that are not strict Semantic Versions', async () => {
+    const response = await createRoutes('creator-123').authorizeUpload(
+      authorizeRequest({
+        packageId: 'com.yucp.avatar',
+        version: 'Summer release',
+        catalogProductIds: ['avatar-product-slug'],
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: 'version must be a valid Semantic Version',
+    });
+    expect(convexQueryMock).not.toHaveBeenCalled();
+  });
+
   afterAll(() => {
     mock.restore();
   });
@@ -595,7 +611,7 @@ describe('creator upload authorization', () => {
         catalogTierId: 'catalogtierpatreongold',
         editionId: 'tier-catalogtierpatreongold',
         packageId: 'com.yucp.avatar',
-        version: 'Patreon gold',
+        version: '1.2.4',
       })
     );
 
@@ -651,7 +667,7 @@ describe('creator upload authorization', () => {
         catalogTierId: 'catalogtierpatreongold',
         editionId: 'tier-catalogtierpatreongold',
         packageId: 'com.yucp.avatar',
-        version: 'Patreon gold update',
+        version: '1.2.5',
       })
     );
 

@@ -12,12 +12,13 @@ import {
   YUCP_ALIAS_PACKAGE_IMPORTER_PACKAGES,
   YUCP_ALIAS_PACKAGE_INSTALL_STRATEGIES,
   YUCP_ALIAS_PACKAGE_KIND,
+  YUCP_ALIAS_PACKAGE_VERSIONED_KIND,
 } from './yucpAliasPackageContract';
 
 describe('normalizeYucpAliasPackageContract', () => {
   it('requires the current immutable importer release', () => {
-    expect(YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION).toBe('0.1.65');
-    expect(YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_VERSION).toBe('>=0.1.65');
+    expect(YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION).toBe('0.1.71');
+    expect(YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_VERSION).toBe('>=0.1.71');
   });
 
   it('normalizes the shared alias package contract shape', () => {
@@ -40,6 +41,87 @@ describe('normalizeYucpAliasPackageContract', () => {
       minImporterVersion: '1.2.0',
       channel: 'stable',
     });
+  });
+
+  it('normalizes a signed specific-version bootstrap intent', () => {
+    expect(
+      normalizeYucpAliasPackageContract({
+        kind: 'alias-v2',
+        aliasId: ' creator-alias ',
+        installStrategy: 'server-authorized',
+        importerPackage: 'com.yucp.importer',
+        bootstrapIntent: {
+          schemaVersion: 1,
+          intentId: ' 00000000-0000-4000-8000-000000000801 ',
+          mode: 'specific',
+          issuedAt: 1_775_000_000,
+          keyId: ' package-install-2026-01 ',
+          editionId: ' commercial ',
+          version: ' 2.4.0-beta.1 ',
+          versionId: ' version-commercial-240-beta1 ',
+          releaseRoot: 'a'.repeat(64),
+          signature: 'AQID',
+        },
+      })
+    ).toMatchObject({
+      kind: YUCP_ALIAS_PACKAGE_VERSIONED_KIND,
+      aliasId: 'creator-alias',
+      bootstrapIntent: {
+        schemaVersion: 1,
+        intentId: '00000000-0000-4000-8000-000000000801',
+        mode: 'specific',
+        issuedAt: 1_775_000_000,
+        keyId: 'package-install-2026-01',
+        editionId: 'commercial',
+        version: '2.4.0-beta.1',
+        versionId: 'version-commercial-240-beta1',
+        releaseRoot: 'a'.repeat(64),
+        signature: 'AQID',
+      },
+    });
+  });
+
+  it('requires exact target identity only for specific bootstrap intents', () => {
+    expect(
+      normalizeYucpAliasPackageContract({
+        kind: 'alias-v2',
+        aliasId: 'creator-alias',
+        installStrategy: 'server-authorized',
+        importerPackage: 'com.yucp.importer',
+        bootstrapIntent: {
+          schemaVersion: 1,
+          intentId: '00000000-0000-4000-8000-000000000802',
+          mode: 'latest',
+          issuedAt: 1_775_000_000,
+          keyId: 'package-install-2026-01',
+          editionId: 'standard',
+          signature: 'AQID',
+        },
+      })?.bootstrapIntent
+    ).toMatchObject({
+      mode: 'latest',
+      editionId: 'standard',
+    });
+
+    expect(() =>
+      normalizeYucpAliasPackageContract({
+        kind: 'alias-v2',
+        aliasId: 'creator-alias',
+        installStrategy: 'server-authorized',
+        importerPackage: 'com.yucp.importer',
+        bootstrapIntent: {
+          schemaVersion: 1,
+          intentId: '00000000-0000-4000-8000-000000000803',
+          mode: 'specific',
+          issuedAt: 1_775_000_000,
+          keyId: 'package-install-2026-01',
+          editionId: 'standard',
+          version: '2.4.0',
+          versionId: 'version-240',
+          signature: 'AQID',
+        },
+      })
+    ).toThrow('releaseRoot');
   });
 
   it('preserves only public alias package identity metadata', () => {
@@ -452,7 +534,7 @@ describe('applyYucpAliasPackageManifestDefaults', () => {
       })
     ).toMatchObject({
       vpmDependencies: {
-        'com.yucp.importer': '>=0.1.65',
+        'com.yucp.importer': '>=0.1.71',
       },
     });
   });

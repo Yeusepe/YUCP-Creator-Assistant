@@ -10,7 +10,7 @@ import (
 
 func TestDecodeOperationRequestAcceptsOnlyHighLevelFields(t *testing.T) {
 	raw := []byte(`{
-		"schemaVersion":3,
+		"schemaVersion":4,
 		"runId":"run-jammr-install-1",
 		"aliasId":"jammr",
 		"expectedCurrentReleaseRoot":"` + strings.Repeat("00", 32) + `",
@@ -20,6 +20,7 @@ func TestDecodeOperationRequestAcceptsOnlyHighLevelFields(t *testing.T) {
 		"projectIdentity":"` + strings.Repeat("22", 32) + `",
 		"approvedActiveContentDigest":"` + strings.Repeat("33", 32) + `",
 		"approvedPolicyVersion":"active-content-policy-v1",
+		"bootstrapIntentJson":"{\"schemaVersion\":1,\"intentId\":\"11111111-1111-4111-8111-111111111111\"}",
 		"idempotencyKey":"install-jammr-1",
 		"traceparent":"00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
 	}`)
@@ -27,6 +28,9 @@ func TestDecodeOperationRequestAcceptsOnlyHighLevelFields(t *testing.T) {
 	request, err := DecodeOperationRequest(raw)
 	if err != nil {
 		t.Fatalf("DecodeOperationRequest() error = %v", err)
+	}
+	if !strings.Contains(request.BootstrapIntentJSON, `"intentId"`) {
+		t.Fatal("DecodeOperationRequest() dropped the signed bootstrap intent")
 	}
 	encoded, err := json.Marshal(request)
 	if err != nil {
@@ -53,7 +57,7 @@ func TestDecodeOperationRequestAcceptsOnlyHighLevelFields(t *testing.T) {
 
 func TestDecodeOperationRequestRejectsUnknownAndMissingBindings(t *testing.T) {
 	valid := `{
-		"schemaVersion":3,
+		"schemaVersion":4,
 		"runId":"run-jammr-preflight-1",
 		"aliasId":"jammr",
 		"expectedCurrentReleaseRoot":"` + strings.Repeat("00", 32) + `",
@@ -65,8 +69,8 @@ func TestDecodeOperationRequestRejectsUnknownAndMissingBindings(t *testing.T) {
 	}`
 	if _, err := DecodeOperationRequest([]byte(strings.Replace(
 		valid,
-		`"schemaVersion":3`,
-		`"schemaVersion":3,"installSession":"secret"`,
+		`"schemaVersion":4`,
+		`"schemaVersion":4,"installSession":"secret"`,
 		1,
 	))); err == nil {
 		t.Fatal("DecodeOperationRequest() accepted a secret legacy field")

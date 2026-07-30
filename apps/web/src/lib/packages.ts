@@ -195,6 +195,12 @@ export interface CreatorPackagePresentation {
   published: boolean;
 }
 
+export type CreatorBootstrapSelection =
+  | { editionId: string; mode: 'latest' }
+  | { editionId: string; mode: 'specific'; versionId: string };
+
+export type CreatorBootstrapFormat = 'vpm' | 'unitypackage';
+
 export interface CreatorPackagePickerProduct {
   identityKey: string;
   products: CreatorPackageProductSummary[];
@@ -438,4 +444,50 @@ export async function updateCreatorPackagePresentation(
     `${CREATOR_PACKAGES_PATH}/by-package/${encodeURIComponent(packageId)}/presentation`,
     { packageName }
   );
+}
+
+function bootstrapFilename(contentDisposition: string | null, fallback: string): string {
+  const encoded = contentDisposition?.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded).replaceAll(/[\\/:*?"<>|]/g, '-');
+    } catch {
+      // Fall through to the quoted filename.
+    }
+  }
+  const quoted = contentDisposition?.match(/filename="([^"]+)"/i)?.[1];
+  return quoted?.replaceAll(/[\\/:*?"<>|]/g, '-') || fallback;
+}
+
+export async function downloadCreatorPackageBootstrap(input: {
+  format: CreatorBootstrapFormat;
+  packageId: string;
+  selection: CreatorBootstrapSelection;
+}): Promise<{ filename: string }> {
+  const suffix = input.format === 'unitypackage' ? '/bootstrap.unitypackage' : '/bootstrap';
+  const path = `${CREATOR_PACKAGES_PATH}/by-package/${encodeURIComponent(input.packageId)}${suffix}`;
+  const params = {
+    editionId: input.selection.editionId,
+    mode: input.selection.mode,
+    ...(input.selection.mode === 'specific' ? { versionId: input.selection.versionId } : {}),
+  };
+  const result = await apiClient.blob(path, { params });
+  const extension = input.format === 'unitypackage' ? 'unitypackage' : 'zip';
+  const filename = bootstrapFilename(
+    result.contentDisposition,
+    `yucp-bootstrap-${input.selection.mode}.${extension}`
+  );
+  const objectUrl = URL.createObjectURL(result.blob);
+  try {
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    anchor.hidden = true;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+  return { filename };
 }

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
+  normalizeStrictSemanticVersion,
   parseTraceparent,
   timingSafeStringEqual,
   YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION,
@@ -8,6 +9,10 @@ import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { Auth } from '../auth';
 import { createApiServiceActorBinding, createAuthUserActorBinding } from '../lib/apiActor';
+import {
+  type BootstrapIntentSigningConfig,
+  signYucpBootstrapIntent,
+} from '../lib/bootstrapIntentSigner';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
@@ -99,6 +104,7 @@ export interface VpmRouteConfig {
 interface CreateVpmRoutesOptions {
   aliasArtifactStore?: VpmAliasArtifactStore;
   auth: Auth;
+  bootstrapIntentSigning?: BootstrapIntentSigningConfig;
   bootstrapMediaReader?: VpmBootstrapMediaReader;
   config: VpmRouteConfig;
   fetchImpl?: typeof fetch;
@@ -114,6 +120,20 @@ type PublicBootstrapPresentation = {
     tagline?: string;
     version: string;
   };
+  editionId?: string;
+  releaseRoot?: string;
+  versionId?: string;
+};
+
+type BootstrapTarget = {
+  bootstrapMedia?: YucpAliasPackageMediaReference[];
+  editionId: string;
+  packageMetadata?: PublicBootstrapPresentation['packageMetadata'];
+  packageId: string;
+  releaseRoot: string;
+  state: 'READY' | 'SUPERSEDED';
+  version: string;
+  versionId: string;
 };
 
 export interface VpmBootstrapMediaReader {
@@ -220,12 +240,16 @@ type VpmAliasPublicationReservation = {
   bootstrapVersion: string;
   channel: string;
   created: boolean;
+  issuedAt: number;
+  editionId?: string;
   packageId: string;
   packageVersion: string;
+  releaseRoot?: string;
   presentationFingerprintSha256: string;
   publicationId: string;
   revision: number;
   status: 'PREPARING' | 'PUBLISHED';
+  versionId?: string;
 };
 
 type PublishedVpmAlias = {
@@ -233,10 +257,12 @@ type PublishedVpmAlias = {
   artifact: VpmAliasArtifactReference;
   bootstrapVersion: string;
   channel: string;
-  contractVersion: 1;
+  contractVersion: 1 | 2;
   createdAt: number;
   packageId: string;
   packageVersion?: string;
+  editionId?: string;
+  releaseRoot?: string;
   presentationFingerprintSha256: string;
   publicationId: string;
   publishedAt: number;
@@ -244,6 +270,7 @@ type PublishedVpmAlias = {
   repositoryManifestSha256: string;
   revision: number;
   status: 'PUBLISHED';
+  versionId?: string;
 };
 
 type ActiveCreatorVpmLink = {
@@ -259,7 +286,13 @@ type ActiveBuyerCreatorVpmRepository = {
   creatorName: string;
   creatorSlug: string;
   linkId: string;
-  packages: Array<{ packageId: string; version: string }>;
+  packages: Array<{
+    editionId: string;
+    packageId: string;
+    releaseRoot: string;
+    version: string;
+    versionId: string;
+  }>;
   packageIds: string[];
   status: 'active';
 };
@@ -370,6 +403,7 @@ function createCreatorLinkId(): string {
 export function createVpmRoutes({
   aliasArtifactStore,
   auth,
+  bootstrapIntentSigning,
   bootstrapMediaReader,
   config,
   fetchImpl = fetch,
@@ -542,10 +576,40 @@ export function createVpmRoutes({
       const artifactUrl = `${input.artifactBaseUrl}/api/vpm/alias-publications/${encodeURIComponent(
         input.reservation.publicationId
       )}/${encodeURIComponent(input.reservation.bootstrapVersion)}.zip`;
+      const bootstrapIntent =
+        input.reservation.editionId && input.reservation.versionId && input.reservation.releaseRoot
+          ? bootstrapIntentSigning
+            ? await signYucpBootstrapIntent({
+                aliasId: input.packageId,
+                config: bootstrapIntentSigning,
+                intent: {
+                  schemaVersion: 1,
+                  intentId: input.reservation.publicationId,
+                  mode: 'specific',
+                  issuedAt: input.reservation.issuedAt,
+                  editionId: input.reservation.editionId,
+                  version: input.reservation.packageVersion,
+                  versionId: input.reservation.versionId,
+                  releaseRoot: input.reservation.releaseRoot,
+                },
+              })
+            : undefined
+          : undefined;
+      if (
+        input.reservation.editionId &&
+        input.reservation.versionId &&
+        input.reservation.releaseRoot &&
+        !bootstrapIntent
+      ) {
+        throw new PublicAliasPublicationUnavailableError(
+          'Bootstrap intent signing is not configured'
+        );
+      }
       const built = buildYucpAliasVpmPackage({
         aliasId: input.packageId,
         artifactUrl,
         bootstrapVersion: input.reservation.bootstrapVersion,
+        ...(bootstrapIntent ? { bootstrapIntent } : {}),
         packageVersion: input.reservation.packageVersion,
         vpmDependencies: {},
         packageMetadata: {
@@ -625,7 +689,12 @@ export function createVpmRoutes({
         packageId,
       }
     )) as PublicBootstrapPresentation | null;
-    if (!releasePresentation?.packageMetadata?.version) {
+    if (
+      !releasePresentation?.packageMetadata?.version ||
+      !releasePresentation.editionId ||
+      !releasePresentation.versionId ||
+      !releasePresentation.releaseRoot
+    ) {
       throw new PublicAliasPublicationUnavailableError(
         'Package has no public bootstrap release version'
       );
@@ -722,6 +791,9 @@ export function createVpmRoutes({
         presentationFingerprintSha256: presentation.presentationFingerprintSha256,
         publicationId: crypto.randomUUID(),
         packageVersion: releasePresentation.packageMetadata.version,
+        editionId: releasePresentation.editionId,
+        versionId: releasePresentation.versionId,
+        releaseRoot: releasePresentation.releaseRoot,
         publicationReason: input.publicationReason ?? 'link-activation',
         ...(input.traceparent ? { traceparent: input.traceparent } : {}),
       }
@@ -736,13 +808,21 @@ export function createVpmRoutes({
     });
   }
 
-  async function ensureServicePublicationForRelease(input: {
+  type ServiceReleasePublicationInput = {
     artifactBaseUrl: string;
+    editionId: string;
     packageId: string;
     packageVersion: string;
+    releasePresentation?: PublicBootstrapPresentation;
+    releaseRoot: string;
     serviceActor: Awaited<ReturnType<typeof createApiServiceActorBinding>>;
     serviceConvex: ReturnType<typeof getConvexClientFromUrl>;
-  }): Promise<void> {
+    versionId: string;
+  };
+
+  async function syncServicePresentationForRelease(
+    input: ServiceReleasePublicationInput
+  ): Promise<VpmAliasPresentation> {
     if (!aliasArtifactStore) {
       throw new PublicAliasPublicationUnavailableError();
     }
@@ -757,14 +837,15 @@ export function createVpmRoutes({
     )) as VpmAliasPresentation | null;
     // Publications triggered without a creator session must still serve the
     // latest release values, so sync the presentation before publishing.
-    const releasePresentation = (await input.serviceConvex.query(
-      api.packageVersions.resolvePublicBootstrapPresentation,
-      {
+    const releasePresentation =
+      input.releasePresentation ??
+      ((await input.serviceConvex.query(api.packageVersions.resolveBootstrapTargetForService, {
         apiSecret: config.convexApiSecret,
         actor: input.serviceActor,
         packageId: input.packageId,
-      }
-    )) as PublicBootstrapPresentation | null;
+        editionId: input.editionId,
+        versionId: input.versionId,
+      })) as BootstrapTarget | null);
     if (releasePresentation?.packageMetadata?.version) {
       const packageName =
         releasePresentation.packageMetadata?.packageName?.trim() ||
@@ -820,6 +901,16 @@ export function createVpmRoutes({
         'Package public bootstrap presentation is unavailable'
       );
     }
+    return presentation;
+  }
+
+  async function ensureServicePublicationForRelease(
+    input: ServiceReleasePublicationInput
+  ): Promise<void> {
+    if (!aliasArtifactStore) {
+      throw new PublicAliasPublicationUnavailableError();
+    }
+    const presentation = await syncServicePresentationForRelease(input);
     const reservation = (await input.serviceConvex.mutation(
       api.vpmAliasPublications.reservePublicationForService,
       {
@@ -830,6 +921,9 @@ export function createVpmRoutes({
         presentationFingerprintSha256: presentation.presentationFingerprintSha256,
         publicationId: crypto.randomUUID(),
         packageVersion: input.packageVersion,
+        editionId: input.editionId,
+        versionId: input.versionId,
+        releaseRoot: input.releaseRoot,
         publicationReason: 'link-activation',
       }
     )) as VpmAliasPublicationReservation;
@@ -1176,6 +1270,32 @@ export function createVpmRoutes({
       const publications: PublishedVpmAlias[] = [];
       for (const entitledPackage of link.packages) {
         const packageVersion = normalizeYucpPackageVersion(entitledPackage.version);
+        const eligibleTargets = (await convex.query(
+          api.packageVersions.listBootstrapTargetsForService,
+          {
+            apiSecret: config.convexApiSecret,
+            actor,
+            packageId: entitledPackage.packageId,
+            editionId: entitledPackage.editionId,
+          }
+        )) as BootstrapTarget[];
+        const currentTarget = eligibleTargets.find(
+          (target) =>
+            target.version === packageVersion &&
+            target.versionId === entitledPackage.versionId &&
+            target.releaseRoot === entitledPackage.releaseRoot
+        );
+        if (!currentTarget) {
+          throw new PublicAliasPublicationUnavailableError(
+            'Current package release is not eligible for VCC publication'
+          );
+        }
+        const targetIdentity = (target: {
+          editionId?: string;
+          releaseRoot?: string;
+          versionId?: string;
+        }) => `${target.editionId}\n${target.versionId}\n${target.releaseRoot}`;
+        const eligibleTargetIds = new Set(eligibleTargets.map(targetIdentity));
         const loadPublications = async () =>
           (await convex.query(api.vpmAliasPublications.listPublishedForPackage, {
             apiSecret: config.convexApiSecret,
@@ -1185,32 +1305,81 @@ export function createVpmRoutes({
             artifactBucketName: aliasArtifactStore.bucketName,
           })) as PublishedVpmAlias[];
         let packagePublications = await loadPublications();
-        const hasCurrentPublication = packagePublications.some(
-          (publication) =>
-            publication.aliasPackageId === entitledPackage.packageId &&
-            publication.packageVersion === packageVersion
-        );
-        if (!hasCurrentPublication) {
+        let presentationNeedsCurrentRestore = false;
+        for (const target of eligibleTargets) {
+          if (
+            targetIdentity(target) === targetIdentity(currentTarget) ||
+            packagePublications.some(
+              (publication) =>
+                publication.aliasPackageId === entitledPackage.packageId &&
+                publication.contractVersion === 2 &&
+                publication.packageVersion === target.version &&
+                targetIdentity(publication) === targetIdentity(target)
+            )
+          ) {
+            continue;
+          }
           phase = 'publication-refresh';
           await ensureServicePublicationForRelease({
             artifactBaseUrl: repositoryBaseUrl,
+            editionId: target.editionId,
             packageId: entitledPackage.packageId,
-            packageVersion,
+            packageVersion: target.version,
+            releasePresentation: target,
+            releaseRoot: target.releaseRoot,
             serviceActor: actor,
             serviceConvex: convex,
+            versionId: target.versionId,
           });
+          presentationNeedsCurrentRestore = true;
           packagePublications = await loadPublications();
         }
-        const validPublications = packagePublications.filter(
+        phase = 'publication-refresh';
+        const currentPublicationExists = packagePublications.some(
           (publication) =>
             publication.aliasPackageId === entitledPackage.packageId &&
-            typeof publication.packageVersion === 'string'
+            publication.contractVersion === 2 &&
+            publication.packageVersion === currentTarget.version &&
+            targetIdentity(publication) === targetIdentity(currentTarget)
         );
-        if (
-          !validPublications.some((publication) => publication.packageVersion === packageVersion)
-        ) {
+        const currentPublicationInput = {
+          artifactBaseUrl: repositoryBaseUrl,
+          editionId: currentTarget.editionId,
+          packageId: entitledPackage.packageId,
+          packageVersion: currentTarget.version,
+          releasePresentation: currentTarget,
+          releaseRoot: currentTarget.releaseRoot,
+          serviceActor: actor,
+          serviceConvex: convex,
+          versionId: currentTarget.versionId,
+        };
+        if (!currentPublicationExists) {
+          await ensureServicePublicationForRelease(currentPublicationInput);
+          packagePublications = await loadPublications();
+        } else if (presentationNeedsCurrentRestore) {
+          await syncServicePresentationForRelease(currentPublicationInput);
+        }
+        const validPublications = packagePublications.filter((publication) => {
+          if (
+            publication.aliasPackageId !== entitledPackage.packageId ||
+            publication.contractVersion !== 2 ||
+            typeof publication.packageVersion !== 'string' ||
+            !eligibleTargetIds.has(targetIdentity(publication))
+          ) {
+            return false;
+          }
+          try {
+            return (
+              normalizeStrictSemanticVersion(publication.packageVersion, 'VPM package version') ===
+              publication.packageVersion
+            );
+          } catch {
+            return false;
+          }
+        });
+        if (validPublications.length !== eligibleTargets.length) {
           throw new PublicAliasPublicationUnavailableError(
-            'Current package release has no VPM publication'
+            'One or more retained package releases have no VPM publication'
           );
         }
         publications.push(...validPublications);
@@ -1250,15 +1419,44 @@ export function createVpmRoutes({
     }
   }
 
-  async function buildCurrentCreatorBootstrap(input: {
+  type CreatorBootstrapSelection =
+    | { mode: 'latest'; editionId: string }
+    | { mode: 'specific'; editionId: string; versionId: string };
+
+  function parseCreatorBootstrapSelection(request: Request): CreatorBootstrapSelection {
+    const url = new URL(request.url);
+    const mode = url.searchParams.get('mode')?.trim() || 'latest';
+    const editionId = url.searchParams.get('editionId')?.trim() || 'standard';
+    if (!/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(editionId)) {
+      throw new RequestBodyError('Package edition is invalid', 400);
+    }
+    if (mode === 'latest') {
+      if (url.searchParams.has('versionId')) {
+        throw new RequestBodyError('Latest bootstrap must not specify a version', 400);
+      }
+      return { mode, editionId };
+    }
+    const versionId = url.searchParams.get('versionId')?.trim();
+    if (
+      mode !== 'specific' ||
+      !versionId ||
+      !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(versionId)
+    ) {
+      throw new RequestBodyError('Specific bootstrap version is invalid', 400);
+    }
+    return { mode, editionId, versionId };
+  }
+
+  async function buildCreatorBootstrap(input: {
     authUserId: string;
     product: CreatorVpmProduct;
-    refreshPublication?: () => Promise<void>;
+    selection: CreatorBootstrapSelection;
   }): Promise<{
     bootstrap: BuiltYucpAliasVpmPackage;
     publication: PublishedVpmAlias;
+    target: BootstrapTarget;
   } | null> {
-    if (!aliasArtifactStore || !input.product.packageId) {
+    if (!aliasArtifactStore || !input.product.packageId || !bootstrapIntentSigning) {
       throw new PublicAliasPublicationUnavailableError();
     }
     const actor = await createApiServiceActorBinding({
@@ -1267,14 +1465,24 @@ export function createVpmRoutes({
       scopes: ['downloads:service'],
     });
     const convex = getConvexClientFromUrl(config.convexUrl, actor);
-    const readPublication = async () =>
-      (await convex.query(api.vpmAliasPublications.getLatestPublishedForPackage, {
+    const target = (await convex.query(api.packageVersions.resolveBootstrapTargetForService, {
+      apiSecret: config.convexApiSecret,
+      actor,
+      packageId: input.product.packageId,
+      editionId: input.selection.editionId,
+      ...(input.selection.mode === 'specific' ? { versionId: input.selection.versionId } : {}),
+    })) as BootstrapTarget | null;
+    if (!target) {
+      return null;
+    }
+    const readPublications = async () =>
+      (await convex.query(api.vpmAliasPublications.listPublishedForPackage, {
         apiSecret: config.convexApiSecret,
         actor,
         packageId: input.product.packageId as string,
         channel: 'stable',
         artifactBucketName: aliasArtifactStore.bucketName,
-      })) as PublishedVpmAlias | null;
+      })) as PublishedVpmAlias[];
     const readPresentation = async () =>
       (await convex.query(api.vpmAliasPublications.getPresentationForService, {
         apiSecret: config.convexApiSecret,
@@ -1282,30 +1490,51 @@ export function createVpmRoutes({
         packageId: input.product.packageId as string,
         channel: 'stable',
       })) as VpmAliasPresentation | null;
-    let publication = await readPublication();
-    let [presentation, releasePresentation] = await Promise.all([
-      readPresentation(),
-      convex.query(api.packageVersions.resolvePublicBootstrapPresentation, {
-        apiSecret: config.convexApiSecret,
-        actor,
-        packageId: input.product.packageId,
-      }) as Promise<PublicBootstrapPresentation | null>,
-    ]);
-    // Publications only refresh on explicit link actions, so a legacy-scheme or
-    // release-stale record can outlive the release that superseded it. Repair it
-    // here instead of failing the download.
-    const releaseVersion = releasePresentation?.packageMetadata?.version;
-    const publicationNeedsRepair = publication
-      ? publication.aliasPackageId !== publication.packageId ||
-        (typeof releaseVersion === 'string' && publication.packageVersion !== releaseVersion)
-      : typeof releaseVersion === 'string';
-    if (publicationNeedsRepair && input.refreshPublication) {
-      await input.refreshPublication();
-      publication = await readPublication();
-      presentation = await readPresentation();
-    }
+    let publications = await readPublications();
+    let publication = publications.find(
+      (candidate) =>
+        candidate.contractVersion === 2 &&
+        candidate.packageVersion === target.version &&
+        candidate.editionId === target.editionId &&
+        candidate.versionId === target.versionId &&
+        candidate.releaseRoot === target.releaseRoot
+    );
+    let presentation = await readPresentation();
     if (!publication) {
-      return null;
+      const repository = getConfiguredVpmRepository(config);
+      if (!repository) {
+        throw new PublicAliasPublicationUnavailableError();
+      }
+      await ensureServicePublicationForRelease({
+        artifactBaseUrl: repository.vpmBaseUrl,
+        editionId: target.editionId,
+        packageId: target.packageId,
+        packageVersion: target.version,
+        releasePresentation: {
+          bootstrapMedia: target.bootstrapMedia,
+          editionId: target.editionId,
+          packageMetadata: target.packageMetadata ?? { version: target.version },
+          releaseRoot: target.releaseRoot,
+          versionId: target.versionId,
+        },
+        releaseRoot: target.releaseRoot,
+        serviceActor: actor,
+        serviceConvex: convex,
+        versionId: target.versionId,
+      });
+      publications = await readPublications();
+      publication = publications.find(
+        (candidate) =>
+          candidate.contractVersion === 2 &&
+          candidate.packageVersion === target.version &&
+          candidate.editionId === target.editionId &&
+          candidate.versionId === target.versionId &&
+          candidate.releaseRoot === target.releaseRoot
+      );
+      presentation = await readPresentation();
+      if (!publication) {
+        return null;
+      }
     }
     const publishedPackages = buildPublishedAliasPackages([publication]);
     const publishedVersions = publishedPackages[publication.aliasPackageId]?.versions;
@@ -1323,9 +1552,7 @@ export function createVpmRoutes({
         'Published bootstrap manifest is unavailable'
       );
     }
-    const releaseMetadata = releasePresentation?.packageMetadata;
-    // The latest release is the source of truth; the stored presentation only
-    // fills gaps (and covers packages whose release rows are gone).
+    const releaseMetadata = target.packageMetadata;
     const packageName =
       releaseMetadata?.packageName?.trim() ||
       presentation?.packageName ||
@@ -1333,14 +1560,31 @@ export function createVpmRoutes({
       input.product.displayName?.trim() ||
       input.product.aliasId?.trim() ||
       input.product.packageId;
-    const mediaReferences = releasePresentation
-      ? (releasePresentation.bootstrapMedia ?? [])
-      : (presentation?.media ?? []);
+    const mediaReferences = target.bootstrapMedia ?? presentation?.media ?? [];
+    const bootstrapIntent = await signYucpBootstrapIntent({
+      aliasId: input.product.packageId,
+      config: bootstrapIntentSigning,
+      intent: {
+        schemaVersion: 1,
+        intentId: crypto.randomUUID(),
+        mode: input.selection.mode,
+        issuedAt: Math.floor(Date.now() / 1_000),
+        editionId: target.editionId,
+        ...(input.selection.mode === 'specific'
+          ? {
+              version: target.version,
+              versionId: target.versionId,
+              releaseRoot: target.releaseRoot,
+            }
+          : {}),
+      },
+    });
     const bootstrap = buildYucpAliasVpmPackage({
       aliasId: input.product.packageId,
       artifactUrl: publishedManifest.url,
       bootstrapVersion: publication.bootstrapVersion,
-      packageVersion: releasePresentation?.packageMetadata?.version ?? publishedPackageVersion,
+      bootstrapIntent,
+      packageVersion: target.version,
       vpmDependencies: {},
       packageMetadata: {
         packageName,
@@ -1357,35 +1601,7 @@ export function createVpmRoutes({
         ? { media: await resolveBootstrapMedia(mediaReferences) }
         : {}),
     });
-    return { bootstrap, publication };
-  }
-
-  function creatorPublicationRepair(authorized: {
-    actor: Awaited<ReturnType<typeof createAuthUserActorBinding>>;
-    authUserId: string;
-    convex: ReturnType<typeof getConvexClientFromUrl>;
-    product: CreatorVpmProduct;
-  }): (() => Promise<void>) | undefined {
-    const vpmRepository = getConfiguredVpmRepository(config);
-    if (!vpmRepository) {
-      return undefined;
-    }
-    return async () => {
-      const creatorRepository = await resolveCreatorVpmRepository({
-        actor: authorized.actor,
-        authUserId: authorized.authUserId,
-        convex: authorized.convex,
-        provisionDomain: true,
-        vpmRepository,
-      });
-      await ensurePackagePublication({
-        authUserId: authorized.authUserId,
-        creatorActor: authorized.actor,
-        creatorConvex: authorized.convex,
-        product: authorized.product,
-        vpmRepository: creatorRepository.vpmRepository,
-      });
-    };
+    return { bootstrap, publication, target };
   }
 
   function creatorBootstrapFilenameSeed(product: CreatorVpmProduct): string {
@@ -1415,11 +1631,12 @@ export function createVpmRoutes({
       if (!aliasArtifactStore) {
         return jsonNoStore({ error: 'VPM delivery is not configured' }, { status: 503 });
       }
+      const selection = parseCreatorBootstrapSelection(request);
       phase = 'bootstrap';
-      const current = await buildCurrentCreatorBootstrap({
+      const current = await buildCreatorBootstrap({
         authUserId: authorized.authUserId,
         product: authorized.product,
-        refreshPublication: creatorPublicationRepair(authorized),
+        selection,
       });
       if (!current) {
         return jsonNoStore({ error: 'Package has no published bootstrap' }, { status: 404 });
@@ -1428,7 +1645,7 @@ export function createVpmRoutes({
       const filenameSeed = creatorBootstrapFilenameSeed(authorized.product);
       const headers = new Headers({
         'Cache-Control': 'private, no-store',
-        'Content-Disposition': `attachment; filename="${filenameSeed}-bootstrap-${current.publication.bootstrapVersion}.zip"`,
+        'Content-Disposition': `attachment; filename="${filenameSeed}-bootstrap-${selection.mode === 'latest' ? 'latest' : current.target.version}.zip"`,
         'Content-Length': String(body.byteLength),
         'Content-Type': 'application/zip',
         ETag: `"${current.bootstrap.zipSha256}"`,
@@ -1445,6 +1662,9 @@ export function createVpmRoutes({
       });
       if (error instanceof PublicAliasPublicationUnavailableError) {
         return jsonNoStore({ error: 'VPM delivery is temporarily unavailable' }, { status: 503 });
+      }
+      if (error instanceof RequestBodyError) {
+        return jsonNoStore({ error: error.message }, { status: error.status });
       }
       return jsonNoStore({ error: 'Failed to read the published bootstrap' }, { status: 500 });
     }
@@ -1466,11 +1686,12 @@ export function createVpmRoutes({
       if (!aliasArtifactStore || !config.publicVpmIndexUrl?.trim()) {
         return jsonNoStore({ error: 'VPM delivery is not configured' }, { status: 503 });
       }
+      const selection = parseCreatorBootstrapSelection(request);
       phase = 'bootstrap';
-      const current = await buildCurrentCreatorBootstrap({
+      const current = await buildCreatorBootstrap({
         authUserId: authorized.authUserId,
         product: authorized.product,
-        refreshPublication: creatorPublicationRepair(authorized),
+        selection,
       });
       if (!current) {
         return jsonNoStore({ error: 'Package has no published bootstrap' }, { status: 404 });
@@ -1485,7 +1706,7 @@ export function createVpmRoutes({
       const filenameSeed = creatorBootstrapFilenameSeed(authorized.product);
       const headers = new Headers({
         'Cache-Control': 'private, no-store',
-        'Content-Disposition': `attachment; filename="${filenameSeed}-bootstrap-${current.publication.bootstrapVersion}.unitypackage"`,
+        'Content-Disposition': `attachment; filename="${filenameSeed}-bootstrap-${selection.mode === 'latest' ? 'latest' : current.target.version}.unitypackage"`,
         'Content-Length': String(unityPackage.bytes.byteLength),
         'Content-Type': 'application/gzip',
         ETag: `"${unityPackage.sha256}"`,
@@ -1505,6 +1726,9 @@ export function createVpmRoutes({
       });
       if (error instanceof PublicAliasPublicationUnavailableError) {
         return jsonNoStore({ error: 'VPM delivery is temporarily unavailable' }, { status: 503 });
+      }
+      if (error instanceof RequestBodyError) {
+        return jsonNoStore({ error: error.message }, { status: error.status });
       }
       return jsonNoStore({ error: 'Failed to build the Unity bootstrap package' }, { status: 500 });
     }

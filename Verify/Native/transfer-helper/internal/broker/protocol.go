@@ -18,7 +18,7 @@ import (
 
 const (
 	DefaultPipeName                 = `\\.\pipe\yucp.package-broker.v1`
-	OperationRequestSchemaVersion   = 3
+	OperationRequestSchemaVersion   = 4
 	connectionAuthorizationLifetime = 30 * time.Second
 	maxOperationRequestBytes        = 1024 * 1024
 )
@@ -35,6 +35,7 @@ type OperationRequest struct {
 	AliasID                     string `json:"aliasId"`
 	ApprovedActiveContentDigest string `json:"approvedActiveContentDigest,omitempty"`
 	ApprovedPolicyVersion       string `json:"approvedPolicyVersion,omitempty"`
+	BootstrapIntentJSON         string `json:"bootstrapIntentJson,omitempty"`
 	ExpectedCurrentReleaseRoot  string `json:"expectedCurrentReleaseRoot"`
 	IdempotencyKey              string `json:"idempotencyKey"`
 	Operation                   string `json:"operation"`
@@ -81,6 +82,7 @@ func validateOperationRequest(request OperationRequest) error {
 		!safeIdentifierPattern.MatchString(request.IdempotencyKey) ||
 		!isDigest(request.ExpectedCurrentReleaseRoot) ||
 		!isOptionalDigest(request.TargetReleaseRoot) ||
+		!isOptionalBootstrapIntent(request.BootstrapIntentJSON) ||
 		!isDigest(request.ProjectIdentity) ||
 		!filepath.IsAbs(request.ProjectPath) ||
 		strings.ContainsRune(request.ProjectPath, '\x00') ||
@@ -104,6 +106,17 @@ func validateOperationRequest(request OperationRequest) error {
 		return fmt.Errorf("package content approval is required")
 	}
 	return nil
+}
+
+func isOptionalBootstrapIntent(value string) bool {
+	if value == "" {
+		return true
+	}
+	if len(value) > 16*1024 || !json.Valid([]byte(value)) {
+		return false
+	}
+	var intent map[string]json.RawMessage
+	return json.Unmarshal([]byte(value), &intent) == nil && intent != nil
 }
 
 func requireJSONEnd(decoder *json.Decoder) error {

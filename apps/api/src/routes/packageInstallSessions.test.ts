@@ -11,6 +11,7 @@ import {
   verifyPackageOperationCapabilityV2,
 } from '../../../../ops/storage-core/packageContractsV2';
 import { ACTIVE_PROTECTION_POLICY_ID } from '../../../../ops/storage-core/protectionPolicyId';
+import { signYucpBootstrapIntent } from '../lib/bootstrapIntentSigner';
 import { issuePackageInstallSession } from '../lib/packageInstallSessionIssuer';
 import {
   createPackageInstallSessionRenewalRoute,
@@ -224,6 +225,56 @@ function materializationProof(input: {
 }
 
 describe('package install session route', () => {
+  test('binds an explicit update authorization to its signed Specific intent', async () => {
+    const intent = await signYucpBootstrapIntent({
+      aliasId: 'jammr',
+      config: { keyId, privateKey },
+      intent: {
+        schemaVersion: 1,
+        intentId: '11111111-1111-4111-8111-111111111111',
+        mode: 'specific',
+        issuedAt: Math.floor(Date.now() / 1_000),
+        editionId: 'commercial',
+        version: '1.2.3',
+        versionId: 'version-jammr-123',
+        releaseRoot: '11'.repeat(32),
+      },
+    });
+    const port = accessPort();
+    const handler = createPackageOperationAuthorizationRoute({
+      accessPort: port,
+      authorizationPort: defaultAuthorizationPort,
+      audience,
+      issuer,
+      keyId,
+      privateKey,
+      verificationBaseUrl,
+      verifyAccessRequest: async () => ({
+        buyerId: 'buyer-1',
+        deviceKeyThumbprint,
+        ok: true,
+      }),
+    });
+    const {
+      operationCapability: _unused,
+      targetReleaseRoot: _target,
+      ...operation
+    } = await requestBody({
+      bootstrapIntentJson: JSON.stringify(intent),
+      expectedCurrentReleaseRoot: 'aa'.repeat(32),
+      operation: 'preflight',
+    });
+
+    const response = await handler(request(operation));
+
+    expect(response.status).toBe(201);
+    expect(port.resolvePublication).toHaveBeenCalledWith(
+      productGroup(),
+      'commercial',
+      '11'.repeat(32)
+    );
+  });
+
   test('issues only a signed one-time operation capability to the native broker', async () => {
     const reserve = mock(
       async (record: Parameters<PackageOperationAuthorizationPort['reserve']>[0]) => ({
@@ -1444,7 +1495,7 @@ describe('package install session route', () => {
     });
   });
 
-  test('issues metadata-only preflight without creating a protected materialization job', async () => {
+  test('materializes protected preflight before the review plan can be issued', async () => {
     const createJob = mock(async (_input: unknown) => undefined);
     const port = accessPort({
       resolvePublication: mock(async () => ({
@@ -1497,10 +1548,17 @@ describe('package install session route', () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
       installSession: string;
-      materializationJobId?: string;
+      materializationJobId: string;
     };
-    expect(body).not.toHaveProperty('materializationJobId');
-    expect(createJob).not.toHaveBeenCalled();
+    expect(body.materializationJobId).toMatch(/^job-/);
+    expect(createJob).toHaveBeenCalledTimes(1);
+    expect(createJob.mock.calls[0]?.[0]).toMatchObject({
+      buyerId: 'buyer-1',
+      creatorId: 'creator-1',
+      jobId: body.materializationJobId,
+      productId: 'com.yucp.jammr',
+      sourceVersionId: 'version-jammr-123',
+    });
     const session = await verifyInstallSessionV2({
       coseSign1: Buffer.from(body.installSession, 'base64url'),
       expectedKeyId: new TextEncoder().encode(keyId),

@@ -1,8 +1,10 @@
-const YUCP_METADATA_ALIAS_PATH = 'metadata.yucp';
+import { normalizeStrictSemanticVersion } from './semanticVersion';
 
+const YUCP_METADATA_ALIAS_PATH = 'metadata.yucp';
 export const YUCP_PACKAGE_METADATA_KEY = 'yucp';
 
 export const YUCP_ALIAS_PACKAGE_KIND = 'alias-v1';
+export const YUCP_ALIAS_PACKAGE_VERSIONED_KIND = 'alias-v2';
 
 export const YUCP_ALIAS_PACKAGE_INSTALL_STRATEGIES = {
   serverAuthorized: 'server-authorized',
@@ -17,7 +19,7 @@ export const YUCP_FORWARDED_TOOLCHAIN_PACKAGE_IDS = [
   YUCP_ALIAS_PACKAGE_IMPORTER_PACKAGES.importer,
   YUCP_MOTION_TOOLKIT_PACKAGE_ID,
 ] as const;
-export const YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION = '0.1.65';
+export const YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION = '0.1.71';
 export const YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_VERSION = `>=${YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION}`;
 
 export type YucpAliasPackageInstallStrategy =
@@ -27,7 +29,7 @@ export type YucpAliasImporterPackage =
   (typeof YUCP_ALIAS_PACKAGE_IMPORTER_PACKAGES)[keyof typeof YUCP_ALIAS_PACKAGE_IMPORTER_PACKAGES];
 
 export type YucpAliasPackageContract = {
-  kind: typeof YUCP_ALIAS_PACKAGE_KIND;
+  kind: typeof YUCP_ALIAS_PACKAGE_KIND | typeof YUCP_ALIAS_PACKAGE_VERSIONED_KIND;
   aliasId: string;
   packageName?: string;
   packageDisplayName?: string;
@@ -38,7 +40,49 @@ export type YucpAliasPackageContract = {
   channel?: string;
   packageMetadata?: YucpAliasPackageMetadata;
   media?: YucpAliasPackageMedia[];
+  bootstrapIntent?: YucpBootstrapIntent;
 };
+
+export type YucpBootstrapIntent = {
+  schemaVersion: 1;
+  intentId: string;
+  mode: 'latest' | 'specific';
+  issuedAt: number;
+  keyId: string;
+  editionId: string;
+  version?: string;
+  versionId?: string;
+  releaseRoot?: string;
+  signature: string;
+};
+
+export type UnsignedYucpBootstrapIntent = Omit<YucpBootstrapIntent, 'signature'>;
+
+export function yucpBootstrapIntentSigningPayload(input: {
+  aliasId: string;
+  intent: UnsignedYucpBootstrapIntent;
+}): Uint8Array {
+  const normalizedAliasId = trimRequiredString(input.aliasId, 'bootstrapIntent.aliasId');
+  const normalizedIntent = normalizeBootstrapIntent({
+    ...input.intent,
+    signature: 'unsigned',
+  });
+  return new TextEncoder().encode(
+    JSON.stringify({
+      purpose: 'yucp-bootstrap-intent-v1',
+      aliasId: normalizedAliasId,
+      schemaVersion: normalizedIntent.schemaVersion,
+      intentId: normalizedIntent.intentId,
+      mode: normalizedIntent.mode,
+      issuedAt: normalizedIntent.issuedAt,
+      keyId: normalizedIntent.keyId,
+      editionId: normalizedIntent.editionId,
+      ...(normalizedIntent.version ? { version: normalizedIntent.version } : {}),
+      ...(normalizedIntent.versionId ? { versionId: normalizedIntent.versionId } : {}),
+      ...(normalizedIntent.releaseRoot ? { releaseRoot: normalizedIntent.releaseRoot } : {}),
+    })
+  );
+}
 
 export type YucpAliasPackageMetadata = {
   packageName: string;
@@ -89,6 +133,75 @@ function trimOptionalString(value: unknown, fieldName: string): string | undefin
   }
 
   return trimRequiredString(value, fieldName);
+}
+
+function normalizeBootstrapIntent(value: unknown): YucpBootstrapIntent {
+  const fieldName = `${YUCP_METADATA_ALIAS_PATH}.bootstrapIntent`;
+  if (!isRecord(value)) {
+    throw new Error(`${fieldName} must be an object`);
+  }
+  if (value.schemaVersion !== 1) {
+    throw new Error(`${fieldName}.schemaVersion must be 1`);
+  }
+  const intentId = trimRequiredString(value.intentId, `${fieldName}.intentId`);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(intentId)) {
+    throw new Error(`${fieldName}.intentId must be a UUID v4`);
+  }
+  const mode = trimRequiredString(value.mode, `${fieldName}.mode`);
+  if (mode !== 'latest' && mode !== 'specific') {
+    throw new Error(`${fieldName}.mode must be "latest" or "specific"`);
+  }
+  if (!Number.isSafeInteger(value.issuedAt) || (value.issuedAt as number) <= 0) {
+    throw new Error(`${fieldName}.issuedAt must be a positive Unix timestamp`);
+  }
+  const keyId = trimRequiredString(value.keyId, `${fieldName}.keyId`);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(keyId)) {
+    throw new Error(`${fieldName}.keyId is invalid`);
+  }
+  const editionId = trimRequiredString(value.editionId, `${fieldName}.editionId`);
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(editionId)) {
+    throw new Error(`${fieldName}.editionId is invalid`);
+  }
+  const signature = trimRequiredString(value.signature, `${fieldName}.signature`);
+  if (!/^[A-Za-z0-9_-]+$/.test(signature)) {
+    throw new Error(`${fieldName}.signature must be base64url`);
+  }
+  const normalized: YucpBootstrapIntent = {
+    schemaVersion: 1,
+    intentId: intentId.toLowerCase(),
+    mode,
+    issuedAt: value.issuedAt as number,
+    keyId,
+    editionId,
+    signature,
+  };
+  if (mode === 'latest') {
+    if (
+      value.version !== undefined ||
+      value.versionId !== undefined ||
+      value.releaseRoot !== undefined
+    ) {
+      throw new Error(`${fieldName} latest mode must not contain an exact release target`);
+    }
+    return normalized;
+  }
+  normalized.version = normalizeStrictSemanticVersion(
+    trimRequiredString(value.version, `${fieldName}.version`),
+    `${fieldName}.version`
+  );
+  normalized.versionId = trimRequiredString(value.versionId, `${fieldName}.versionId`);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(normalized.versionId)) {
+    throw new Error(`${fieldName}.versionId is invalid`);
+  }
+  normalized.releaseRoot = trimRequiredString(value.releaseRoot, `${fieldName}.releaseRoot`);
+  if (!/^[0-9a-f]{64}$/.test(normalized.releaseRoot)) {
+    throw new Error(`${fieldName}.releaseRoot must be a lowercase SHA-256 digest`);
+  }
+  return normalized;
+}
+
+export function normalizeYucpBootstrapIntent(value: unknown): YucpBootstrapIntent {
+  return normalizeBootstrapIntent(value);
 }
 
 function normalizeBoundedString(value: unknown, fieldName: string, maximumLength: number): string {
@@ -274,9 +387,9 @@ export function normalizeYucpAliasPackageContract(
   }
 
   const kind = trimRequiredString(value.kind, `${YUCP_METADATA_ALIAS_PATH}.kind`);
-  if (kind !== YUCP_ALIAS_PACKAGE_KIND) {
+  if (kind !== YUCP_ALIAS_PACKAGE_KIND && kind !== YUCP_ALIAS_PACKAGE_VERSIONED_KIND) {
     throw new Error(
-      `${YUCP_METADATA_ALIAS_PATH}.kind must be ${JSON.stringify(YUCP_ALIAS_PACKAGE_KIND)}`
+      `${YUCP_METADATA_ALIAS_PATH}.kind must be ${JSON.stringify(YUCP_ALIAS_PACKAGE_KIND)} or ${JSON.stringify(YUCP_ALIAS_PACKAGE_VERSIONED_KIND)}`
     );
   }
 
@@ -301,7 +414,7 @@ export function normalizeYucpAliasPackageContract(
   }
 
   const normalized: YucpAliasPackageContract = {
-    kind: YUCP_ALIAS_PACKAGE_KIND,
+    kind,
     aliasId: trimRequiredString(value.aliasId, `${YUCP_METADATA_ALIAS_PATH}.aliasId`),
     installStrategy: YUCP_ALIAS_PACKAGE_INSTALL_STRATEGIES.serverAuthorized,
     importerPackage: YUCP_ALIAS_PACKAGE_IMPORTER_PACKAGES.importer,
@@ -352,6 +465,14 @@ export function normalizeYucpAliasPackageContract(
   const media = normalizeMedia(value.media);
   if (media) {
     normalized.media = media;
+  }
+
+  if (kind === YUCP_ALIAS_PACKAGE_VERSIONED_KIND) {
+    normalized.bootstrapIntent = normalizeBootstrapIntent(value.bootstrapIntent);
+  } else if (value.bootstrapIntent !== undefined) {
+    throw new Error(
+      `${YUCP_METADATA_ALIAS_PATH}.bootstrapIntent requires ${YUCP_ALIAS_PACKAGE_VERSIONED_KIND}`
+    );
   }
 
   return normalized;
@@ -500,7 +621,7 @@ export function mergeYucpAliasPackageMetadata(input: {
   return {
     ...baseMetadata,
     yucp: {
-      kind: YUCP_ALIAS_PACKAGE_KIND,
+      kind: existingAliasContract?.kind ?? YUCP_ALIAS_PACKAGE_KIND,
       aliasId: input.aliasId,
       ...(existingAliasContract?.packageName
         ? { packageName: existingAliasContract.packageName }
@@ -515,6 +636,9 @@ export function mergeYucpAliasPackageMetadata(input: {
         ? { packageMetadata: existingAliasContract.packageMetadata }
         : {}),
       ...(existingAliasContract?.media ? { media: existingAliasContract.media } : {}),
+      ...(existingAliasContract?.bootstrapIntent
+        ? { bootstrapIntent: existingAliasContract.bootstrapIntent }
+        : {}),
       installStrategy: YUCP_ALIAS_PACKAGE_INSTALL_STRATEGIES.serverAuthorized,
       importerPackage: YUCP_ALIAS_PACKAGE_IMPORTER_PACKAGES.importer,
       minImporterVersion: resolveAliasImporterMinimumVersion(

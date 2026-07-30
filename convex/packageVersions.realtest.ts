@@ -78,6 +78,145 @@ async function seedActivePackageEditions(
 }
 
 describe('packageVersions', () => {
+  it('rejects non-SemVer release labels at the publication boundary', async () => {
+    const t = makeTestConvex();
+
+    await expect(
+      t.mutation(
+        api.packageVersions.upsertReadyVersion,
+        await authenticatedReadyVersionArgs({
+          packageId: 'com.yucp.invalid-version',
+          version: 'Summer release',
+          versionId: '00000000-0000-4000-8000-000000000090',
+          createdAt: 1_000,
+        })
+      )
+    ).rejects.toThrow('Package version must be a valid Semantic Version');
+  });
+
+  it('rejects one SemVer mapping to different targets across editions', async () => {
+    const t = makeTestConvex();
+    const packageId = 'com.yucp.cross-edition-version';
+
+    await t.mutation(
+      api.packageVersions.upsertReadyVersion,
+      await authenticatedReadyVersionArgs({
+        packageId,
+        editionId: 'standard',
+        version: '2.0.0',
+        versionId: '00000000-0000-4000-8000-000000000091',
+        createdAt: 1_000,
+      })
+    );
+
+    await expect(
+      t.mutation(
+        api.packageVersions.upsertReadyVersion,
+        await authenticatedReadyVersionArgs({
+          packageId,
+          editionId: 'commercial',
+          version: '2.0.0',
+          versionId: '00000000-0000-4000-8000-000000000092',
+          releaseRoot: '45'.repeat(32),
+          createdAt: 2_000,
+        })
+      )
+    ).rejects.toThrow('Package version logical identity conflict');
+  });
+
+  it('resolves Latest to the highest stable SemVer while explicit selection permits prereleases', async () => {
+    const t = makeTestConvex();
+    const packageId = 'com.yucp.bootstrap-selection';
+    const stableVersionId = '00000000-0000-4000-8000-000000000093';
+    const prereleaseVersionId = '00000000-0000-4000-8000-000000000094';
+    await t.mutation(
+      api.packageVersions.upsertReadyVersion,
+      await authenticatedReadyVersionArgs({
+        packageId,
+        version: '1.9.0',
+        versionId: stableVersionId,
+        createdAt: 1_000,
+      })
+    );
+    await t.mutation(
+      api.packageVersions.upsertReadyVersion,
+      await authenticatedReadyVersionArgs({
+        packageId,
+        version: '2.0.0-beta.1',
+        versionId: prereleaseVersionId,
+        releaseRoot: '45'.repeat(32),
+        createdAt: 2_000,
+      })
+    );
+    const actor = await createDownloadServiceActorBinding();
+
+    const latest = await t.query(api.packageVersions.resolveBootstrapTargetForService, {
+      apiSecret: 'test-secret',
+      actor,
+      packageId,
+      editionId: 'standard',
+    });
+    const specific = await t.query(api.packageVersions.resolveBootstrapTargetForService, {
+      apiSecret: 'test-secret',
+      actor,
+      packageId,
+      editionId: 'standard',
+      versionId: prereleaseVersionId,
+    });
+
+    expect(latest?.version).toBe('1.9.0');
+    expect(latest?.versionId).toBe(stableVersionId);
+    expect(specific?.version).toBe('2.0.0-beta.1');
+    expect(specific?.versionId).toBe(prereleaseVersionId);
+  });
+
+  it('lists every retained SemVer target for immutable VCC publication', async () => {
+    const t = makeTestConvex();
+    const packageId = 'com.yucp.vcc-history';
+    await t.mutation(
+      api.packageVersions.upsertReadyVersion,
+      await authenticatedReadyVersionArgs({
+        packageId,
+        version: '1.0.0',
+        versionId: '00000000-0000-4000-8000-000000000095',
+        createdAt: 1_000,
+      })
+    );
+    await t.mutation(
+      api.packageVersions.upsertReadyVersion,
+      await authenticatedReadyVersionArgs({
+        packageId,
+        version: '2.0.0-beta.1',
+        versionId: '00000000-0000-4000-8000-000000000096',
+        releaseRoot: '46'.repeat(32),
+        createdAt: 2_000,
+      })
+    );
+    await t.run(async (ctx) => {
+      await ctx.db.insert('package_versions_ref', {
+        packageId,
+        editionId: 'standard',
+        version: 'legacy-release',
+        versionId: '00000000-0000-4000-8000-000000000097',
+        releaseRoot: '47'.repeat(32),
+        state: 'SUPERSEDED',
+        channel: 'stable',
+        createdAt: 500,
+      });
+    });
+    const actor = await createDownloadServiceActorBinding();
+
+    const targets = await t.query(api.packageVersions.listBootstrapTargetsForService, {
+      apiSecret: 'test-secret',
+      actor,
+      packageId,
+      editionId: 'standard',
+    });
+
+    expect(targets.map((target) => target.version)).toEqual(['2.0.0-beta.1', '1.0.0']);
+    expect(targets.map((target) => target.state)).toEqual(['READY', 'SUPERSEDED']);
+  });
+
   it('inserts a READY package version reference with the stable channel by default', async () => {
     const t = makeTestConvex();
     const createdAt = Date.now();
@@ -234,7 +373,7 @@ describe('packageVersions', () => {
         createdAt: 2_000,
         editionId: 'commercial',
         packageId: 'com.yucp.editions',
-        version: '1.0.0',
+        version: '1.0.1',
         versionId: '00000000-0000-4000-8000-000000000012',
       })
     );
@@ -398,6 +537,7 @@ describe('packageVersions', () => {
     expect(presentation).toEqual({
       bootstrapMedia: [sharedIcon],
       createdAt: 2_000,
+      editionId: 'commercial',
       packageMetadata: {
         author: 'YUCP Studio',
         description: 'Commercial edition description.',
@@ -405,6 +545,8 @@ describe('packageVersions', () => {
         tagline: 'Shared tagline',
         version: '9.0.0',
       },
+      releaseRoot: '44'.repeat(32),
+      versionId: '00000000-0000-4000-8000-000000000022',
     });
   });
 
@@ -449,6 +591,7 @@ describe('packageVersions', () => {
     expect(presentation).toEqual({
       bootstrapMedia: [icon],
       createdAt: 3_000,
+      editionId: 'standard',
       packageMetadata: {
         author: 'YUCP Studio',
         description: 'One ready edition.',
@@ -456,6 +599,8 @@ describe('packageVersions', () => {
         tagline: 'Complete presentation',
         version: '4.2.0',
       },
+      releaseRoot: '44'.repeat(32),
+      versionId: '00000000-0000-4000-8000-000000000025',
     });
   });
 
@@ -525,9 +670,12 @@ describe('packageVersions', () => {
     expect(presentation).toEqual({
       bootstrapMedia: latestMedia,
       createdAt: 2_000,
+      editionId: 'standard',
       packageMetadata: {
         version: '1.1.0',
       },
+      releaseRoot: '44'.repeat(32),
+      versionId: '00000000-0000-4000-8000-000000000023',
     });
   });
 
@@ -622,11 +770,14 @@ describe('packageVersions', () => {
     expect(presentation).toEqual({
       bootstrapMedia: [activeIcon],
       createdAt: 1_000,
+      editionId: 'standard',
       packageMetadata: {
         author: 'YUCP Studio',
         packageName: 'Active package name',
         version: '1.0.0',
       },
+      releaseRoot: '44'.repeat(32),
+      versionId: '00000000-0000-4000-8000-000000000026',
     });
   });
 

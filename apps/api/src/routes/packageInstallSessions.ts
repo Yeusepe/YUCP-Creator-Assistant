@@ -1,6 +1,10 @@
 import { createHash, randomBytes } from 'node:crypto';
 import * as ed25519 from '@noble/ed25519';
-import { parseTraceparent } from '@yucp/shared';
+import {
+  normalizeYucpBootstrapIntent,
+  parseTraceparent,
+  type YucpBootstrapIntent,
+} from '@yucp/shared';
 import { verifyDpopProof } from '../../../../ops/storage-core/dpop';
 import {
   decodeDeliveryGrantV2,
@@ -16,6 +20,7 @@ import {
   verifyPackageOperationCapabilityV2,
 } from '../../../../ops/storage-core/packageContractsV2';
 import { PACKAGE_INSTALL_AUTHORIZATION_POLICY } from '../../../../ops/storage-core/packageInstallAuthorizationPolicy';
+import { verifyYucpBootstrapIntent } from '../lib/bootstrapIntentSigner';
 import {
   INSTALL_SESSION_LIFETIME_SECONDS,
   issuePackageInstallSession,
@@ -34,6 +39,7 @@ const PACKAGE_OPERATION_FIELDS = new Set([
   'aliasId',
   'approvedActiveContentDigest',
   'approvedPolicyVersion',
+  'bootstrapIntentJson',
   'expectedCurrentReleaseRoot',
   'idempotencyKey',
   'operation',
@@ -282,6 +288,7 @@ type PackageOperationRequest = {
   aliasId: string;
   approvedActiveContentDigest?: string;
   approvedPolicyVersion?: string;
+  bootstrapIntent?: YucpBootstrapIntent;
   expectedCurrentReleaseRoot: string;
   idempotencyKey: string;
   operation: InstallSessionOperation;
@@ -329,6 +336,29 @@ function optionalDigest(value: unknown, name: string): string | undefined {
   return value;
 }
 
+function optionalBootstrapIntent(value: unknown): YucpBootstrapIntent | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'string' || value.length === 0 || value.length > 16 * 1024) {
+    throw new RequestBodyError('bootstrapIntentJson is invalid', 400);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new RequestBodyError('bootstrapIntentJson is invalid', 400);
+  }
+  try {
+    return normalizeYucpBootstrapIntent(parsed);
+  } catch (error) {
+    throw new RequestBodyError(
+      error instanceof Error ? error.message : 'bootstrapIntentJson is invalid',
+      400
+    );
+  }
+}
+
 function normalizeOperationBody(
   body: Record<string, unknown>,
   includeCapability = false
@@ -361,6 +391,7 @@ function normalizeOperationBody(
     body.approvedPolicyVersion === undefined
       ? undefined
       : normalizeIdentifier(body.approvedPolicyVersion, 'approvedPolicyVersion');
+  const bootstrapIntent = optionalBootstrapIntent(body.bootstrapIntentJson);
   const expectedCurrentReleaseRoot = optionalDigest(
     body.expectedCurrentReleaseRoot,
     'expectedCurrentReleaseRoot'
@@ -392,6 +423,7 @@ function normalizeOperationBody(
     aliasId: normalizeIdentifier(body.aliasId, 'aliasId'),
     ...(approvedActiveContentDigest ? { approvedActiveContentDigest } : {}),
     ...(approvedPolicyVersion ? { approvedPolicyVersion } : {}),
+    ...(bootstrapIntent ? { bootstrapIntent } : {}),
     expectedCurrentReleaseRoot,
     idempotencyKey: normalizeIdentifier(body.idempotencyKey, 'idempotencyKey'),
     operation: body.operation,
@@ -536,7 +568,13 @@ function accessRequestFailureResponse(
     return jsonNoStore({ error: 'Token missing required scope' }, 403);
   }
   if (authentication.status === 503) {
-    return jsonNoStore({ error: 'Package authorization service unavailable', errorCode: 'AUTH_DEPENDENCY_UNAVAILABLE' }, 503);
+    return jsonNoStore(
+      {
+        error: 'Package authorization service unavailable',
+        errorCode: 'AUTH_DEPENDENCY_UNAVAILABLE',
+      },
+      503
+    );
   }
   return jsonNoStore({ error: 'Invalid or expired DPoP authorization' }, 401);
 }
@@ -544,12 +582,34 @@ function accessRequestFailureResponse(
 async function resolveAuthorizedPublication(input: {
   accessPort: PackageInstallAccessPort;
   buyerId: string;
+  bootstrapIntentKeyId: string;
+  bootstrapIntentPublicKey: Uint8Array;
   operation: PackageOperationRequest;
   verificationOrigin: string;
 }): Promise<
   | { group: PackageInstallProductGroup; publication: PackageInstallPublication }
   | { response: Response }
 > {
+  const intent = input.operation.bootstrapIntent;
+  if (
+    intent &&
+    (intent.keyId !== input.bootstrapIntentKeyId ||
+      !(await verifyYucpBootstrapIntent({
+        aliasId: input.operation.aliasId,
+        intent,
+        publicKey: input.bootstrapIntentPublicKey,
+      })))
+  ) {
+    return {
+      response: jsonNoStore(
+        {
+          error: 'Bootstrap intent signature is invalid',
+          errorCode: 'BOOTSTRAP_INTENT_INVALID',
+        },
+        403
+      ),
+    };
+  }
   const group = await input.accessPort.resolveProductGroup(input.operation.aliasId);
   if (!group || group.aliasId !== input.operation.aliasId) {
     return { response: jsonNoStore({ error: 'Package alias not found' }, 404) };
@@ -572,6 +632,34 @@ async function resolveAuthorizedPublication(input: {
       ),
     };
   }
+  if (intent && intent.editionId !== entitledEditionId) {
+    return {
+      response: jsonNoStore(
+        {
+          error: 'Bootstrap edition is not authorized for this buyer',
+          errorCode: 'BOOTSTRAP_EDITION_MISMATCH',
+        },
+        403
+      ),
+    };
+  }
+  if (
+    intent?.mode === 'specific' &&
+    input.operation.targetReleaseRoot &&
+    input.operation.targetReleaseRoot !== intent.releaseRoot
+  ) {
+    return {
+      response: jsonNoStore(
+        {
+          error: 'Bootstrap target does not match the reviewed release',
+          errorCode: 'BOOTSTRAP_TARGET_MISMATCH',
+        },
+        409
+      ),
+    };
+  }
+  const requestedReleaseRoot =
+    intent?.mode === 'specific' ? intent.releaseRoot : input.operation.targetReleaseRoot;
   const publication =
     input.operation.operation === 'uninstall'
       ? await input.accessPort.resolveInstalledRelease(
@@ -579,11 +667,7 @@ async function resolveAuthorizedPublication(input: {
           entitledEditionId,
           input.operation.targetReleaseRoot as string
         )
-      : await input.accessPort.resolvePublication(
-          group,
-          entitledEditionId,
-          input.operation.targetReleaseRoot
-        );
+      : await input.accessPort.resolvePublication(group, entitledEditionId, requestedReleaseRoot);
   if (!publication) {
     return {
       response: jsonNoStore(
@@ -596,6 +680,36 @@ async function resolveAuthorizedPublication(input: {
         404
       ),
     };
+  }
+  if (
+    intent?.mode === 'specific' &&
+    (publication.releaseRoot !== intent.releaseRoot ||
+      publication.versionId !== intent.versionId ||
+      publication.version !== intent.version)
+  ) {
+    return {
+      response: jsonNoStore(
+        {
+          error: 'Specific bootstrap target is unavailable',
+          errorCode: 'BOOTSTRAP_TARGET_MISMATCH',
+        },
+        409
+      ),
+    };
+  }
+  if (intent?.mode === 'latest' && input.operation.targetReleaseRoot) {
+    const currentLatest = await input.accessPort.resolvePublication(group, entitledEditionId);
+    if (!currentLatest || currentLatest.releaseRoot !== publication.releaseRoot) {
+      return {
+        response: jsonNoStore(
+          {
+            error: 'A newer stable release became available. Review the bootstrap again.',
+            errorCode: 'BOOTSTRAP_REVIEW_STALE',
+          },
+          409
+        ),
+      };
+    }
   }
   if (
     input.operation.operation !== 'preflight' &&
@@ -672,6 +786,7 @@ export function createPackageOperationAuthorizationRoute(
   options: CreatePackageInstallSessionRouteOptions
 ): (request: Request) => Promise<Response> {
   const verificationOrigin = requireVerificationOrigin(options.verificationBaseUrl);
+  const bootstrapIntentPublicKey = ed25519.getPublicKeyAsync(options.privateKey);
   return async (request) => {
     if (request.method !== 'POST') {
       return jsonNoStore({ error: 'Method not allowed' }, 405);
@@ -691,9 +806,25 @@ export function createPackageOperationAuthorizationRoute(
       }
       throw error;
     }
+    if (
+      !operation.bootstrapIntent &&
+      (operation.operation === 'update' ||
+        (operation.operation === 'preflight' &&
+          operation.expectedCurrentReleaseRoot !== '0'.repeat(64)))
+    ) {
+      return jsonNoStore(
+        {
+          error: 'Install a version-aware bootstrap before changing this package',
+          errorCode: 'VERSIONED_BOOTSTRAP_REQUIRED',
+        },
+        409
+      );
+    }
     const resolved = await resolveAuthorizedPublication({
       accessPort: options.accessPort,
       buyerId: authentication.buyerId,
+      bootstrapIntentKeyId: options.keyId,
+      bootstrapIntentPublicKey: await bootstrapIntentPublicKey,
       operation,
       verificationOrigin,
     });
@@ -810,6 +941,8 @@ export function createPackageInstallSessionRoute(
     const resolved = await resolveAuthorizedPublication({
       accessPort: options.accessPort,
       buyerId: authentication.buyerId,
+      bootstrapIntentKeyId: options.keyId,
+      bootstrapIntentPublicKey: await publicKey,
       operation: input,
       verificationOrigin,
     });
@@ -873,13 +1006,24 @@ export function createPackageInstallSessionRoute(
       );
     }
     const protectedPublication = publication.protectedFiles.length > 0;
-    const requiresMaterialization =
-      protectedPublication && input.operation !== 'preflight' && input.operation !== 'uninstall';
+    const requiresMaterialization = protectedPublication && input.operation !== 'uninstall';
     if (requiresMaterialization && !options.materializationControl) {
-      return jsonNoStore({ error: 'Protected materialization is not configured', errorCode: 'MATERIALIZATION_NOT_CONFIGURED' }, 503);
+      return jsonNoStore(
+        {
+          error: 'Protected materialization is not configured',
+          errorCode: 'MATERIALIZATION_NOT_CONFIGURED',
+        },
+        503
+      );
     }
     if (!requiresMaterialization && input.operation !== 'uninstall' && !options.releasePins) {
-      return jsonNoStore({ error: 'Package delivery retention is not configured', errorCode: 'DELIVERY_RETENTION_NOT_CONFIGURED' }, 503);
+      return jsonNoStore(
+        {
+          error: 'Package delivery retention is not configured',
+          errorCode: 'DELIVERY_RETENTION_NOT_CONFIGURED',
+        },
+        503
+      );
     }
     const identityFields = [
       authentication.buyerId,
@@ -966,7 +1110,13 @@ export function createPackageInstallSessionRoute(
           generation: exchange.generation,
         });
       }
-      return jsonNoStore({ error: 'Package delivery authorization could not be issued', errorCode: 'DELIVERY_AUTHORIZATION_UNAVAILABLE' }, 503);
+      return jsonNoStore(
+        {
+          error: 'Package delivery authorization could not be issued',
+          errorCode: 'DELIVERY_AUTHORIZATION_UNAVAILABLE',
+        },
+        503
+      );
     }
     const grantTokenSha256 = createHash('sha256').update(issued.deliveryGrant).digest('hex');
     if (exchange.status === 'ready' && exchange.grantTokenSha256 !== grantTokenSha256) {
@@ -992,7 +1142,13 @@ export function createPackageInstallSessionRoute(
           capabilityId: capability.capabilityId,
           generation: exchange.generation,
         });
-        return jsonNoStore({ error: 'Package delivery retention could not be reserved', errorCode: 'DELIVERY_RETENTION_UNAVAILABLE' }, 503);
+        return jsonNoStore(
+          {
+            error: 'Package delivery retention could not be reserved',
+            errorCode: 'DELIVERY_RETENTION_UNAVAILABLE',
+          },
+          503
+        );
       }
     }
     if (exchange.status === 'claimed' && materializationJobId && options.materializationControl) {
@@ -1020,7 +1176,13 @@ export function createPackageInstallSessionRoute(
           capabilityId: capability.capabilityId,
           generation: exchange.generation,
         });
-        return jsonNoStore({ error: 'Protected materialization job could not be created', errorCode: 'MATERIALIZATION_JOB_UNAVAILABLE' }, 503);
+        return jsonNoStore(
+          {
+            error: 'Protected materialization job could not be created',
+            errorCode: 'MATERIALIZATION_JOB_UNAVAILABLE',
+          },
+          503
+        );
       }
     }
     if (
@@ -1045,7 +1207,13 @@ export function createPackageInstallSessionRoute(
         capabilityId: capability.capabilityId,
         generation: exchange.generation,
       });
-      return jsonNoStore({ error: 'Package operation outcome could not be persisted', errorCode: 'OPERATION_OUTCOME_PERSIST_FAILED' }, 503);
+      return jsonNoStore(
+        {
+          error: 'Package operation outcome could not be persisted',
+          errorCode: 'OPERATION_OUTCOME_PERSIST_FAILED',
+        },
+        503
+      );
     }
     return jsonNoStore({
       deliveryGrant: Buffer.from(issued.deliveryGrant).toString('base64url'),
@@ -1435,7 +1603,13 @@ export function createPackageMaterializationStatusRoute(options: {
         })
       );
     } catch {
-      return jsonNoStore({ error: 'Materialization status is unavailable', errorCode: 'MATERIALIZATION_STATUS_UNAVAILABLE' }, 503);
+      return jsonNoStore(
+        {
+          error: 'Materialization status is unavailable',
+          errorCode: 'MATERIALIZATION_STATUS_UNAVAILABLE',
+        },
+        503
+      );
     }
   };
 }

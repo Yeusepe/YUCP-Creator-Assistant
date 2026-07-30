@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	SchemaVersion                     = 3
+	SchemaVersion                     = 4
 	UnityWindowsPathLimitErrorCode    = "UNITY_WINDOWS_PATH_LIMIT"
 	unityWindowsMaximumPathCharacters = 260
 )
@@ -335,28 +335,9 @@ func Execute(
 		TraceID:             request.Traceparent[3:35],
 		VersionID:           manifest.VersionID,
 	}
-	if request.Operation == "preflight" {
-		if err := report(
-			reportProgress,
-			"verifying",
-			0,
-			totalBytes,
-		); err != nil {
-			return Result{}, err
-		}
-		baseResult.JournalState = "preflight-complete"
-		if err := report(
-			reportProgress,
-			"finalizing",
-			totalBytes,
-			totalBytes,
-		); err != nil {
-			return Result{}, err
-		}
-		return baseResult, nil
-	}
-	if request.ApprovedActiveContentDigest != manifest.ActiveContentDigest ||
-		request.ApprovedPolicyVersion != manifest.ActivePolicyVersion {
+	if request.Operation != "preflight" &&
+		(request.ApprovedActiveContentDigest != manifest.ActiveContentDigest ||
+			request.ApprovedPolicyVersion != manifest.ActivePolicyVersion) {
 		return Result{}, fmt.Errorf("active-content approval is stale or does not match")
 	}
 	stagingTree := filepath.Join(request.StateRoot, "staging", request.RunID)
@@ -549,7 +530,11 @@ func Execute(
 		}
 		baseResult.LogicalBytes += file.Bytes
 	}
-	baseResult.JournalState = "verified-staging-ready"
+	if request.Operation == "preflight" {
+		baseResult.JournalState = "preflight-review-ready"
+	} else {
+		baseResult.JournalState = "verified-staging-ready"
+	}
 	baseResult.LogicalFiles = len(allFiles)
 	baseResult.StagingTree = stagingTree
 	if err := report(

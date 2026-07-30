@@ -52,7 +52,7 @@ func (dumpTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 }
 
 func main() {
-	stateRoot := `C:\Users\svalp\AppData\Local\YUCP\PackageDelivery\state\broker`
+	stateRoot := `C:\Users\svalp\yucp-prod-e2e\state`
 	current, err := user.Current()
 	if err != nil {
 		panic(err)
@@ -76,12 +76,12 @@ func main() {
 	_, _ = rand.Read(trace)
 	runID := "raw-diagnostic-" + hex.EncodeToString(span)
 	request := broker.OperationRequest{
-		AliasID:                    "com.lunar.druffle",
+		AliasID:                    "com.lunararray.druffle",
 		ExpectedCurrentReleaseRoot: "0000000000000000000000000000000000000000000000000000000000000000",
 		IdempotencyKey:             runID,
 		Operation:                  "preflight",
-		ProjectIdentity:            "deca070897d28139d38e70be2c079eca746b66a7dc7b5c9b3c6ad06eef264ff5",
-		ProjectPath:                `E:\Unity\ImportTesting`,
+		ProjectIdentity:            "018786cab94742abd3111d027746bd378e056f2dfa492180887d4a8b1dd58023",
+		ProjectPath:                `E:\Unity\yucp-e2e`,
 		RunID:                      runID,
 		SchemaVersion:              broker.OperationRequestSchemaVersion,
 		Traceparent:                "00-" + hex.EncodeToString(trace) + "-" + hex.EncodeToString(span) + "-01",
@@ -90,7 +90,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	oauth := broker.OAuthClient{
-		AuthBaseURL: "https://verify.creators.yucp.club/api/auth",
+		AuthBaseURL: "https://impartial-donkey-247.convex.site/api/auth",
 		HTTPClient:  httpClient,
 	}
 	refreshed, err := oauth.Refresh(ctx, identity.PrivateKey, tokens.RefreshToken)
@@ -110,6 +110,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "authorize error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("authorized OK: session=%d bytes grant=%d bytes\n",
-		len(authorized.InstallSession), len(authorized.DeliveryGrant))
+	fmt.Printf("authorized OK: session=%d bytes grant=%d bytes materializationJobId=%q\n",
+		len(authorized.InstallSession), len(authorized.DeliveryGrant), authorized.MaterializationJobID)
 }

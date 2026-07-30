@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { catalogTierPackageEditionId } from '@yucp/shared/packageEdition';
+import { normalizeStrictSemanticVersion } from '@yucp/shared/semanticVersion';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { BILLING_CAPABILITY_KEYS } from '../../../../convex/lib/billingCapabilities';
@@ -144,6 +145,11 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
         },
         { status: 400 }
       );
+    }
+    try {
+      normalizeStrictSemanticVersion(version, 'version');
+    } catch {
+      return Response.json({ error: 'version must be a valid Semantic Version' }, { status: 400 });
     }
     let expectedCatalogTierEditionId: string | undefined;
     if (catalogTierId) {

@@ -1,3 +1,8 @@
+import {
+  compareSemanticVersions,
+  isPrereleaseSemanticVersion,
+  isStrictSemanticVersion,
+} from '@yucp/shared/semanticVersion';
 import { ConvexError, v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
@@ -15,7 +20,13 @@ type ActiveBuyerCreatorRepository = {
   creatorName: string;
   creatorSlug: string;
   linkId: string;
-  packages: Array<{ packageId: string; version: string }>;
+  packages: Array<{
+    editionId: string;
+    packageId: string;
+    releaseRoot: string;
+    version: string;
+    versionId: string;
+  }>;
   packageIds: string[];
   status: 'active';
 };
@@ -115,9 +126,16 @@ async function entitledCatalogProductIds(
 async function isEnabledReadyPackage(
   ctx: RepositoryCtx,
   creatorAuthUserId: string,
-  packageId: string
-): Promise<string | null> {
-  const [registration, enablement, releases] = await Promise.all([
+  packageId: string,
+  entitledCatalogProductIds: Set<Id<'product_catalog'>>
+): Promise<{
+  editionId: string;
+  packageId: string;
+  releaseRoot: string;
+  version: string;
+  versionId: string;
+} | null> {
+  const [registration, enablement, editions] = await Promise.all([
     ctx.db
       .query('package_registry')
       .withIndex('by_package_id', (q) => q.eq('packageId', packageId))
@@ -132,19 +150,63 @@ async function isEnabledReadyPackage(
       )
       .first(),
     ctx.db
-      .query('package_versions_ref')
-      .withIndex('by_package_channel', (q) =>
-        q.eq('packageId', packageId).eq('channel', 'stable').eq('state', 'READY')
+      .query('package_editions')
+      .withIndex('by_creator_package', (q) =>
+        q.eq('creatorAuthUserId', creatorAuthUserId).eq('packageId', packageId)
       )
       .collect(),
   ]);
-  const release = releases.sort((left, right) => right.createdAt - left.createdAt)[0];
+  const entitledIds = new Set([...entitledCatalogProductIds].map(String));
+  const entitledEdition =
+    editions
+      .filter(
+        (edition) =>
+          edition.status === 'active' &&
+          edition.catalogProductIds.some((id) => entitledIds.has(String(id)))
+      )
+      .sort(
+        (left, right) =>
+          right.priority - left.priority || left.editionId.localeCompare(right.editionId)
+      )[0]?.editionId ?? 'standard';
+  const releases = (
+    await Promise.all(
+      (['READY', 'SUPERSEDED'] as const).map((state) =>
+        ctx.db
+          .query('package_versions_ref')
+          .withIndex('by_package_edition_channel', (q) =>
+            q
+              .eq('packageId', packageId)
+              .eq('editionId', entitledEdition)
+              .eq('channel', 'stable')
+              .eq('state', state)
+          )
+          .collect()
+      )
+    )
+  )
+    .flat()
+    .filter(
+      (candidate) =>
+        isStrictSemanticVersion(candidate.version) &&
+        !isPrereleaseSemanticVersion(candidate.version)
+    )
+    .sort(
+      (left, right) =>
+        compareSemanticVersions(right.version, left.version) || right.createdAt - left.createdAt
+    );
+  const release = releases[0] ?? null;
   return registration &&
     registration.yucpUserId === creatorAuthUserId &&
     registration.status !== 'archived' &&
     enablement?.creatorSlug &&
-    release
-    ? release.version
+    release?.releaseRoot
+    ? {
+        editionId: entitledEdition,
+        packageId,
+        releaseRoot: release.releaseRoot,
+        version: release.version,
+        versionId: release.versionId,
+      }
     : null;
 }
 
@@ -154,7 +216,13 @@ async function resolveEntitledPackageIds(
   creatorAuthUserId: string
 ): Promise<{
   catalogProductIds: Set<Id<'product_catalog'>>;
-  packages: Array<{ packageId: string; version: string }>;
+  packages: Array<{
+    editionId: string;
+    packageId: string;
+    releaseRoot: string;
+    version: string;
+    versionId: string;
+  }>;
   packageIds: string[];
 }> {
   const entitlements = await activeBuyerEntitlements(ctx, buyerAuthUserId, creatorAuthUserId);
@@ -176,13 +244,11 @@ async function resolveEntitledPackageIds(
   const availability = await Promise.all(
     [...candidatePackageIds].map(async (packageId) => ({
       packageId,
-      version: await isEnabledReadyPackage(ctx, creatorAuthUserId, packageId),
+      release: await isEnabledReadyPackage(ctx, creatorAuthUserId, packageId, catalogProductIds),
     }))
   );
   const packages = availability
-    .filter(
-      (candidate): candidate is { packageId: string; version: string } => candidate.version !== null
-    )
+    .flatMap((candidate) => (candidate.release ? [candidate.release] : []))
     .sort((left, right) => left.packageId.localeCompare(right.packageId));
   return {
     catalogProductIds,
@@ -341,7 +407,15 @@ export const getActiveByLinkId = query({
       creatorName: v.string(),
       creatorSlug: v.string(),
       linkId: v.string(),
-      packages: v.array(v.object({ packageId: v.string(), version: v.string() })),
+      packages: v.array(
+        v.object({
+          editionId: v.string(),
+          packageId: v.string(),
+          releaseRoot: v.string(),
+          version: v.string(),
+          versionId: v.string(),
+        })
+      ),
       packageIds: v.array(v.string()),
       status: v.literal('active'),
     })

@@ -67,7 +67,7 @@ export function parseServerTimingHeader(headerValue: string | null): ServerTimin
     });
 }
 
-async function apiFetch<T = unknown>(path: string, options: FetchOptions = {}): Promise<T> {
+async function apiRequest(path: string, options: FetchOptions = {}): Promise<Response> {
   const { params, ...init } = options;
 
   let url = `${API_BASE}${path}`;
@@ -80,7 +80,9 @@ async function apiFetch<T = unknown>(path: string, options: FetchOptions = {}): 
   if (!headers.has('Content-Type') && init.body && typeof init.body === 'string') {
     headers.set('Content-Type', 'application/json');
   }
-  headers.set('Accept', 'application/json');
+  if (!headers.has('Accept')) {
+    headers.set('Accept', 'application/json');
+  }
   const method = init.method ?? 'GET';
   const routeCategory = inferApiRouteCategory(path);
   const startedAt = performance.now();
@@ -152,10 +154,15 @@ async function apiFetch<T = unknown>(path: string, options: FetchOptions = {}): 
     throw error;
   }
 
+  return response;
+}
+
+async function apiFetch<T = unknown>(path: string, options: FetchOptions = {}): Promise<T> {
+  const response = await apiRequest(path, options);
+
   if (response.status === 204) {
     return undefined as T;
   }
-
   return response.json() as Promise<T>;
 }
 
@@ -198,6 +205,21 @@ const apiClient = {
 
   delete: <T = unknown>(path: string, opts?: FetchOptions) =>
     apiFetch<T>(path, { ...opts, method: 'DELETE' }),
+
+  blob: async (path: string, opts?: FetchOptions) => {
+    const response = await apiRequest(path, {
+      ...opts,
+      method: 'GET',
+      headers: {
+        Accept: 'application/octet-stream, application/zip, application/gzip',
+        ...(opts?.headers as Record<string, string>),
+      },
+    });
+    return {
+      blob: await response.blob(),
+      contentDisposition: response.headers.get('Content-Disposition'),
+    };
+  },
 };
 
 export { ApiError, apiFetch, apiClient };

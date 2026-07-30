@@ -300,9 +300,21 @@ func TestExecutePreflightThenStagesVerifiedCommonTree(t *testing.T) {
 	if preflight.ActiveContentDigest != hex.EncodeToString(make([]byte, 32)) ||
 		preflight.ActivePolicyVersion != "active-content-policy-v1" ||
 		preflight.TraceID != baseInput.Traceparent[3:35] ||
-		preflight.StagingTree != "" ||
-		chunkReads != 0 {
+		preflight.StagingTree == "" ||
+		preflight.JournalState != "preflight-review-ready" ||
+		len(preflight.Files) != 1 ||
+		chunkReads != 1 {
 		t.Fatalf("Execute(preflight) = %#v, chunk reads = %d", preflight, chunkReads)
+	}
+	preflightStaged, err := os.ReadFile(
+		filepath.Join(preflight.StagingTree, "Assets", "Product", "file.txt"),
+	)
+	if err != nil || string(preflightStaged) != string(content) {
+		t.Fatalf(
+			"read preflight staged lifecycle file: %v, content = %q",
+			err,
+			preflightStaged,
+		)
 	}
 
 	installInput := baseInput

@@ -12,6 +12,7 @@ const PUBLICATION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SAFE_CHANNEL_PATTERN = /^[a-z0-9][a-z0-9._-]{0,31}$/;
 const SAFE_FAILURE_CODE_PATTERN = /^[A-Z][A-Z0-9_]{0,63}$/;
+const SAFE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const VPM_VERSION_PATTERN =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const MAX_REVISION_COMPONENT = 999_999;
@@ -84,8 +85,12 @@ const PublicationReservationV = v.object({
   bootstrapVersion: v.string(),
   channel: v.string(),
   created: v.boolean(),
+  issuedAt: v.number(),
   packageId: v.string(),
   packageVersion: v.string(),
+  editionId: v.optional(v.string()),
+  versionId: v.optional(v.string()),
+  releaseRoot: v.optional(v.string()),
   presentationFingerprintSha256: v.string(),
   publicationId: v.string(),
   revision: v.number(),
@@ -97,10 +102,13 @@ const PublishedPublicationV = v.object({
   artifact: ArtifactV,
   bootstrapVersion: v.string(),
   channel: v.string(),
-  contractVersion: v.literal(1),
+  contractVersion: v.union(v.literal(1), v.literal(2)),
   createdAt: v.number(),
   packageId: v.string(),
   packageVersion: v.optional(v.string()),
+  editionId: v.optional(v.string()),
+  versionId: v.optional(v.string()),
+  releaseRoot: v.optional(v.string()),
   presentationFingerprintSha256: v.string(),
   publicationId: v.string(),
   publishedAt: v.number(),
@@ -152,10 +160,13 @@ type PublishedPublication = {
   artifact: NonNullable<Doc<'vpm_alias_publications'>['artifact']>;
   bootstrapVersion: string;
   channel: string;
-  contractVersion: 1;
+  contractVersion: 1 | 2;
   createdAt: number;
   packageId: string;
   packageVersion?: string;
+  editionId?: string;
+  versionId?: string;
+  releaseRoot?: string;
   presentationFingerprintSha256: string;
   publicationId: string;
   publishedAt: number;
@@ -471,8 +482,12 @@ function serializeReservation(
   bootstrapVersion: string;
   channel: string;
   created: boolean;
+  issuedAt: number;
   packageId: string;
   packageVersion: string;
+  editionId?: string;
+  versionId?: string;
+  releaseRoot?: string;
   presentationFingerprintSha256: string;
   publicationId: string;
   revision: number;
@@ -485,8 +500,12 @@ function serializeReservation(
     bootstrapVersion: publication.bootstrapVersion,
     channel: publication.channel,
     created,
+    issuedAt: Math.floor(publication.createdAt / 1_000),
     packageId: publication.packageId,
     packageVersion: publication.packageVersion ?? publication.bootstrapVersion,
+    ...(publication.editionId ? { editionId: publication.editionId } : {}),
+    ...(publication.versionId ? { versionId: publication.versionId } : {}),
+    ...(publication.releaseRoot ? { releaseRoot: publication.releaseRoot } : {}),
     presentationFingerprintSha256: publication.presentationFingerprintSha256,
     publicationId: publication.publicationId,
     revision: publication.revision,
@@ -516,6 +535,9 @@ function serializePublished(
     createdAt: publication.createdAt,
     packageId: publication.packageId,
     ...(publication.packageVersion ? { packageVersion: publication.packageVersion } : {}),
+    ...(publication.editionId ? { editionId: publication.editionId } : {}),
+    ...(publication.versionId ? { versionId: publication.versionId } : {}),
+    ...(publication.releaseRoot ? { releaseRoot: publication.releaseRoot } : {}),
     presentationFingerprintSha256: publication.presentationFingerprintSha256,
     publicationId: publication.publicationId,
     publishedAt: publication.publishedAt,
@@ -724,6 +746,9 @@ export const reservePublicationForService = mutation({
     presentationFingerprintSha256: v.string(),
     publicationId: v.string(),
     packageVersion: v.optional(v.string()),
+    editionId: v.optional(v.string()),
+    versionId: v.optional(v.string()),
+    releaseRoot: v.optional(v.string()),
     publicationReason: PublicationReasonV,
     traceparent: v.optional(v.string()),
   },
@@ -739,6 +764,27 @@ export const reservePublicationForService = mutation({
     );
     const packageVersion = args.packageVersion
       ? normalizePackageVersion(args.packageVersion)
+      : undefined;
+    const targetFieldCount = [args.editionId, args.versionId, args.releaseRoot].filter(
+      (value) => value !== undefined
+    ).length;
+    if (targetFieldCount !== 0 && targetFieldCount !== 3) {
+      throw new ConvexError('VPM publication target identity is incomplete');
+    }
+    const editionId = args.editionId
+      ? requiredText(args.editionId, 'VPM publication edition', 64)
+      : undefined;
+    const versionId = args.versionId
+      ? requiredText(args.versionId, 'VPM publication version ID', 128)
+      : undefined;
+    if (
+      (editionId && !SAFE_ID_PATTERN.test(editionId)) ||
+      (versionId && !SAFE_ID_PATTERN.test(versionId))
+    ) {
+      throw new ConvexError('VPM publication target identity is invalid');
+    }
+    const releaseRoot = args.releaseRoot
+      ? validateSha256(args.releaseRoot, 'VPM publication release root')
       : undefined;
     if (!PUBLICATION_ID_PATTERN.test(args.publicationId)) {
       throw new ConvexError('VPM publication ID is invalid');
@@ -756,17 +802,44 @@ export const reservePublicationForService = mutation({
     });
     const existingCandidates = await ctx.db
       .query('vpm_alias_publications')
-      .withIndex('by_package_channel_fingerprint', (q) =>
-        q
-          .eq('packageId', packageId)
-          .eq('channel', channel)
-          .eq('presentationFingerprintSha256', fingerprint)
+      .withIndex('by_package_channel_revision', (q) =>
+        q.eq('packageId', packageId).eq('channel', channel)
       )
       .collect();
     const existing = packageVersion
-      ? existingCandidates.find((candidate) => candidate.packageVersion === packageVersion)
-      : existingCandidates[0];
+      ? existingCandidates.find(
+          (candidate) =>
+            candidate.packageVersion === packageVersion &&
+            (targetFieldCount === 0 ||
+              (candidate.editionId === editionId &&
+                candidate.versionId === versionId &&
+                candidate.releaseRoot === releaseRoot))
+        )
+      : existingCandidates.find(
+          (candidate) => candidate.presentationFingerprintSha256 === fingerprint
+        );
+    if (
+      targetFieldCount === 3 &&
+      existingCandidates.some(
+        (candidate) =>
+          candidate.packageVersion === packageVersion &&
+          candidate.versionId !== undefined &&
+          (candidate.editionId !== editionId ||
+            candidate.versionId !== versionId ||
+            candidate.releaseRoot !== releaseRoot)
+      )
+    ) {
+      throw new ConvexError('Published VPM package version target is immutable');
+    }
     if (existing && existing.status !== 'FAILED') {
+      if (
+        targetFieldCount === 3 &&
+        (existing.editionId !== editionId ||
+          existing.versionId !== versionId ||
+          existing.releaseRoot !== releaseRoot)
+      ) {
+        throw new ConvexError('Published VPM package version target is immutable');
+      }
       return serializeReservation(existing, false);
     }
     if (existing) {
@@ -805,8 +878,11 @@ export const reservePublicationForService = mutation({
       revision,
       bootstrapVersion,
       packageVersion: packageVersion ?? bootstrapVersion,
+      editionId,
+      versionId,
+      releaseRoot,
       status: 'PREPARING' as const,
-      contractVersion: presentation.contractVersion,
+      contractVersion: targetFieldCount === 3 ? (2 as const) : presentation.contractVersion,
       artifactFormat: presentation.artifactFormat,
       fingerprintSchemaVersion: 2 as const,
       presentationFingerprintSha256: fingerprint,

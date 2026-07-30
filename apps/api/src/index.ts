@@ -404,6 +404,7 @@ function initializeAuth(webhookBaseUrl?: string) {
   const vpmAliasArtifactStore = vpmAliasPublicationDatabase
     ? createConfiguredVpmAliasArtifactStore(env as NodeJS.ProcessEnv, vpmAliasPublicationDatabase)
     : undefined;
+  const packageInstallConfig = loadPackageInstallSessionConfig(env);
   vpmRoutes = createVpmRoutes({
     auth,
     ...(vpmAliasArtifactStore ? { aliasArtifactStore: vpmAliasArtifactStore } : {}),
@@ -411,6 +412,14 @@ function initializeAuth(webhookBaseUrl?: string) {
       ? { privateDomainProvisioner: privateVpmDomainProvisioner }
       : {}),
     bootstrapMediaReader: loadVpmBootstrapMediaReader(env as NodeJS.ProcessEnv),
+    ...(packageInstallConfig
+      ? {
+          bootstrapIntentSigning: {
+            keyId: packageInstallConfig.keyId,
+            privateKey: packageInstallConfig.privateKey,
+          },
+        }
+      : {}),
     config: {
       apiBaseUrl: publicBaseUrl,
       frontendBaseUrl: frontendUrl,
@@ -423,7 +432,6 @@ function initializeAuth(webhookBaseUrl?: string) {
     },
   });
 
-  const packageInstallConfig = loadPackageInstallSessionConfig(env);
   const materializationControl = loadMaterializationControlClient(env);
   packageOperationAuthorizationDatabase?.end({ timeout: 1 }).catch(() => undefined);
   packageOperationAuthorizationDatabase = env.PACKAGE_OPERATION_AUTHORIZATION_DATABASE_URL

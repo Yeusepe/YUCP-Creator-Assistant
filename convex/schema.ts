@@ -2774,8 +2774,11 @@ const vpm_alias_publications = defineTable({
   revision: v.number(),
   bootstrapVersion: v.string(),
   packageVersion: v.optional(v.string()),
+  editionId: v.optional(v.string()),
+  versionId: v.optional(v.string()),
+  releaseRoot: v.optional(v.string()),
   status: v.union(v.literal('PREPARING'), v.literal('PUBLISHED'), v.literal('FAILED')),
-  contractVersion: v.literal(1),
+  contractVersion: v.union(v.literal(1), v.literal(2)),
   artifactFormat: v.literal('vpm-alias-zip-v1'),
   fingerprintSchemaVersion: v.union(v.literal(1), v.literal(2)),
   presentationFingerprintSha256: v.string(),
@@ -2920,6 +2923,7 @@ const package_versions_ref = defineTable({
     'createdAt',
   ])
   .index('by_package_edition_version', ['packageId', 'editionId', 'version'])
+  .index('by_package_version', ['packageId', 'version'])
   .index('by_version_id', ['versionId'])
   .index('by_release_root', ['releaseRoot'])
   .index('by_release_package_edition_channel_state', [

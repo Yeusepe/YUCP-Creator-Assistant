@@ -4,6 +4,7 @@ import type { PropsWithChildren } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
+  apiBlobMock,
   apiDeleteMock,
   apiGetMock,
   apiPostMock,
@@ -11,11 +12,14 @@ const {
   markSessionExpiredMock,
   navigateMock,
   routeSearchMock,
+  toastErrorMock,
+  toastSuccessMock,
   uploadStartMock,
   uploadErrorRef,
   uploadProgressRef,
   uploadSuccessRef,
 } = vi.hoisted(() => ({
+  apiBlobMock: vi.fn(),
   apiDeleteMock: vi.fn(),
   apiGetMock: vi.fn(),
   apiPostMock: vi.fn(),
@@ -23,6 +27,8 @@ const {
   markSessionExpiredMock: vi.fn(),
   navigateMock: vi.fn(),
   routeSearchMock: vi.fn(() => ({ view: undefined })),
+  toastErrorMock: vi.fn(),
+  toastSuccessMock: vi.fn(),
   uploadStartMock: vi.fn(),
   uploadErrorRef: { current: null as null | ((error: Error) => void) },
   uploadProgressRef: { current: null as null | ((uploaded: number, total: number) => void) },
@@ -44,6 +50,7 @@ vi.mock('@tanstack/react-router', () => ({
 
 vi.mock('@/api/client', () => ({
   apiClient: {
+    blob: apiBlobMock,
     delete: apiDeleteMock,
     get: apiGetMock,
     post: apiPostMock,
@@ -83,9 +90,9 @@ vi.mock('@/components/dashboard/CouplingForensicsPanel', () => ({
 
 vi.mock('@/components/ui/Toast', () => ({
   useToast: () => ({
-    error: vi.fn(),
+    error: toastErrorMock,
     info: vi.fn(),
-    success: vi.fn(),
+    success: toastSuccessMock,
     warning: vi.fn(),
   }),
 }));
@@ -758,7 +765,7 @@ describe('dashboard packages route', () => {
             queuePosition: null,
             state: 'ready',
             updatedAt: '2026-07-26T12:00:00.000Z',
-            version: 'Patreon gold',
+            version: '2.0.0',
             versionId: 'version-2',
           });
         }
@@ -784,7 +791,7 @@ describe('dashboard packages route', () => {
     expect(screen.getByRole('option', { name: /Personal license/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('option', { name: /Gold patrons/i }));
     fireEvent.change(screen.getByLabelText('Release label'), {
-      target: { value: 'Patreon gold' },
+      target: { value: '2.0.0' },
     });
     const file = new File(['package bytes'], 'avatar-patreon-gold.zip', {
       type: 'application/zip',
@@ -801,7 +808,7 @@ describe('dashboard packages route', () => {
     await waitFor(() =>
       expect(apiPostMock).toHaveBeenCalledWith('/api/creator/uploads/authorize', {
         packageId: 'com.creator.avatar-bundle',
-        version: 'Patreon gold',
+        version: '2.0.0',
         catalogProductIds: [
           'catalog_product_1',
           'catalog_product_patreon',
@@ -2319,11 +2326,36 @@ describe('dashboard packages route', () => {
   });
 
   it('enables, downloads, and disables tailored Unity access from product details', async () => {
+    const defaultGet = apiGetMock.getMockImplementation();
+    apiGetMock.mockImplementation((path: string, options?: unknown) => {
+      if (path === standardVersionPath) {
+        return Promise.resolve({
+          data: [
+            {
+              ...exactLabelVersion,
+              state: 'superseded',
+              version: '2.1.0',
+              versionId: 'version-2-1-0',
+            },
+          ],
+          hasMore: false,
+          nextCursor: null,
+        });
+      }
+      return defaultGet?.(path, options);
+    });
     const writeTextMock = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: { writeText: writeTextMock },
     });
+    let rejectBootstrapDownload: ((error: Error) => void) | undefined;
+    apiBlobMock.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectBootstrapDownload = reject;
+        })
+    );
     let resolveCreate:
       | ((value: {
           status: 'active';
@@ -2370,13 +2402,53 @@ describe('dashboard packages route', () => {
         expect.stringMatching(/\/legal\/verification-and-attestation$/)
       )
     );
-    expect(await screen.findByRole('link', { name: 'Download bootstrap' })).toHaveAttribute(
-      'href',
-      '/api/creator/packages/by-package/com.creator.avatar-bundle/bootstrap'
+    fireEvent.click(await screen.findByRole('button', { name: 'Download bootstrap' }));
+    expect(await screen.findByRole('heading', { name: 'Download bootstrap' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Latest' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Specific version' })).not.toBeChecked();
+    expect(
+      screen.getByText(
+        'Resolves the newest authorized stable release when this bootstrap is imported. It does not subscribe the project to updates.'
+      )
+    ).toBeInTheDocument();
+    expect(await screen.findByText('VPM bootstrap')).toBeInTheDocument();
+    expect(screen.getByText('Unitypackage bootstrap')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download VPM bootstrap' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Download Unitypackage bootstrap' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('radio', { name: 'Specific version' }));
+    const releaseList = await screen.findByLabelText('READY package releases');
+    expect(within(releaseList).getByText('2.1.0')).toBeInTheDocument();
+    fireEvent.click(within(releaseList).getByText('2.1.0'));
+    expect(
+      screen.getByText('Pins this bootstrap to 2.1.0. It will never substitute a newer release.')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Selecting a version in VCC installs that exact release. VCC's Latest option selects the highest published stable SemVer."
+      )
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Download VPM bootstrap' }));
+    const pendingDownload = await screen.findByRole('button', {
+      name: 'Download VPM bootstrap',
+    });
+    expect(pendingDownload).toBeDisabled();
+    expect(pendingDownload).toHaveTextContent('Downloading...');
+    expect(screen.getByRole('button', { name: 'Download Unitypackage bootstrap' })).toBeDisabled();
+    expect(apiBlobMock).toHaveBeenCalledWith(
+      '/api/creator/packages/by-package/com.creator.avatar-bundle/bootstrap',
+      {
+        params: {
+          editionId: 'standard',
+          mode: 'specific',
+          versionId: 'version-2-1-0',
+        },
+      }
     );
-    expect(screen.getByRole('link', { name: 'Download Unity package' })).toHaveAttribute(
-      'href',
-      '/api/creator/packages/by-package/com.creator.avatar-bundle/bootstrap.unitypackage'
+    rejectBootstrapDownload?.(new Error('Bootstrap generation failed'));
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith('Could not download the bootstrap', {
+        description: 'Bootstrap generation failed',
+      })
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Enable Unity access' }));

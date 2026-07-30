@@ -42,8 +42,14 @@ type File struct {
 	Bytes          int64   `json:"bytes"`
 	Chunks         []Chunk `json:"chunks"`
 	Classification string  `json:"classification"`
+	// The server stamps protected entries with coupling routing metadata
+	// (lane plus PNG pixel bounds). The client never acts on them, but the
+	// strict decoder must know every published field.
+	CouplingLane   string  `json:"couplingLane,omitempty"`
 	Materializer   string  `json:"materializerType,omitempty"`
 	NormalizedPath string  `json:"normalizedPath"`
+	PixelHeight    *int64  `json:"pixelHeight,omitempty"`
+	PixelWidth     *int64  `json:"pixelWidth,omitempty"`
 	SHA256         string  `json:"sha256"`
 }
 
@@ -212,8 +218,15 @@ func validateFile(file File, index int) error {
 	if file.Classification != "common" && file.Classification != "protected" {
 		return fmt.Errorf("delivery manifest file %d classification is invalid", index)
 	}
-	if (file.Classification == "common" && file.Materializer != "") ||
+	if (file.Classification == "common" &&
+		(file.Materializer != "" ||
+			file.CouplingLane != "" ||
+			file.PixelWidth != nil ||
+			file.PixelHeight != nil)) ||
 		(file.Classification == "protected" && !isSafeText(file.Materializer, 128)) ||
+		(file.CouplingLane != "" && file.CouplingLane != "worker" && file.CouplingLane != "container") ||
+		(file.PixelWidth != nil && (*file.PixelWidth < 1 || *file.PixelWidth > 1<<31)) ||
+		(file.PixelHeight != nil && (*file.PixelHeight < 1 || *file.PixelHeight > 1<<31)) ||
 		file.Bytes < 0 ||
 		!isDigest(file.SHA256) ||
 		len(file.Chunks) == 0 {
