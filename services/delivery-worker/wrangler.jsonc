@@ -5,6 +5,9 @@
   "compatibility_date": "2026-07-24",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
+  // The rendition worker's delivery.yucp.club/v2/renditions* route takes
+  // precedence over this custom domain for that path.
+  "routes": [{ "pattern": "delivery.yucp.club", "custom_domain": true }],
   "observability": {
     "enabled": true,
     "logs": {
