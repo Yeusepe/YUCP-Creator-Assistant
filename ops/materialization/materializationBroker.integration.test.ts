@@ -306,6 +306,26 @@ describe.serial('PostgreSQL materialization capability broker', () => {
     if (claimed.status !== 'claimed') {
       throw new Error('Expected the materialization job to be claimed');
     }
+    // A retried workflow step re-claims the job it already holds; without an
+    // idempotent re-claim the owner reads its own lease as saturation forever.
+    const reclaimed = await broker.claimNextJob({
+      jobId: 'job-1',
+      leaseDurationMs: 600_000,
+      leaseOwner: 'data-node-1',
+      now: new Date((nowSeconds + 1) * 1_000),
+    });
+    expect(reclaimed).toMatchObject({
+      jobId: 'job-1',
+      leaseGeneration: claimed.leaseGeneration,
+      status: 'claimed',
+    });
+    const otherOwner = await broker.claimNextJob({
+      jobId: 'job-1',
+      leaseDurationMs: 600_000,
+      leaseOwner: 'data-node-2',
+      now: new Date((nowSeconds + 1) * 1_000),
+    });
+    expect(otherOwner.status).not.toBe('claimed');
     const renewed = await broker.renewClaimLease({
       jobId: claimed.jobId,
       leaseDurationMs: 600_000,

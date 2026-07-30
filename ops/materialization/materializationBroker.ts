@@ -1446,6 +1446,36 @@ export class MaterializationBroker {
               AND state IN ('MATERIALIZING', 'VERIFYING')
               AND lease_expires_at <= ${now}
           `;
+          // A durable-workflow step can be retried after it already took the lease.
+          // Re-issuing the same fence to the owner that holds it keeps the claim
+          // idempotent; without this the retry sees its own lease as saturation and
+          // the job can never progress.
+          if (requestedJobId !== undefined) {
+            const owned = await transaction<
+              { id: string; lease_expires_at: Date; lease_generation: number }[]
+            >`
+              UPDATE materialization_jobs
+              SET
+                lease_expires_at = ${leaseExpiresAt},
+                heartbeat_at = ${now},
+                updated_at = ${now}
+              WHERE
+                id = ${requestedJobId}
+                AND lane = ${lane}
+                AND lease_owner = ${leaseOwner}
+                AND state IN ('MATERIALIZING', 'VERIFYING')
+                AND lease_expires_at > ${now}
+              RETURNING id, lease_generation, lease_expires_at
+            `;
+            if (owned[0]) {
+              return {
+                jobId: owned[0].id,
+                leaseExpiresAt: new Date(owned[0].lease_expires_at),
+                leaseGeneration: owned[0].lease_generation,
+                status: 'claimed' as const,
+              };
+            }
+          }
           const active = await transaction<{ id: string }[]>`
             SELECT id
             FROM materialization_jobs
