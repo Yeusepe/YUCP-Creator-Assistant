@@ -154,7 +154,14 @@ async function signedRequest(input: SignedRequestInput): Promise<Response> {
     try {
       response = await client.fetch(url, {
         body: input.body,
-        headers: input.headers,
+        headers: {
+          // Cloudflare's edge gzips compressible content types (e.g. JSON) on the
+          // fly, which weakens the ETag to W/"..." and drops the content length —
+          // breaking exact-version identity checks. Identity encoding keeps every
+          // response byte-exact as stored.
+          'accept-encoding': 'identity',
+          ...input.headers,
+        },
         method: input.method,
         signal: AbortSignal.timeout(timeoutMs),
       });
@@ -312,7 +319,12 @@ export type S3ExactObjectHead = S3ExactObjectVersion & {
 };
 
 function normalizeS3Etag(etag: string | null | undefined): string | null {
-  const value = etag?.trim().replace(/^"|"$/g, '');
+  // A weak validator prefix (W/"...") carries the same stored identity — Cloudflare's
+  // edge weakens the ETag when it transforms a response, without changing the value.
+  const value = etag
+    ?.trim()
+    .replace(/^W\//i, '')
+    .replace(/^"|"$/g, '');
   return value ? value : null;
 }
 
