@@ -76,18 +76,33 @@ func DecodeOperationRequest(raw []byte) (OperationRequest, error) {
 }
 
 func validateOperationRequest(request OperationRequest) error {
-	if request.SchemaVersion != OperationRequestSchemaVersion ||
-		!safeIdentifierPattern.MatchString(request.RunID) ||
-		!safeIdentifierPattern.MatchString(request.AliasID) ||
-		!safeIdentifierPattern.MatchString(request.IdempotencyKey) ||
-		!isDigest(request.ExpectedCurrentReleaseRoot) ||
-		!isOptionalDigest(request.TargetReleaseRoot) ||
-		!isOptionalBootstrapIntent(request.BootstrapIntentJSON) ||
-		!isDigest(request.ProjectIdentity) ||
-		!filepath.IsAbs(request.ProjectPath) ||
-		strings.ContainsRune(request.ProjectPath, '\x00') ||
-		!validTraceparent(request.Traceparent) {
-		return fmt.Errorf("package operation request binding is invalid")
+	// Each binding reports its own field: one shared message across ten checks
+	// makes a rejected request undiagnosable from a log.
+	for _, binding := range []struct {
+		name  string
+		valid bool
+	}{
+		{"schemaVersion", request.SchemaVersion == OperationRequestSchemaVersion},
+		{"runId", safeIdentifierPattern.MatchString(request.RunID)},
+		{"aliasId", safeIdentifierPattern.MatchString(request.AliasID)},
+		{"idempotencyKey", safeIdentifierPattern.MatchString(request.IdempotencyKey)},
+		{"expectedCurrentReleaseRoot", isDigest(request.ExpectedCurrentReleaseRoot)},
+		{"targetReleaseRoot", isOptionalDigest(request.TargetReleaseRoot)},
+		{"bootstrapIntentJson", isOptionalBootstrapIntent(request.BootstrapIntentJSON)},
+		{"projectIdentity", isDigest(request.ProjectIdentity)},
+		{
+			"projectPath",
+			filepath.IsAbs(request.ProjectPath) &&
+				!strings.ContainsRune(request.ProjectPath, '\x00'),
+		},
+		{"traceparent", validTraceparent(request.Traceparent)},
+	} {
+		if !binding.valid {
+			return fmt.Errorf(
+				"package operation request binding is invalid: %s",
+				binding.name,
+			)
+		}
 	}
 	switch request.Operation {
 	case "install", "preflight", "recover", "repair", "rollback", "uninstall", "update":
