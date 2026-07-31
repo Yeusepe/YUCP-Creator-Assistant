@@ -4,7 +4,7 @@ import type { MutationCtx, QueryCtx } from './_generated/server';
 import { mutation, query } from './_generated/server';
 import { ApiActorBindingV, requireServiceActor } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
-import { requireCreatorWorkspaceActor } from './lib/creatorWorkspaceAccess';
+import { requireCreatorWorkspaceCapability } from './lib/creatorWorkspaceAccess';
 
 const PACKAGE_ID_PATTERN = /^[a-z0-9][a-z0-9._/:~-]{0,127}$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
@@ -634,7 +634,10 @@ export const seedPresentationIfMissingForCreator = mutation({
   returns: PresentationResultV,
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
+    await requireCreatorWorkspaceCapability(ctx, args.actor, args.authUserId, {
+      capabilityKey: 'packages.unity_access.manage',
+      resources: [{ resourceId: args.packageId, resourceType: 'package' }],
+    });
     return await writePresentation(ctx, args, 'seed');
   },
 });
@@ -648,7 +651,10 @@ export const updatePresentationForCreator = mutation({
   returns: PresentationResultV,
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
+    await requireCreatorWorkspaceCapability(ctx, args.actor, args.authUserId, {
+      capabilityKey: 'packages.unity_access.manage',
+      resources: [{ resourceId: args.packageId, resourceType: 'package' }],
+    });
     return await writePresentation(ctx, args, 'update');
   },
 });
@@ -818,18 +824,40 @@ export const reservePublicationForService = mutation({
       : existingCandidates.find(
           (candidate) => candidate.presentationFingerprintSha256 === fingerprint
         );
-    if (
-      targetFieldCount === 3 &&
-      existingCandidates.some(
-        (candidate) =>
-          candidate.packageVersion === packageVersion &&
-          candidate.versionId !== undefined &&
-          (candidate.editionId !== editionId ||
-            candidate.versionId !== versionId ||
-            candidate.releaseRoot !== releaseRoot)
-      )
-    ) {
-      throw new ConvexError('Published VPM package version target is immutable');
+    // A version number is only immutable while the release it points at still exists.
+    // An unreleased package is deleted and re-uploaded at the same version many times
+    // before it ships, and a publication whose target has been deleted can no longer be
+    // installed, so it must not hold that version number hostage.
+    const retargeted =
+      targetFieldCount === 3
+        ? existingCandidates.filter(
+            (candidate) =>
+              candidate.packageVersion === packageVersion &&
+              candidate.versionId !== undefined &&
+              (candidate.editionId !== editionId ||
+                candidate.versionId !== versionId ||
+                candidate.releaseRoot !== releaseRoot)
+          )
+        : [];
+    const abandoned: Doc<'vpm_alias_publications'>[] = [];
+    for (const candidate of retargeted) {
+      const target = await ctx.db
+        .query('package_versions_ref')
+        .withIndex('by_version_id', (q) => q.eq('versionId', candidate.versionId as string))
+        .first();
+      if (target && target.state !== 'DELETED') {
+        throw new ConvexError('Published VPM package version target is immutable');
+      }
+      abandoned.push(candidate);
+    }
+    for (const candidate of abandoned) {
+      if (candidate.status !== 'FAILED') {
+        await ctx.db.patch(candidate._id, {
+          failureCode: 'TARGET_DELETED',
+          status: 'FAILED',
+          updatedAt: Date.now(),
+        });
+      }
     }
     if (existing && existing.status !== 'FAILED') {
       if (
