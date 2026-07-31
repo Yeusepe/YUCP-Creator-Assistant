@@ -1,7 +1,7 @@
 import { useConvexAuth, useMutation as useConvexMutation } from 'convex/react';
 import { useEffect } from 'react';
-import { api } from '../../../../../convex/_generated/api';
 import { PRIVACY_PREFERENCES_EVENT, type PrivacyPreferences } from '@/lib/privacyPreferences';
+import { api } from '../../../../../convex/_generated/api';
 
 /**
  * Records a signed-in buyer's banner choice. This lives inside the authenticated

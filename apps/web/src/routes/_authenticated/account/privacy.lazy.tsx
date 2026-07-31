@@ -2,7 +2,6 @@ import { useMutation } from '@tanstack/react-query';
 import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
 import { useMutation as useConvexMutation } from 'convex/react';
 import { useEffect, useRef, useState } from 'react';
-import { api } from '../../../../../../convex/_generated/api';
 import { apiClient } from '@/api/client';
 import { AccountModal, AccountPage, AccountSectionCard } from '@/components/account/AccountPage';
 import { useToast } from '@/components/ui/Toast';
@@ -16,6 +15,7 @@ import {
   readStoredPrivacyPreferences,
   savePrivacyPreferences,
 } from '@/lib/privacyPreferences';
+import { api } from '../../../../../../convex/_generated/api';
 
 export const Route = createLazyFileRoute('/_authenticated/account/privacy')({
   component: AccountPrivacy,
@@ -59,9 +59,7 @@ function AccountPrivacy() {
   const [preferences, setPreferences] = useState<PrivacyPreferences | null>(null);
   const [preferencesReady, setPreferencesReady] = useState(false);
   const deleteInputRef = useRef<HTMLInputElement>(null);
-  const recordDiagnosticsConsent = useConvexMutation(
-    api.accountDiagnosticsConsent.recordConsent
-  );
+  const recordDiagnosticsConsent = useConvexMutation(api.accountDiagnosticsConsent.recordConsent);
 
   const deleteMut = useMutation({
     mutationFn: () => apiClient.delete('/api/connect/user/gdpr-delete'),

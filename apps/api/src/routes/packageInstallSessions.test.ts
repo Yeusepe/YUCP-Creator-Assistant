@@ -920,10 +920,10 @@ describe('package install session route', () => {
           ok: true,
         }),
       });
-      const {
-        operationCapability: _capability,
-        ...operation
-      } = await requestBody({ operation: 'preflight', targetReleaseRoot: '99'.repeat(32) });
+      const { operationCapability: _capability, ...operation } = await requestBody({
+        operation: 'preflight',
+        targetReleaseRoot: '99'.repeat(32),
+      });
       const response = await handler(request(operation));
       return { body: (await response.json()) as Record<string, string>, status: response.status };
     }

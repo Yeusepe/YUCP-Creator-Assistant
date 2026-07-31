@@ -30,6 +30,7 @@ import {
 import { isStrictSemanticVersion } from '@yucp/shared/semanticVersion';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DialogContext, Heading } from 'react-aria-components';
+import { ApiError } from '@/api/client';
 import { AccountInlineError } from '@/components/account/AccountPage';
 import { PackageRegistryWorkspaceSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { Icon } from '@/components/ui/Icon';
@@ -38,6 +39,7 @@ import { YucpButton } from '@/components/ui/YucpButton';
 import { YucpInput } from '@/components/ui/YucpInput';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
 import { getAccountProviderIconPath } from '@/lib/account';
+import { getApiErrorMessage } from '@/lib/apiErrors';
 import {
   archiveCreatorPackageEdition,
   bindCreatorPackageStorefront,
@@ -46,6 +48,7 @@ import {
   type CreatorPackageProductSummary,
   type CreatorPackageVersionListPage,
   type CreatorPackageVersionStatus,
+  cancelCreatorPackageVersion,
   createCreatorPackageVccLink,
   deleteCreatorPackageVersion,
   downloadCreatorPackageBootstrap,
@@ -253,15 +256,88 @@ function getReleaseStateLabel(state: CreatorPackageVersionStatus['state']): stri
     case 'publishing':
       return 'Publishing';
     case 'recovering':
-      return 'Recovering';
+      return 'Retrying';
     case 'ready':
       return 'Ready';
     case 'failed':
-      return 'Failed';
+      return 'Needs attention';
+    case 'canceled':
+      return 'Canceled';
     case 'deleted':
       return 'Deleted';
   }
 }
+
+function getReleaseStateDetail(state: CreatorPackageVersionStatus['state']): string {
+  switch (state) {
+    case 'queued':
+      return 'Waiting for a preparation slot. Nothing is wrong.';
+    case 'uploading':
+      return 'The file is still arriving. You can cancel this at any time.';
+    case 'preparing':
+      return 'We are checking and packing this release. You can cancel this at any time.';
+    case 'publishing':
+      return 'Almost done — making this release available to buyers.';
+    case 'recovering':
+      return 'A step was interrupted, so the server is retrying it automatically. This is not a failure.';
+    case 'ready':
+      return 'Buyers can install this release.';
+    case 'failed':
+      return 'Preparation stopped and will not resume on its own. Delete it, or upload the version again.';
+    case 'canceled':
+      return 'You stopped this release. It was never published, and you can delete it now.';
+    case 'deleted':
+      return 'This release is no longer available to buyers.';
+  }
+}
+
+function getReleaseStateTone(
+  state: CreatorPackageVersionStatus['state']
+): 'accent' | 'danger' | 'default' | 'success' {
+  switch (state) {
+    case 'ready':
+      return 'success';
+    case 'failed':
+      return 'danger';
+    case 'canceled':
+    case 'deleted':
+      return 'default';
+    default:
+      return 'accent';
+  }
+}
+
+// A running release cannot be deleted, only stopped: deleting underneath a worker that is still
+// writing is what produced the opaque "delete blocked" error creators used to hit.
+function isRunningReleaseState(state: CreatorPackageVersionStatus['state']): boolean {
+  return isServerProcessingStatus(state);
+}
+
+function getBlockedReleaseState(error: unknown): CreatorPackageVersionStatus['state'] | null {
+  if (!(error instanceof ApiError) || error.status !== 409) {
+    return null;
+  }
+  const body = error.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return null;
+  }
+  const state = (body as { state?: unknown }).state;
+  return typeof state === 'string' && RELEASE_STATES.has(state)
+    ? (state as CreatorPackageVersionStatus['state'])
+    : null;
+}
+
+const RELEASE_STATES = new Set<string>([
+  'queued',
+  'uploading',
+  'preparing',
+  'publishing',
+  'recovering',
+  'ready',
+  'failed',
+  'canceled',
+  'deleted',
+]);
 
 function getPickerProduct(
   entry: CreatorPackagePickerProduct | undefined,
@@ -460,6 +536,9 @@ async function waitForPackageVersionReady(
       throw new PackageVersionTerminalError(
         'The uploaded version was removed before it became available.'
       );
+    }
+    if (status.state === 'canceled') {
+      throw new PackageVersionTerminalError('This upload was canceled, so it was never published.');
     }
     onStatus({
       estimatedStartAt: status.estimatedStartAt,
@@ -818,6 +897,7 @@ function ProductDetailsSheet({
     priority: number;
   } | null>(null);
   const [confirmArchiveEditionId, setConfirmArchiveEditionId] = useState<string | null>(null);
+  const [confirmCancelVersionId, setConfirmCancelVersionId] = useState<string | null>(null);
   const [confirmDeleteVersionId, setConfirmDeleteVersionId] = useState<string | null>(null);
   const [selectedHistoryEditionId, setSelectedHistoryEditionId] = useState('standard');
   const [isBootstrapDownloadOpen, setIsBootstrapDownloadOpen] = useState(false);
@@ -1121,6 +1201,37 @@ function ProductDetailsSheet({
       });
     },
   });
+  const cancelVersionMutation = useMutation({
+    mutationFn: (input: { editionId: string; versionId: string }) => {
+      if (!packageId) {
+        throw new Error('Open a package before canceling a release.');
+      }
+      return cancelCreatorPackageVersion(packageId, input.editionId, input.versionId);
+    },
+    onSuccess: async (_result, { editionId }) => {
+      if (!packageId) return;
+      await Promise.all([
+        queryClient.invalidateQueries({
+          exact: true,
+          queryKey: ['creator-package-versions', packageId, editionId] as const,
+        }),
+        queryClient.invalidateQueries({ queryKey: creatorProductsQueryKey }),
+      ]);
+      setConfirmCancelVersionId(null);
+      toast.success('Release canceled', {
+        description: 'Preparation stops shortly. You can delete this release once it settles.',
+      });
+    },
+    onError: (error) => {
+      if (isDashboardAuthError(error)) {
+        markSessionExpired();
+        return;
+      }
+      toast.error('Could not cancel release', {
+        description: getApiErrorMessage(error, 'Try again.'),
+      });
+    },
+  });
   const deleteVersionMutation = useMutation({
     mutationFn: (input: { editionId: string; versionId: string }) => {
       if (!packageId) {
@@ -1161,8 +1272,17 @@ function ProductDetailsSheet({
         markSessionExpired();
         return;
       }
+      const blockedState = getBlockedReleaseState(error);
+      if (blockedState) {
+        toast.error('This release is still running', {
+          description: `${getReleaseStateLabel(blockedState)}: ${getReleaseStateDetail(
+            blockedState
+          )} Cancel it first, then delete it.`,
+        });
+        return;
+      }
       toast.error('Could not delete release', {
-        description: error instanceof Error ? error.message : 'Try again.',
+        description: getApiErrorMessage(error, 'Try again.'),
       });
     },
   });
@@ -2219,11 +2339,20 @@ function ProductDetailsSheet({
                           packageVersions.map((packageVersion) => {
                             const isConfirming =
                               confirmDeleteVersionId === packageVersion.versionId;
+                            const isConfirmingCancel =
+                              confirmCancelVersionId === packageVersion.versionId;
+                            const isRunning = isRunningReleaseState(packageVersion.state);
                             const isDeleting =
                               deleteVersionMutation.isPending &&
                               deleteVersionMutation.variables?.editionId ===
                                 selectedHistoryEditionId &&
                               deleteVersionMutation.variables?.versionId ===
+                                packageVersion.versionId;
+                            const isCanceling =
+                              cancelVersionMutation.isPending &&
+                              cancelVersionMutation.variables?.editionId ===
+                                selectedHistoryEditionId &&
+                              cancelVersionMutation.variables?.versionId ===
                                 packageVersion.versionId;
                             return (
                               <div
@@ -2236,10 +2365,17 @@ function ProductDetailsSheet({
                                       <p className="text-foreground text-sm font-medium">
                                         {packageVersion.version}
                                       </p>
-                                      <Chip size="sm" variant="soft">
+                                      <Chip
+                                        color={getReleaseStateTone(packageVersion.state)}
+                                        size="sm"
+                                        variant="soft"
+                                      >
                                         {getReleaseStateLabel(packageVersion.state)}
                                       </Chip>
                                     </div>
+                                    <p className="pm-subtle-copy mt-1 text-xs leading-5">
+                                      {getReleaseStateDetail(packageVersion.state)}
+                                    </p>
                                     <p className="pm-subtle-copy mt-1 text-xs">
                                       Added{' '}
                                       {new Intl.DateTimeFormat(undefined, {
@@ -2247,7 +2383,20 @@ function ProductDetailsSheet({
                                       }).format(new Date(packageVersion.createdAt))}
                                     </p>
                                   </div>
-                                  {!isConfirming ? (
+                                  {isConfirming || isConfirmingCancel ? null : isRunning ? (
+                                    <YucpButton
+                                      yucp="ghost"
+                                      size="sm"
+                                      isDisabled={cancelVersionMutation.isPending}
+                                      onPress={() =>
+                                        setConfirmCancelVersionId(packageVersion.versionId)
+                                      }
+                                      aria-label={`Cancel release ${packageVersion.version}`}
+                                    >
+                                      <Icon name="close" className="size-4" />
+                                      Cancel
+                                    </YucpButton>
+                                  ) : (
                                     <YucpButton
                                       yucp="ghost"
                                       size="sm"
@@ -2260,8 +2409,43 @@ function ProductDetailsSheet({
                                       <Icon name="trash" className="size-4" />
                                       Delete
                                     </YucpButton>
-                                  ) : null}
+                                  )}
                                 </div>
+                                {isConfirmingCancel ? (
+                                  <div className="pm-inline-note space-y-3 rounded-xl p-3">
+                                    <p className="text-foreground text-sm font-semibold">
+                                      Stop preparing release {packageVersion.version}?
+                                    </p>
+                                    <p className="pm-subtle-copy text-sm leading-6">
+                                      Preparation stops within about a minute and this release is
+                                      marked canceled, not failed. Buyers never saw it, and you can
+                                      delete it or upload the version again afterwards.
+                                    </p>
+                                    <div className="flex flex-wrap justify-end gap-2">
+                                      <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        isDisabled={isCanceling}
+                                        onPress={() => setConfirmCancelVersionId(null)}
+                                      >
+                                        Keep preparing
+                                      </Button>
+                                      <YucpButton
+                                        yucp="danger"
+                                        size="sm"
+                                        isLoading={isCanceling}
+                                        onPress={() =>
+                                          cancelVersionMutation.mutate({
+                                            editionId: selectedHistoryEditionId,
+                                            versionId: packageVersion.versionId,
+                                          })
+                                        }
+                                      >
+                                        {isCanceling ? 'Canceling...' : 'Cancel release'}
+                                      </YucpButton>
+                                    </div>
+                                  </div>
+                                ) : null}
                                 {isConfirming ? (
                                   <div className="pm-inline-note space-y-3 rounded-xl p-3">
                                     <p className="text-foreground text-sm font-semibold">

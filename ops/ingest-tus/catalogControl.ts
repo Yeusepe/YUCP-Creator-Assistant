@@ -8,6 +8,7 @@ import {
   resolveRetryPolicy,
 } from '../catalog';
 
+export const CATALOG_CANCEL_VERSION_PATH = '/v1/internal/catalog/package-versions/cancel' as const;
 export const CATALOG_DELETE_VERSION_PATH = '/v1/internal/catalog/package-versions/delete' as const;
 export const CATALOG_LIST_VERSIONS_PATH = '/v1/internal/catalog/package-versions' as const;
 export const CATALOG_VERSION_STATUS_PATH = '/v1/internal/catalog/package-versions/status' as const;
@@ -23,6 +24,15 @@ const VERSION_PAGE_CURSOR_LIMIT = 2 * 1024;
 const TRACEPARENT_PATTERN = /^00-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}$/;
 
 type CatalogControlPort = {
+  cancelVersion(
+    versionId: string,
+    reason: string
+  ): Promise<{
+    attempts?: number;
+    id: string;
+    nextAttemptAt?: Date | null;
+    state?: string;
+  }>;
   deleteVersion(
     versionId: string,
     input: { editionId: string; packageId: string; reason: string }
@@ -94,6 +104,7 @@ export type CatalogControlEvent = {
   event:
     | 'catalog.release_pin.acquire'
     | 'catalog.release_pin.release'
+    | 'catalog.version.cancel_command'
     | 'catalog.version.delete_command'
     | 'catalog.version.list_read'
     | 'catalog.version.status_read';
@@ -211,6 +222,7 @@ export function isCatalogControlRequest(request: IncomingMessage): boolean {
   const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
   return (
     pathname === CATALOG_ACQUIRE_RELEASE_PIN_PATH ||
+    pathname === CATALOG_CANCEL_VERSION_PATH ||
     pathname === CATALOG_DELETE_VERSION_PATH ||
     pathname === CATALOG_LIST_VERSIONS_PATH ||
     pathname === CATALOG_RELEASE_RELEASE_PIN_PATH ||
@@ -377,6 +389,7 @@ function publicVersionState(
   | 'recovering'
   | 'ready'
   | 'failed'
+  | 'canceled'
   | 'deleted' {
   if (isCatalogVersionRedriveEligible(version, maxAttempts)) {
     return 'recovering';
@@ -394,6 +407,8 @@ function publicVersionState(
       return 'ready';
     case 'FAILED':
       return 'failed';
+    case 'CANCELED':
+      return 'canceled';
     case 'DELETED':
       return 'deleted';
     default:
@@ -632,6 +647,32 @@ export function createCatalogControlHandler(input: CatalogControlHandlerInput): 
         throw new ControlBoundaryError(404, 'PACKAGE_VERSION_NOT_FOUND');
       }
 
+      if (pathname === CATALOG_CANCEL_VERSION_PATH) {
+        eventName = 'catalog.version.cancel_command';
+        const canceled =
+          current.state === 'CANCELED'
+            ? current
+            : await input.catalog.cancelVersion(versionId, 'Canceled by the creator');
+        emitEvent(input, {
+          durationMs: Math.round(performance.now() - startedAt),
+          event: eventName,
+          status: 'accepted',
+          traceId,
+          versionId,
+        });
+        sendJson(
+          response,
+          200,
+          {
+            canceledFrom: publicVersionState(current, maxAttempts),
+            state: publicVersionState(canceled, maxAttempts),
+            versionId,
+          },
+          traceId
+        );
+        return;
+      }
+
       const deleted = await input.catalog.deleteVersion(versionId, {
         editionId,
         packageId,
@@ -660,6 +701,7 @@ export function createCatalogControlHandler(input: CatalogControlHandlerInput): 
     })().catch((error: unknown) => {
       let status = 500;
       let errorCode = 'CATALOG_CONTROL_FAILED';
+      let blockingState: string | undefined;
       if (error instanceof ControlBoundaryError) {
         status = error.status;
         errorCode = error.errorCode;
@@ -668,7 +710,16 @@ export function createCatalogControlHandler(input: CatalogControlHandlerInput): 
         errorCode = 'PACKAGE_VERSION_NOT_FOUND';
       } else if (error instanceof IllegalCatalogTransitionError) {
         status = 409;
-        errorCode = 'PACKAGE_VERSION_DELETE_BLOCKED';
+        errorCode =
+          error.targetState === 'CANCELED'
+            ? 'PACKAGE_VERSION_CANCEL_BLOCKED'
+            : 'PACKAGE_VERSION_DELETE_BLOCKED';
+        // The caller cannot act on "blocked" alone: it needs to know the version is still
+        // running so it can offer to cancel it instead of guessing.
+        blockingState = publicVersionState(
+          { attempts: 0, nextAttemptAt: null, state: error.currentState },
+          maxAttempts
+        );
       }
       emitEvent(input, {
         durationMs: Math.round(performance.now() - startedAt),
@@ -678,7 +729,12 @@ export function createCatalogControlHandler(input: CatalogControlHandlerInput): 
         traceId,
         ...(versionId ? { versionId } : {}),
       });
-      sendJson(response, status, { errorCode }, traceId);
+      sendJson(
+        response,
+        status,
+        { errorCode, ...(blockingState ? { state: blockingState } : {}) },
+        traceId
+      );
     });
   };
 }

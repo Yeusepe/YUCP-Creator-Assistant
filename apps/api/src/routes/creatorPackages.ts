@@ -401,6 +401,76 @@ export function createCreatorPackageRoutes({
     }
   }
 
+  async function cancelVersion(
+    request: Request,
+    packageId: string,
+    editionId: string,
+    versionId: string
+  ): Promise<Response> {
+    if (request.method !== 'POST') {
+      return jsonNoStore({ error: 'Method not allowed' }, { status: 405 });
+    }
+
+    const authorized = await requireSessionActor(request);
+    if (authorized instanceof Response) {
+      return authorized;
+    }
+    if (!EDITION_ID_PATTERN.test(editionId)) {
+      return jsonNoStore({ error: 'Package edition ID is invalid' }, { status: 400 });
+    }
+    if (!catalogControl) {
+      return jsonNoStore({ errorCode: 'PACKAGE_VERSION_CANCEL_UNAVAILABLE' }, { status: 503 });
+    }
+
+    try {
+      const scope = await authorized.convex.query(
+        api.packageEditions.getManagementScopeForCreator,
+        {
+          apiSecret: config.convexApiSecret,
+          actor: authorized.actor,
+          authUserId: authorized.authUserId,
+          editionId,
+          packageId,
+        }
+      );
+      if (!scope) {
+        return jsonNoStore({ errorCode: 'PACKAGE_VERSION_NOT_FOUND' }, { status: 404 });
+      }
+
+      const candidateTraceparent = request.headers.get('traceparent');
+      const traceparent =
+        candidateTraceparent && TRACEPARENT_PATTERN.test(candidateTraceparent)
+          ? candidateTraceparent
+          : undefined;
+      const canceled = await catalogControl.cancelVersion({
+        editionId,
+        packageId,
+        versionId,
+        ...(traceparent ? { traceparent } : {}),
+      });
+      return jsonNoStore(canceled);
+    } catch (error) {
+      if (error instanceof CatalogControlClientError) {
+        if (error.errorCode === 'PACKAGE_VERSION_NOT_FOUND') {
+          return jsonNoStore({ errorCode: error.errorCode }, { status: 404 });
+        }
+        if (error.errorCode === 'PACKAGE_VERSION_CANCEL_BLOCKED') {
+          return jsonNoStore(
+            { errorCode: error.errorCode, ...(error.state ? { state: error.state } : {}) },
+            { status: 409 }
+          );
+        }
+      }
+      logger.error('Creator package version cancellation failed', {
+        editionId,
+        error: error instanceof Error ? error.name : 'unknown_error',
+        packageId,
+        versionId,
+      });
+      return jsonNoStore({ errorCode: 'PACKAGE_VERSION_CANCEL_FAILED' }, { status: 502 });
+    }
+  }
+
   async function deleteVersion(
     request: Request,
     packageId: string,
@@ -455,7 +525,10 @@ export function createCreatorPackageRoutes({
           return jsonNoStore({ errorCode: error.errorCode }, { status: 404 });
         }
         if (error.errorCode === 'PACKAGE_VERSION_DELETE_BLOCKED') {
-          return jsonNoStore({ errorCode: error.errorCode }, { status: 409 });
+          return jsonNoStore(
+            { errorCode: error.errorCode, ...(error.state ? { state: error.state } : {}) },
+            { status: 409 }
+          );
         }
       }
       logger.error('Creator package version deletion failed', {
@@ -757,6 +830,7 @@ export function createCreatorPackageRoutes({
   }
 
   return {
+    cancelVersion,
     deleteVersion,
     getPackage,
     getVersionStatus,

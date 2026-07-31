@@ -1,6 +1,7 @@
 import { describe, expect, it, mock } from 'bun:test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { IllegalCatalogTransitionError } from '../catalog/catalog';
 import { createCatalogControlHandler } from './catalogControl';
 
 const SHARED_SECRET = 'test-catalog-control-secret-with-32-bytes';
@@ -28,20 +29,26 @@ async function withServer(
   }
 }
 
-function request(baseUrl: string, input?: { secret?: string; traceparent?: string }): Request {
-  return new Request(`${baseUrl}/v1/internal/catalog/package-versions/delete`, {
-    body: JSON.stringify({
-      editionId: EDITION_ID,
-      packageId: PACKAGE_ID,
-      versionId: VERSION_ID,
-    }),
-    headers: {
-      Authorization: `Bearer ${input?.secret ?? SHARED_SECRET}`,
-      'Content-Type': 'application/json',
-      ...(input?.traceparent ? { traceparent: input.traceparent } : {}),
-    },
-    method: 'POST',
-  });
+function request(
+  baseUrl: string,
+  input?: { command?: 'cancel' | 'delete'; secret?: string; traceparent?: string }
+): Request {
+  return new Request(
+    `${baseUrl}/v1/internal/catalog/package-versions/${input?.command ?? 'delete'}`,
+    {
+      body: JSON.stringify({
+        editionId: EDITION_ID,
+        packageId: PACKAGE_ID,
+        versionId: VERSION_ID,
+      }),
+      headers: {
+        Authorization: `Bearer ${input?.secret ?? SHARED_SECRET}`,
+        'Content-Type': 'application/json',
+        ...(input?.traceparent ? { traceparent: input.traceparent } : {}),
+      },
+      method: 'POST',
+    }
+  );
 }
 
 describe('ingest catalog control boundary', () => {
@@ -69,6 +76,7 @@ describe('ingest catalog control boundary', () => {
     const events: unknown[] = [];
     const handler = createCatalogControlHandler({
       catalog: {
+        cancelVersion: mock(async () => null as never),
         deleteVersion: mock(async () => null as never),
         getVersion: mock(async () => null),
         listVersionsPage,
@@ -124,6 +132,7 @@ describe('ingest catalog control boundary', () => {
     const listVersionsPage = mock(async () => null as never);
     const handler = createCatalogControlHandler({
       catalog: {
+        cancelVersion: mock(async () => null as never),
         deleteVersion: mock(async () => null as never),
         getVersion: mock(async () => null),
         listVersionsPage,
@@ -172,6 +181,7 @@ describe('ingest catalog control boundary', () => {
     const releaseReleasePin = mock(async () => undefined);
     const handler = createCatalogControlHandler({
       catalog: {
+        cancelVersion: mock(async () => null as never),
         deleteVersion: mock(async () => null as never),
         getVersion: mock(async () => null),
         listVersionsPage: mock(async () => ({ data: [], hasMore: false, nextCursor: null })),
@@ -245,6 +255,7 @@ describe('ingest catalog control boundary', () => {
     const events: unknown[] = [];
     const handler = createCatalogControlHandler({
       catalog: {
+        cancelVersion: mock(async () => null as never),
         deleteVersion,
         getVersion,
         listVersionsPage: mock(async () => ({ data: [], hasMore: false, nextCursor: null })),
@@ -309,6 +320,7 @@ describe('ingest catalog control boundary', () => {
     }));
     const handler = createCatalogControlHandler({
       catalog: {
+        cancelVersion: mock(async () => null as never),
         deleteVersion: mock(async () => null as never),
         getVersion,
         listVersionsPage: mock(async () => ({ data: [], hasMore: false, nextCursor: null })),
@@ -353,6 +365,7 @@ describe('ingest catalog control boundary', () => {
     }));
     const handler = createCatalogControlHandler({
       catalog: {
+        cancelVersion: mock(async () => null as never),
         deleteVersion: mock(async () => null as never),
         getVersion,
         listVersionsPage: mock(async () => ({ data: [], hasMore: false, nextCursor: null })),
@@ -382,6 +395,7 @@ describe('ingest catalog control boundary', () => {
     const deleteVersion = mock(async () => null as never);
     const handler = createCatalogControlHandler({
       catalog: {
+        cancelVersion: mock(async () => null as never),
         deleteVersion,
         getVersion,
         listVersionsPage: mock(async () => ({ data: [], hasMore: false, nextCursor: null })),
@@ -425,6 +439,7 @@ describe('ingest catalog control boundary', () => {
     const events: unknown[] = [];
     const handler = createCatalogControlHandler({
       catalog: {
+        cancelVersion: mock(async () => null as never),
         deleteVersion,
         getVersion,
         listVersionsPage: mock(async () => ({ data: [], hasMore: false, nextCursor: null })),
@@ -459,6 +474,107 @@ describe('ingest catalog control boundary', () => {
     });
   });
 
+  it('cancels a version that is still being prepared', async () => {
+    const getVersion = mock(async () => ({
+      attempts: 1,
+      editionId: EDITION_ID,
+      id: VERSION_ID,
+      packageId: PACKAGE_ID,
+      state: 'PROMOTING',
+    }));
+    const cancelVersion = mock(async () => ({
+      attempts: 1,
+      id: VERSION_ID,
+      state: 'CANCELED',
+    }));
+    const events: unknown[] = [];
+    const handler = createCatalogControlHandler({
+      catalog: {
+        cancelVersion,
+        deleteVersion: mock(async () => null as never),
+        getVersion,
+        listVersionsPage: mock(async () => ({ data: [], hasMore: false, nextCursor: null })),
+      },
+      onEvent: (event) => events.push(event),
+      sharedSecret: SHARED_SECRET,
+    });
+
+    await withServer(handler, async (baseUrl) => {
+      const response = await fetch(request(baseUrl, { command: 'cancel' }));
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        canceledFrom: 'publishing',
+        state: 'canceled',
+        versionId: VERSION_ID,
+      });
+      expect(cancelVersion).toHaveBeenCalledWith(VERSION_ID, 'Canceled by the creator');
+      expect(events).toContainEqual({
+        durationMs: expect.any(Number),
+        event: 'catalog.version.cancel_command',
+        status: 'accepted',
+        traceId: expect.any(String),
+        versionId: VERSION_ID,
+      });
+    });
+  });
+
+  it('answers an already canceled version without cancelling twice', async () => {
+    const cancelVersion = mock(async () => null as never);
+    const handler = createCatalogControlHandler({
+      catalog: {
+        cancelVersion,
+        deleteVersion: mock(async () => null as never),
+        getVersion: mock(async () => ({
+          editionId: EDITION_ID,
+          id: VERSION_ID,
+          packageId: PACKAGE_ID,
+          state: 'CANCELED',
+        })),
+        listVersionsPage: mock(async () => ({ data: [], hasMore: false, nextCursor: null })),
+      },
+      sharedSecret: SHARED_SECRET,
+    });
+
+    await withServer(handler, async (baseUrl) => {
+      const response = await fetch(request(baseUrl, { command: 'cancel' }));
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({ state: 'canceled' });
+      expect(cancelVersion).not.toHaveBeenCalled();
+    });
+  });
+
+  it('tells the caller which state blocked a delete so it can offer to cancel', async () => {
+    const deleteVersion = mock(async () => {
+      throw new IllegalCatalogTransitionError(VERSION_ID, 'UPLOADING', 'DELETED');
+    });
+    const handler = createCatalogControlHandler({
+      catalog: {
+        cancelVersion: mock(async () => null as never),
+        deleteVersion,
+        getVersion: mock(async () => ({
+          editionId: EDITION_ID,
+          id: VERSION_ID,
+          packageId: PACKAGE_ID,
+          state: 'UPLOADING',
+        })),
+        listVersionsPage: mock(async () => ({ data: [], hasMore: false, nextCursor: null })),
+      },
+      sharedSecret: SHARED_SECRET,
+    });
+
+    await withServer(handler, async (baseUrl) => {
+      const response = await fetch(request(baseUrl));
+
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toEqual({
+        errorCode: 'PACKAGE_VERSION_DELETE_BLOCKED',
+        state: 'uploading',
+      });
+    });
+  });
+
   it('returns not found without deleting when the package identity does not match', async () => {
     const getVersion = mock(async () => ({
       editionId: EDITION_ID,
@@ -469,6 +585,7 @@ describe('ingest catalog control boundary', () => {
     const deleteVersion = mock(async () => null as never);
     const handler = createCatalogControlHandler({
       catalog: {
+        cancelVersion: mock(async () => null as never),
         deleteVersion,
         getVersion,
         listVersionsPage: mock(async () => ({ data: [], hasMore: false, nextCursor: null })),
@@ -497,6 +614,7 @@ describe('ingest catalog control boundary', () => {
     const deleteVersion = mock(async () => null as never);
     const handler = createCatalogControlHandler({
       catalog: {
+        cancelVersion: mock(async () => null as never),
         deleteVersion,
         getVersion,
         listVersionsPage: mock(async () => ({ data: [], hasMore: false, nextCursor: null })),
@@ -532,6 +650,7 @@ describe('ingest catalog control boundary', () => {
     }));
     const handler = createCatalogControlHandler({
       catalog: {
+        cancelVersion: mock(async () => null as never),
         deleteVersion,
         getVersion,
         listVersionsPage: mock(async () => ({ data: [], hasMore: false, nextCursor: null })),

@@ -59,6 +59,7 @@ export type CreatorPackageVersionStatus = {
     | 'recovering'
     | 'ready'
     | 'failed'
+    | 'canceled'
     | 'deleted';
   updatedAt: string;
   version: string;
@@ -328,6 +329,22 @@ export async function listCreatorPackageVersions(
         ...(options.cursor ? { cursor: options.cursor } : {}),
       },
     }
+  );
+}
+
+export async function cancelCreatorPackageVersion(
+  packageId: string,
+  editionId: string,
+  versionId: string
+): Promise<{
+  canceledFrom: CreatorPackageVersionStatus['state'];
+  state: 'canceled';
+  versionId: string;
+}> {
+  return await apiClient.post(
+    `${creatorPackageEditionVersionsPath(packageId, editionId)}/${encodeURIComponent(
+      versionId
+    )}/cancel`
   );
 }
 

@@ -1,3 +1,4 @@
+const CANCEL_VERSION_PATH = '/v1/internal/catalog/package-versions/cancel';
 const DELETE_VERSION_PATH = '/v1/internal/catalog/package-versions/delete';
 const LIST_VERSIONS_PATH = '/v1/internal/catalog/package-versions';
 const VERSION_STATUS_PATH = '/v1/internal/catalog/package-versions/status';
@@ -15,6 +16,12 @@ export type CatalogVersionDeletion = {
   versionId: string;
 };
 
+export type CatalogVersionCancellation = {
+  canceledFrom: CatalogVersionStatusState;
+  state: 'canceled';
+  versionId: string;
+};
+
 export type CatalogVersionStatusState =
   | 'queued'
   | 'uploading'
@@ -23,6 +30,7 @@ export type CatalogVersionStatusState =
   | 'recovering'
   | 'ready'
   | 'failed'
+  | 'canceled'
   | 'deleted';
 
 export type CatalogVersionStatus = {
@@ -58,6 +66,12 @@ export type CatalogVersionPage = {
 };
 
 export type CatalogControlPort = {
+  cancelVersion(input: {
+    editionId: string;
+    packageId: string;
+    traceparent?: string;
+    versionId: string;
+  }): Promise<CatalogVersionCancellation>;
   deleteVersion(input: {
     editionId: string;
     packageId: string;
@@ -112,13 +126,45 @@ export type CatalogControlClientConfig = {
 export class CatalogControlClientError extends Error {
   readonly errorCode: string;
   readonly status: number;
+  readonly state: CatalogVersionStatusState | null;
 
-  constructor(status: number, errorCode: string) {
+  constructor(status: number, errorCode: string, state: CatalogVersionStatusState | null = null) {
     super(`Catalog control rejected the request with ${errorCode}`);
     this.name = 'CatalogControlClientError';
     this.status = status;
     this.errorCode = errorCode;
+    this.state = state;
   }
+}
+
+const CATALOG_VERSION_STATES = new Set<CatalogVersionStatusState>([
+  'queued',
+  'uploading',
+  'preparing',
+  'publishing',
+  'recovering',
+  'ready',
+  'failed',
+  'canceled',
+  'deleted',
+]);
+
+function optionalVersionState(value: unknown): CatalogVersionStatusState | null {
+  return typeof value === 'string' && CATALOG_VERSION_STATES.has(value as CatalogVersionStatusState)
+    ? (value as CatalogVersionStatusState)
+    : null;
+}
+
+function parseCancellation(body: Record<string, unknown>): CatalogVersionCancellation {
+  const canceledFrom = optionalVersionState(body.canceledFrom);
+  if (!canceledFrom || body.state !== 'canceled') {
+    throw new Error('Catalog control returned an invalid response');
+  }
+  return {
+    canceledFrom,
+    state: 'canceled',
+    versionId: requireText(body.versionId, 'version identifier', 128),
+  };
 }
 
 function requireBaseUrl(value: string): string {
@@ -233,6 +279,7 @@ function parseVersionPage(
     'recovering',
     'ready',
     'failed',
+    'canceled',
   ]);
   const data = body.data.map((value): CatalogVersionListItem => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -282,16 +329,7 @@ function parseVersionPage(
 }
 
 function parseVersionStatus(body: Record<string, unknown>): CatalogVersionStatus {
-  const states = new Set<CatalogVersionStatusState>([
-    'queued',
-    'uploading',
-    'preparing',
-    'publishing',
-    'recovering',
-    'ready',
-    'failed',
-    'deleted',
-  ]);
+  const states = CATALOG_VERSION_STATES;
   if (typeof body.state !== 'string' || !states.has(body.state as CatalogVersionStatusState)) {
     throw new Error('Catalog control returned an invalid response');
   }
@@ -407,7 +445,8 @@ export function createCatalogControlClient(
       if (response.status !== 200) {
         throw new CatalogControlClientError(
           response.status,
-          requireText(body.errorCode, 'error code', 128)
+          requireText(body.errorCode, 'error code', 128),
+          optionalVersionState(body.state)
         );
       }
       const pin = parseReleasePin(body);
@@ -443,7 +482,8 @@ export function createCatalogControlClient(
       if (response.status !== 200) {
         throw new CatalogControlClientError(
           response.status,
-          requireText(body.errorCode, 'error code', 128)
+          requireText(body.errorCode, 'error code', 128),
+          optionalVersionState(body.state)
         );
       }
       return parseVersionStatus(body);
@@ -476,10 +516,41 @@ export function createCatalogControlClient(
       if (response.status !== 200) {
         throw new CatalogControlClientError(
           response.status,
-          requireText(body.errorCode, 'error code', 128)
+          requireText(body.errorCode, 'error code', 128),
+          optionalVersionState(body.state)
         );
       }
       return parseVersionPage(body, { editionId, limit, packageId });
+    },
+    async cancelVersion(input) {
+      if (input.traceparent && !TRACEPARENT_PATTERN.test(input.traceparent)) {
+        throw new Error('Catalog control trace context is invalid');
+      }
+      const response = await fetchImplementation(
+        new Request(`${baseUrl}${CANCEL_VERSION_PATH}`, {
+          body: JSON.stringify({
+            editionId: requireText(input.editionId, 'edition identifier', 64),
+            packageId: requireText(input.packageId, 'package identifier', 256),
+            versionId: requireText(input.versionId, 'version identifier', 128),
+          }),
+          headers: {
+            Authorization: `Bearer ${sharedSecret}`,
+            'Content-Type': 'application/json',
+            ...(input.traceparent ? { traceparent: input.traceparent } : {}),
+          },
+          method: 'POST',
+          signal: AbortSignal.timeout(timeoutMs),
+        })
+      );
+      const body = await readControlResponse(response);
+      if (response.status !== 200) {
+        throw new CatalogControlClientError(
+          response.status,
+          requireText(body.errorCode, 'error code', 128),
+          optionalVersionState(body.state)
+        );
+      }
+      return parseCancellation(body);
     },
     async deleteVersion(input) {
       if (input.traceparent && !TRACEPARENT_PATTERN.test(input.traceparent)) {
@@ -505,7 +576,8 @@ export function createCatalogControlClient(
       if (response.status !== 200) {
         throw new CatalogControlClientError(
           response.status,
-          requireText(body.errorCode, 'error code', 128)
+          requireText(body.errorCode, 'error code', 128),
+          optionalVersionState(body.state)
         );
       }
       return parseDeletion(body);
@@ -527,7 +599,8 @@ export function createCatalogControlClient(
       if (response.status !== 200) {
         throw new CatalogControlClientError(
           response.status,
-          requireText(body.errorCode, 'error code', 128)
+          requireText(body.errorCode, 'error code', 128),
+          optionalVersionState(body.state)
         );
       }
       if (body.pinId !== pinId || body.released !== true) {

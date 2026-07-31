@@ -10,7 +10,6 @@ import {
   PACKAGE_INSTALL_DPOP_PROOF_MAX_AGE_SECONDS,
 } from '../storage-core/dpopReplayPolicy';
 import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId';
-import { StorageGcCatalog } from './storageGcCatalog';
 import { waitForPostgres } from '../testing/postgresReadiness';
 import {
   Catalog,
@@ -27,6 +26,7 @@ import {
   type StorageObjectVersion,
   TufRepositoryCatalog,
 } from './index';
+import { StorageGcCatalog } from './storageGcCatalog';
 
 const postgresImage =
   'postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193'; // postgres:17-alpine
@@ -2992,6 +2992,61 @@ describe.serial('PostgreSQL catalog integration', () => {
     expect(await requireCatalog().getVersion(versionId)).toMatchObject({
       state: 'UPLOADING',
       attempts: 1,
+    });
+  });
+
+  it('cancels a running version, keeps the reconciler off it, and still allows deletion', async () => {
+    const database = requireSql();
+    const activeCatalog = requireCatalog();
+    const versionId = await createUploadingVersion('cancel-running');
+
+    const canceled = await activeCatalog.cancelVersion(versionId, 'Canceled by the creator');
+    expect(canceled.state).toBe('CANCELED');
+    expect(canceled.error).toBe('Canceled by the creator');
+
+    // The worker holding this version learns it lost the row through the same heartbeat check a
+    // lost lease uses, so cancellation takes effect without any extra signalling channel.
+    await expect(activeCatalog.heartbeatVersion(versionId, 'UPLOADING')).resolves.toBe(false);
+
+    await database`
+      UPDATE package_versions
+      SET updated_at = clock_timestamp() - interval '2 hours'
+      WHERE id = ${versionId}
+    `;
+    const redrivenIds: string[] = [];
+    const result = await reconcileCatalog(database, {
+      stuckThresholdMs: 60 * 60 * 1000,
+      batchLimit: 10,
+      redrive: async ({ version }) => {
+        redrivenIds.push(version.id);
+      },
+      publish: async () => {},
+    });
+    expect(redrivenIds).not.toContain(versionId);
+    expect(result.versionsRedriven).toBe(0);
+
+    const deleted = await activeCatalog.deleteVersion(versionId, {
+      editionId: 'standard',
+      packageId: 'package-reconciler',
+      reason: 'creator-request',
+    });
+    expect(deleted.state).toBe('DELETED');
+  });
+
+  it('refuses to delete a running version and names the state that blocked it', async () => {
+    const activeCatalog = requireCatalog();
+    const versionId = await createUploadingVersion('cancel-delete-blocked');
+
+    await expect(
+      activeCatalog.deleteVersion(versionId, {
+        editionId: 'standard',
+        packageId: 'package-reconciler',
+        reason: 'creator-request',
+      })
+    ).rejects.toMatchObject({
+      currentState: 'UPLOADING',
+      name: 'IllegalCatalogTransitionError',
+      targetState: 'DELETED',
     });
   });
 

@@ -14,6 +14,7 @@ export const CATALOG_STATES = [
   'PROMOTING',
   'READY',
   'FAILED',
+  'CANCELED',
   'DELETED',
 ] as const;
 
@@ -24,13 +25,16 @@ export const CATALOG_HEARTBEAT_INTERVAL_MS = 30_000;
 export const TERMINAL_FAILURE_DELETION_REASON = 'terminal-failure-retention-expired';
 const MAX_TERMINAL_FAILURE_EXPIRATION_LIMIT = 1_000;
 
+// CANCELED is reachable from every state the creator can catch work in, so "stop this" never
+// has to wait for the reconciler and never has to be recorded as a failure that did not happen.
 const allowedTransitions = {
-  CREATED: ['UPLOADING', 'FAILED', 'DELETED'],
-  UPLOADING: ['ASSEMBLED', 'FAILED'],
-  ASSEMBLED: ['PROMOTING', 'FAILED'],
-  PROMOTING: ['READY', 'FAILED'],
+  CREATED: ['UPLOADING', 'FAILED', 'CANCELED', 'DELETED'],
+  UPLOADING: ['ASSEMBLED', 'FAILED', 'CANCELED'],
+  ASSEMBLED: ['PROMOTING', 'FAILED', 'CANCELED'],
+  PROMOTING: ['READY', 'FAILED', 'CANCELED'],
   READY: ['DELETED'],
-  FAILED: ['UPLOADING', 'DELETED'],
+  FAILED: ['UPLOADING', 'CANCELED', 'DELETED'],
+  CANCELED: ['UPLOADING', 'DELETED'],
   DELETED: ['UPLOADING'],
 } as const satisfies Record<CatalogState, readonly CatalogState[]>;
 
@@ -468,8 +472,11 @@ function validateTransitionFields(
       vpmRepositories,
     };
   }
-  if (fields.error !== undefined) {
+  if (fields.error !== undefined && targetState !== 'CANCELED') {
     throw new CatalogInvariantError('error can only be set when transitioning to FAILED');
+  }
+  if (targetState === 'CANCELED' && !fields.error?.trim()) {
+    throw new CatalogInvariantError('CANCELED requires a non-empty reason');
   }
 
   if (targetState === 'DELETED' && !deletionReason) {
@@ -487,7 +494,7 @@ function validateTransitionFields(
     sourceFormat,
     releaseRoot,
     assemblyObjectId,
-    error: null,
+    error: targetState === 'CANCELED' ? (fields.error ?? null) : null,
     deletionReason: targetState === 'DELETED' ? deletionReason : null,
     logicalBytes,
     logicalFiles,
@@ -1137,6 +1144,17 @@ export class Catalog {
       event,
       ...(options.requeue ? { requeue: true } : {}),
     });
+  }
+
+  // Cancelling only flips the row. Any worker still holding the version notices at its next
+  // heartbeat, which no longer matches the state it claimed, and unwinds through the same abort
+  // path a lost lease already used.
+  async cancelVersion(
+    versionId: string,
+    reason: string,
+    event: CatalogEvent = { type: 'catalog.version.canceled' }
+  ): Promise<PackageVersion> {
+    return this.transition(versionId, 'CANCELED', { fields: { error: reason }, event });
   }
 
   async deleteVersion(

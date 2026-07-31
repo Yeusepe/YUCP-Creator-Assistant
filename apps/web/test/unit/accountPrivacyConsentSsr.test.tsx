@@ -13,6 +13,12 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: vi.fn(() => vi.fn()),
 }));
 
+// The page records consent through Convex, which needs a provider this render has
+// no reason to mount.
+vi.mock('convex/react', () => ({
+  useMutation: vi.fn(() => vi.fn(async () => undefined)),
+}));
+
 vi.mock('@/api/client', () => ({
   apiClient: {
     delete: vi.fn(),

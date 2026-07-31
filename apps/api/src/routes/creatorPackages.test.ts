@@ -2,6 +2,11 @@ import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 const convexQueryMock = mock(async (_reference?: unknown, _args?: unknown) => null as unknown);
 const convexMutationMock = mock(async (_reference?: unknown, _args?: unknown) => null as unknown);
+const cancelVersionMock = mock(async (_input?: unknown) => ({
+  canceledFrom: 'uploading' as const,
+  state: 'canceled' as const,
+  versionId: 'version-1',
+}));
 const deleteVersionMock = mock(async (_input?: unknown) => ({
   deletedAt: '2026-07-25T12:00:00.000Z',
   state: 'DELETED' as const,
@@ -72,6 +77,7 @@ mock.module('../lib/convex', () => ({
   }),
 }));
 
+const { CatalogControlClientError } = await import('../lib/catalogControlClient');
 const { createCreatorPackageRoutes } = await import('./creatorPackages');
 
 const config = {
@@ -92,6 +98,7 @@ function createRoutes(userId: string | null) {
           : null,
     } as never,
     catalogControl: {
+      cancelVersion: cancelVersionMock,
       deleteVersion: deleteVersionMock,
       getVersionStatus: getVersionStatusMock,
       listVersions: listVersionsMock,
@@ -114,6 +121,7 @@ describe('creator packages session routes', () => {
   beforeEach(() => {
     convexMutationMock.mockReset();
     convexQueryMock.mockReset();
+    cancelVersionMock.mockClear();
     deleteVersionMock.mockClear();
     getVersionStatusMock.mockClear();
     listVersionsMock.mockClear();
@@ -527,6 +535,65 @@ describe('creator packages session routes', () => {
 
     expect(response.status).toBe(413);
     expect(convexMutationMock).not.toHaveBeenCalled();
+  });
+
+  it('cancels an owned package version that is still running', async () => {
+    convexQueryMock.mockResolvedValue({
+      displayName: 'Commercial',
+      editionId: 'commercial',
+      packageId: 'com.creator.avatar',
+      status: 'active',
+    });
+
+    const response = await createRoutes('creator-123').cancelVersion(
+      new Request(
+        'http://localhost:3001/api/creator/packages/by-package/com.creator.avatar/editions/commercial/versions/version-1/cancel',
+        { headers: { Origin: 'http://localhost:3000' }, method: 'POST' }
+      ),
+      'com.creator.avatar',
+      'commercial',
+      'version-1'
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      canceledFrom: 'uploading',
+      state: 'canceled',
+      versionId: 'version-1',
+    });
+    expect(cancelVersionMock).toHaveBeenCalledWith({
+      editionId: 'commercial',
+      packageId: 'com.creator.avatar',
+      versionId: 'version-1',
+    });
+  });
+
+  it('reports the blocking state when a running version cannot be deleted', async () => {
+    convexQueryMock.mockResolvedValue({
+      displayName: 'Commercial',
+      editionId: 'commercial',
+      packageId: 'com.creator.avatar',
+      status: 'active',
+    });
+    deleteVersionMock.mockImplementationOnce(async () => {
+      throw new CatalogControlClientError(409, 'PACKAGE_VERSION_DELETE_BLOCKED', 'uploading');
+    });
+
+    const response = await createRoutes('creator-123').deleteVersion(
+      new Request(
+        'http://localhost:3001/api/creator/packages/by-package/com.creator.avatar/editions/commercial/versions/version-1',
+        { headers: { Origin: 'http://localhost:3000' }, method: 'DELETE' }
+      ),
+      'com.creator.avatar',
+      'commercial',
+      'version-1'
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      errorCode: 'PACKAGE_VERSION_DELETE_BLOCKED',
+      state: 'uploading',
+    });
   });
 
   it('deletes an owned package version through the catalog control boundary', async () => {

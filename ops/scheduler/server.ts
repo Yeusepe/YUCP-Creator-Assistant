@@ -246,6 +246,11 @@ export async function buildSchedulerRuntime(
           if (current.state === 'READY' || current.state === 'ASSEMBLED') {
             return;
           }
+          // The creator cancelled between the claim and this read; abandoning the redrive is the
+          // whole point of cancelling, so it is not an error.
+          if (current.state === 'CANCELED' || current.state === 'DELETED') {
+            return;
+          }
           if (current.state !== 'FAILED') {
             throw new Error(
               `Automatic quarantine redrive cannot resume catalog version ${version.id} from ${current.state}`
@@ -329,7 +334,7 @@ export async function buildSchedulerRuntime(
         if (!current) {
           throw new Error(`Catalog version ${version.id} was not found during automatic redrive`);
         }
-        if (current.state === 'READY') {
+        if (current.state === 'READY' || current.state === 'CANCELED') {
           return;
         }
         if (current.state === 'FAILED') {

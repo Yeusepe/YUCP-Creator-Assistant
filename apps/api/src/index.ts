@@ -1074,6 +1074,18 @@ async function routeRequest(request: Request): Promise<Response> {
     }
     return creatorPackageRoutes.deleteVersion(request, packageId, editionId, versionId);
   }
+  const creatorPackageVersionCancelMatch = pathname.match(
+    /^\/api\/creator\/packages\/by-package\/([^/]+)\/editions\/([^/]+)\/versions\/([^/]+)\/cancel$/
+  );
+  if (creatorPackageVersionCancelMatch && creatorPackageRoutes) {
+    const packageId = safeDecodeURIComponent(creatorPackageVersionCancelMatch[1] ?? '');
+    const editionId = safeDecodeURIComponent(creatorPackageVersionCancelMatch[2] ?? '');
+    const versionId = safeDecodeURIComponent(creatorPackageVersionCancelMatch[3] ?? '');
+    if (packageId === null || editionId === null || versionId === null) {
+      return badPathEncodingResponse();
+    }
+    return creatorPackageRoutes.cancelVersion(request, packageId, editionId, versionId);
+  }
   const creatorPackageVersionStatusMatch = pathname.match(
     /^\/api\/creator\/packages\/by-package\/([^/]+)\/editions\/([^/]+)\/versions\/([^/]+)\/status$/
   );
