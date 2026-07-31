@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/yucp/transfer-helper/internal/deviceidentity"
+	"github.com/yucp/transfer-helper/internal/diagnostics"
 	"github.com/yucp/transfer-helper/internal/lifecycle"
 	"github.com/yucp/transfer-helper/internal/trust"
 )
@@ -79,9 +80,18 @@ func (runtime Runtime) HandleAuthentication(
 			"package broker authentication is not configured",
 		)
 	}
+	record := diagnostics.New(runtime.StateRoot)
 	switch action {
 	case "status":
 		signedIn, err := credentials.Status(ctx, clientIdentity)
+		record.Failure(
+			diagnostics.Event{
+				Action:  action,
+				Name:    "authentication",
+				Outcome: signedInOutcome(signedIn, err),
+			},
+			err,
+		)
 		return AuthenticationResult{SignedIn: signedIn}, err
 	case "sign-in":
 		_, _, err := credentials.Access(
@@ -90,15 +100,41 @@ func (runtime Runtime) HandleAuthentication(
 			CredentialAccessInteractive,
 			func(string, int64, int64, int64, int64) error { return nil },
 		)
+		record.Failure(
+			diagnostics.Event{
+				Action:  action,
+				Name:    "authentication",
+				Outcome: signedInOutcome(err == nil, err),
+			},
+			err,
+		)
 		return AuthenticationResult{SignedIn: err == nil}, err
 	case "sign-out":
 		err := credentials.SignOut(ctx, clientIdentity)
+		record.Failure(
+			diagnostics.Event{
+				Action:  action,
+				Name:    "authentication",
+				Outcome: signedInOutcome(false, err),
+			},
+			err,
+		)
 		return AuthenticationResult{SignedIn: false}, err
 	default:
 		return AuthenticationResult{}, fmt.Errorf(
 			"package broker authentication action is invalid",
 		)
 	}
+}
+
+func signedInOutcome(signedIn bool, failure error) string {
+	if failure != nil {
+		return "error"
+	}
+	if signedIn {
+		return "signed-in"
+	}
+	return "signed-out"
 }
 
 func (runtime Runtime) Handle(
@@ -122,14 +158,69 @@ func (runtime Runtime) Handle(
 	if found {
 		return existing.withClientSchemaVersion(request), nil
 	}
+	record := diagnostics.New(runtime.StateRoot)
+	traceID := ""
+	if len(request.Traceparent) == 55 {
+		traceID = request.Traceparent[3:35]
+	}
+	record.Write(diagnostics.Event{
+		Name:      "operation.started",
+		Operation: request.Operation,
+		RunID:     request.RunID,
+		TraceID:   traceID,
+	})
+	// The phase a run reached separates "never got authorized" from "died
+	// halfway through the download".
+	reached := ""
 	result, operationErr := runtime.handleNew(
 		ctx,
 		clientIdentity,
 		request,
-		report,
+		func(
+			phase string,
+			completedBytes int64,
+			totalBytes int64,
+			completedFiles int64,
+			totalFiles int64,
+		) error {
+			if phase != reached {
+				reached = phase
+				record.Write(diagnostics.Event{
+					Bytes:     completedBytes,
+					Files:     completedFiles,
+					Name:      "operation.phase",
+					Operation: request.Operation,
+					Phase:     phase,
+					RunID:     request.RunID,
+					TraceID:   traceID,
+				})
+			}
+			return report(phase, completedBytes, totalBytes, completedFiles, totalFiles)
+		},
 	)
 	if operationErr != nil {
 		result = failedOperationResult(request, operationErr)
+		record.Failure(
+			diagnostics.Event{
+				Code:      result.ErrorCode,
+				Name:      "operation.failed",
+				Operation: request.Operation,
+				Phase:     reached,
+				RunID:     request.RunID,
+				TraceID:   traceID,
+			},
+			operationErr,
+		)
+	} else {
+		record.Write(diagnostics.Event{
+			Bytes:     result.LogicalBytes,
+			Files:     int64(result.LogicalFiles),
+			Name:      "operation.completed",
+			Operation: request.Operation,
+			Phase:     reached,
+			RunID:     request.RunID,
+			TraceID:   traceID,
+		})
 	}
 	if result.Files == nil {
 		result.Files = []OperationResultFile{}
