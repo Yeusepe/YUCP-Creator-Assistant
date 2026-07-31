@@ -358,6 +358,62 @@ describe.serial('PostgreSQL catalog integration', () => {
     });
   });
 
+  it('re-points an unconsumed reservation at the release a re-publish produced', async () => {
+    const store = new PackageOperationAuthorizationStore(requireSql());
+    const record = operationAuthorizationRecord();
+    expect((await store.reserve(record)).status).toBe('created');
+
+    // The importer keys this on the project and alias, so the same key comes back
+    // against the rebuilt release.
+    const republished = await store.reserve(
+      operationAuthorizationRecord({
+        buyerId: record.buyerId,
+        capabilityId: `operation-${'1a'.repeat(24)}`,
+        deviceKeyThumbprint: record.deviceKeyThumbprint,
+        idempotencyKey: record.idempotencyKey,
+        oneUseNonce: '2b'.repeat(32),
+        releaseRoot: 'f1'.repeat(32),
+        tokenSha256: '3c'.repeat(32),
+      })
+    );
+
+    expect(republished.status).toBe('created');
+    expect(republished.record).toMatchObject({
+      capabilityId: `operation-${'1a'.repeat(24)}`,
+      releaseRoot: 'f1'.repeat(32),
+    });
+  });
+
+  it('refuses to re-point a consumed reservation at another release', async () => {
+    const store = new PackageOperationAuthorizationStore(requireSql());
+    const record = operationAuthorizationRecord();
+    await store.reserve(record);
+    const claimed = await store.beginExchange({
+      buyerId: record.buyerId,
+      capabilityId: record.capabilityId,
+      deviceKeyThumbprint: record.deviceKeyThumbprint,
+      tokenSha256: record.tokenSha256,
+    });
+    if (claimed.status !== 'claimed') {
+      throw new Error(`expected claimed exchange, received ${claimed.status}`);
+    }
+
+    const replayed = await store.reserve(
+      operationAuthorizationRecord({
+        buyerId: record.buyerId,
+        capabilityId: `operation-${'4d'.repeat(24)}`,
+        deviceKeyThumbprint: record.deviceKeyThumbprint,
+        idempotencyKey: record.idempotencyKey,
+        oneUseNonce: '5e'.repeat(32),
+        releaseRoot: 'a2'.repeat(32),
+        tokenSha256: '6f'.repeat(32),
+      })
+    );
+
+    expect(replayed.status).toBe('conflict');
+    expect(replayed.record).toMatchObject({ capabilityId: record.capabilityId });
+  });
+
   it('renews one READY install session idempotently without resetting its policy bound', async () => {
     const store = new PackageOperationAuthorizationStore(requireSql());
     const record = operationAuthorizationRecord();

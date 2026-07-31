@@ -280,7 +280,41 @@ export class PackageOperationAuthorizationStore {
       throw new Error('package operation authorization reservation was lost');
     }
     if (!recordsMatch(persisted, requested)) {
-      return { record: persisted, status: 'conflict' };
+      // The importer keys this reservation on the project and alias, not on the release it
+      // resolves, so re-publishing a package presents the same key against a new target.
+      // An unconsumed reservation authorized nothing, so it is replaced rather than being
+      // allowed to lock the caller out of every later attempt. A consumed one still
+      // conflicts: reusing its key for a different target is exactly the replay this
+      // reservation exists to stop.
+      if (persisted.consumedAt) {
+        return { record: persisted, status: 'conflict' };
+      }
+      const replaced = await this.#database<AuthorizationRow[]>`
+        UPDATE package_operation_authorizations
+        SET
+          capability_id = ${requested.capabilityId},
+          token_sha256 = ${requested.tokenSha256},
+          alias_id = ${requested.aliasId},
+          release_root = ${requested.releaseRoot},
+          expected_current_release_root = ${requested.expectedCurrentReleaseRoot},
+          operation = ${requested.operation},
+          one_use_nonce = ${requested.oneUseNonce},
+          project_identity = ${requested.projectIdentity},
+          approved_active_content_digest = ${requested.approvedActiveContentDigest ?? null},
+          approved_policy_version = ${requested.approvedPolicyVersion ?? null},
+          traceparent = ${requested.traceparent},
+          issued_at = ${requested.issuedAt},
+          expires_at = ${requested.expiresAt}
+        WHERE buyer_id = ${requested.buyerId}
+          AND device_key_thumbprint = ${requested.deviceKeyThumbprint}
+          AND idempotency_key = ${requested.idempotencyKey}
+          AND consumed_at IS NULL
+        RETURNING *
+      `;
+      if (!replaced[0]) {
+        return { record: persisted, status: 'conflict' };
+      }
+      return { record: mapRow(replaced[0]), status: 'created' };
     }
     return {
       record: persisted,
