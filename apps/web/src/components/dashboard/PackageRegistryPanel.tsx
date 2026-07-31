@@ -2502,7 +2502,7 @@ function ProductDetailsSheet({
                       </div>
                     ) : null}
 
-                    <ItemCardGroup layout="list">
+                    <ItemCardGroup layout="list" className="pm-bootstrap-options">
                       <ItemCard>
                         <ItemCard.Icon>
                           <Icon name="package" className="size-5" />
