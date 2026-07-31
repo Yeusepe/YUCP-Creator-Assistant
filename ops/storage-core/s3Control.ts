@@ -797,15 +797,22 @@ export async function deleteS3ObjectVersion(
   if (!versionId.trim()) {
     throw new Error('S3 deletion version identifier must not be empty');
   }
-  // ETag identity means the provider keeps exactly one physical version per key, so a
-  // plain DELETE removes that exact version (version-id query forms are never used).
-  await signedRequest({
+  // The provider keeps one physical object per key, so a key-only DELETE would remove
+  // whatever the key holds now. A key rewritten after this version was queued for
+  // deletion holds live bytes, so the delete is conditional on the exact identity and
+  // a 412 means those bytes are already gone.
+  const response = await signedRequest({
+    allowedStatuses: [412],
     config,
+    headers: { 'if-match': `"${normalizeS3Etag(versionId) ?? versionId}"` },
     key,
     method: 'DELETE',
     operation: 'DeleteObjectVersion',
     retries: 0,
   });
+  if (response.status === 412) {
+    return;
+  }
 }
 
 /**

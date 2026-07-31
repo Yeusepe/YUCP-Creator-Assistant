@@ -69,6 +69,23 @@ describe('S3 exact version operations', () => {
 
     expect(request?.method).toBe('DELETE');
     expect(new URL(request?.url ?? '').searchParams.has('versionId')).toBeFalse();
+    expect(request?.headers.get('if-match')).toBe('"9b2cf535f27731c974343645a3985328"');
+  });
+
+  it('leaves a key that was rewritten after the version was queued for deletion', async () => {
+    let requests = 0;
+    globalThis.fetch = mock(async () => {
+      requests += 1;
+      return new Response(null, { status: 412 });
+    }) as unknown as typeof fetch;
+
+    await deleteS3ObjectVersion(
+      config('common'),
+      'v2/common/chunks/abcd',
+      '9b2cf535f27731c974343645a3985328'
+    );
+
+    expect(requests).toBe(1);
   });
 
   it('reads retention for the requested provider version', async () => {
