@@ -21,7 +21,9 @@ import {
   type CouplingLaneLimits,
   PNG_HEADER_BYTES,
   readPngCouplingMetadata,
+  readZipCouplingMetadata,
   resolveCouplingLane,
+  ZIP_TRAILER_BYTES,
 } from '../storage-core/couplingLane';
 import {
   createDeliveryManifest,
@@ -160,6 +162,19 @@ async function readFileHeader(path: string, length: number): Promise<Uint8Array>
   }
 }
 
+async function readFileTail(path: string, length: number): Promise<Uint8Array> {
+  const handle = await open(path, 'r');
+  try {
+    const { size } = await handle.stat();
+    const want = Math.min(length, size);
+    const buffer = Buffer.alloc(want);
+    const { bytesRead } = await handle.read(buffer, 0, want, Math.max(0, size - want));
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
 export async function resolveProtectedFileCoupling(
   input: {
     bytes: number;
@@ -172,6 +187,12 @@ export async function resolveProtectedFileCoupling(
     input.materializerType === 'png'
       ? readPngCouplingMetadata(await readFileHeader(input.path, PNG_HEADER_BYTES))
       : null;
+  // A ZIP's own size says nothing about how far it expands, so the lane comes
+  // from the central directory in its tail rather than from its byte count.
+  const zipMetadata =
+    input.materializerType === 'zip'
+      ? readZipCouplingMetadata(await readFileTail(input.path, ZIP_TRAILER_BYTES))
+      : null;
   const couplingLane = resolveCouplingLane(
     {
       bytes: input.bytes,
@@ -182,6 +203,9 @@ export async function resolveProtectedFileCoupling(
             pngStreamingSupported: pngMetadata.streamingSupported,
             pngWidth: pngMetadata.width,
           }
+        : {}),
+      ...(zipMetadata
+        ? { zipEntries: zipMetadata.entries, zipTotalBytes: zipMetadata.totalBytes }
         : {}),
     },
     limits

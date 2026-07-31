@@ -8,6 +8,7 @@ import { strToU8, type Zippable, zipSync } from 'fflate';
 
 const MAX_ALIAS_ID_LENGTH = 512;
 const MAX_VPM_DEPENDENCIES = 64;
+const MAX_VPM_REPOSITORIES = 16;
 const MAX_PACKAGE_AUTHOR_LENGTH = 120;
 const MAX_PACKAGE_DESCRIPTION_LENGTH = 500;
 const MAX_PACKAGE_NAME_LENGTH = 120;
@@ -37,6 +38,7 @@ export type YucpAliasVpmManifest = {
   url: string;
   version: string;
   vpmDependencies: Record<string, string>;
+  vpmRepositories?: Record<string, string>;
   yucp: Record<string, unknown>;
   zipSHA256: string;
 };
@@ -186,6 +188,39 @@ function normalizeVpmDependencies(value: Readonly<Record<string, string>>): Reco
     }
   }
   return dependencies;
+}
+
+/**
+ * A dependency VCC cannot locate is not installable, so the repositories the
+ * package was built against travel with it.
+ */
+function normalizeVpmRepositories(
+  value: Readonly<Record<string, string>> | undefined
+): Record<string, string> {
+  const entries = Object.entries(value ?? {});
+  if (entries.length > MAX_VPM_REPOSITORIES) {
+    throw new Error(`YUCP alias repositories exceed ${MAX_VPM_REPOSITORIES} entries`);
+  }
+  const repositories: Record<string, string> = {};
+  for (const [rawName, rawUrl] of entries.sort(([left], [right]) =>
+    left < right ? -1 : left > right ? 1 : 0
+  )) {
+    const name = rawName.trim();
+    if (!name || new TextEncoder().encode(name).byteLength > 120) {
+      throw new Error(`YUCP alias repository name is invalid: ${rawName}`);
+    }
+    let url: URL;
+    try {
+      url = new URL(rawUrl?.trim() ?? '');
+    } catch {
+      throw new Error(`YUCP alias repository URL is invalid: ${rawName}`);
+    }
+    if (url.protocol !== 'https:' || url.username || url.password) {
+      throw new Error(`YUCP alias repository URL is invalid: ${rawName}`);
+    }
+    repositories[name] = url.toString();
+  }
+  return repositories;
 }
 
 function normalizeProductLinkMetadata(
@@ -352,6 +387,7 @@ export function buildYucpAliasVpmPackage(input: {
   bootstrapIntent?: YucpBootstrapIntent;
   packageVersion?: string;
   vpmDependencies: Readonly<Record<string, string>>;
+  vpmRepositories?: Readonly<Record<string, string>>;
   packageMetadata?: YucpAliasPackageMetadataInput;
   media?: ReadonlyArray<YucpAliasPackageMediaInput>;
 }): BuiltYucpAliasVpmPackage {
@@ -361,6 +397,7 @@ export function buildYucpAliasVpmPackage(input: {
     ? normalizeYucpPackageVersion(input.packageVersion)
     : bootstrapVersion;
   const vpmDependencies = normalizeVpmDependencies(input.vpmDependencies);
+  const vpmRepositories = normalizeVpmRepositories(input.vpmRepositories);
   const packageMetadata = normalizePackageMetadata(input.packageMetadata);
   const media = normalizeMedia(input.media);
   const artifactUrl = normalizeArtifactUrl(input.artifactUrl, bootstrapVersion);
@@ -376,6 +413,7 @@ export function buildYucpAliasVpmPackage(input: {
         displayName,
         version: packageVersion,
         vpmDependencies,
+        ...(Object.keys(vpmRepositories).length > 0 ? { vpmRepositories } : {}),
         unity: '2022.3',
         description,
         author: {

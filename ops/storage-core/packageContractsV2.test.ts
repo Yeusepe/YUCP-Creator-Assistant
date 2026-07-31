@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as ed25519 from '@noble/ed25519';
+import { transferHelperRoot } from '../transferHelperRoot';
 import { buildPackageContractGoldenVectors } from './packageContractGoldenVectors';
 import {
   computeOutputTreeRootV2,
@@ -29,6 +31,13 @@ import {
   verifyPackageOperationCapabilityV2,
 } from './packageContractsV2';
 
+const VENDORED_GOLDEN_VECTORS = join(
+  transferHelperRoot(),
+  'internal',
+  'packagecontract',
+  'testdata',
+  'package-contracts-v2.json'
+);
 const PRIVATE_KEY = Uint8Array.from({ length: 32 }, (_, index) => index);
 const KEY_ID = packageContractKeyId('test-root-2026-01');
 const DIGEST_A = new Uint8Array(32).fill(0x11);
@@ -441,4 +450,21 @@ describe('package contracts v2', () => {
     );
     expect(await buildPackageContractGoldenVectors()).toEqual(expected);
   });
+
+  // The Go transfer-helper lives in the ca-coupling repo and verifies these same vectors from a
+  // vendored copy, so regenerating them here alone would silently split the two languages. A
+  // checkout without the sibling repo cannot see the copy at all, so this skips rather than
+  // failing there; the Go module still enforces the vectors it carries.
+  test.skipIf(!existsSync(VENDORED_GOLDEN_VECTORS))(
+    'keeps the vendored Go copy of the golden vectors identical',
+    async () => {
+      const canonical = join(import.meta.dir, 'fixtures', 'package-contracts-v2.json');
+      if (!(await readFile(canonical)).equals(await readFile(VENDORED_GOLDEN_VECTORS))) {
+        throw new Error(
+          'The Go copy of the shared golden vectors has drifted. Refresh it with:\n' +
+            `  cp ${canonical} ${VENDORED_GOLDEN_VECTORS}`
+        );
+      }
+    }
+  );
 });

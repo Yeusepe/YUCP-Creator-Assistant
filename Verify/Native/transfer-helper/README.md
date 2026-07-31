@@ -1,89 +1,33 @@
-# YUCP transfer helper
+# The Go transfer-helper moved
 
-The helper downloads its own trusted releases through TUF.
+The `github.com/yucp/transfer-helper` module — the transfer helper, the package broker, the TUF
+command line tools and every Go test that covers them — now lives in the **ca-coupling** repo:
 
-The importer supplies the initial signed root metadata.
+    https://github.com/Yeusepe/ca-coupling  →  transfer-helper/
 
-The helper rejects expired, rolled-back, oversized, or incorrectly signed metadata.
+It moved so the whole Go project is tracked in one place, beside the rest of the native code
+(`yucp_coupling`, the coupling service, the coupling runtime), instead of being the single native
+module carved out into this TypeScript repo. Its CI moved with it, to
+`.github/workflows/native-transfer-helper.yml` in that repo.
 
-Verified targets use versioned paths.
+## What still points here
 
-The helper never overwrites an existing target.
+Local development and release tooling in this repo builds that module from your ca-coupling
+checkout. It is expected to sit beside this repo:
 
-The helper verifies signed `FileTableShardV2` recipes.
+    E:\GitDevelopment\Development\
+      CreatorAssistant\      ← this repo
+      ca-coupling\           ← the Go module, under transfer-helper/
 
-It reconstructs common files from the verified local chunk cache.
+If yours is somewhere else, set `YUCP_TRANSFER_HELPER_ROOT` to the module directory. Everything
+resolves the path through `ops/transferHelperRoot.ts`.
 
-Protected source recipes fail before the helper creates a staging tree.
+## The one contract that spans both repos
 
-## Toolchain
+`ops/storage-core/fixtures/package-contracts-v2.json` holds the COSE/CBOR golden vectors. This
+repo generates them; the Go module verifies the same bytes from a vendored copy at
+`internal/packagecontract/testdata/package-contracts-v2.json`.
 
-Use Go 1.26.5.
-
-The TUF client uses `go-tuf` v2.4.2.
-
-API reference: [go-tuf updater](https://pkg.go.dev/github.com/theupdateframework/go-tuf/v2/metadata/updater)
-
-## Build
-
-1. Run `go test ./...`.
-2. Run `go vet ./...`.
-3. Run `go build ./cmd/yucp-transfer-helper`.
-
-Use this production build command:
-
-```text
-go build -trimpath -ldflags="-s -w" -o dist/yucp-transfer-helper.exe ./cmd/yucp-transfer-helper
-```
-
-## Update command
-
-Use the `update` command with a pinned root and direct repository URLs.
-
-Remote URLs require HTTPS.
-
-Loopback tests can use HTTP.
-
-```text
-yucp-transfer-helper update \
-  --root <root-path> \
-  --metadata-url <metadata-url> \
-  --targets-url <targets-url> \
-  --metadata-cache <cache-path> \
-  --target <target-name> \
-  --destination <versioned-path> \
-  --trace-id <trace-id>
-```
-
-The command writes one JSON result to standard output.
-
-The result includes the trace identifier, target digest, byte length, cache state, and final path.
-
-## HyperDX diagnostics
-
-The package broker requests the `install-session-diagnostics` capability. The API includes the signed diagnostics claim only when the buyer accepted Helpful diagnostics in the web UI. The broker verifies that claim before sending telemetry to the first-party API endpoint, so browser cookies and HyperDX keys never enter the native process.
-
-Native lifecycle events carry the same W3C `traceparent` and `runId` as the package operation. HyperDX can therefore join the browser or installer request, package authorization and renewal spans, broker lifecycle phases, and the terminal failure. Events contain only redacted operational metadata: service, process, operation, phase, stable error code, status, duration, release, OS, architecture, and trace identifiers. Request bodies, response bodies, credentials, cookies, signed grants, project paths, and file contents are excluded.
-
-Telemetry delivery is best effort and cannot change an installation result. The API receives these events at `/api/telemetry/native` and keeps the HyperDX ingest credentials server-side. This follows HyperDX's OpenTelemetry-based exception and trace correlation model: [HyperDX Node SDK](https://www.hyperdx.io/docs/install/javascript), [HyperDX Browser SDK](https://www.hyperdx.io/docs/install/browser), and [OpenTelemetry recording errors](https://opentelemetry.io/docs/specs/semconv/general/recording-errors/).
-
-## Reconstruct command
-
-Use `reconstruct` with a signed file-table shard and trusted signing key.
-
-The current profile reads uncompressed desync chunks from the local cache.
-
-The helper verifies encoded SHA-256 values and domain-separated logical digests.
-
-It publishes the staging tree only after all files pass verification.
-
-```text
-yucp-transfer-helper reconstruct \
-  --signed-shard <cose-file-table-shard> \
-  --public-key <ed25519-public-key-hex> \
-  --key-id <trusted-key-id> \
-  --chunk-cache <cache-root> \
-  --destination <new-staging-tree> \
-  --encoding-profile desync-uncompressed-sha256-v1 \
-  --trace-id <trace-id>
-```
+The two copies must stay byte-identical. `ops/storage-core/packageContractsV2.test.ts` fails when
+they drift, but only on a machine that has both repos checked out — so after regenerating the
+vectors here, copy them over before you trust a green run.

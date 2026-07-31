@@ -1,7 +1,7 @@
 import { Stepper } from '@heroui-pro/react/stepper';
 import { useMutation } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { CloudBackground } from '@/components/three/CloudBackground';
 import { Icon } from '@/components/ui/Icon';
@@ -20,9 +20,17 @@ import { logWebError } from '@/lib/webDiagnostics';
 interface BuyerProductAccessViewProps {
   access: BuyerProductAccessResponse;
   search: {
+    from?: 'signin';
     grant?: string;
     intent_id?: string;
   };
+}
+
+/** Sign-in returns here, so the page has to know it was not opened directly. */
+function buildSignInReturnUrl(): string {
+  const url = new URL(window.location.href);
+  url.searchParams.set('from', 'signin');
+  return url.toString();
 }
 
 function AccessPageShell({ children }: Readonly<{ children: ReactNode }>) {
@@ -50,7 +58,7 @@ export function BuyerProductAccessView({ access, search }: BuyerProductAccessVie
   const startAccessMutation = useMutation({
     mutationFn: async () => {
       if (!isAuthenticated) {
-        await signIn(window.location.href);
+        await signIn(buildSignInReturnUrl());
         return null;
       }
       return await createBuyerProductAccessVerificationIntent(product.catalogProductId, {
@@ -78,11 +86,27 @@ export function BuyerProductAccessView({ access, search }: BuyerProductAccessVie
     }
   }
 
+  const hasAccess = accessState.hasActiveEntitlement;
+  const cameFromSignIn = search.from === 'signin';
+
+  // Signing in is only ever a step towards verifying, so an unentitled buyer
+  // returning from it goes straight on rather than landing on a second button.
+  const hasForwardedToVerification = useRef(false);
+  const startAccess = startAccessMutation.mutate;
+  useEffect(() => {
+    if (!cameFromSignIn || !isAuthenticated || hasAccess) return;
+    if (hasForwardedToVerification.current) return;
+    hasForwardedToVerification.current = true;
+    startAccess();
+  }, [cameFromSignIn, hasAccess, isAuthenticated, startAccess]);
+
   if (isAuthPending) return <PageLoadingOverlay />;
 
-  const hasAccess = accessState.hasActiveEntitlement;
   const currentStep = hasAccess ? 2 : isAuthenticated ? 1 : 0;
   const returnedFromVerification = Boolean(search.intent_id && search.grant && hasAccess);
+  // Unity sent them here; the VCC already has the repository, so handing back a
+  // vcc:// link would bounce them into the wrong application.
+  const returnsToUnity = hasAccess && (cameFromSignIn || returnedFromVerification);
   const providerSummary = Array.from(
     new Set(product.storefronts.map((storefront) => storefront.providerLabel))
   ).join(' + ');
@@ -152,7 +176,7 @@ export function BuyerProductAccessView({ access, search }: BuyerProductAccessVie
           <Stepper.Step>
             <Stepper.Indicator />
             <Stepper.Content>
-              <Stepper.Title>Add to VCC</Stepper.Title>
+              <Stepper.Title>{returnsToUnity ? 'Back to Unity' : 'Add to VCC'}</Stepper.Title>
             </Stepper.Content>
             <Stepper.Separator />
           </Stepper.Step>
@@ -175,15 +199,22 @@ export function BuyerProductAccessView({ access, search }: BuyerProductAccessVie
                   : 'Sign in to get started'}
             </h2>
             <p className="vpa-action-desc">
-              {hasAccess
-                ? 'Add the product to VCC. YUCP then installs the verified files.'
-                : isAuthenticated
-                  ? `Confirm a purchase from ${providerSummary} to unlock this product.`
-                  : 'Use the Creator Identity connected to your purchases and VCC.'}
+              {returnsToUnity
+                ? 'Switch back to the Unity importer window to finish installing.'
+                : hasAccess
+                  ? 'Add the product to VCC. YUCP then installs the verified files.'
+                  : isAuthenticated
+                    ? `Confirm a purchase from ${providerSummary} to unlock this product.`
+                    : 'Use the Creator Identity connected to your purchases and VCC.'}
             </p>
           </div>
 
-          {hasAccess ? (
+          {returnsToUnity ? (
+            <div className="vpa-callout">
+              <Icon name="success" className="size-4" aria-hidden="true" />
+              You can close this tab and return to Unity.
+            </div>
+          ) : hasAccess ? (
             <div className="flex flex-wrap gap-2">
               <YucpButton
                 yucp="secondary"

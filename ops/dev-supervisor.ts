@@ -49,6 +49,7 @@ import {
   startInteractiveStorageHarness,
 } from './testing/interactiveStorageHarness';
 import { type LocalWorkerR2Mirror, startLocalWorkerR2Mirror } from './testing/localWorkerR2Mirror';
+import { transferHelperRoot } from './transferHelperRoot';
 
 const execFileAsync = promisify(execFile);
 const ROOT_DIR = process.cwd();
@@ -620,7 +621,13 @@ async function generateLocalTufRepository(input: {
   const configuredGo = input.baseEnv.YUCP_GO_EXECUTABLE?.trim();
   const workspaceGo = 'E:\\YUCPTools\\go-1.26.5\\go\\bin\\go.exe';
   const goExecutable = configuredGo || (existsSync(workspaceGo) ? workspaceGo : 'go');
-  const helperRoot = path.join(ROOT_DIR, 'Verify', 'Native', 'transfer-helper');
+  const helperRoot = transferHelperRoot();
+  if (!existsSync(helperRoot)) {
+    throw new Error(
+      `The Go transfer-helper module was not found at ${helperRoot}. It lives in the ca-coupling ` +
+        'repo: clone it beside this one, or point YUCP_TRANSFER_HELPER_ROOT at your checkout.'
+    );
+  }
   const pinnedRoot = path.join(helperRoot, 'internal', 'tufclient', 'testdata', '1.root.json');
   const helperExecutable = path.join(path.dirname(input.outputRoot), 'yucp-transfer-helper.exe');
   const brokerExecutable = path.join(path.dirname(input.outputRoot), 'yucp-package-broker.exe');

@@ -384,4 +384,38 @@ describe('YUCP public VPM alias package', () => {
       }
     }
   });
+  it('republishes what the package needs so VCC can resolve it', () => {
+    // The shape ingest reads out of JAMMR_2.1.8.unitypackage.
+    const built = buildYucpAliasVpmPackage({
+      aliasId,
+      bootstrapVersion: '1.0.0',
+      vpmDependencies: {
+        'com.vrcfury.vrcfury': '>=1.1258.0',
+        'com.yucp.importer': '>=0.1.75',
+      },
+      vpmRepositories: { 'VRCFury Repo': 'https://vcc.vrcfury.com/' },
+      artifactUrl: immutableArtifactUrl('1.0.0'),
+    });
+
+    expect(built.manifest.vpmDependencies).toMatchObject({
+      'com.vrcfury.vrcfury': '>=1.1258.0',
+    });
+    // The platform pins the importer, so a package cannot drag its own range in.
+    expect(built.manifest.vpmDependencies['com.yucp.importer']).not.toBe('>=0.1.75');
+    expect(built.manifest.vpmRepositories).toEqual({
+      'VRCFury Repo': 'https://vcc.vrcfury.com/',
+    });
+  });
+
+  it('refuses a repository the buyer cannot fetch over https', () => {
+    expect(() =>
+      buildYucpAliasVpmPackage({
+        aliasId,
+        bootstrapVersion: '1.0.0',
+        vpmDependencies: {},
+        vpmRepositories: { Sketchy: 'http://vcc.example.test/' },
+        artifactUrl: immutableArtifactUrl('1.0.0'),
+      })
+    ).toThrow('repository URL is invalid');
+  });
 });

@@ -1428,7 +1428,8 @@ Exit gate:
 
 Put a versioned IPC contract behind the importer services.
 
-Use `Verify/Native/transfer-helper` as the helper workspace.
+Use the `transfer-helper` module in the ca-coupling repo as the helper workspace; see
+`Verify/Native/transfer-helper/README.md` for where it went and how tooling here resolves it.
 
 Build one native Go executable for each supported platform.
 

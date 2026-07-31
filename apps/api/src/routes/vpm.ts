@@ -123,6 +123,8 @@ type PublicBootstrapPresentation = {
   editionId?: string;
   releaseRoot?: string;
   versionId?: string;
+  vpmDependencies?: Record<string, string>;
+  vpmRepositories?: Record<string, string>;
 };
 
 type BootstrapTarget = {
@@ -134,6 +136,8 @@ type BootstrapTarget = {
   state: 'READY' | 'SUPERSEDED';
   version: string;
   versionId: string;
+  vpmDependencies?: Record<string, string>;
+  vpmRepositories?: Record<string, string>;
 };
 
 export interface VpmBootstrapMediaReader {
@@ -566,6 +570,8 @@ export function createVpmRoutes({
     packageId: string;
     presentation: VpmAliasPresentation;
     reservation: VpmAliasPublicationReservation;
+    vpmDependencies?: Record<string, string>;
+    vpmRepositories?: Record<string, string>;
     serviceActor: Awaited<ReturnType<typeof createApiServiceActorBinding>>;
     serviceConvex: ReturnType<typeof getConvexClientFromUrl>;
   }): Promise<void> {
@@ -611,7 +617,8 @@ export function createVpmRoutes({
         bootstrapVersion: input.reservation.bootstrapVersion,
         ...(bootstrapIntent ? { bootstrapIntent } : {}),
         packageVersion: input.reservation.packageVersion,
-        vpmDependencies: {},
+        vpmDependencies: input.vpmDependencies ?? {},
+        ...(input.vpmRepositories ? { vpmRepositories: input.vpmRepositories } : {}),
         packageMetadata: {
           packageName: input.presentation.packageName,
           author: input.presentation.authorName,
@@ -805,6 +812,12 @@ export function createVpmRoutes({
       reservation,
       serviceActor,
       serviceConvex,
+      ...(releasePresentation.vpmDependencies
+        ? { vpmDependencies: releasePresentation.vpmDependencies }
+        : {}),
+      ...(releasePresentation.vpmRepositories
+        ? { vpmRepositories: releasePresentation.vpmRepositories }
+        : {}),
     });
   }
 
@@ -911,6 +924,15 @@ export function createVpmRoutes({
       throw new PublicAliasPublicationUnavailableError();
     }
     const presentation = await syncServicePresentationForRelease(input);
+    const releaseTarget =
+      input.releasePresentation ??
+      ((await input.serviceConvex.query(api.packageVersions.resolveBootstrapTargetForService, {
+        apiSecret: config.convexApiSecret,
+        actor: input.serviceActor,
+        packageId: input.packageId,
+        editionId: input.editionId,
+        versionId: input.versionId,
+      })) as BootstrapTarget | null);
     const reservation = (await input.serviceConvex.mutation(
       api.vpmAliasPublications.reservePublicationForService,
       {
@@ -934,6 +956,8 @@ export function createVpmRoutes({
       reservation,
       serviceActor: input.serviceActor,
       serviceConvex: input.serviceConvex,
+      ...(releaseTarget?.vpmDependencies ? { vpmDependencies: releaseTarget.vpmDependencies } : {}),
+      ...(releaseTarget?.vpmRepositories ? { vpmRepositories: releaseTarget.vpmRepositories } : {}),
     });
   }
 
@@ -1585,7 +1609,10 @@ export function createVpmRoutes({
       bootstrapVersion: publication.bootstrapVersion,
       bootstrapIntent,
       packageVersion: target.version,
-      vpmDependencies: {},
+      // Ingest reads these from the VPM manifests the package ships; publishing
+      // them is what makes VCC resolve VRCFury and friends on the buyer's side.
+      vpmDependencies: target.vpmDependencies ?? {},
+      ...(target.vpmRepositories ? { vpmRepositories: target.vpmRepositories } : {}),
       packageMetadata: {
         packageName,
         author: releaseMetadata?.author?.trim() || presentation?.authorName || 'YUCP Club',

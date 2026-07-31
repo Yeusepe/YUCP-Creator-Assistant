@@ -10,8 +10,17 @@ export const COUPLING_WORKER_MAX_PNG_DIMENSION = 16_384;
 export const COUPLING_WORKER_MAX_PNG_FALLBACK_PIXELS = 2048 * 2048;
 export const COUPLING_WORKER_MAX_FBX_BYTES = 24 * 1024 * 1024;
 
+// A nested ZIP is coupled entry by entry, but the rebuilt archive is assembled
+// whole before it is stored, so the isolate has to hold the expanded contents.
+// This is the total uncompressed size across entries, not the archive size, so
+// a small archive that expands enormously still routes to the container.
+export const COUPLING_WORKER_MAX_ZIP_TOTAL_BYTES = 64 * 1024 * 1024;
+export const COUPLING_WORKER_MAX_ZIP_ENTRIES = 4096;
+
 // 8-byte signature + IHDR length/type (8) + IHDR data (13) + CRC (4).
 export const PNG_HEADER_BYTES = 33;
+// End-of-central-directory record plus room for the comment field it may carry.
+export const ZIP_TRAILER_BYTES = 66 * 1024;
 
 export type CouplingLane = 'container' | 'worker';
 
@@ -20,6 +29,8 @@ export type CouplingLaneLimits = {
   maxPngFallbackPixels: number;
   maxPngDimension: number;
   maxPngPixels: number;
+  maxZipEntries: number;
+  maxZipTotalBytes: number;
 };
 
 const DEFAULT_LIMITS: CouplingLaneLimits = {
@@ -27,6 +38,8 @@ const DEFAULT_LIMITS: CouplingLaneLimits = {
   maxPngFallbackPixels: COUPLING_WORKER_MAX_PNG_FALLBACK_PIXELS,
   maxPngDimension: COUPLING_WORKER_MAX_PNG_DIMENSION,
   maxPngPixels: COUPLING_WORKER_MAX_PNG_PIXELS,
+  maxZipEntries: COUPLING_WORKER_MAX_ZIP_ENTRIES,
+  maxZipTotalBytes: COUPLING_WORKER_MAX_ZIP_TOTAL_BYTES,
 };
 
 export function resolveCouplingLane(
@@ -36,6 +49,8 @@ export function resolveCouplingLane(
     pngHeight?: number;
     pngStreamingSupported?: boolean;
     pngWidth?: number;
+    zipEntries?: number;
+    zipTotalBytes?: number;
   },
   limits: CouplingLaneLimits = DEFAULT_LIMITS
 ): CouplingLane {
@@ -51,10 +66,79 @@ export function resolveCouplingLane(
         : 'container';
     case 'fbx':
       return input.bytes <= limits.maxFbxBytes ? 'worker' : 'container';
+    case 'zip':
+      // An unreadable directory leaves both undefined, which must not be read
+      // as "small enough" — only a directory we actually parsed can promote.
+      return input.zipEntries !== undefined &&
+        input.zipTotalBytes !== undefined &&
+        input.zipEntries <= limits.maxZipEntries &&
+        input.zipTotalBytes <= limits.maxZipTotalBytes
+        ? 'worker'
+        : 'container';
     default:
-      // zip and anything unrecognized always take the container lane.
       return 'container';
   }
+}
+
+export type ZipCouplingMetadata = {
+  entries: number;
+  totalBytes: number;
+};
+
+/**
+ * Sums the uncompressed sizes in a ZIP central directory so the lane router can
+ * tell a small archive from one that expands past the isolate. Reads the tail
+ * of the file only. Returns null when the directory is absent, truncated, or
+ * uses Zip64, all of which mean the archive cannot be proven worker-safe.
+ */
+export function readZipCouplingMetadata(tailBytes: Uint8Array): ZipCouplingMetadata | null {
+  const view = new DataView(tailBytes.buffer, tailBytes.byteOffset, tailBytes.byteLength);
+  let endOffset = -1;
+  // The EOCD comment is variable length, so scan back for the signature.
+  for (let offset = tailBytes.byteLength - 22; offset >= 0; offset -= 1) {
+    if (view.getUint32(offset, true) === 0x06054b50) {
+      endOffset = offset;
+      break;
+    }
+  }
+  if (endOffset < 0) {
+    return null;
+  }
+  const entries = view.getUint16(endOffset + 10, true);
+  const directorySize = view.getUint32(endOffset + 12, true);
+  const directoryOffset = view.getUint32(endOffset + 16, true);
+  // Zip64 parks 0xffff/0xffffffff here and moves the real values elsewhere.
+  if (entries === 0xffff || directorySize === 0xffffffff || directoryOffset === 0xffffffff) {
+    return null;
+  }
+  // The directory has to sit inside the tail we were given to be summable; a
+  // directory that starts before it cannot be proven small and stays container.
+  const start = endOffset - directorySize;
+  if (start < 0) {
+    return null;
+  }
+
+  let cursor = start;
+  let totalBytes = 0;
+  for (let index = 0; index < entries; index += 1) {
+    if (cursor + 46 > endOffset || view.getUint32(cursor, true) !== 0x02014b50) {
+      return null;
+    }
+    const uncompressedSize = view.getUint32(cursor + 24, true);
+    if (uncompressedSize === 0xffffffff) {
+      return null;
+    }
+    totalBytes += uncompressedSize;
+    if (!Number.isSafeInteger(totalBytes)) {
+      return null;
+    }
+    cursor +=
+      46 +
+      view.getUint16(cursor + 28, true) +
+      view.getUint16(cursor + 30, true) +
+      view.getUint16(cursor + 32, true);
+  }
+  return cursor === endOffset ? { entries, totalBytes } : null;
 }
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];

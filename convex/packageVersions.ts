@@ -52,6 +52,10 @@ function bootstrapTargetOf(target: Doc<'package_versions_ref'>) {
     state: target.state,
     version,
     versionId: target.versionId,
+    // Ingest records what the package needs; the bootstrap has to republish it
+    // or VCC has no way to resolve the dependency on the buyer's machine.
+    ...(target.vpmDependencies ? { vpmDependencies: target.vpmDependencies } : {}),
+    ...(target.vpmRepositories ? { vpmRepositories: target.vpmRepositories } : {}),
   };
 }
 
@@ -764,6 +768,12 @@ export const resolvePublicBootstrapPresentation = query({
       packageMetadata,
       releaseRoot: latestCandidate.releaseRoot,
       versionId: latestCandidate.versionId,
+      ...(latestCandidate.vpmDependencies
+        ? { vpmDependencies: latestCandidate.vpmDependencies }
+        : {}),
+      ...(latestCandidate.vpmRepositories
+        ? { vpmRepositories: latestCandidate.vpmRepositories }
+        : {}),
     };
   },
 });

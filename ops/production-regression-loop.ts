@@ -124,7 +124,8 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
       'apps/api/test/e2e/user-journeys.test.ts',
       'apps/api/src/routes/suite.test.ts',
       'ops/catalog/catalog.integration.test.ts',
-      'Verify/Native/transfer-helper/internal/delivery/manifest_test.go',
+      // The Go delivery, broker, dpop and lifecycle regressions moved to the ca-coupling repo
+      // together with the transfer-helper module; that repo owns their regression surface now.
     ],
     secondaryRegressionHomes: [
       'apps/api/src/routes/connectUserProductAccess.test.ts',
@@ -136,9 +137,6 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
       'apps/web/test/unit/dashboard-packages-route.test.tsx',
       'apps/web/test/unit/packages-client.test.ts',
       'apps/web/test/unit/product-access-diagnostics.test.ts',
-      'Verify/Native/transfer-helper/internal/broker/runtime_test.go',
-      'Verify/Native/transfer-helper/internal/dpop/dpop_test.go',
-      'Verify/Native/transfer-helper/internal/lifecycle/lifecycle_test.go',
     ],
     remediationHomes: [
       'convex/entitlements.realtest.ts',

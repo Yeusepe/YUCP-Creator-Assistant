@@ -10,6 +10,7 @@ import { fetchBuyerProductAccess } from '@/lib/server/productAccess';
 export const Route = createFileRoute('/get-in-unity/$creatorRef/$productRef')({
   validateSearch: (search: Record<string, unknown>) => ({
     grant: typeof search.grant === 'string' ? search.grant : undefined,
+    from: search.from === 'signin' ? ('signin' as const) : undefined,
     intent_id: typeof search.intent_id === 'string' ? search.intent_id : undefined,
   }),
   head: () => ({

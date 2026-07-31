@@ -55,9 +55,12 @@ convex/tsconfig.tsbuildinfo
 /apps/api/test-results
 /apps/api/test-results
 /apps/web/.tanstack
+# Native code lives in the ca-coupling repo. Only the note recording where the Go module went is
+# tracked here; nothing else under Verify/Native/ belongs in this repo.
 /Verify/Native/*
 !/Verify/Native/transfer-helper/
-!/Verify/Native/transfer-helper/**
+/Verify/Native/transfer-helper/*
+!/Verify/Native/transfer-helper/README.md
 /.volumes
 /.idea/
 /.orchestration/

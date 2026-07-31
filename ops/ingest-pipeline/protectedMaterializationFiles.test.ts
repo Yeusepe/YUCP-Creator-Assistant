@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import {
   COUPLING_WORKER_MAX_FBX_BYTES,
   COUPLING_WORKER_MAX_PNG_DIMENSION,
+  COUPLING_WORKER_MAX_ZIP_ENTRIES,
+  COUPLING_WORKER_MAX_ZIP_TOTAL_BYTES,
 } from '../storage-core/couplingLane';
 import type { DeliveryManifestFile } from '../storage-core/deliveryManifest';
 import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId';
@@ -111,6 +113,8 @@ describe('protected file coupling lane', () => {
           maxPngFallbackPixels: 64 * 32 - 1,
           maxPngDimension: COUPLING_WORKER_MAX_PNG_DIMENSION,
           maxPngPixels: 64 * 32 - 1,
+          maxZipEntries: COUPLING_WORKER_MAX_ZIP_ENTRIES,
+          maxZipTotalBytes: COUPLING_WORKER_MAX_ZIP_TOTAL_BYTES,
         }
       )
     ).toEqual({ couplingLane: 'container', pixelHeight: 32, pixelWidth: 64 });
@@ -156,6 +160,8 @@ describe('protected file coupling lane', () => {
           maxPngFallbackPixels: 4096 * 4096,
           maxPngDimension: COUPLING_WORKER_MAX_PNG_DIMENSION,
           maxPngPixels: 4096 * 4096,
+          maxZipEntries: COUPLING_WORKER_MAX_ZIP_ENTRIES,
+          maxZipTotalBytes: COUPLING_WORKER_MAX_ZIP_TOTAL_BYTES,
         }
       )
     ).toEqual({ couplingLane: 'container' });
