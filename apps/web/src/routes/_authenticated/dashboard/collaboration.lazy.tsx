@@ -43,6 +43,8 @@ import {
 import { listCreatorPackagePickerProducts } from '@/lib/packages';
 import { copyToClipboard } from '@/lib/utils';
 
+const EMPTY_CREATOR_WORKSPACE_GRANTS: readonly CreatorWorkspaceGrant[] = [];
+
 function DashboardCollaborationPending() {
   return (
     <div
@@ -117,6 +119,7 @@ function MyCollaboratorsSection({
     null
   );
   const [selectedMember, setSelectedMember] = useState<CreatorWorkspaceMemberSummary | null>(null);
+  const [memberActionError, setMemberActionError] = useState<string | null>(null);
 
   const providersQuery = useQuery(
     dashboardPanelQueryOptions<CollabProviderSummary[]>({
@@ -141,26 +144,36 @@ function MyCollaboratorsSection({
       refetchInterval: 15000,
     })
   );
-  const permissionResourcesQuery = useQuery({
-    queryKey: ['dashboard-collab-permission-resources', authUserId],
-    queryFn: listCreatorPackagePickerProducts,
-    enabled: canRunPanelQueries && Boolean(authUserId) && Boolean(selectedMember),
-  });
+  const permissionResourcesQuery = useQuery(
+    dashboardPanelQueryOptions({
+      queryKey: ['dashboard-collab-permission-resources', authUserId],
+      queryFn: listCreatorPackagePickerProducts,
+      enabled: canRunPanelQueries && Boolean(authUserId),
+    })
+  );
 
   useEffect(() => {
     if (
       isDashboardAuthError(providersQuery.error) ||
       isDashboardAuthError(invitesQuery.error) ||
-      isDashboardAuthError(membersQuery.error)
+      isDashboardAuthError(membersQuery.error) ||
+      isDashboardAuthError(permissionResourcesQuery.error)
     ) {
       markSessionExpired();
     }
-  }, [invitesQuery.error, markSessionExpired, membersQuery.error, providersQuery.error]);
+  }, [
+    invitesQuery.error,
+    markSessionExpired,
+    membersQuery.error,
+    permissionResourcesQuery.error,
+    providersQuery.error,
+  ]);
 
   const hasAuthError =
     isDashboardAuthError(providersQuery.error) ||
     isDashboardAuthError(invitesQuery.error) ||
-    isDashboardAuthError(membersQuery.error);
+    isDashboardAuthError(membersQuery.error) ||
+    isDashboardAuthError(permissionResourcesQuery.error);
 
   const providers = providersQuery.data ?? [];
   const invites = invitesQuery.data ?? [];
@@ -220,11 +233,17 @@ function MyCollaboratorsSection({
   const removeMemberMutation = useMutation({
     mutationFn: (membershipId: string) =>
       removeCreatorWorkspaceMember(requireAuthUserId(authUserId), membershipId),
+    onMutate: () => setMemberActionError(null),
     onSuccess: async () => {
+      setMemberActionError(null);
       await queryClient.refetchQueries({
         queryKey: ['dashboard-collab-memberships', authUserId],
       });
     },
+    onError: (error) =>
+      setMemberActionError(
+        error instanceof Error ? error.message : 'Could not remove this collaborator right now.'
+      ),
   });
   const updatePermissionsMutation = useMutation({
     mutationFn: async (input: {
@@ -239,12 +258,20 @@ function MyCollaboratorsSection({
         grants: input.grants,
       });
     },
+    onMutate: () => setMemberActionError(null),
     onSuccess: async () => {
+      setMemberActionError(null);
       setSelectedMember(null);
       await queryClient.refetchQueries({
         queryKey: ['dashboard-collab-memberships', authUserId],
       });
     },
+    onError: (error) =>
+      setMemberActionError(
+        error instanceof Error
+          ? error.message
+          : 'Could not update collaborator permissions right now.'
+      ),
   });
 
   const openInvitePanel = () => {
@@ -453,6 +480,14 @@ function MyCollaboratorsSection({
         >
           Workspace collaborators
         </div>
+        {!selectedMember && memberActionError ? (
+          <div
+            role="alert"
+            className="mb-3 rounded-xl border border-danger/25 bg-danger-soft p-3 text-sm text-danger dark:border-danger/35 dark:bg-danger-soft dark:text-danger"
+          >
+            {memberActionError}
+          </div>
+        ) : null}
         <div id="collab-list">
           {members.map((member) => (
             <div key={member.id} className="collab-row">
@@ -496,8 +531,10 @@ function MyCollaboratorsSection({
         </div>
 
         <CollaboratorPermissionSheet
+          key={selectedMember?.id ?? 'closed'}
+          actionError={memberActionError}
           description={`Configure access for ${selectedMember?.collaboratorDisplayName ?? 'this collaborator'}. Each capability can target a different set of resources.`}
-          initialGrants={selectedMember?.permissions?.grants ?? []}
+          initialGrants={selectedMember?.permissions?.grants ?? EMPTY_CREATOR_WORKSPACE_GRANTS}
           isOpen={Boolean(selectedMember)}
           isSaving={updatePermissionsMutation.isPending}
           legacyPolicyPendingReview={

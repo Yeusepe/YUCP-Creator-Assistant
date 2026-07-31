@@ -35,14 +35,16 @@
 import { getProviderDescriptor, PROVIDER_REGISTRY } from '@yucp/providers/providerMetadata';
 import {
   CREATOR_WORKSPACE_CAPABILITIES,
+  CREATOR_WORKSPACE_MAX_GRANTS,
   type CreatorWorkspaceGrant,
   normalizeCreatorWorkspaceGrants,
 } from '@yucp/shared/creatorWorkspacePermissions';
 import { base64UrlEncode, sha256Hex } from '@yucp/shared/crypto';
+import { isDiscordSnowflakeId } from '@yucp/shared/discordIds';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { Auth } from '../auth';
-import { createAuthUserActorBinding } from '../lib/apiActor';
+import { createApiServiceActorBinding, createAuthUserActorBinding } from '../lib/apiActor';
 import {
   buildCookie,
   clearCookie,
@@ -50,8 +52,10 @@ import {
   SETUP_SESSION_COOKIE,
 } from '../lib/browserSessions';
 import { getConvexClientFromUrl } from '../lib/convex';
+import { rejectCrossSiteRequest } from '../lib/csrf';
 import { encrypt } from '../lib/encrypt';
 import { logger } from '../lib/logger';
+import { RequestBodyError, readJsonObjectBodyWithLimit } from '../lib/requestBody';
 import { loadRequestScoped, requestScopeKey } from '../lib/requestScope';
 import { buildTimedResponse, RouteTimingCollector } from '../lib/requestTiming';
 import { resolveSetupSession } from '../lib/setupSession';
@@ -71,7 +75,76 @@ const COLLAB_WEBHOOK_PREFIX = 'collab_webhook:'; // keyed by inviteId
 const COLLAB_OAUTH_PREFIX = 'collab_oauth:'; // keyed by oauth state nonce
 const COLLAB_OAUTH_TTL_MS = 10 * 60 * 1000;
 const COLLAB_SESSION_COOKIE = 'yucp_collab_session';
+const COLLAB_PERMISSION_BODY_MAX_BYTES = 64 * 1024;
+const COLLAB_MEMBERSHIP_DEFAULT_LIMIT = 50;
+const COLLAB_MEMBERSHIP_MAX_LIMIT = 100;
+const COLLAB_CURSOR_MAX_LENGTH = 1_024;
+const COLLAB_PERMISSION_QUERY_CONCURRENCY = 5;
 type CreatorProfileRecord = { authUserId?: string } | null;
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  async function worker(): Promise<void> {
+    for (;;) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
+  return results;
+}
+
+async function readPermissionUpdate(request: Request): Promise<{
+  expectedRevision: number;
+  grants: CreatorWorkspaceGrant[];
+}> {
+  const body = await readJsonObjectBodyWithLimit(request, COLLAB_PERMISSION_BODY_MAX_BYTES);
+  if (!Number.isSafeInteger(body.expectedRevision) || !Array.isArray(body.grants)) {
+    throw new RequestBodyError('expectedRevision and grants are required', 400);
+  }
+  if (body.grants.length > CREATOR_WORKSPACE_MAX_GRANTS) {
+    throw new RequestBodyError(
+      `At most ${CREATOR_WORKSPACE_MAX_GRANTS} collaborator grants are allowed`,
+      400
+    );
+  }
+  try {
+    return {
+      expectedRevision: body.expectedRevision as number,
+      grants: normalizeCreatorWorkspaceGrants(
+        body.grants as Array<{
+          capabilityKey: string;
+          resourceId?: string;
+          resourceType: string;
+          scope: string;
+        }>
+      ),
+    };
+  } catch {
+    throw new RequestBodyError('Invalid collaborator permissions', 400);
+  }
+}
+
+function toPublicPermissionPolicy(policy: {
+  grants: CreatorWorkspaceGrant[];
+  legacyPolicyPendingReview: boolean;
+  policyVersion: number;
+  revision: number;
+}) {
+  return {
+    grants: policy.grants,
+    legacyPolicyPendingReview: policy.legacyPolicyPendingReview,
+    policyVersion: policy.policyVersion,
+    revision: policy.revision,
+  };
+}
 
 function isCollaboratorShareableProvider(
   provider: ReturnType<typeof getProviderDescriptor>
@@ -118,6 +191,9 @@ export function createCollabRoutes(config: CollabConfig) {
   const convex = getConvexClientFromUrl(config.convexUrl);
   const apiSecret = config.convexApiSecret;
   const store = getStateStore();
+  const allowedOrigins = new Set(
+    [config.apiBaseUrl, config.frontendBaseUrl].map((value) => new URL(value).origin)
+  );
 
   async function getCreatorProfile(
     request: Request,
@@ -374,6 +450,7 @@ export function createCollabRoutes(config: CollabConfig) {
       guildName?: string;
       guildId?: string;
       authUserId?: string;
+      providerKey?: unknown;
     } = {};
     try {
       body = (await request.json()) as typeof body;
@@ -384,6 +461,16 @@ export function createCollabRoutes(config: CollabConfig) {
     // Auth first, never expose body validation details to unauthenticated callers
     const ownerAuth = await requireOwnerAuth(request, body.authUserId, timing);
     if (!ownerAuth.ok) return ownerAuth.response;
+    if (body.providerKey !== undefined) {
+      return respond(() =>
+        Response.json(
+          {
+            error: 'Collaboration invitations are workspace-wide and cannot target a provider',
+          },
+          { status: 400 }
+        )
+      );
+    }
 
     const rawToken = generateToken();
     const tokenHash = await sha256Hex(rawToken);
@@ -708,10 +795,13 @@ export function createCollabRoutes(config: CollabConfig) {
         providerDescriptor?.collabCredential?.placeholder ??
         'Paste the credential you want to share',
       collabLinkModes: providerDescriptor?.collabLinkModes ?? ['api'],
-      permissionPolicyVersion: session.invite.permissionPolicyVersion,
-      permissionGrants: session.invite.permissionGrants ?? [],
-      legacyPolicyPendingReview: session.invite.legacyPolicyPendingReview ?? false,
-      capabilityDefinitions: CREATOR_WORKSPACE_CAPABILITIES,
+      permissionGrants: session.invite.permissionGrants?.map(
+        ({ capabilityKey, resourceType, scope }) => ({
+          capabilityKey,
+          resourceType,
+          scope,
+        })
+      ),
     });
   }
 
@@ -747,13 +837,24 @@ export function createCollabRoutes(config: CollabConfig) {
       discordUsername: string;
       avatarHash: string | null;
     };
+    if (!isDiscordSnowflakeId(discordUserId)) {
+      logger.error('Discord returned an invalid collaborator identity');
+      return respond(() =>
+        Response.json({ error: 'Discord authentication could not be verified' }, { status: 502 })
+      );
+    }
 
     try {
+      const actor = await createApiServiceActorBinding({
+        service: 'collaboration-api',
+        scopes: ['collaboration:service'],
+      });
       await timing.measure(
         'convex_collab_invite_accept',
         () =>
           convex.mutation(api.collaboratorInvites.acceptCreatorWorkspaceInvite, {
             apiSecret,
+            actor,
             inviteId: session.invite._id,
             collaboratorDiscordUserId: discordUserId,
             collaboratorDisplayName: discordUsername,
@@ -772,7 +873,12 @@ export function createCollabRoutes(config: CollabConfig) {
           : 500;
       return respond(() =>
         Response.json(
-          { error: status === 410 ? message : 'Failed to accept invitation' },
+          {
+            error:
+              status === 410
+                ? 'This invitation is no longer available'
+                : 'Failed to accept invitation',
+          },
           { status }
         )
       );
@@ -1151,12 +1257,39 @@ export function createCollabRoutes(config: CollabConfig) {
       authUserId: ownerAuth.authUserId,
       source: 'session',
     });
-    const memberships = await timing.measure(
+    const requestedLimit = url.searchParams.get('limit');
+    const parsedLimit =
+      requestedLimit === null ? COLLAB_MEMBERSHIP_DEFAULT_LIMIT : Number(requestedLimit);
+    const cursor = url.searchParams.get('cursor') ?? undefined;
+    if (
+      !Number.isSafeInteger(parsedLimit) ||
+      parsedLimit < 1 ||
+      parsedLimit > COLLAB_MEMBERSHIP_MAX_LIMIT ||
+      (cursor !== undefined && cursor.length > COLLAB_CURSOR_MAX_LENGTH)
+    ) {
+      return respond(() =>
+        Response.json({ error: 'Invalid membership pagination' }, { status: 400 })
+      );
+    }
+    await timing.measure(
+      'convex_collab_legacy_migration',
+      () =>
+        convex.mutation(api.collaboratorInvites.migrateLegacyConnectionsForOwner, {
+          apiSecret,
+          actor,
+          ownerAuthUserId: ownerAuth.authUserId,
+        }),
+      'materialize legacy workspace memberships'
+    );
+    const membershipPage = await timing.measure(
       'convex_collab_memberships',
       () =>
         convex.query(api.collaboratorInvites.listCreatorWorkspaceMemberships, {
           apiSecret,
+          actor,
           ownerAuthUserId: ownerAuth.authUserId,
+          cursor,
+          limit: parsedLimit,
         }),
       'list creator workspace memberships'
     );
@@ -1164,36 +1297,65 @@ export function createCollabRoutes(config: CollabConfig) {
     const withPermissions = await timing.measure(
       'convex_collab_permissions',
       () =>
-        Promise.all(
-          memberships.map(
-            async (membership: {
-              id: string;
-              collaboratorAvatarHash?: string;
-              collaboratorDiscordUserId: string;
-              [key: string]: unknown;
-            }) => {
-              const avatarUrl =
-                membership.collaboratorAvatarHash &&
-                avatarHashPattern.test(membership.collaboratorAvatarHash)
-                  ? `https://cdn.discordapp.com/avatars/${membership.collaboratorDiscordUserId}/${membership.collaboratorAvatarHash}.webp?size=64`
-                  : null;
-              const { collaboratorAvatarHash: _drop, ...safeMembership } = membership;
-              const permissions = await convex.query(
-                api.creatorWorkspacePermissions.getPolicyForMembership,
-                {
-                  apiSecret,
-                  actor,
-                  ownerAuthUserId: ownerAuth.authUserId,
-                  membershipId: membership.id as Id<'creator_workspace_memberships'>,
-                }
-              );
-              return { ...safeMembership, avatarUrl, permissions };
-            }
-          )
+        mapWithConcurrency(
+          membershipPage.page as Array<{
+            id: string;
+            collaboratorAvatarHash?: string;
+            collaboratorDiscordUserId: string;
+            collaboratorDisplayName: string;
+            createdAt: number;
+            linkType?: 'account' | 'api';
+            provider?: string;
+            status: string;
+            updatedAt: number;
+            webhookConfigured: boolean;
+          }>,
+          COLLAB_PERMISSION_QUERY_CONCURRENCY,
+          async (membership) => {
+            const avatarUrl =
+              isDiscordSnowflakeId(membership.collaboratorDiscordUserId) &&
+              membership.collaboratorAvatarHash &&
+              avatarHashPattern.test(membership.collaboratorAvatarHash)
+                ? `https://cdn.discordapp.com/avatars/${encodeURIComponent(
+                    membership.collaboratorDiscordUserId
+                  )}/${encodeURIComponent(membership.collaboratorAvatarHash)}.webp?size=64`
+                : null;
+            const policy = await convex.query(
+              api.creatorWorkspacePermissions.getPolicyForMembership,
+              {
+                apiSecret,
+                actor,
+                ownerAuthUserId: ownerAuth.authUserId,
+                membershipId: membership.id as Id<'creator_workspace_memberships'>,
+              }
+            );
+            const permissions = policy ? toPublicPermissionPolicy(policy) : null;
+            return {
+              id: membership.id,
+              status: membership.status,
+              collaboratorDisplayName: membership.collaboratorDisplayName,
+              avatarUrl,
+              provider: membership.provider,
+              linkType: membership.linkType,
+              webhookConfigured: membership.webhookConfigured,
+              createdAt: membership.createdAt,
+              updatedAt: membership.updatedAt,
+              permissions,
+            };
+          }
         ),
       'load workspace membership policies'
     );
-    return respond(() => Response.json({ memberships: withPermissions }));
+    return respond(() =>
+      Response.json(
+        {
+          memberships: withPermissions,
+          nextCursor: membershipPage.continueCursor,
+          isDone: membershipPage.isDone,
+        },
+        { headers: { 'Cache-Control': 'private, no-store' } }
+      )
+    );
   }
 
   async function manageMembershipPermissions(
@@ -1223,7 +1385,13 @@ export function createCollabRoutes(config: CollabConfig) {
       );
       return permissions
         ? respond(() =>
-            Response.json({ permissions, capabilityDefinitions: CREATOR_WORKSPACE_CAPABILITIES })
+            Response.json(
+              {
+                permissions: toPublicPermissionPolicy(permissions),
+                capabilityDefinitions: CREATOR_WORKSPACE_CAPABILITIES,
+              },
+              { headers: { 'Cache-Control': 'private, no-store' } }
+            )
           )
         : respond(() =>
             Response.json({ error: 'Collaborator membership not found' }, { status: 404 })
@@ -1232,32 +1400,19 @@ export function createCollabRoutes(config: CollabConfig) {
     if (request.method !== 'PUT') {
       return respond(() => Response.json({ error: 'Method not allowed' }, { status: 405 }));
     }
-    let body: { expectedRevision?: number; grants?: unknown };
+    let update: { expectedRevision: number; grants: CreatorWorkspaceGrant[] };
     try {
-      body = (await request.json()) as typeof body;
-    } catch {
-      return respond(() => Response.json({ error: 'Invalid JSON' }, { status: 400 }));
-    }
-    if (!Number.isSafeInteger(body.expectedRevision) || !Array.isArray(body.grants)) {
-      return respond(() =>
-        Response.json({ error: 'expectedRevision and grants are required' }, { status: 400 })
-      );
-    }
-    let grants: CreatorWorkspaceGrant[];
-    try {
-      grants = normalizeCreatorWorkspaceGrants(
-        body.grants as Array<{
-          capabilityKey: string;
-          resourceId?: string;
-          resourceType: string;
-          scope: string;
-        }>
-      );
+      update = await readPermissionUpdate(request);
     } catch (error) {
       return respond(() =>
         Response.json(
-          { error: error instanceof Error ? error.message : 'Invalid collaborator permissions' },
-          { status: 400 }
+          {
+            error:
+              error instanceof RequestBodyError
+                ? error.message
+                : 'Invalid collaborator permissions',
+          },
+          { status: error instanceof RequestBodyError ? error.status : 400 }
         )
       );
     }
@@ -1270,16 +1425,25 @@ export function createCollabRoutes(config: CollabConfig) {
             actor,
             ownerAuthUserId: ownerAuth.authUserId,
             membershipId: membershipId as Id<'creator_workspace_memberships'>,
-            expectedRevision: body.expectedRevision as number,
-            grants,
+            expectedRevision: update.expectedRevision,
+            grants: update.grants,
           }),
         'replace membership permission policy'
       );
-      return respond(() => Response.json({ success: true, ...result }));
+      return respond(() => Response.json({ success: true, revision: result.revision }));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      logger.error('Failed to update collaborator membership permissions', { err: message });
+      const conflict = message.includes('changed while');
       return respond(() =>
-        Response.json({ error: message }, { status: message.includes('changed while') ? 409 : 400 })
+        Response.json(
+          {
+            error: conflict
+              ? 'Permission policy changed while it was being edited'
+              : 'Failed to update collaborator permissions',
+          },
+          { status: conflict ? 409 : 400 }
+        )
       );
     }
   }
@@ -1290,12 +1454,17 @@ export function createCollabRoutes(config: CollabConfig) {
       buildTimedResponse(timing, buildResponse, 'serialize membership removal response');
     const ownerAuth = await requireOwnerAuth(request, undefined, timing);
     if (!ownerAuth.ok) return ownerAuth.response;
+    const actor = await createAuthUserActorBinding({
+      authUserId: ownerAuth.authUserId,
+      source: 'session',
+    });
     try {
       await timing.measure(
         'convex_collab_membership_remove',
         () =>
           convex.mutation(api.collaboratorInvites.removeCreatorWorkspaceMembership, {
             apiSecret,
+            actor,
             membershipId: membershipId as Id<'creator_workspace_memberships'>,
             ownerAuthUserId: ownerAuth.authUserId,
           }),
@@ -1303,11 +1472,11 @@ export function createCollabRoutes(config: CollabConfig) {
       );
       return respond(() => Response.json({ success: true }));
     } catch (error) {
+      logger.error('Failed to remove collaborator membership', {
+        err: error instanceof Error ? error.message : String(error),
+      });
       return respond(() =>
-        Response.json(
-          { error: error instanceof Error ? error.message : String(error) },
-          { status: 400 }
-        )
+        Response.json({ error: 'Failed to remove collaborator' }, { status: 400 })
       );
     }
   }
@@ -1339,7 +1508,13 @@ export function createCollabRoutes(config: CollabConfig) {
       );
       return permissions
         ? respond(() =>
-            Response.json({ permissions, capabilityDefinitions: CREATOR_WORKSPACE_CAPABILITIES })
+            Response.json(
+              {
+                permissions: toPublicPermissionPolicy(permissions),
+                capabilityDefinitions: CREATOR_WORKSPACE_CAPABILITIES,
+              },
+              { headers: { 'Cache-Control': 'private, no-store' } }
+            )
           )
         : respond(() =>
             Response.json({ error: 'Collaborator connection not found' }, { status: 404 })
@@ -1348,32 +1523,19 @@ export function createCollabRoutes(config: CollabConfig) {
     if (request.method !== 'PUT') {
       return respond(() => Response.json({ error: 'Method not allowed' }, { status: 405 }));
     }
-    let body: { expectedRevision?: number; grants?: unknown };
+    let update: { expectedRevision: number; grants: CreatorWorkspaceGrant[] };
     try {
-      body = (await request.json()) as typeof body;
-    } catch {
-      return respond(() => Response.json({ error: 'Invalid JSON' }, { status: 400 }));
-    }
-    if (!Number.isSafeInteger(body.expectedRevision) || !Array.isArray(body.grants)) {
-      return respond(() =>
-        Response.json({ error: 'expectedRevision and grants are required' }, { status: 400 })
-      );
-    }
-    let grants: CreatorWorkspaceGrant[];
-    try {
-      grants = normalizeCreatorWorkspaceGrants(
-        body.grants as Array<{
-          capabilityKey: string;
-          resourceId?: string;
-          resourceType: string;
-          scope: string;
-        }>
-      );
+      update = await readPermissionUpdate(request);
     } catch (error) {
       return respond(() =>
         Response.json(
-          { error: error instanceof Error ? error.message : 'Invalid collaborator permissions' },
-          { status: 400 }
+          {
+            error:
+              error instanceof RequestBodyError
+                ? error.message
+                : 'Invalid collaborator permissions',
+          },
+          { status: error instanceof RequestBodyError ? error.status : 400 }
         )
       );
     }
@@ -1386,16 +1548,25 @@ export function createCollabRoutes(config: CollabConfig) {
             actor,
             ownerAuthUserId: ownerAuth.authUserId,
             connectionId: connectionId as Id<'collaborator_connections'>,
-            expectedRevision: body.expectedRevision as number,
-            grants,
+            expectedRevision: update.expectedRevision,
+            grants: update.grants,
           }),
         'replace collaborator permission policy'
       );
-      return respond(() => Response.json({ success: true, ...result }));
+      return respond(() => Response.json({ success: true, revision: result.revision }));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      logger.error('Failed to update collaborator connection permissions', { err: message });
+      const conflict = message.includes('changed while');
       return respond(() =>
-        Response.json({ error: message }, { status: message.includes('changed while') ? 409 : 400 })
+        Response.json(
+          {
+            error: conflict
+              ? 'Permission policy changed while it was being edited'
+              : 'Failed to update collaborator permissions',
+          },
+          { status: conflict ? 409 : 400 }
+        )
       );
     }
   }
@@ -1523,8 +1694,11 @@ export function createCollabRoutes(config: CollabConfig) {
         'remove collaborator connection'
       );
     } catch (e) {
+      logger.error('Failed to remove collaborator connection', {
+        err: e instanceof Error ? e.message : String(e),
+      });
       return respond(() =>
-        Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 })
+        Response.json({ error: 'Failed to remove collaborator connection' }, { status: 400 })
       );
     }
     return respond(() => Response.json({ success: true }));
@@ -1565,8 +1739,11 @@ export function createCollabRoutes(config: CollabConfig) {
         'remove collaborator connection as collaborator'
       );
     } catch (e) {
+      logger.error('Failed to leave collaborator connection', {
+        err: e instanceof Error ? e.message : String(e),
+      });
       return respond(() =>
-        Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 })
+        Response.json({ error: 'Failed to leave collaborator connection' }, { status: 400 })
       );
     }
     return respond(() => Response.json({ success: true }));
@@ -1649,7 +1826,10 @@ export function createCollabRoutes(config: CollabConfig) {
         ownerAuthUserId: ownerAuth.authUserId,
       });
     } catch (e) {
-      return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+      logger.error('Failed to revoke collaborator invitation', {
+        err: e instanceof Error ? e.message : String(e),
+      });
+      return Response.json({ error: 'Failed to revoke invitation' }, { status: 400 });
     }
     return Response.json({ success: true });
   }
@@ -1669,6 +1849,10 @@ export function createCollabRoutes(config: CollabConfig) {
   async function dispatchCollabRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const pathname = url.pathname;
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
+      const csrfBlock = rejectCrossSiteRequest(request, allowedOrigins);
+      if (csrfBlock) return csrfBlock;
+    }
 
     if (pathname === '/api/collab/providers' && request.method === 'GET')
       return listCollabProviders();

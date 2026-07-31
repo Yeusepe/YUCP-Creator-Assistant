@@ -11,7 +11,7 @@ import {
   type CreatorWorkspaceResourceType,
   normalizeCreatorWorkspaceGrants,
 } from '@yucp/shared/creatorWorkspacePermissions';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { YucpButton } from '@/components/ui/YucpButton';
 
@@ -46,6 +46,7 @@ function grantsForAxis(
 
 export function CollaboratorPermissionSheet({
   description,
+  actionError,
   initialGrants,
   isOpen,
   isSaving,
@@ -56,6 +57,7 @@ export function CollaboratorPermissionSheet({
   title,
 }: {
   description: string;
+  actionError?: string | null;
   initialGrants: readonly CreatorWorkspaceGrant[];
   isOpen: boolean;
   isSaving: boolean;
@@ -70,15 +72,17 @@ export function CollaboratorPermissionSheet({
     Set<CreatorWorkspaceCapabilityKey>
   >(new Set());
   const [validationError, setValidationError] = useState<string | null>(null);
+  const initialGrantsRef = useRef(initialGrants);
+  initialGrantsRef.current = initialGrants;
 
   useEffect(() => {
     if (isOpen) {
-      const normalized = normalizeCreatorWorkspaceGrants(initialGrants);
+      const normalized = normalizeCreatorWorkspaceGrants(initialGrantsRef.current);
       setGrants(normalized);
       setEnabledCapabilities(new Set(normalized.map((grant) => grant.capabilityKey)));
       setValidationError(null);
     }
-  }, [initialGrants, isOpen]);
+  }, [isOpen]);
 
   const resourceMap = useMemo(() => {
     const map = new Map<CreatorWorkspaceResourceType, CollaboratorPermissionResource[]>();
@@ -195,6 +199,14 @@ export function CollaboratorPermissionSheet({
                   saving.
                 </div>
               ) : null}
+              {actionError ? (
+                <div
+                  role="alert"
+                  className="rounded-2xl border border-danger/25 bg-danger-soft p-4 text-sm text-danger dark:border-danger/35 dark:bg-danger-soft dark:text-danger"
+                >
+                  {actionError}
+                </div>
+              ) : null}
 
               {(['products', 'packages'] as const).map((group) => {
                 const capabilities = ASSIGNABLE_CAPABILITIES.filter(
@@ -248,6 +260,7 @@ export function CollaboratorPermissionSheet({
                                         </span>
                                         <Segment
                                           size="sm"
+                                          aria-label={`${definition.label} ${resourceType.replaceAll('_', ' ')} scope`}
                                           selectedKey={scope}
                                           onSelectionChange={(key) =>
                                             updateScope(

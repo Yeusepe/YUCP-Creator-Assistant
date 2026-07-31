@@ -1,5 +1,7 @@
 import {
+  CREATOR_WORKSPACE_MAX_GRANTS,
   CREATOR_WORKSPACE_POLICY_VERSION,
+  CREATOR_WORKSPACE_RETAINED_POLICY_REVISIONS,
   type CreatorWorkspaceGrant,
   normalizeCreatorWorkspaceGrants,
 } from '@yucp/shared/creatorWorkspacePermissions';
@@ -59,6 +61,21 @@ export async function writeCreatorWorkspacePolicy(
     legacyPolicyPendingReview: args.legacyPolicyPendingReview,
     updatedAt: now,
   });
+  const retainedPolicies = await ctx.db
+    .query('creator_workspace_policy_versions')
+    .withIndex('by_membership', (q) => q.eq('membershipId', args.membership._id))
+    .order('desc')
+    .take(CREATOR_WORKSPACE_RETAINED_POLICY_REVISIONS + 1);
+  for (const expiredPolicy of retainedPolicies.slice(CREATOR_WORKSPACE_RETAINED_POLICY_REVISIONS)) {
+    const expiredGrants = await ctx.db
+      .query('creator_workspace_grants')
+      .withIndex('by_policy', (q) => q.eq('policyVersionId', expiredPolicy._id))
+      .take(CREATOR_WORKSPACE_MAX_GRANTS + 1);
+    for (const expiredGrant of expiredGrants) {
+      await ctx.db.delete(expiredGrant._id);
+    }
+    await ctx.db.delete(expiredPolicy._id);
+  }
   await ctx.db.insert('audit_events', {
     authUserId: args.membership.ownerAuthUserId,
     eventType: 'collaborator.permissions.changed',
@@ -117,7 +134,8 @@ export async function materializeCreatorWorkspaceMembership(
     membership = (await ctx.db.get(membershipId)) as Doc<'creator_workspace_memberships'>;
   } else {
     await ctx.db.patch(membership._id, {
-      collaboratorConnectionId: args.collaboratorConnectionId,
+      collaboratorConnectionId:
+        args.collaboratorConnectionId ?? membership.collaboratorConnectionId,
       memberAuthUserId: args.memberAuthUserId ?? membership.memberAuthUserId,
       memberDisplayName: args.memberDisplayName ?? membership.memberDisplayName,
       memberAvatarHash: args.memberAvatarHash ?? membership.memberAvatarHash,

@@ -80,6 +80,10 @@ const serverSettingsPanelSource = readFileSync(
   resolve(__dirname, '../../src/components/dashboard/panels/ServerSettingsPanel.tsx'),
   'utf8'
 );
+const dashboardIntegrationsRouteSource = readFileSync(
+  resolve(__dirname, '../../src/routes/_authenticated/dashboard/integrations.lazy.tsx'),
+  'utf8'
+);
 
 describe('account UI contracts', () => {
   it('uses an account-scoped shell hook instead of the dashboard route hook', () => {
@@ -199,6 +203,15 @@ describe('account UI contracts', () => {
     expect(accountAuthorizedAppsRouteSource).toContain('isPending={revokeMut.isPending}');
     expect(accountAuthorizedAppsRouteSource).toContain('accessibleLabel=');
     expect(accountAuthorizedAppsRouteSource).toContain('actionLabel.toLowerCase()');
+  });
+
+  it('serializes conflicting OAuth and API-key credential mutations', () => {
+    expect(dashboardIntegrationsRouteSource).toContain(
+      'regenerateMutation.isPending || deleteMutation.isPending'
+    );
+    expect(dashboardIntegrationsRouteSource).toMatch(
+      /rotateMutation\.isPending\s*\|\|\s*revokeMutation\.isPending/
+    );
   });
 
   it('supports plan and portal deep links for Unity billing handoff', () => {

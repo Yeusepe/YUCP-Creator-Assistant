@@ -1,4 +1,7 @@
 export const CREATOR_WORKSPACE_POLICY_VERSION = 1 as const;
+export const CREATOR_WORKSPACE_MAX_GRANTS = 250;
+export const CREATOR_WORKSPACE_MAX_RESOURCE_ID_LENGTH = 256;
+export const CREATOR_WORKSPACE_RETAINED_POLICY_REVISIONS = 25;
 
 export const CREATOR_WORKSPACE_RESOURCE_TYPES = [
   'workspace',
@@ -243,6 +246,11 @@ export function normalizeCreatorWorkspaceGrants(
     scope: string;
   }[]
 ): CreatorWorkspaceGrant[] {
+  if (grants.length > CREATOR_WORKSPACE_MAX_GRANTS) {
+    throw new Error(
+      `Creator workspace policies support at most ${CREATOR_WORKSPACE_MAX_GRANTS} grants`
+    );
+  }
   const normalized = new Map<string, CreatorWorkspaceGrant>();
   for (const input of grants) {
     if (!isCapabilityKey(input.capabilityKey)) {
@@ -262,6 +270,11 @@ export function normalizeCreatorWorkspaceGrants(
       throw new Error(`Unknown creator workspace grant scope: ${input.scope}`);
     }
     const resourceId = input.resourceId?.trim();
+    if (resourceId && resourceId.length > CREATOR_WORKSPACE_MAX_RESOURCE_ID_LENGTH) {
+      throw new Error(
+        `Creator workspace resource IDs support at most ${CREATOR_WORKSPACE_MAX_RESOURCE_ID_LENGTH} characters`
+      );
+    }
     if (input.scope === 'all' && resourceId) {
       throw new Error('All-resource grants cannot include a resource ID');
     }

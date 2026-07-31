@@ -6,6 +6,7 @@ import {
   CREATOR_WORKSPACE_CAPABILITIES,
   type CreatorWorkspaceCapabilityKey,
   type CreatorWorkspaceGrant,
+  LEGACY_CREATOR_WORKSPACE_GRANTS,
 } from '@yucp/shared/creatorWorkspacePermissions';
 import confetti from 'canvas-confetti';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -89,16 +90,46 @@ interface InviteData {
   ownerDisplayName: string;
   providerKey?: string;
   expiresAt: number;
-  legacyPolicyPendingReview?: boolean;
   permissionGrants?: CreatorWorkspaceGrant[];
-  permissionPolicyVersion?: number;
   [key: string]: unknown;
 }
 
-function InvitePermissionSummary({ grants }: { grants: readonly CreatorWorkspaceGrant[] }) {
+export function resolveInvitePermissionGrants(input: {
+  permissionGrants?: readonly unknown[];
+  providerKey?: string;
+}): CreatorWorkspaceGrant[] {
+  if (input.permissionGrants === undefined && input.providerKey) {
+    return [...LEGACY_CREATOR_WORKSPACE_GRANTS];
+  }
+  const grants: CreatorWorkspaceGrant[] = [];
+  for (const candidate of input.permissionGrants ?? []) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+    const grant = candidate as Record<string, unknown>;
+    if (
+      typeof grant.capabilityKey !== 'string' ||
+      !Object.hasOwn(CREATOR_WORKSPACE_CAPABILITIES, grant.capabilityKey) ||
+      typeof grant.resourceType !== 'string' ||
+      typeof grant.scope !== 'string' ||
+      (grant.resourceId !== undefined && typeof grant.resourceId !== 'string')
+    ) {
+      continue;
+    }
+    grants.push(grant as CreatorWorkspaceGrant);
+  }
+  return grants;
+}
+
+function InvitePermissionSummary({
+  grants,
+  isLegacyProviderInvite = false,
+}: {
+  grants: readonly CreatorWorkspaceGrant[];
+  isLegacyProviderInvite?: boolean;
+}) {
   const capabilities = useMemo(() => {
     const grouped = new Map<CreatorWorkspaceCapabilityKey, CreatorWorkspaceGrant[]>();
     for (const grant of grants) {
+      if (!Object.hasOwn(CREATOR_WORKSPACE_CAPABILITIES, grant.capabilityKey)) continue;
       const current = grouped.get(grant.capabilityKey) ?? [];
       current.push(grant);
       grouped.set(grant.capabilityKey, current);
@@ -138,9 +169,13 @@ function InvitePermissionSummary({ grants }: { grants: readonly CreatorWorkspace
   return (
     <ItemCardGroup variant="outline">
       <ItemCardGroup.Header>
-        <ItemCardGroup.Title>Workspace access requested</ItemCardGroup.Title>
+        <ItemCardGroup.Title>
+          {isLegacyProviderInvite ? 'Legacy workspace access' : 'Workspace access requested'}
+        </ItemCardGroup.Title>
         <ItemCardGroup.Description>
-          These are the only workspace capabilities this invitation grants.
+          {isLegacyProviderInvite
+            ? 'This older provider-specific invitation grants the established product and package access below. The creator can narrow it after you join.'
+            : 'These are the only workspace capabilities this invitation grants.'}
         </ItemCardGroup.Description>
       </ItemCardGroup.Header>
       {capabilities.map(([capabilityKey, capabilityGrants]) => {
@@ -804,7 +839,15 @@ function CollabInvitePage() {
               </div>
 
               <div className="mb-6">
-                <InvitePermissionSummary grants={inviteData?.permissionGrants ?? []} />
+                <InvitePermissionSummary
+                  grants={resolveInvitePermissionGrants({
+                    permissionGrants: inviteData?.permissionGrants,
+                    providerKey: inviteData?.providerKey,
+                  })}
+                  isLegacyProviderInvite={Boolean(
+                    inviteData?.providerKey && inviteData.permissionGrants === undefined
+                  )}
+                />
               </div>
 
               <button type="button" className="btn-discord w-full" onClick={beginDiscordAuth}>

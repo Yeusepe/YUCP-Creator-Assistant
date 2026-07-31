@@ -10,9 +10,15 @@ import {
   LEGACY_CREATOR_WORKSPACE_GRANTS,
   normalizeCreatorWorkspaceGrants,
 } from '@yucp/shared/creatorWorkspacePermissions';
+import { isDiscordSnowflakeId } from '@yucp/shared/discordIds';
 import { ConvexError, v } from 'convex/values';
 import { internalQuery, mutation, query } from './_generated/server';
 import { enqueueCatalogMaterialization } from './catalogMaterialization';
+import {
+  ApiActorBindingV,
+  requireDelegatedAuthUserActor,
+  requireServiceActor,
+} from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
 import { materializeCreatorWorkspaceMembership } from './lib/creatorWorkspacePolicy';
 
@@ -311,6 +317,7 @@ export const acceptCollaboratorInvite = mutation({
 export const acceptCreatorWorkspaceInvite = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     inviteId: v.id('collaborator_invites'),
     collaboratorDiscordUserId: v.string(),
     collaboratorDisplayName: v.string(),
@@ -319,6 +326,10 @@ export const acceptCreatorWorkspaceInvite = mutation({
   returns: v.id('creator_workspace_memberships'),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['collaboration:service']);
+    if (!isDiscordSnowflakeId(args.collaboratorDiscordUserId)) {
+      throw new ConvexError('Invalid collaborator Discord identity');
+    }
     const now = Date.now();
     const invite = await ctx.db.get(args.inviteId);
     if (!invite) throw new Error('Invite not found');
@@ -539,49 +550,103 @@ export const listPendingInvitesByOwner = query({
 export const listCreatorWorkspaceMemberships = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    ownerAuthUserId: v.string(),
+    cursor: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.ownerAuthUserId);
+    const page = await ctx.db
+      .query('creator_workspace_memberships')
+      .withIndex('by_owner', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId))
+      .paginate({
+        cursor: args.cursor ?? null,
+        numItems: Math.min(Math.max(Math.trunc(args.limit ?? 50), 1), 100),
+      });
+    const memberships = [];
+    for (const membership of page.page) {
+      if (membership.status === 'removed') continue;
+      const connection = membership.collaboratorConnectionId
+        ? await ctx.db.get(membership.collaboratorConnectionId)
+        : null;
+      memberships.push({
+        id: membership._id,
+        status: membership.status,
+        collaboratorDiscordUserId: membership.memberDiscordUserId,
+        collaboratorDisplayName:
+          membership.memberDisplayName ?? connection?.collaboratorDisplayName ?? 'Collaborator',
+        collaboratorAvatarHash: membership.memberAvatarHash ?? connection?.collaboratorAvatarHash,
+        createdAt: membership.createdAt,
+        updatedAt: membership.updatedAt,
+        connectionId: connection?._id,
+        provider: connection?.provider,
+        linkType: connection?.linkType,
+        webhookConfigured: connection?.webhookConfigured ?? false,
+      });
+    }
+    return {
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
+      page: memberships,
+    };
+  },
+});
+
+/**
+ * Materialize the bounded legacy owner set before the canonical membership
+ * page is read. Existing deployments have few collaborator rows, and this
+ * explicit cap prevents an owner request from creating unbounded work.
+ */
+export const migrateLegacyConnectionsForOwner = mutation({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
     ownerAuthUserId: v.string(),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const memberships = await ctx.db
-      .query('creator_workspace_memberships')
-      .withIndex('by_owner', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId))
-      .collect();
-    return await Promise.all(
-      memberships
-        .filter((membership) => membership.status !== 'removed')
-        .map(async (membership) => {
-          const connection = membership.collaboratorConnectionId
-            ? await ctx.db.get(membership.collaboratorConnectionId)
-            : null;
-          return {
-            id: membership._id,
-            status: membership.status,
-            collaboratorDiscordUserId: membership.memberDiscordUserId,
-            collaboratorDisplayName:
-              membership.memberDisplayName ?? connection?.collaboratorDisplayName ?? 'Collaborator',
-            collaboratorAvatarHash:
-              membership.memberAvatarHash ?? connection?.collaboratorAvatarHash,
-            createdAt: membership.createdAt,
-            updatedAt: membership.updatedAt,
-            connectionId: connection?._id,
-            provider: connection?.provider,
-            linkType: connection?.linkType,
-            webhookConfigured: connection?.webhookConfigured ?? false,
-          };
-        })
-    );
+    await requireDelegatedAuthUserActor(args.actor, args.ownerAuthUserId);
+    const connections = await ctx.db
+      .query('collaborator_connections')
+      .withIndex('by_owner_status', (q) =>
+        q.eq('ownerAuthUserId', args.ownerAuthUserId).eq('status', 'active')
+      )
+      .take(101);
+    if (connections.length > 100) {
+      throw new ConvexError('Legacy collaboration migration requires an administrative batch');
+    }
+    let migrated = 0;
+    for (const connection of connections) {
+      if (connection.workspaceMembershipId) continue;
+      await materializeCreatorWorkspaceMembership(ctx, {
+        changedByAuthUserId: args.ownerAuthUserId,
+        collaboratorConnectionId: connection._id,
+        grants: LEGACY_CREATOR_WORKSPACE_GRANTS,
+        legacyPolicyPendingReview: true,
+        memberDiscordUserId: connection.collaboratorDiscordUserId,
+        memberDisplayName: connection.collaboratorDisplayName,
+        memberAvatarHash: connection.collaboratorAvatarHash,
+        ownerAuthUserId: args.ownerAuthUserId,
+        source: 'legacy_migration',
+      });
+      migrated += 1;
+    }
+    return { migrated };
   },
 });
 
 export const removeCreatorWorkspaceMembership = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     membershipId: v.id('creator_workspace_memberships'),
     ownerAuthUserId: v.string(),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.ownerAuthUserId);
     const membership = await ctx.db.get(args.membershipId);
     if (!membership || membership.ownerAuthUserId !== args.ownerAuthUserId) {
       throw new ConvexError('Collaborator membership not found');
@@ -592,8 +657,21 @@ export const removeCreatorWorkspaceMembership = mutation({
       removedAt: now,
       updatedAt: now,
     });
-    if (membership.collaboratorConnectionId) {
-      await ctx.db.patch(membership.collaboratorConnectionId, {
+    const memberConnections = await ctx.db
+      .query('collaborator_connections')
+      .withIndex('by_owner', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId))
+      .filter((q) =>
+        q.or(
+          q.eq(q.field('workspaceMembershipId'), membership._id),
+          q.eq(q.field('collaboratorDiscordUserId'), membership.memberDiscordUserId)
+        )
+      )
+      .take(101);
+    if (memberConnections.length > 100) {
+      throw new ConvexError('Collaborator has too many linked connections to remove safely');
+    }
+    for (const connection of memberConnections) {
+      await ctx.db.patch(connection._id, {
         status: 'disconnected',
         updatedAt: now,
       });

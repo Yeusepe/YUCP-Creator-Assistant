@@ -11,6 +11,7 @@ const apiActorSigningKeys = new Map<string, Promise<CryptoKey>>();
 
 export type ApiActorScope =
   | 'creator:delegate'
+  | 'collaboration:service'
   | 'downloads:service'
   | 'entitlements:service'
   | 'manual-licenses:service'

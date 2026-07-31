@@ -1,9 +1,32 @@
+import {
+  createApiActorBinding,
+  createAuthUserApiActor,
+  createServiceApiActor,
+} from '@yucp/shared/apiActor';
 import { describe, expect, it } from 'vitest';
 import { api, internal } from './_generated/api';
 import { hasCreatorWorkspaceCapability } from './lib/creatorWorkspaceAccess';
 import { makeTestConvex } from './testHelpers';
 
 process.env.CONVEX_API_SECRET = 'test-secret';
+process.env.INTERNAL_SERVICE_AUTH_SECRET = 'test-internal-service-secret';
+
+async function creatorActor(authUserId: string) {
+  return await createApiActorBinding(
+    createAuthUserApiActor({ authUserId, source: 'session' }),
+    process.env.INTERNAL_SERVICE_AUTH_SECRET as string
+  );
+}
+
+async function collaborationServiceActor() {
+  return await createApiActorBinding(
+    createServiceApiActor({
+      service: 'collaboration-api',
+      scopes: ['collaboration:service'],
+    }),
+    process.env.INTERNAL_SERVICE_AUTH_SECRET as string
+  );
+}
 
 describe('creator workspace permission enforcement', () => {
   it('accepts a workspace invitation without creating or sharing a provider connection', async () => {
@@ -25,8 +48,9 @@ describe('creator workspace permission enforcement', () => {
 
     const membershipId = await t.mutation(api.collaboratorInvites.acceptCreatorWorkspaceInvite, {
       apiSecret: 'test-secret',
+      actor: await collaborationServiceActor(),
       inviteId,
-      collaboratorDiscordUserId: 'workspace-invite-discord',
+      collaboratorDiscordUserId: '100000000000000001',
       collaboratorDisplayName: 'Workspace Collaborator',
       collaboratorAvatarHash: 'a'.repeat(32),
     });
@@ -52,7 +76,7 @@ describe('creator workspace permission enforcement', () => {
 
     expect(accepted.invite).toMatchObject({
       status: 'accepted',
-      targetDiscordUserId: 'workspace-invite-discord',
+      targetDiscordUserId: '100000000000000001',
     });
     expect(accepted.membership).toMatchObject({
       legacyPolicyPendingReview: false,
@@ -298,5 +322,139 @@ describe('creator workspace permission enforcement', () => {
       source: 'owner_edit',
     });
     expect(materialized.grants).toEqual([]);
+  });
+
+  it('keeps an existing provider connection linked when a workspace invite is accepted later', async () => {
+    const t = makeTestConvex();
+    const seeded = await t.run(async (ctx) => {
+      const now = Date.now();
+      const connectionId = await ctx.db.insert('collaborator_connections', {
+        ownerAuthUserId: 'preserve-link-owner',
+        provider: 'jinxxy',
+        webhookConfigured: false,
+        linkType: 'api',
+        status: 'active',
+        collaboratorDiscordUserId: '100000000000000002',
+        collaboratorDisplayName: 'Linked Collaborator',
+        source: 'invite',
+        createdAt: now,
+        updatedAt: now,
+      });
+      const membershipId = await ctx.db.insert('creator_workspace_memberships', {
+        ownerAuthUserId: 'preserve-link-owner',
+        memberDiscordUserId: '100000000000000002',
+        collaboratorConnectionId: connectionId,
+        status: 'active',
+        legacyPolicyPendingReview: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.patch(connectionId, { workspaceMembershipId: membershipId });
+      const inviteId = await ctx.db.insert('collaborator_invites', {
+        ownerAuthUserId: 'preserve-link-owner',
+        tokenHash: 'preserve-link-token',
+        status: 'pending',
+        ownerDisplayName: 'Preserve Link Owner',
+        expiresAt: now + 60_000,
+        createdAt: now,
+        permissionPolicyVersion: 1,
+        permissionGrants: [],
+        legacyPolicyPendingReview: false,
+      });
+      return { connectionId, inviteId, membershipId };
+    });
+
+    await t.mutation(api.collaboratorInvites.acceptCreatorWorkspaceInvite, {
+      apiSecret: 'test-secret',
+      actor: await collaborationServiceActor(),
+      inviteId: seeded.inviteId,
+      collaboratorDiscordUserId: '100000000000000002',
+      collaboratorDisplayName: 'Linked Collaborator',
+    });
+
+    const membership = await t.run((ctx) => ctx.db.get(seeded.membershipId));
+    expect(membership?.collaboratorConnectionId).toBe(seeded.connectionId);
+  });
+
+  it('disconnects every provider connection linked to a removed membership', async () => {
+    const t = makeTestConvex();
+    const seeded = await t.run(async (ctx) => {
+      const now = Date.now();
+      const membershipId = await ctx.db.insert('creator_workspace_memberships', {
+        ownerAuthUserId: 'remove-all-owner',
+        memberDiscordUserId: '100000000000000003',
+        status: 'active',
+        legacyPolicyPendingReview: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const connectionIds = await Promise.all(
+        ['jinxxy', 'gumroad'].map((provider) =>
+          ctx.db.insert('collaborator_connections', {
+            ownerAuthUserId: 'remove-all-owner',
+            provider,
+            webhookConfigured: false,
+            linkType: 'api',
+            status: 'active',
+            collaboratorDiscordUserId: '100000000000000003',
+            collaboratorDisplayName: 'Multi-store Collaborator',
+            source: 'invite',
+            workspaceMembershipId: membershipId,
+            createdAt: now,
+            updatedAt: now,
+          })
+        )
+      );
+      await ctx.db.patch(membershipId, { collaboratorConnectionId: connectionIds[1] });
+      return { connectionIds, membershipId };
+    });
+
+    await t.mutation(api.collaboratorInvites.removeCreatorWorkspaceMembership, {
+      apiSecret: 'test-secret',
+      actor: await creatorActor('remove-all-owner'),
+      membershipId: seeded.membershipId,
+      ownerAuthUserId: 'remove-all-owner',
+    });
+
+    const connections = await t.run(async (ctx) =>
+      Promise.all(seeded.connectionIds.map((connectionId) => ctx.db.get(connectionId)))
+    );
+    expect(connections.map((connection) => connection?.status)).toEqual([
+      'disconnected',
+      'disconnected',
+    ]);
+  });
+
+  it('binds membership listing and removal to the signed owner actor', async () => {
+    const t = makeTestConvex();
+    const membershipId = await t.run(async (ctx) => {
+      const now = Date.now();
+      return await ctx.db.insert('creator_workspace_memberships', {
+        ownerAuthUserId: 'tenant-a-owner',
+        memberDiscordUserId: '100000000000000004',
+        status: 'active',
+        legacyPolicyPendingReview: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+    const wrongActor = await creatorActor('tenant-b-owner');
+
+    await expect(
+      t.query(api.collaboratorInvites.listCreatorWorkspaceMemberships, {
+        apiSecret: 'test-secret',
+        actor: wrongActor,
+        ownerAuthUserId: 'tenant-a-owner',
+        limit: 25,
+      })
+    ).rejects.toThrow('Unauthorized');
+    await expect(
+      t.mutation(api.collaboratorInvites.removeCreatorWorkspaceMembership, {
+        apiSecret: 'test-secret',
+        actor: wrongActor,
+        membershipId,
+        ownerAuthUserId: 'tenant-a-owner',
+      })
+    ).rejects.toThrow('Unauthorized');
   });
 });

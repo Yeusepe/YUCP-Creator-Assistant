@@ -362,6 +362,7 @@ function OAuthAppsSection({
                 <HoldConfirmButton
                   accessibleLabel={`Hold to regenerate the secret for ${app.name}`}
                   confirmLabel="Keep holding to regenerate..."
+                  isDisabled={regenerateMutation.isPending || deleteMutation.isPending}
                   isPending={
                     regenerateMutation.isPending && regenerateMutation.variables?._id === app._id
                   }
@@ -373,6 +374,7 @@ function OAuthAppsSection({
                 <HoldConfirmButton
                   accessibleLabel={`Hold to delete OAuth app ${app.name}`}
                   confirmLabel="Keep holding to delete..."
+                  isDisabled={regenerateMutation.isPending || deleteMutation.isPending}
                   isPending={deleteMutation.isPending && deleteMutation.variables === app._id}
                   onConfirm={() => deleteMutation.mutate(app._id)}
                   pendingLabel="Deleting..."
@@ -618,8 +620,7 @@ function ApiKeysSection({
                   accessibleLabel={`Hold to rotate API key ${key.name}`}
                   confirmLabel="Keep holding to rotate..."
                   isDisabled={
-                    key.status !== 'active' ||
-                    (rotateMutation.isPending && rotateMutation.variables?._id === key._id)
+                    key.status !== 'active' || rotateMutation.isPending || revokeMutation.isPending
                   }
                   isPending={rotateMutation.isPending && rotateMutation.variables?._id === key._id}
                   onConfirm={() => rotateMutation.mutate(key)}
@@ -631,8 +632,7 @@ function ApiKeysSection({
                   accessibleLabel={`Hold to revoke API key ${key.name}`}
                   confirmLabel="Keep holding to revoke..."
                   isDisabled={
-                    key.status !== 'active' ||
-                    (revokeMutation.isPending && revokeMutation.variables === key._id)
+                    key.status !== 'active' || rotateMutation.isPending || revokeMutation.isPending
                   }
                   isPending={revokeMutation.isPending && revokeMutation.variables === key._id}
                   onConfirm={() => revokeMutation.mutate(key._id)}

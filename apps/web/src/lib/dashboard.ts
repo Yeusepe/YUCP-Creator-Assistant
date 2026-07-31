@@ -159,10 +159,8 @@ export interface CollabConnectionSummary {
 }
 
 export interface CreatorWorkspacePermissionPolicy {
-  connectionId?: string;
   grants: CreatorWorkspaceGrant[];
   legacyPolicyPendingReview: boolean;
-  membershipId: string | null;
   policyVersion: number;
   revision: number;
 }
@@ -170,10 +168,8 @@ export interface CreatorWorkspacePermissionPolicy {
 export interface CreatorWorkspaceMemberSummary {
   id: string;
   status: string;
-  collaboratorDiscordUserId: string;
   collaboratorDisplayName: string;
   avatarUrl?: string | null;
-  connectionId?: string;
   provider?: string;
   linkType?: 'account' | 'api';
   webhookConfigured: boolean;
@@ -525,8 +521,6 @@ export async function updateCreatorWorkspaceMemberPermissions(
 ) {
   return await apiClient.put<{
     success: true;
-    membershipId: string;
-    policyVersionId: string;
     revision: number;
   }>(`/api/collab/memberships/${encodeURIComponent(membershipId)}/permissions`, input);
 }
@@ -577,8 +571,6 @@ export async function updateCollabConnectionPermissions(
 ) {
   return await apiClient.put<{
     success: true;
-    membershipId: string;
-    policyVersionId: string;
     revision: number;
   }>(`/api/collab/connections/${encodeURIComponent(connectionId)}/permissions`, input);
 }

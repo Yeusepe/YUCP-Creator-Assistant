@@ -37,9 +37,11 @@ vi.mock('@/lib/dashboard', async () => {
     listCollabInvites: vi.fn(),
     listCollabProviders: vi.fn(),
     listCreatorWorkspaceMembers: vi.fn(),
+    getCreatorWorkspaceMemberPermissions: vi.fn(),
     removeCollabConnectionAsCollaborator: vi.fn(),
     removeCreatorWorkspaceMember: vi.fn(),
     revokeCollabInvite: vi.fn(),
+    updateCreatorWorkspaceMemberPermissions: vi.fn(),
   };
 });
 
@@ -48,6 +50,7 @@ vi.mock('@/lib/packages', () => ({
 }));
 
 import * as dashboardApi from '@/lib/dashboard';
+import * as packagesApi from '@/lib/packages';
 import { Route as CollaborationRoute } from '@/routes/_authenticated/dashboard/collaboration.lazy';
 
 function createWrapper() {
@@ -88,6 +91,11 @@ describe('dashboard collaboration route', () => {
     ]);
     vi.mocked(dashboardApi.removeCollabConnectionAsCollaborator).mockResolvedValue({
       success: true,
+    });
+    vi.mocked(dashboardApi.removeCreatorWorkspaceMember).mockResolvedValue({ success: true });
+    vi.mocked(dashboardApi.updateCreatorWorkspaceMemberPermissions).mockResolvedValue({
+      success: true,
+      revision: 2,
     });
   });
 
@@ -225,6 +233,61 @@ describe('dashboard collaboration route', () => {
 
     await waitFor(() =>
       expect(dashboardApi.createCollabInvite).toHaveBeenCalledWith('user-123', {})
+    );
+  });
+
+  it('preloads selectable permission resources before a collaborator is selected', async () => {
+    const Component = CollaborationRoute.options.component;
+    if (!Component) {
+      throw new Error('Collaboration route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(packagesApi.listCreatorPackagePickerProducts).toHaveBeenCalledTimes(1)
+    );
+  });
+
+  it('surfaces a failed collaborator removal to the owner', async () => {
+    vi.mocked(dashboardApi.listCreatorWorkspaceMembers).mockResolvedValue([
+      {
+        id: 'membership-failed-removal',
+        status: 'active',
+        collaboratorDisplayName: 'Protected Collaborator',
+        webhookConfigured: false,
+        createdAt: Date.now() - 60_000,
+        updatedAt: Date.now(),
+        permissions: {
+          grants: [],
+          legacyPolicyPendingReview: false,
+          policyVersion: 1,
+          revision: 1,
+        },
+      },
+    ]);
+    vi.mocked(dashboardApi.removeCreatorWorkspaceMember).mockRejectedValue(
+      new Error('Could not remove this collaborator right now.')
+    );
+    const Component = CollaborationRoute.options.component;
+    if (!Component) {
+      throw new Error('Collaboration route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+    await screen.findByText('Protected Collaborator');
+
+    vi.useFakeTimers();
+    const removeButton = screen.getByRole('button', {
+      name: /hold to remove protected collaborator/i,
+    });
+    fireEvent.keyDown(removeButton, { key: 'Enter' });
+    await vi.advanceTimersByTimeAsync(1300);
+    await Promise.resolve();
+    vi.useRealTimers();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not remove this collaborator right now.'
     );
   });
 });

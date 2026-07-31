@@ -142,30 +142,10 @@ export const getPolicyForConnection = query({
         revision: 0,
       };
     }
-    const [policy, grants] = await Promise.all([
-      ctx.db.get(membership.currentPolicyVersionId),
-      ctx.db
-        .query('creator_workspace_grants')
-        .withIndex('by_policy', (q) =>
-          q.eq('policyVersionId', membership.currentPolicyVersionId as never)
-        )
-        .collect(),
-    ]);
-    if (!policy) {
-      throw new ConvexError('Collaborator permission policy is unavailable');
-    }
+    const policy = await readPolicyForMembership(ctx, membership);
     return {
       connectionId: connection._id,
-      grants: grants.map(({ capabilityKey, resourceId, resourceType, scope }) => ({
-        capabilityKey,
-        resourceId,
-        resourceType,
-        scope,
-      })),
-      legacyPolicyPendingReview: membership.legacyPolicyPendingReview,
-      membershipId: membership._id,
-      policyVersion: policy.policyVersion,
-      revision: policy.revision,
+      ...policy,
     };
   },
 });
