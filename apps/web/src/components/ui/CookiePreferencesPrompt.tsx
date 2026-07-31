@@ -1,6 +1,4 @@
-import { useConvexAuth, useMutation as useConvexMutation } from 'convex/react';
 import { useEffect, useState } from 'react';
-import { api } from '../../../../../convex/_generated/api';
 import { YucpButton } from '@/components/ui/YucpButton';
 import {
   getPrivacyPreferenceSummary,
@@ -10,23 +8,15 @@ import {
   savePrivacyPreferences,
 } from '@/lib/privacyPreferences';
 
+// This banner renders on every route, including the public ones that carry no
+// Convex auth provider, so it records nothing itself: PrivacyConsentSync listens
+// for the same preference event inside the authenticated tree and writes there.
 function usePrivacyPreferencesState() {
   const [preferences, setPreferences] = useState<PrivacyPreferences | null>(null);
   const [ready, setReady] = useState(false);
-  const { isAuthenticated } = useConvexAuth();
-  const recordConsent = useConvexMutation(api.accountDiagnosticsConsent.recordConsent);
 
   function remember(next: PrivacyPreferences) {
     setPreferences(next);
-    if (isAuthenticated) {
-      void recordConsent({
-        choice: next.choice,
-        source: 'banner',
-        ...(next.diagnosticsSessionId
-          ? { diagnosticsSessionId: next.diagnosticsSessionId }
-          : {}),
-      }).catch(() => undefined);
-    }
     return next;
   }
 

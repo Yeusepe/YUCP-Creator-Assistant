@@ -1,5 +1,6 @@
 import { type AuthClient, ConvexBetterAuthProvider } from '@convex-dev/better-auth/react';
 import { createFileRoute, Outlet, redirect, useRouteContext } from '@tanstack/react-router';
+import { PrivacyConsentSync } from '@/components/ui/PrivacyConsentSync';
 import { authClient } from '@/lib/auth-client';
 import { getAuthSession } from '@/lib/server/auth';
 import { loadProtectedAuthState, type ProtectedAuthState } from '@/lib/webDiagnostics';
@@ -48,6 +49,7 @@ function AuthenticatedLayout() {
       authClient={convexAuthClient}
       initialToken={context.token ?? undefined}
     >
+      <PrivacyConsentSync />
       <Outlet />
     </ConvexBetterAuthProvider>
   );
