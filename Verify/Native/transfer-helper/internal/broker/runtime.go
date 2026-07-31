@@ -120,7 +120,7 @@ func (runtime Runtime) Handle(
 		return OperationResult{}, err
 	}
 	if found {
-		return existing, nil
+		return existing.withClientSchemaVersion(request), nil
 	}
 	result, operationErr := runtime.handleNew(
 		ctx,
@@ -137,7 +137,7 @@ func (runtime Runtime) Handle(
 	if err := runtime.Results.Save(clientIdentity.UserSID, request, result); err != nil {
 		return OperationResult{}, err
 	}
-	return result, nil
+	return result.withClientSchemaVersion(request), nil
 }
 
 func (runtime Runtime) handleNew(
@@ -326,6 +326,18 @@ func failedOperationResult(
 	return failedOperationResultWithCode(request, code, message)
 }
 
+// A client only accepts a result whose schemaVersion matches the request it sent,
+// so every result is reported in the caller's version rather than the broker's.
+func (result OperationResult) withClientSchemaVersion(
+	request OperationRequest,
+) OperationResult {
+	if request.SchemaVersion >= MinimumOperationRequestSchemaVersion &&
+		request.SchemaVersion <= OperationRequestSchemaVersion {
+		result.SchemaVersion = request.SchemaVersion
+	}
+	return result
+}
+
 func failedOperationResultWithCode(
 	request OperationRequest,
 	code string,
@@ -349,7 +361,7 @@ func failedOperationResultWithCode(
 		Status:            "failed",
 		TargetReleaseRoot: request.ExpectedCurrentReleaseRoot,
 		TraceID:           traceID,
-	}
+	}.withClientSchemaVersion(request)
 }
 
 func (runtime Runtime) waitForVerification(

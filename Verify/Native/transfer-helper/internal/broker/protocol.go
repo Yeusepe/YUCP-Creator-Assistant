@@ -17,9 +17,14 @@ import (
 )
 
 const (
-	DefaultPipeName                 = `\\.\pipe\yucp.package-broker.v1`
-	OperationRequestSchemaVersion   = 4
-	connectionAuthorizationLifetime = 30 * time.Second
+	DefaultPipeName               = `\\.\pipe\yucp.package-broker.v1`
+	OperationRequestSchemaVersion = 4
+	// The broker updates itself through TUF while the Unity importer updates
+	// through VPM, so an older client is normal and must keep working. v4 only
+	// adds the optional bootstrapIntentJson, so v3 requests stay valid and every
+	// result echoes the version the client sent.
+	MinimumOperationRequestSchemaVersion = 3
+	connectionAuthorizationLifetime      = 30 * time.Second
 	maxOperationRequestBytes        = 1024 * 1024
 )
 
@@ -82,7 +87,11 @@ func validateOperationRequest(request OperationRequest) error {
 		name  string
 		valid bool
 	}{
-		{"schemaVersion", request.SchemaVersion == OperationRequestSchemaVersion},
+		{
+			"schemaVersion",
+			request.SchemaVersion >= MinimumOperationRequestSchemaVersion &&
+				request.SchemaVersion <= OperationRequestSchemaVersion,
+		},
 		{"runId", safeIdentifierPattern.MatchString(request.RunID)},
 		{"aliasId", safeIdentifierPattern.MatchString(request.AliasID)},
 		{"idempotencyKey", safeIdentifierPattern.MatchString(request.IdempotencyKey)},

@@ -8,6 +8,37 @@ import (
 	"time"
 )
 
+// The broker self-updates ahead of the Unity importer, so a client one schema
+// behind must keep working and must be answered in its own version.
+func TestValidateOperationRequestAcceptsThePreviousSchemaVersion(t *testing.T) {
+	request := OperationRequest{
+		AliasID:                    "com.lunararray.druffle",
+		ExpectedCurrentReleaseRoot: strings.Repeat("00", 32),
+		IdempotencyKey:             "attempt-1-preflight",
+		Operation:                  "preflight",
+		ProjectIdentity:            strings.Repeat("22", 32),
+		ProjectPath:                `C:\Unity\Project`,
+		RunID:                      "attempt-1-preflight",
+		SchemaVersion:              MinimumOperationRequestSchemaVersion,
+		Traceparent:                "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
+	}
+	if err := validateOperationRequest(request); err != nil {
+		t.Fatalf("validateOperationRequest() error = %v", err)
+	}
+	result := failedOperationResultWithCode(request, "PACKAGE_REQUEST_INVALID", "message")
+	if result.SchemaVersion != MinimumOperationRequestSchemaVersion {
+		t.Fatalf(
+			"result schemaVersion = %d, want the client's %d",
+			result.SchemaVersion,
+			MinimumOperationRequestSchemaVersion,
+		)
+	}
+	request.SchemaVersion = MinimumOperationRequestSchemaVersion - 1
+	if err := validateOperationRequest(request); err == nil {
+		t.Fatal("validateOperationRequest() accepted an unsupported schema version")
+	}
+}
+
 func TestDecodeOperationRequestAcceptsOnlyHighLevelFields(t *testing.T) {
 	raw := []byte(`{
 		"schemaVersion":4,
