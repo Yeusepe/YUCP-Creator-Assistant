@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -152,15 +153,27 @@ func (server *Server) handleConnection(ctx context.Context, connection net.Conn)
 		return
 	}
 	var operation operateFrame
-	if requestHeader.Kind != "operate" ||
-		jsonUnmarshalStrict(requestLine, &operation) != nil ||
-		authorization.Consume(
-			operation.OperationToken,
-			identity.UserSID,
-			identity.ProcessID,
-			time.Now(),
-		) != nil ||
-		validateOperationRequest(operation.Request) != nil {
+	// A silently closed pipe reaches the client as a bare transport error, so a
+	// rejected frame reports the stage that refused it instead.
+	if requestHeader.Kind != "operate" {
+		rejectOperation(connection, operation.Request, "PACKAGE_REQUEST_KIND_INVALID")
+		return
+	}
+	if err := jsonUnmarshalStrict(requestLine, &operation); err != nil {
+		rejectOperation(connection, operation.Request, "PACKAGE_REQUEST_MALFORMED")
+		return
+	}
+	if err := authorization.Consume(
+		operation.OperationToken,
+		identity.UserSID,
+		identity.ProcessID,
+		time.Now(),
+	); err != nil {
+		rejectOperation(connection, operation.Request, "PACKAGE_REQUEST_UNAUTHORIZED")
+		return
+	}
+	if err := validateOperationRequest(operation.Request); err != nil {
+		rejectOperation(connection, operation.Request, "PACKAGE_REQUEST_INVALID")
 		return
 	}
 	_ = connection.SetDeadline(time.Time{})
@@ -492,6 +505,29 @@ func InvokeAuthentication(
 		return AuthenticationResult{}, fmt.Errorf("package broker authentication response is invalid")
 	}
 	return response.Authentication, nil
+}
+
+func rejectOperation(
+	connection net.Conn,
+	request OperationRequest,
+	code string,
+) {
+	fmt.Fprintf(
+		os.Stderr,
+		"package operation rejected run=%s trace=%s: %s\n",
+		request.RunID,
+		request.Traceparent,
+		code,
+	)
+	_ = writeFrame(connection, resultFrame{
+		Kind: "result",
+		Result: failedOperationResultWithCode(
+			request,
+			code,
+			"The package request was rejected. Update YUCP, then try again.",
+		),
+		SchemaVersion: BrokerProtocolSchemaVersion,
+	})
 }
 
 func jsonUnmarshalStrict(raw []byte, destination any) error {
