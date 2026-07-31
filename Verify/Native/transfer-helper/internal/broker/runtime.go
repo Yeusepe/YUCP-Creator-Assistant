@@ -252,6 +252,20 @@ func (runtime Runtime) handleNew(
 		CredentialAccessReuse,
 		report,
 	)
+	// The local store reports signed out: either this device never signed in,
+	// or its refresh token is expired or revoked. Nothing downstream can
+	// recover from that, and failing here left the buyer with an
+	// "authentication is required" error and no prompt. Sign in interactively
+	// instead; the client already renders the "signing-in" phase this reports.
+	// This is a local-state decision, so it cannot loop on a server rejection.
+	if errors.Is(err, ErrAuthenticationRequired) {
+		tokens, device, err = runtime.Credentials.Access(
+			ctx,
+			clientIdentity,
+			CredentialAccessInteractive,
+			report,
+		)
+	}
 	if err != nil {
 		return OperationResult{}, err
 	}
@@ -261,6 +275,11 @@ func (runtime Runtime) handleNew(
 		tokens,
 		device.PrivateKey,
 	)
+	// The server rejected a token the local store still considered current.
+	// Refresh once and retry. Deliberately never escalate to interactive here:
+	// a persistent server-side rejection would reopen the browser on every
+	// attempt, which is the OAuth replay loop removed in 4cf7bbb1. Local
+	// signed-out state is handled before this, where interactive is correct.
 	if errors.Is(err, ErrAuthenticationRequired) {
 		tokens, device, err = runtime.Credentials.Access(
 			ctx,

@@ -405,6 +405,108 @@ func TestRuntimeOpensVerificationAndRetriesWithoutExposingCapabilities(t *testin
 	}
 }
 
+// A device that has never signed in, or whose refresh token is dead, must be
+// offered interactive sign-in rather than failing with AUTHENTICATION_REQUIRED.
+// This is a local-credential decision, so it cannot reintroduce the OAuth
+// replay loop guarded by the server-rejection test above.
+func TestPackageOperationSignsInWhenLocallySignedOut(t *testing.T) {
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	var accessCalls []CredentialAccessMode
+	executed := false
+	request := authenticationRegressionRequest(t, "locally-signed-out")
+	runtime := Runtime{
+		Credentials: credentialProviderFunc(func(
+			_ context.Context,
+			_ ClientIdentity,
+			mode CredentialAccessMode,
+			_ ProgressReporter,
+		) (OAuthTokens, deviceidentity.Identity, error) {
+			accessCalls = append(accessCalls, mode)
+			if mode != CredentialAccessInteractive {
+				return OAuthTokens{}, deviceidentity.Identity{}, ErrAuthenticationRequired
+			}
+			return OAuthTokens{
+					AccessToken:  "access-token",
+					RefreshToken: "refresh-token",
+					Scope:        "package:operate offline_access",
+					TokenType:    "DPoP",
+				},
+				deviceidentity.Identity{
+					PrivateKey: privateKey,
+					Thumbprint: strings.Repeat("44", 32),
+				},
+				nil
+		}),
+		Exchange: remoteExchangeFunc(func(
+			context.Context,
+			OperationRequest,
+			OAuthTokens,
+			*ecdsa.PrivateKey,
+		) (AuthorizedOperation, error) {
+			return AuthorizedOperation{
+				DeliveryGrant:  "delivery-grant",
+				InstallSession: "install-session",
+				ReleaseRoot:    strings.Repeat("11", 32),
+			}, nil
+		}),
+		Executor: lifecycleExecutorFunc(func(
+			context.Context,
+			lifecycle.AuthorizedRequest,
+			deviceidentity.Identity,
+			trust.Document,
+			lifecycle.ProgressReporter,
+		) (lifecycle.Result, error) {
+			executed = true
+			return lifecycle.Result{
+				ActiveContentDigest: strings.Repeat("33", 32),
+				ActivePolicyVersion: "active-content-policy-v1",
+				Files:               []lifecycle.ResultFile{},
+				JournalState:        "preflight-complete",
+				Operation:           request.Operation,
+				RunID:               request.RunID,
+				SchemaVersion:       lifecycle.SchemaVersion,
+				Status:              "succeeded",
+				TargetReleaseRoot:   strings.Repeat("11", 32),
+				TraceID:             request.Traceparent[3:35],
+			}, nil
+		}),
+		LaunchURL: func(ClientIdentity, string) error { return nil },
+		Results:   mustResultStore(t),
+		StateRoot: t.TempDir(),
+	}
+
+	result, err := runtime.Handle(
+		context.Background(),
+		ClientIdentity{ProcessID: 42, UserSID: "S-1-5-21-signed-out"},
+		request,
+		func(string, int64, int64, int64, int64) error { return nil },
+	)
+	if err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if !reflect.DeepEqual(
+		accessCalls,
+		[]CredentialAccessMode{
+			CredentialAccessReuse,
+			CredentialAccessInteractive,
+		},
+	) {
+		t.Fatalf(
+			"credential calls = %#v, want reuse then interactive sign-in",
+			accessCalls,
+		)
+	}
+	if !executed {
+		t.Fatal("operation did not run after interactive sign-in")
+	}
+	if result.ErrorCode != "" || result.Status != "succeeded" {
+		t.Fatalf("result = %q/%q, want a succeeded operation", result.Status, result.ErrorCode)
+	}
+}
+
 func authenticationRegressionRequest(
 	t *testing.T,
 	label string,
