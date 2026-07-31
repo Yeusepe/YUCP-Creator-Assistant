@@ -16,6 +16,7 @@ type DashboardActionRowSkeletonProps = {
 };
 
 type DashboardListSkeletonProps = {
+  className?: string;
   rows?: number;
   showAction?: boolean;
 };
@@ -61,9 +62,16 @@ export function DashboardGridSkeleton({ cards = 2 }: { cards?: number }) {
   );
 }
 
-export function DashboardListSkeleton({ rows = 2, showAction = true }: DashboardListSkeletonProps) {
+export function DashboardListSkeleton({
+  className,
+  rows = 2,
+  showAction = true,
+}: DashboardListSkeletonProps) {
   return (
-    <div className="skeleton-stack" aria-hidden="true">
+    <div
+      className={className ? `skeleton-stack ${className}` : 'skeleton-stack'}
+      aria-hidden="true"
+    >
       {Array.from({ length: rows }, (_, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders never reorder
         <DashboardRowSkeleton key={index} showAction={showAction} />

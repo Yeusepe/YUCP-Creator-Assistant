@@ -3,6 +3,7 @@ import { useMutation as useConvexMutation, useQuery as useConvexQuery } from 'co
 import { useMemo, useState } from 'react';
 import { AccountPage, AccountSectionCard } from '@/components/account/AccountPage';
 import { AccountSecuritySkeleton } from '@/components/account/AccountSecuritySkeleton';
+import { HoldConfirmButton } from '@/components/ui/HoldConfirmButton';
 import { Icon } from '@/components/ui/Icon';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
@@ -411,13 +412,18 @@ function AccountSecurityPage() {
                           {passkey.backedUp ? ' · Synced' : ''}
                         </p>
                       </div>
-                      <YucpButton
-                        yucp="secondary"
-                        isLoading={pendingAction === `delete-passkey:${passkey.id}`}
-                        onPress={() => handleDeletePasskey(passkey.id)}
+                      <HoldConfirmButton
+                        accessibleLabel={`Hold to remove passkey ${passkey.name || 'Unnamed passkey'}`}
+                        confirmLabel="Keep holding to remove..."
+                        isDisabled={
+                          pendingAction !== null && pendingAction !== `delete-passkey:${passkey.id}`
+                        }
+                        isPending={pendingAction === `delete-passkey:${passkey.id}`}
+                        onConfirm={() => handleDeletePasskey(passkey.id)}
+                        pendingLabel="Removing..."
                       >
                         Remove
-                      </YucpButton>
+                      </HoldConfirmButton>
                     </div>
                   ))}
                 </div>
@@ -467,13 +473,16 @@ function AccountSecurityPage() {
             </div>
             <div className="account-recovery-method-actions">
               {securityOverview.hasBackupCodes ? (
-                <YucpButton
-                  yucp="secondary"
-                  isLoading={pendingAction === 'regenerate-backup-codes'}
-                  onPress={handleRegenerateBackupCodes}
+                <HoldConfirmButton
+                  accessibleLabel="Hold to replace all backup codes"
+                  confirmLabel="Keep holding to replace..."
+                  isDisabled={pendingAction !== null && pendingAction !== 'regenerate-backup-codes'}
+                  isPending={pendingAction === 'regenerate-backup-codes'}
+                  onConfirm={handleRegenerateBackupCodes}
+                  pendingLabel="Regenerating..."
                 >
                   Regenerate codes
-                </YucpButton>
+                </HoldConfirmButton>
               ) : (
                 <YucpButton
                   yucp="primary"
@@ -565,29 +574,40 @@ function AccountSecurityPage() {
                           </p>
                         </div>
                         <div className="account-inline-actions">
-                          <YucpButton
-                            yucp="secondary"
-                            isLoading={pendingAction === `remove-recovery-email:${contact.id}`}
-                            onPress={() =>
+                          <HoldConfirmButton
+                            accessibleLabel={`Hold to remove recovery email ${contact.email || ''}`}
+                            confirmLabel="Keep holding to remove..."
+                            isDisabled={
+                              pendingAction !== null &&
+                              pendingAction !== `remove-recovery-email:${contact.id}`
+                            }
+                            isPending={pendingAction === `remove-recovery-email:${contact.id}`}
+                            onConfirm={() =>
                               handleRemoveRecoveryEmail(
                                 contact.id as Id<'account_recovery_contacts'>
                               )
                             }
+                            pendingLabel="Removing..."
                           >
                             Remove
-                          </YucpButton>
-                          <YucpButton
-                            yucp="danger"
-                            isLoading={pendingAction === 'recovery-email'}
-                            onPress={() =>
+                          </HoldConfirmButton>
+                          <HoldConfirmButton
+                            accessibleLabel={`Hold to mark recovery email ${contact.email || ''} unsafe`}
+                            confirmLabel="Keep holding to mark unsafe..."
+                            isDisabled={
+                              pendingAction !== null && pendingAction !== 'recovery-email'
+                            }
+                            isPending={pendingAction === 'recovery-email'}
+                            onConfirm={() =>
                               handleCompromised(
                                 'recovery-email',
                                 contact.id as Id<'account_recovery_contacts'>
                               )
                             }
+                            pendingLabel="Marking unsafe..."
                           >
                             Mark unsafe
-                          </YucpButton>
+                          </HoldConfirmButton>
                         </div>
                       </div>
                     )
@@ -612,27 +632,36 @@ function AccountSecurityPage() {
             trust.
           </p>
           <div className="account-emergency-actions-row">
-            <YucpButton
-              yucp="danger"
-              isLoading={pendingAction === 'primary-email'}
-              onPress={() => handleCompromised('primary-email')}
+            <HoldConfirmButton
+              accessibleLabel="Hold to mark primary email unsafe"
+              confirmLabel="Keep holding to mark unsafe..."
+              isDisabled={pendingAction !== null && pendingAction !== 'primary-email'}
+              isPending={pendingAction === 'primary-email'}
+              onConfirm={() => handleCompromised('primary-email')}
+              pendingLabel="Marking unsafe..."
             >
               Primary email unsafe
-            </YucpButton>
-            <YucpButton
-              yucp="danger"
-              isLoading={pendingAction === 'discord'}
-              onPress={() => handleCompromised('discord')}
+            </HoldConfirmButton>
+            <HoldConfirmButton
+              accessibleLabel="Hold to mark Discord unsafe"
+              confirmLabel="Keep holding to mark unsafe..."
+              isDisabled={pendingAction !== null && pendingAction !== 'discord'}
+              isPending={pendingAction === 'discord'}
+              onConfirm={() => handleCompromised('discord')}
+              pendingLabel="Marking unsafe..."
             >
               Discord unsafe
-            </YucpButton>
-            <YucpButton
-              yucp="secondary"
-              isLoading={pendingAction === 'revoke-sessions'}
-              onPress={handleRevokeSessions}
+            </HoldConfirmButton>
+            <HoldConfirmButton
+              accessibleLabel="Hold to sign out every session"
+              confirmLabel="Keep holding to sign out..."
+              isDisabled={pendingAction !== null && pendingAction !== 'revoke-sessions'}
+              isPending={pendingAction === 'revoke-sessions'}
+              onConfirm={handleRevokeSessions}
+              pendingLabel="Signing out..."
             >
               Sign out everywhere
-            </YucpButton>
+            </HoldConfirmButton>
           </div>
         </div>
       </AccountSectionCard>

@@ -13,10 +13,16 @@ import type { CollabConfig } from './collab';
 
 const apiMock = {
   collaboratorInvites: {
+    acceptCreatorWorkspaceInvite: 'collaboratorInvites.acceptCreatorWorkspaceInvite',
+    createCollaboratorInvite: 'collaboratorInvites.createCollaboratorInvite',
     listCollaboratorConnections: 'collaboratorInvites.listCollaboratorConnections',
     removeCollaboratorConnection: 'collaboratorInvites.removeCollaboratorConnection',
     removeCollaboratorConnectionAsCollaborator:
       'collaboratorInvites.removeCollaboratorConnectionAsCollaborator',
+  },
+  creatorWorkspacePermissions: {
+    getPolicyForConnection: 'creatorWorkspacePermissions.getPolicyForConnection',
+    replacePolicyForConnection: 'creatorWorkspacePermissions.replacePolicyForConnection',
   },
 } as const;
 
@@ -84,6 +90,11 @@ describe('POST /api/collab/invite (auth guard)', () => {
   });
 
   it('accepts a setup session token for owner invite creation', async () => {
+    const mutationCalls: unknown[][] = [];
+    mutationImpl = async (...args: unknown[]) => {
+      mutationCalls.push(args);
+      return 'invite-setup-token';
+    };
     const token = await createSetupSession(
       'user-test-001',
       'guild-test-001',
@@ -99,8 +110,12 @@ describe('POST /api/collab/invite (auth guard)', () => {
       body: JSON.stringify({ guildName: 'test', guildId: 'g1' }),
     });
     const res = await routes.handleCollabRequest(req);
-    expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toMatchObject({ error: 'providerKey is required' });
+    expect(res.status).toBe(200);
+    expect(mutationCalls[0]?.[1]).toMatchObject({
+      ownerAuthUserId: 'user-test-001',
+      permissionGrants: [],
+    });
+    expect(mutationCalls[0]?.[1]).not.toHaveProperty('providerKey');
   });
 
   it('rejects a setup session token when the explicit authUserId targets another owner', async () => {
@@ -125,6 +140,47 @@ describe('POST /api/collab/invite (auth guard)', () => {
     });
     const res = await routes.handleCollabRequest(req);
     expect(res.status).toBe(403);
+  });
+
+  it('creates new invites with explicit deny-by-default workspace permissions', async () => {
+    const mutationCalls: unknown[][] = [];
+    mutationImpl = async (...args: unknown[]) => {
+      mutationCalls.push(args);
+      return 'invite-1';
+    };
+    const token = await createSetupSession(
+      'user-test-default-deny',
+      'guild-test-default-deny',
+      'discord-user-default-deny',
+      ENCRYPTION_SECRET
+    );
+    const req = new Request('http://localhost:3001/api/collab/invite', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        guildName: 'Test Workspace',
+        permissionGrants: [
+          {
+            capabilityKey: 'products.view',
+            resourceType: 'product',
+            scope: 'all',
+          },
+        ],
+      }),
+    });
+
+    const res = await routes.handleCollabRequest(req);
+
+    expect(res.status).toBe(200);
+    expect(mutationCalls[0]?.[0]).toBe(apiMock.collaboratorInvites.createCollaboratorInvite);
+    expect(mutationCalls[0]?.[1]).toMatchObject({
+      ownerAuthUserId: 'user-test-default-deny',
+      permissionGrants: [],
+    });
+    expect(mutationCalls[0]?.[1]).not.toHaveProperty('providerKey');
   });
 });
 
@@ -182,6 +238,97 @@ describe('DELETE /api/collab/connections/:id (auth guard)', () => {
     const res = await routes.handleCollabRequest(req);
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({ success: true });
+  });
+});
+
+describe('/api/collab/connections/:id/permissions', () => {
+  it('returns an owner-authorized permission policy with capability definitions', async () => {
+    const queryCalls: unknown[][] = [];
+    queryImpl = async (...args: unknown[]) => {
+      queryCalls.push(args);
+      return {
+        connectionId: 'connection-1',
+        grants: [],
+        legacyPolicyPendingReview: false,
+        membershipId: 'membership-1',
+        policyVersion: 1,
+        revision: 2,
+      };
+    };
+    const token = await createSetupSession(
+      'user-test-permission-read',
+      'guild-test-permission-read',
+      'discord-user-permission-read',
+      ENCRYPTION_SECRET
+    );
+
+    const res = await routes.handleCollabRequest(
+      new Request('http://localhost:3001/api/collab/connections/connection-1/permissions', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(queryCalls[0]?.[0]).toBe(apiMock.creatorWorkspacePermissions.getPolicyForConnection);
+    await expect(res.json()).resolves.toMatchObject({
+      permissions: { connectionId: 'connection-1', revision: 2 },
+      capabilityDefinitions: {
+        'packages.releases.upload': expect.objectContaining({ label: 'Upload releases' }),
+      },
+    });
+  });
+
+  it('replaces the policy with the reviewed revision and selected resource grants', async () => {
+    const mutationCalls: unknown[][] = [];
+    mutationImpl = async (...args: unknown[]) => {
+      mutationCalls.push(args);
+      return { membershipId: 'membership-1', policyVersionId: 'policy-3', revision: 3 };
+    };
+    const token = await createSetupSession(
+      'user-test-permission-write',
+      'guild-test-permission-write',
+      'discord-user-permission-write',
+      ENCRYPTION_SECRET
+    );
+
+    const res = await routes.handleCollabRequest(
+      new Request('http://localhost:3001/api/collab/connections/connection-1/permissions', {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          expectedRevision: 2,
+          grants: [
+            {
+              capabilityKey: 'packages.releases.upload',
+              resourceType: 'package',
+              scope: 'selected',
+              resourceId: 'com.yucp.one-package',
+            },
+          ],
+        }),
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(mutationCalls[0]?.[0]).toBe(
+      apiMock.creatorWorkspacePermissions.replacePolicyForConnection
+    );
+    expect(mutationCalls[0]?.[1]).toMatchObject({
+      connectionId: 'connection-1',
+      expectedRevision: 2,
+      grants: [
+        {
+          capabilityKey: 'packages.releases.upload',
+          resourceId: 'com.yucp.one-package',
+          resourceType: 'package',
+          scope: 'selected',
+        },
+      ],
+      ownerAuthUserId: 'user-test-permission-write',
+    });
   });
 });
 

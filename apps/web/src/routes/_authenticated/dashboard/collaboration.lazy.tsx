@@ -1,39 +1,46 @@
-import { Button } from '@heroui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createLazyFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { CreatorWorkspaceGrant } from '@yucp/shared/creatorWorkspacePermissions';
+import { useEffect, useMemo, useState } from 'react';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
+import {
+  type CollaboratorPermissionResource,
+  CollaboratorPermissionSheet,
+} from '@/components/dashboard/CollaboratorPermissionSheet';
 import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
 import { DashboardSkeletonSwap } from '@/components/dashboard/DashboardSkeletonSwap';
 import {
   DashboardActionRowSkeleton,
   DashboardListSkeleton,
 } from '@/components/dashboard/DashboardSkeletons';
+import { HoldConfirmButton } from '@/components/ui/HoldConfirmButton';
 import { Icon } from '@/components/ui/Icon';
-import { Select } from '@/components/ui/Select';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
 import type {
   CollabAsCollaboratorSummary,
-  CollabConnectionSummary,
   CollabProviderSummary,
+  CreatorWorkspaceMemberSummary,
   PendingCollabInvite,
 } from '@/lib/dashboard';
 import {
   createCollabInvite,
-  listCollabConnections,
+  getCreatorWorkspaceMemberPermissions,
   listCollabConnectionsAsCollaborator,
   listCollabInvites,
   listCollabProviders,
-  removeCollabConnection,
+  listCreatorWorkspaceMembers,
   removeCollabConnectionAsCollaborator,
+  removeCreatorWorkspaceMember,
   revokeCollabInvite,
+  updateCreatorWorkspaceMemberPermissions,
 } from '@/lib/dashboard';
 import {
   dashboardPanelQueryOptions,
   dashboardPollingQueryOptions,
 } from '@/lib/dashboardQueryOptions';
+import { listCreatorPackagePickerProducts } from '@/lib/packages';
 import { copyToClipboard } from '@/lib/utils';
 
 function DashboardCollaborationPending() {
@@ -49,134 +56,6 @@ function DashboardCollaborationPending() {
         <DashboardListSkeleton rows={1} showAction={false} />
       </div>
     </div>
-  );
-}
-
-const HOLD_TO_REMOVE_MS = 900;
-
-function HoldToRemoveButton({
-  label,
-  isPending,
-  onComplete,
-}: {
-  label: string;
-  isPending: boolean;
-  onComplete: () => void;
-}) {
-  const [holding, setHolding] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const holdStartRef = useRef<number | null>(null);
-  const holdIntervalRef = useRef<number | null>(null);
-  const holdTimeoutRef = useRef<number | null>(null);
-
-  const clearHold = useCallback((resetProgress = true) => {
-    if (holdIntervalRef.current !== null) {
-      window.clearInterval(holdIntervalRef.current);
-      holdIntervalRef.current = null;
-    }
-    if (holdTimeoutRef.current !== null) {
-      window.clearTimeout(holdTimeoutRef.current);
-      holdTimeoutRef.current = null;
-    }
-    holdStartRef.current = null;
-    setHolding(false);
-    if (resetProgress) {
-      setProgress(0);
-    }
-  }, []);
-
-  useEffect(() => () => clearHold(), [clearHold]);
-
-  useEffect(() => {
-    if (isPending) {
-      clearHold(false);
-      setProgress(100);
-      return;
-    }
-
-    if (!holding && progress === 100) {
-      const resetId = window.setTimeout(() => setProgress(0), 180);
-      return () => window.clearTimeout(resetId);
-    }
-  }, [clearHold, holding, isPending, progress]);
-
-  const beginHold = useCallback(() => {
-    if (isPending || holdTimeoutRef.current !== null) {
-      return;
-    }
-
-    const startedAt = Date.now();
-    holdStartRef.current = startedAt;
-    setHolding(true);
-    setProgress(0);
-    holdIntervalRef.current = window.setInterval(() => {
-      if (holdStartRef.current === null) {
-        return;
-      }
-      const nextProgress = Math.min(
-        ((Date.now() - holdStartRef.current) / HOLD_TO_REMOVE_MS) * 100,
-        100
-      );
-      setProgress(nextProgress);
-    }, 16);
-    holdTimeoutRef.current = window.setTimeout(() => {
-      clearHold(false);
-      setProgress(100);
-      onComplete();
-    }, HOLD_TO_REMOVE_MS);
-  }, [clearHold, isPending, onComplete]);
-
-  const cancelHold = useCallback(() => {
-    if (holdStartRef.current === null) {
-      return;
-    }
-    clearHold();
-  }, [clearHold]);
-
-  return (
-    <Button
-      type="button"
-      size="sm"
-      variant="danger-soft"
-      isDisabled={isPending}
-      aria-label={`Hold to remove ${label}`}
-      className={`relative min-w-32 justify-center overflow-hidden rounded-xl border border-danger/20 px-3 text-xs font-semibold shadow-none transition-all duration-200 motion-reduce:transition-none${holding ? ' scale-[1.02] border-danger/40' : ''}`}
-      onPointerDown={beginHold}
-      onPointerUp={cancelHold}
-      onPointerLeave={cancelHold}
-      onPointerCancel={cancelHold}
-      onKeyDown={(event) => {
-        if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) {
-          event.preventDefault();
-          beginHold();
-        }
-      }}
-      onKeyUp={(event) => {
-        if (event.key === ' ' || event.key === 'Enter') {
-          event.preventDefault();
-          cancelHold();
-        }
-      }}
-    >
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 origin-left rounded-[inherit] bg-danger transition-all duration-75 ease-linear motion-reduce:transition-none"
-        style={{
-          opacity: progress > 0 || isPending ? 0.88 : 0,
-          transform: `scaleX(${Math.max(progress, isPending ? 100 : 0) / 100})`,
-        }}
-      />
-      <span
-        className={`relative z-10 inline-flex items-center gap-1.5${holding || isPending ? ' text-danger-foreground' : ''}`}
-      >
-        {isPending ? (
-          <span className="btn-loading-spinner" aria-hidden="true" />
-        ) : (
-          <Icon name="trash" size={14} aria-hidden="true" />
-        )}
-        <span>{isPending ? 'Leaving...' : holding ? 'Keep holding...' : 'Hold to leave'}</span>
-      </span>
-    </Button>
   );
 }
 
@@ -234,10 +113,10 @@ function MyCollaboratorsSection({
   const queryClient = useQueryClient();
   const { canRunPanelQueries, markSessionExpired } = useDashboardSession();
   const [invitePanelOpen, setInvitePanelOpen] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState('');
   const [generatedInvite, setGeneratedInvite] = useState<{ url: string; expiresAt: number } | null>(
     null
   );
+  const [selectedMember, setSelectedMember] = useState<CreatorWorkspaceMemberSummary | null>(null);
 
   const providersQuery = useQuery(
     dashboardPanelQueryOptions<CollabProviderSummary[]>({
@@ -254,33 +133,65 @@ function MyCollaboratorsSection({
       refetchInterval: 15000,
     })
   );
-  const connectionsQuery = useQuery(
-    dashboardPollingQueryOptions<CollabConnectionSummary[]>({
-      queryKey: ['dashboard-collab-connections', authUserId],
-      queryFn: () => listCollabConnections(requireAuthUserId(authUserId)),
+  const membersQuery = useQuery(
+    dashboardPollingQueryOptions<CreatorWorkspaceMemberSummary[]>({
+      queryKey: ['dashboard-collab-memberships', authUserId],
+      queryFn: () => listCreatorWorkspaceMembers(requireAuthUserId(authUserId)),
       enabled: canRunPanelQueries && Boolean(authUserId),
       refetchInterval: 15000,
     })
   );
+  const permissionResourcesQuery = useQuery({
+    queryKey: ['dashboard-collab-permission-resources', authUserId],
+    queryFn: listCreatorPackagePickerProducts,
+    enabled: canRunPanelQueries && Boolean(authUserId) && Boolean(selectedMember),
+  });
 
   useEffect(() => {
     if (
       isDashboardAuthError(providersQuery.error) ||
       isDashboardAuthError(invitesQuery.error) ||
-      isDashboardAuthError(connectionsQuery.error)
+      isDashboardAuthError(membersQuery.error)
     ) {
       markSessionExpired();
     }
-  }, [connectionsQuery.error, invitesQuery.error, markSessionExpired, providersQuery.error]);
+  }, [invitesQuery.error, markSessionExpired, membersQuery.error, providersQuery.error]);
 
   const hasAuthError =
     isDashboardAuthError(providersQuery.error) ||
     isDashboardAuthError(invitesQuery.error) ||
-    isDashboardAuthError(connectionsQuery.error);
+    isDashboardAuthError(membersQuery.error);
 
   const providers = providersQuery.data ?? [];
   const invites = invitesQuery.data ?? [];
-  const connections = connectionsQuery.data ?? [];
+  const members = membersQuery.data ?? [];
+  const permissionResources = useMemo<CollaboratorPermissionResource[]>(() => {
+    const resources: CollaboratorPermissionResource[] = [];
+    for (const group of permissionResourcesQuery.data ?? []) {
+      const ownerProducts = group.products.filter(
+        (product) => product.accessRole !== 'collaborator'
+      );
+      for (const product of ownerProducts) {
+        resources.push({
+          description: product.provider,
+          id: product._id,
+          label: product.displayName ?? product.productId,
+          type: 'product',
+        });
+      }
+      const packageProduct = ownerProducts.find((product) => product.packageId);
+      if (packageProduct?.packageId) {
+        resources.push({
+          description: packageProduct.packageId,
+          id: packageProduct.packageId,
+          label:
+            packageProduct.packageName ?? packageProduct.displayName ?? packageProduct.packageId,
+          type: 'package',
+        });
+      }
+    }
+    return resources;
+  }, [permissionResourcesQuery.data]);
 
   const providerMap = useMemo(
     () => new Map(providers.map((provider) => [provider.key, provider.label])),
@@ -288,13 +199,12 @@ function MyCollaboratorsSection({
   );
 
   const generateInviteMutation = useMutation({
-    mutationFn: () =>
-      createCollabInvite(requireAuthUserId(authUserId), { providerKey: selectedProvider }),
+    mutationFn: () => createCollabInvite(requireAuthUserId(authUserId), {}),
     onSuccess: async (result) => {
       setGeneratedInvite({ url: result.inviteUrl, expiresAt: result.expiresAt });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['dashboard-collab-invites', authUserId] }),
-        queryClient.invalidateQueries({ queryKey: ['dashboard-collab-connections', authUserId] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard-collab-memberships', authUserId] }),
       ]);
     },
   });
@@ -307,24 +217,37 @@ function MyCollaboratorsSection({
     },
   });
 
-  const removeConnectionMutation = useMutation({
-    mutationFn: (connectionId: string) =>
-      removeCollabConnection(requireAuthUserId(authUserId), connectionId),
+  const removeMemberMutation = useMutation({
+    mutationFn: (membershipId: string) =>
+      removeCreatorWorkspaceMember(requireAuthUserId(authUserId), membershipId),
     onSuccess: async () => {
       await queryClient.refetchQueries({
-        queryKey: ['dashboard-collab-connections', authUserId],
+        queryKey: ['dashboard-collab-memberships', authUserId],
+      });
+    },
+  });
+  const updatePermissionsMutation = useMutation({
+    mutationFn: async (input: {
+      member: CreatorWorkspaceMemberSummary;
+      grants: CreatorWorkspaceGrant[];
+    }) => {
+      const policy =
+        input.member.permissions ??
+        (await getCreatorWorkspaceMemberPermissions(input.member.id)).permissions;
+      return await updateCreatorWorkspaceMemberPermissions(input.member.id, {
+        expectedRevision: policy.revision,
+        grants: input.grants,
+      });
+    },
+    onSuccess: async () => {
+      setSelectedMember(null);
+      await queryClient.refetchQueries({
+        queryKey: ['dashboard-collab-memberships', authUserId],
       });
     },
   });
 
-  const handleProviderChange = (key: string) => {
-    setSelectedProvider(key);
-    setGeneratedInvite(null);
-  };
-
   const openInvitePanel = () => {
-    const providerKey = selectedProvider || providers[0]?.key || '';
-    setSelectedProvider(providerKey);
     setInvitePanelOpen(true);
     setGeneratedInvite(null);
   };
@@ -346,7 +269,7 @@ function MyCollaboratorsSection({
   const isLoading =
     viewerLoading ||
     (canRunPanelQueries &&
-      (providersQuery.isLoading || invitesQuery.isLoading || connectionsQuery.isLoading));
+      (providersQuery.isLoading || invitesQuery.isLoading || membersQuery.isLoading));
 
   return (
     <section
@@ -368,7 +291,7 @@ function MyCollaboratorsSection({
         </button>
       </div>
       <p className="intg-desc" style={isLoading ? { paddingLeft: 0 } : undefined}>
-        Allow members to verify licenses from other creators&apos; stores.
+        Invite trusted creators, then grant only the product and package capabilities they need.
       </p>
 
       <DashboardSkeletonSwap
@@ -417,21 +340,22 @@ function MyCollaboratorsSection({
                   </div>
                   <h3 className="inline-panel-title">Invite a Creator</h3>
                   <p className="inline-panel-desc">
-                    Share this link with a trusted creator to allow them to link their stores and
-                    products to your server.
+                    Share this link with a trusted creator to add them to your workspace. Everything
+                    stays off unless you grant it below.
                   </p>
                 </div>
 
-                <div className="modal-field">
-                  <label className="modal-label" htmlFor="invite-provider-select">
-                    Store Platform
-                  </label>
-                  <Select
-                    id="invite-provider-select"
-                    value={selectedProvider}
-                    onChange={handleProviderChange}
-                    options={providers.map((p) => ({ value: p.key, label: p.label }))}
-                  />
+                <div className="rounded-2xl border border-default/40 bg-surface-secondary p-4 dark:border-default/50 dark:bg-surface-secondary">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-foreground dark:text-foreground">
+                        Workspace permissions
+                      </div>
+                      <div className="mt-1 text-xs text-muted dark:text-muted">
+                        No access. Everything stays off until you grant it after they join.
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 {generatedInvite ? (
@@ -469,7 +393,6 @@ function MyCollaboratorsSection({
                     type="button"
                     yucp="primary"
                     className="invite-generate-btn"
-                    isDisabled={!selectedProvider}
                     isLoading={generateInviteMutation.isPending}
                     onPress={() => generateInviteMutation.mutate()}
                   >
@@ -491,36 +414,34 @@ function MyCollaboratorsSection({
             {invites.map((invite) => (
               <div key={invite.id} className="collab-invite-row">
                 <div className="collab-avatar">
-                  {(providerMap.get(invite.providerKey) ?? invite.providerKey)
+                  {(invite.providerKey
+                    ? (providerMap.get(invite.providerKey) ?? invite.providerKey)
+                    : 'Invite'
+                  )
                     .slice(0, 2)
                     .toUpperCase()}
                 </div>
                 <div className="collab-invite-info">
                   <span className="collab-name">
-                    {providerMap.get(invite.providerKey) ?? invite.providerKey}
+                    {invite.providerKey
+                      ? (providerMap.get(invite.providerKey) ?? invite.providerKey)
+                      : 'Workspace invitation'}
                   </span>
                   <span className="collab-invite-expiry">
                     {formatRelativeDate(invite.expiresAt)}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  className={`collab-remove-btn${revokeInviteMutation.isPending && revokeInviteMutation.variables === invite.id ? ' btn-loading' : ''}`}
-                  disabled={
+                <HoldConfirmButton
+                  accessibleLabel="Hold to revoke workspace invitation"
+                  isPending={
                     revokeInviteMutation.isPending && revokeInviteMutation.variables === invite.id
                   }
-                  onClick={() => revokeInviteMutation.mutate(invite.id)}
+                  onConfirm={() => revokeInviteMutation.mutate(invite.id)}
+                  pendingLabel="Revoking..."
+                  confirmLabel="Keep holding to revoke"
                 >
-                  {revokeInviteMutation.isPending &&
-                  revokeInviteMutation.variables === invite.id ? (
-                    <>
-                      <span className="btn-loading-spinner" aria-hidden="true" />
-                      Revoking...
-                    </>
-                  ) : (
-                    'Revoke'
-                  )}
-                </button>
+                  Revoke
+                </HoldConfirmButton>
               </div>
             ))}
           </div>
@@ -528,71 +449,83 @@ function MyCollaboratorsSection({
 
         <div
           id="collab-connections-header"
-          className={connections.length > 0 ? 'collab-section-header' : 'hidden'}
+          className={members.length > 0 ? 'collab-section-header' : 'hidden'}
         >
-          Active Connections
+          Workspace collaborators
         </div>
         <div id="collab-list">
-          {connections.map((connection) => (
-            <div key={connection.id} className="collab-row">
-              {connection.avatarUrl ? (
-                <img src={connection.avatarUrl} alt="" className="collab-avatar" />
+          {members.map((member) => (
+            <div key={member.id} className="collab-row">
+              {member.avatarUrl ? (
+                <img src={member.avatarUrl} alt="" className="collab-avatar" />
               ) : (
                 <div className="collab-avatar">
-                  {(connection.collaboratorDisplayName ?? connection.source)
-                    .slice(0, 2)
-                    .toUpperCase()}
+                  {member.collaboratorDisplayName.slice(0, 2).toUpperCase()}
                 </div>
               )}
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="collab-name">
-                  {connection.collaboratorDisplayName ?? connection.source}
-                </div>
+                <div className="collab-name">{member.collaboratorDisplayName}</div>
                 <div className="collab-row-meta">
-                  {providerMap.get(connection.provider) ?? connection.provider} &middot;{' '}
-                  {connection.linkType} &middot;{' '}
-                  {connection.webhookConfigured ? 'Webhook ready' : 'Webhook pending'}
+                  {member.provider
+                    ? `${providerMap.get(member.provider) ?? member.provider} connection`
+                    : 'No store connection shared'}
                 </div>
               </div>
-              <button
-                type="button"
-                className={`collab-remove-btn${removeConnectionMutation.isPending && removeConnectionMutation.variables === connection.id ? ' btn-loading' : ''}`}
-                disabled={
-                  removeConnectionMutation.isPending &&
-                  removeConnectionMutation.variables === connection.id
-                }
-                onClick={() => {
-                  if (
-                    !window.confirm(
-                      `Remove ${connection.collaboratorDisplayName ?? connection.source} from your collaboration list?`
-                    )
-                  ) {
-                    return;
+              <div className="ml-3 flex shrink-0 flex-wrap items-center justify-end gap-2">
+                <YucpButton
+                  type="button"
+                  yucp="secondary"
+                  onPress={() => setSelectedMember(member)}
+                >
+                  Manage access
+                </YucpButton>
+                <HoldConfirmButton
+                  accessibleLabel={`Hold to remove ${member.collaboratorDisplayName}`}
+                  isPending={
+                    removeMemberMutation.isPending && removeMemberMutation.variables === member.id
                   }
-                  removeConnectionMutation.mutate(connection.id);
-                }}
-              >
-                {removeConnectionMutation.isPending &&
-                removeConnectionMutation.variables === connection.id ? (
-                  <>
-                    <span className="btn-loading-spinner" aria-hidden="true" />
-                    Removing...
-                  </>
-                ) : (
-                  'Remove'
-                )}
-              </button>
+                  onConfirm={() => removeMemberMutation.mutate(member.id)}
+                  pendingLabel="Removing..."
+                  confirmLabel="Keep holding to remove"
+                >
+                  Remove
+                </HoldConfirmButton>
+              </div>
             </div>
           ))}
         </div>
 
-        {invites.length === 0 && connections.length === 0 ? (
+        <CollaboratorPermissionSheet
+          description={`Configure access for ${selectedMember?.collaboratorDisplayName ?? 'this collaborator'}. Each capability can target a different set of resources.`}
+          initialGrants={selectedMember?.permissions?.grants ?? []}
+          isOpen={Boolean(selectedMember)}
+          isSaving={updatePermissionsMutation.isPending}
+          legacyPolicyPendingReview={
+            selectedMember?.permissions?.legacyPolicyPendingReview ?? false
+          }
+          onOpenChange={(open) => {
+            if (!open && !updatePermissionsMutation.isPending) {
+              setSelectedMember(null);
+            }
+          }}
+          onSave={(grants) => {
+            if (selectedMember) {
+              updatePermissionsMutation.mutate({ member: selectedMember, grants });
+            }
+          }}
+          resources={permissionResources}
+          title="Collaborator permissions"
+        />
+
+        {invites.length === 0 && members.length === 0 ? (
           <div id="collab-empty" className="empty-state">
             <div className="intg-icon" style={{ margin: '0 auto 14px' }}>
               <Icon name="users" size={18} />
             </div>
             <p className="empty-state-title">No collaborators yet.</p>
-            <p className="empty-state-copy">Invite a creator to share license verification.</p>
+            <p className="empty-state-copy">
+              Invite a creator, then grant only the access they need.
+            </p>
             <button
               className="intg-add-btn"
               type="button"
@@ -704,13 +637,19 @@ function StoresICollaborateWithSection({
                 </div>
               </div>
               <div className="ml-3 flex shrink-0 items-center">
-                <HoldToRemoveButton
-                  label={store.ownerDisplayName ?? 'Creator Store'}
+                <HoldConfirmButton
+                  accessibleLabel={`Hold to remove ${store.ownerDisplayName ?? 'Creator Store'}`}
+                  duration={900}
                   isPending={
                     removeStoreMutation.isPending && removeStoreMutation.variables === store.id
                   }
-                  onComplete={() => removeStoreMutation.mutate(store.id)}
-                />
+                  onConfirm={() => removeStoreMutation.mutate(store.id)}
+                  pendingLabel="Leaving..."
+                  confirmLabel="Keep holding..."
+                >
+                  <Icon name="trash" size={14} aria-hidden="true" />
+                  Hold to leave
+                </HoldConfirmButton>
               </div>
             </div>
           ))}

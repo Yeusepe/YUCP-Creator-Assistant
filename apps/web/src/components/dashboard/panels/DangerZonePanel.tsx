@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
+import { HoldConfirmButton } from '@/components/ui/HoldConfirmButton';
 import { Icon } from '@/components/ui/Icon';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
@@ -221,16 +222,15 @@ function DisconnectStepCard({
                 Cancel
               </YucpButton>
               {isFinalStep ? (
-                <YucpButton
-                  id="dc-step-next"
-                  yucp="danger"
-                  isLoading={isPending}
-                  isDisabled={isPending}
-                  onPress={onConfirm}
-                  className="!text-[12px] !px-3.5"
+                <HoldConfirmButton
+                  accessibleLabel="Hold to confirm server disconnect"
+                  confirmLabel="Keep holding to disconnect..."
+                  isPending={isPending}
+                  onConfirm={onConfirm}
+                  pendingLabel="Disconnecting..."
                 >
                   {config.buttonLabel}
-                </YucpButton>
+                </HoldConfirmButton>
               ) : (
                 <YucpButton
                   id="dc-step-next"

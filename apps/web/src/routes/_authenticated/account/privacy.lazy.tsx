@@ -3,6 +3,7 @@ import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
 import { apiClient } from '@/api/client';
 import { AccountModal, AccountPage, AccountSectionCard } from '@/components/account/AccountPage';
+import { HoldConfirmButton } from '@/components/ui/HoldConfirmButton';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { YucpInput } from '@/components/ui/YucpInput';
@@ -340,14 +341,16 @@ function AccountPrivacy() {
             >
               Cancel
             </YucpButton>
-            <YucpButton
-              yucp="danger"
-              isLoading={deleteMut.isPending}
-              isDisabled={!canDelete || deleteMut.isPending}
-              onClick={() => deleteMut.mutate()}
+            <HoldConfirmButton
+              accessibleLabel="Hold to permanently delete my account"
+              confirmLabel="Keep holding to delete..."
+              isDisabled={!canDelete}
+              isPending={deleteMut.isPending}
+              onConfirm={() => deleteMut.mutate()}
+              pendingLabel="Submitting..."
             >
-              {deleteMut.isPending ? 'Submitting...' : 'Delete my account'}
-            </YucpButton>
+              Delete my account
+            </HoldConfirmButton>
           </div>
         </AccountModal>
       ) : null}

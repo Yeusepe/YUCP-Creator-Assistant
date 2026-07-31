@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { AccountModal } from '@/components/account/AccountPage';
+import { HoldConfirmButton } from '@/components/ui/HoldConfirmButton';
 import { Icon } from '@/components/ui/Icon';
 import { type BadgeStatus, StatusChip } from '@/components/ui/StatusChip';
 import { YucpButton } from '@/components/ui/YucpButton';
@@ -129,14 +130,15 @@ export function CertificateDeviceRow({
             >
               Cancel
             </YucpButton>
-            <YucpButton
-              yucp="danger"
-              isLoading={isRevoking}
-              isDisabled={isRevoking}
-              onClick={() => onRevoke(device.certNonce)}
+            <HoldConfirmButton
+              accessibleLabel={`Hold to revoke device ${device.publisherName}`}
+              confirmLabel="Keep holding to revoke..."
+              isPending={isRevoking}
+              onConfirm={() => onRevoke(device.certNonce)}
+              pendingLabel="Revoking..."
             >
-              {isRevoking ? 'Revoking...' : 'Confirm Revocation'}
-            </YucpButton>
+              Confirm revocation
+            </HoldConfirmButton>
           </div>
         </AccountModal>
       )}

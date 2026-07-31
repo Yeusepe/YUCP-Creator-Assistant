@@ -6,6 +6,7 @@ import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal'
 import { DashboardSkeletonSwap } from '@/components/dashboard/DashboardSkeletonSwap';
 import { DashboardListSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { DashboardPanelErrorState } from '@/components/dashboard/PanelErrorState';
+import { HoldConfirmButton } from '@/components/ui/HoldConfirmButton';
 import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
 import type { UserAccountConnection } from '@/lib/dashboard';
@@ -174,7 +175,10 @@ export function ConnectedPlatformsPanel({ onCountsChange }: ConnectedPlatformsPa
         </p>
       </header>
 
-      <DashboardSkeletonSwap isLoading={isLoading} skeleton={<DashboardListSkeleton rows={4} />}>
+      <DashboardSkeletonSwap
+        isLoading={isLoading}
+        skeleton={<DashboardListSkeleton className="cpp-panel__list" rows={4} />}
+      >
         <ul className="cpp-panel__list">
           <li className="cpp-panel__item">
             <PlatformCard
@@ -234,19 +238,19 @@ export function ConnectedPlatformsPanel({ onCountsChange }: ConnectedPlatformsPa
                           >
                             Cancel
                           </button>
-                          <button
-                            className="inline-danger-btn"
-                            id={`${provider.key}-confirm-btn`}
-                            type="button"
-                            disabled={isThisDisconnecting}
-                            onClick={() => {
+                          <HoldConfirmButton
+                            accessibleLabel={`Hold to disconnect ${provider.label ?? provider.key}`}
+                            isDisabled={!account}
+                            isPending={isThisDisconnecting}
+                            onConfirm={() => {
                               if (account) {
                                 disconnectMutation.mutate(account.id);
                               }
                             }}
+                            pendingLabel="Disconnecting..."
                           >
-                            {isThisDisconnecting ? 'Disconnecting...' : 'Disconnect'}
-                          </button>
+                            Disconnect
+                          </HoldConfirmButton>
                         </div>
                       </div>
                     </div>

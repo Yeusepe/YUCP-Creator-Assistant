@@ -196,7 +196,9 @@ describe('account UI contracts', () => {
     expect(accountAuthorizedAppsRouteSource).toContain("'Sign out'");
     expect(accountAuthorizedAppsRouteSource).toContain('`Sign out of ');
     expect(accountAuthorizedAppsRouteSource).toContain('grant.appName');
-    expect(accountAuthorizedAppsRouteSource).toContain('isLoading={revokeMut.isPending}');
+    expect(accountAuthorizedAppsRouteSource).toContain('isPending={revokeMut.isPending}');
+    expect(accountAuthorizedAppsRouteSource).toContain('accessibleLabel=');
+    expect(accountAuthorizedAppsRouteSource).toContain('actionLabel.toLowerCase()');
   });
 
   it('supports plan and portal deep links for Unity billing handoff', () => {

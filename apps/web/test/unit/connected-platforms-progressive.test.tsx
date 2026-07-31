@@ -83,6 +83,17 @@ describe('ConnectedPlatformsPanel progressive disclosure', () => {
     document.body.appendChild(portalHost);
   });
 
+  it('uses the loaded sales-channel list insets while provider data is loading', () => {
+    const pendingProviders = new Promise<never>(() => {});
+    const pendingConnections = new Promise<never>(() => {});
+    vi.mocked(dashboardApi.listDashboardProviders).mockReturnValue(pendingProviders);
+    vi.mocked(dashboardApi.listDashboardConnections).mockReturnValue(pendingConnections);
+
+    const { container } = render(<ConnectedPlatformsPanel />, { wrapper: createWrapper() });
+
+    expect(container.querySelector('.skeleton-stack.cpp-panel__list')).toBeInTheDocument();
+  });
+
   it('collapses unconnected providers behind "Show X more" when none are connected', async () => {
     vi.mocked(dashboardApi.listDashboardProviders).mockResolvedValue(THREE_UNCONNECTED_PROVIDERS);
     vi.mocked(dashboardApi.listDashboardConnections).mockResolvedValue([]);
@@ -148,5 +159,44 @@ describe('ConnectedPlatformsPanel progressive disclosure', () => {
     await waitFor(() => expect(screen.getByText('Gumroad Store')).toBeInTheDocument());
 
     expect(screen.queryByText(/Show \d+ more/)).not.toBeInTheDocument();
+  });
+
+  it('requires holding the final disconnect action', async () => {
+    vi.mocked(dashboardApi.listDashboardProviders).mockResolvedValue([
+      {
+        connectParamStyle: 'camelCase',
+        connectPath: '/setup/gumroad',
+        icon: 'Gumroad.png',
+        key: 'gumroad',
+        label: 'Gumroad',
+      },
+    ]);
+    vi.mocked(dashboardApi.listDashboardConnections).mockResolvedValue([
+      {
+        connectionType: 'setup',
+        createdAt: 1,
+        hasAccessToken: true,
+        hasApiKey: false,
+        id: 'connection-1',
+        label: 'Gumroad Store',
+        provider: 'gumroad',
+        status: 'active',
+        updatedAt: 2,
+        webhookConfigured: true,
+      },
+    ]);
+
+    render(<ConnectedPlatformsPanel />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Gumroad Store')).toBeInTheDocument());
+    const disconnectTrigger = screen
+      .getAllByRole('button', { name: 'Disconnect' })
+      .find((button) => button.classList.contains('platform-row-btn'));
+    if (!disconnectTrigger) {
+      throw new Error('Platform disconnect trigger was not rendered');
+    }
+    fireEvent.click(disconnectTrigger);
+
+    expect(screen.getByRole('button', { name: /hold to disconnect gumroad/i })).toBeInTheDocument();
   });
 });

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { PropsWithChildren } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -29,6 +29,15 @@ vi.mock('@/components/ui/Toast', () => ({
   })),
 }));
 
+async function holdToConfirm(button: HTMLElement) {
+  vi.useFakeTimers();
+  fireEvent.keyDown(button, { key: 'Enter' });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1300);
+  });
+  vi.useRealTimers();
+}
+
 vi.mock('@/lib/dashboard', () => ({
   disconnectUserAccount: vi.fn(),
   getUserAccountsQueryKey: vi.fn(() => ['user-accounts', { refresh: false }] as const),
@@ -56,6 +65,7 @@ function createWrapper() {
 
 describe('account connections route', () => {
   afterEach(() => {
+    vi.useRealTimers();
     cleanup();
   });
 
@@ -120,8 +130,9 @@ describe('account connections route', () => {
 
     expect(within(vrchatCard).queryByRole('button', { name: 'Connect' })).toBeNull();
 
-    fireEvent.click(within(vrchatCard).getByRole('button', { name: 'Disconnect' }));
-    fireEvent.click(within(vrchatCard).getByRole('button', { name: 'Yes' }));
+    await holdToConfirm(
+      within(vrchatCard).getByRole('button', { name: 'Hold to disconnect VRChat' })
+    );
 
     await waitFor(() =>
       expect(dashboardApi.disconnectUserAccount).toHaveBeenCalledWith('buyer-link-vrchat-1')
@@ -177,8 +188,9 @@ describe('account connections route', () => {
         String(matrixCase.expectedExpiredCount)
       );
 
-      fireEvent.click(within(providerCard).getByRole('button', { name: 'Disconnect' }));
-      fireEvent.click(within(providerCard).getByRole('button', { name: 'Yes' }));
+      await holdToConfirm(
+        within(providerCard).getByRole('button', { name: 'Hold to disconnect itch.io' })
+      );
 
       await waitFor(() =>
         expect(dashboardApi.disconnectUserAccount).toHaveBeenCalledWith(

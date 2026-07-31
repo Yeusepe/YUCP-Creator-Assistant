@@ -81,11 +81,13 @@ export async function materializeCreatorWorkspaceMembership(
   ctx: MutationCtx,
   args: {
     changedByAuthUserId: string;
-    collaboratorConnectionId: Id<'collaborator_connections'>;
+    collaboratorConnectionId?: Id<'collaborator_connections'>;
     grants: readonly CreatorWorkspaceGrant[];
     legacyPolicyPendingReview: boolean;
     memberAuthUserId?: string;
+    memberAvatarHash?: string;
     memberDiscordUserId: string;
+    memberDisplayName?: string;
     ownerAuthUserId: string;
     source: PolicySource;
   }
@@ -104,6 +106,8 @@ export async function materializeCreatorWorkspaceMembership(
       ownerAuthUserId: args.ownerAuthUserId,
       memberAuthUserId: args.memberAuthUserId,
       memberDiscordUserId: args.memberDiscordUserId,
+      memberDisplayName: args.memberDisplayName,
+      memberAvatarHash: args.memberAvatarHash,
       collaboratorConnectionId: args.collaboratorConnectionId,
       status: 'active',
       legacyPolicyPendingReview: args.legacyPolicyPendingReview,
@@ -115,6 +119,8 @@ export async function materializeCreatorWorkspaceMembership(
     await ctx.db.patch(membership._id, {
       collaboratorConnectionId: args.collaboratorConnectionId,
       memberAuthUserId: args.memberAuthUserId ?? membership.memberAuthUserId,
+      memberDisplayName: args.memberDisplayName ?? membership.memberDisplayName,
+      memberAvatarHash: args.memberAvatarHash ?? membership.memberAvatarHash,
       status: 'active',
       removedAt: undefined,
       updatedAt: now,
@@ -128,9 +134,11 @@ export async function materializeCreatorWorkspaceMembership(
     legacyPolicyPendingReview: args.legacyPolicyPendingReview,
     source: args.source,
   });
-  await ctx.db.patch(args.collaboratorConnectionId, {
-    workspaceMembershipId: membership._id,
-    updatedAt: now,
-  });
+  if (args.collaboratorConnectionId) {
+    await ctx.db.patch(args.collaboratorConnectionId, {
+      workspaceMembershipId: membership._id,
+      updatedAt: now,
+    });
+  }
   return policy;
 }

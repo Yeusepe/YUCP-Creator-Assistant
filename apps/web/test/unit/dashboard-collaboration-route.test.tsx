@@ -33,15 +33,19 @@ vi.mock('@/lib/dashboard', async () => {
   return {
     ...actual,
     createCollabInvite: vi.fn(),
-    listCollabConnections: vi.fn(),
     listCollabConnectionsAsCollaborator: vi.fn(),
     listCollabInvites: vi.fn(),
     listCollabProviders: vi.fn(),
-    removeCollabConnection: vi.fn(),
+    listCreatorWorkspaceMembers: vi.fn(),
     removeCollabConnectionAsCollaborator: vi.fn(),
+    removeCreatorWorkspaceMember: vi.fn(),
     revokeCollabInvite: vi.fn(),
   };
 });
+
+vi.mock('@/lib/packages', () => ({
+  listCreatorPackagePickerProducts: vi.fn(async () => []),
+}));
 
 import * as dashboardApi from '@/lib/dashboard';
 import { Route as CollaborationRoute } from '@/routes/_authenticated/dashboard/collaboration.lazy';
@@ -71,7 +75,7 @@ describe('dashboard collaboration route', () => {
     vi.clearAllMocks();
     vi.mocked(dashboardApi.listCollabProviders).mockResolvedValue([]);
     vi.mocked(dashboardApi.listCollabInvites).mockResolvedValue([]);
-    vi.mocked(dashboardApi.listCollabConnections).mockResolvedValue([]);
+    vi.mocked(dashboardApi.listCreatorWorkspaceMembers).mockResolvedValue([]);
     vi.mocked(dashboardApi.listCollabConnectionsAsCollaborator).mockResolvedValue([
       {
         id: 'conn-1',
@@ -105,9 +109,9 @@ describe('dashboard collaboration route', () => {
 
     vi.useFakeTimers();
     const button = screen.getByRole('button', { name: /hold to remove creator store/i });
-    fireEvent.pointerDown(button);
+    fireEvent.keyDown(button, { key: 'Enter' });
     await vi.advanceTimersByTimeAsync(400);
-    fireEvent.pointerUp(button);
+    fireEvent.keyUp(button, { key: 'Enter' });
     await vi.advanceTimersByTimeAsync(700);
 
     expect(dashboardApi.removeCollabConnectionAsCollaborator).not.toHaveBeenCalled();
@@ -139,8 +143,8 @@ describe('dashboard collaboration route', () => {
 
     vi.useFakeTimers();
     const button = screen.getByRole('button', { name: /hold to remove creator store/i });
-    fireEvent.pointerDown(button);
-    await vi.advanceTimersByTimeAsync(950);
+    fireEvent.keyDown(button, { key: 'Enter' });
+    await vi.advanceTimersByTimeAsync(1300);
     await Promise.resolve();
 
     expect(dashboardApi.removeCollabConnectionAsCollaborator).toHaveBeenCalledWith(
@@ -182,5 +186,45 @@ describe('dashboard collaboration route', () => {
       expect(screen.getByRole('button', { name: /generate invite link/i })).toBeInTheDocument()
     );
     expect(screen.queryByText(/\/collab-invite\?id=invite-id-only/)).not.toBeInTheDocument();
+  });
+
+  it('starts new invitations with no workspace access or store scope', async () => {
+    vi.mocked(dashboardApi.listCollabProviders).mockResolvedValue([
+      { key: 'jinxxy', label: 'Jinxxy' },
+    ]);
+    const Component = CollaborationRoute.options.component;
+    if (!Component) {
+      throw new Error('Collaboration route component is not defined');
+    }
+    createPortalRoot();
+    render(<Component />, { wrapper: createWrapper() });
+
+    fireEvent.click((await screen.findAllByRole('button', { name: /invite a creator/i }))[0]);
+    expect(
+      await screen.findByText('No access. Everything stays off until you grant it after they join.')
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText('Store Platform')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /generate invite link/i })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Configure access' })).not.toBeInTheDocument();
+  });
+
+  it('creates a provider-independent invitation with everything off by default', async () => {
+    vi.mocked(dashboardApi.createCollabInvite).mockResolvedValue({
+      inviteUrl: 'https://verify.example/collab-invite#t=workspace-token',
+      expiresAt: Date.now() + 86_400_000,
+    });
+    const Component = CollaborationRoute.options.component;
+    if (!Component) {
+      throw new Error('Collaboration route component is not defined');
+    }
+    createPortalRoot();
+    render(<Component />, { wrapper: createWrapper() });
+
+    fireEvent.click((await screen.findAllByRole('button', { name: /invite a creator/i }))[0]);
+    fireEvent.click(await screen.findByRole('button', { name: /generate invite link/i }));
+
+    await waitFor(() =>
+      expect(dashboardApi.createCollabInvite).toHaveBeenCalledWith('user-123', {})
+    );
   });
 });
