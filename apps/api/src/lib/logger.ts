@@ -6,6 +6,12 @@
  * To change log level, format, or add a sink for the entire API, edit this file.
  */
 
-import { createLogger, type StructuredLogger } from '@yucp/shared';
+import { createStructuredLogger, type StructuredLogger } from '@yucp/shared';
 
-export const logger: StructuredLogger = createLogger(process.env.LOG_LEVEL ?? 'info');
+export const logger: StructuredLogger = createStructuredLogger({
+  level: (process.env.LOG_LEVEL ?? 'info') as 'debug' | 'info' | 'warn' | 'error',
+  serviceName: 'yucp-api',
+  jsonOutput: false,
+  includeCorrelation: false,
+  redactSensitive: true,
+});

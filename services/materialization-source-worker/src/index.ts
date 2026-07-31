@@ -12,6 +12,10 @@ import {
   verifyDeliveryGrantV2,
 } from '../../../ops/storage-core/packageContractsV2';
 import { createLogicalReleasePublicationV4 } from '../../../ops/storage-core/releasePublication';
+import {
+  type WorkerExecutionContextLike,
+  withWorkerSpan,
+} from '../../../packages/shared/src/workerObservability';
 
 // Storage reads go through native R2 bucket bindings; there is no SigV4 signing,
 // endpoint configuration, or SlowDown backoff on this path anymore.
@@ -499,7 +503,7 @@ async function matchVerifiedChunk(
 }
 
 function storeVerifiedChunk(
-  ctx: ExecutionContext | undefined,
+  ctx: (WorkerExecutionContextLike & { waitUntil(promise: Promise<unknown>): void }) | undefined,
   cache: Cache,
   cacheKey: Request,
   bytes: Uint8Array
@@ -539,119 +543,132 @@ function noStoreResponse(
 async function handleRequest(
   request: Request,
   env: Env,
-  ctx?: ExecutionContext
+  ctx?: WorkerExecutionContextLike & { waitUntil(promise: Promise<unknown>): void }
 ): Promise<Response> {
-  try {
-    if (request.method !== 'GET') {
-      throw new HttpError(405, 'Method not allowed');
-    }
-    const url = new URL(request.url);
-    const match = SOURCE_PATH.exec(url.pathname);
-    if (!match?.[1] || !match[2]) {
-      throw new HttpError(404, 'Not found');
-    }
-    let versionId: string;
-    try {
-      versionId = decodeURIComponent(match[1]);
-      deliveryManifestObjectId(versionId);
-    } catch {
-      throw new HttpError(403, 'Forbidden');
-    }
-    const config = loadEnv(env);
-    const grant = await authorize({ config, request, versionId });
-    const loaded = await loadManifest(config, grant, versionId);
+  return withWorkerSpan(
+    ctx,
+    'worker.materialization.request',
+    {
+      'service.name': 'yucp-materialization-source-worker',
+      'app.operation.name': 'worker.materialization.request',
+      'http.request.method': request.method,
+      'http.route': '/v2/materialization/:versionId/:resource',
+    },
+    async () => {
+      try {
+        if (request.method !== 'GET') {
+          throw new HttpError(405, 'Method not allowed');
+        }
+        const url = new URL(request.url);
+        const match = SOURCE_PATH.exec(url.pathname);
+        if (!match?.[1] || !match[2]) {
+          throw new HttpError(404, 'Not found');
+        }
+        let versionId: string;
+        try {
+          versionId = decodeURIComponent(match[1]);
+          deliveryManifestObjectId(versionId);
+        } catch {
+          throw new HttpError(403, 'Forbidden');
+        }
+        const config = loadEnv(env);
+        const grant = await authorize({ config, request, versionId });
+        const loaded = await loadManifest(config, grant, versionId);
 
-    if (match[2] === 'manifest') {
-      return noStoreResponse(loaded.body, 200, loaded.storageFetches, {
-        'content-type': 'application/json',
-        'x-yucp-manifest-source': loaded.manifestSource,
-      });
-    }
+        if (match[2] === 'manifest') {
+          return noStoreResponse(loaded.body, 200, loaded.storageFetches, {
+            'content-type': 'application/json',
+            'x-yucp-manifest-source': loaded.manifestSource,
+          });
+        }
 
-    const chunkId = match[3] ?? '';
-    if (!CHUNK_ID.test(chunkId)) {
-      throw new HttpError(403, 'Forbidden', loaded.storageFetches, 'membership');
-    }
-    const chunk = findManifestChunk(loaded.manifest, chunkId);
-    if (!chunk) {
-      logMissingManifestChunk({
-        chunkId,
-        jobId: grant.installSessionId,
-        manifest: loaded.manifest,
-        versionId,
-      });
-      throw new HttpError(403, 'Forbidden', loaded.storageFetches, 'membership');
-    }
-    const sourceRole = chunk.classification === 'protected' ? config.protected : config.common;
-    const cache = edgeCache();
-    const cacheKey = cache
-      ? chunkCacheKey({
-          chunkId,
-          classification: chunk.classification,
-          sha256: chunk.sha256,
-          url,
-        })
-      : undefined;
-    let bytes = cache && cacheKey ? await matchVerifiedChunk(cache, cacheKey, chunk) : undefined;
-    let chunkSource: 'edge-cache' | 'storage' = 'edge-cache';
-    let storageFetches = loaded.storageFetches;
-    if (!bytes) {
-      chunkSource = 'storage';
-      const object = await getStorageObject(
-        sourceRole.bucket,
-        chunkObjectKey(sourceRole, chunkId),
-        'chunk'
-      );
-      storageFetches += 1;
-      if (!object) {
-        throw new HttpError(
-          502,
-          'Materialization source chunk storage request failed',
+        const chunkId = match[3] ?? '';
+        if (!CHUNK_ID.test(chunkId)) {
+          throw new HttpError(403, 'Forbidden', loaded.storageFetches, 'membership');
+        }
+        const chunk = findManifestChunk(loaded.manifest, chunkId);
+        if (!chunk) {
+          logMissingManifestChunk({
+            chunkId,
+            jobId: grant.installSessionId,
+            manifest: loaded.manifest,
+            versionId,
+          });
+          throw new HttpError(403, 'Forbidden', loaded.storageFetches, 'membership');
+        }
+        const sourceRole = chunk.classification === 'protected' ? config.protected : config.common;
+        const cache = edgeCache();
+        const cacheKey = cache
+          ? chunkCacheKey({
+              chunkId,
+              classification: chunk.classification,
+              sha256: chunk.sha256,
+              url,
+            })
+          : undefined;
+        let bytes =
+          cache && cacheKey ? await matchVerifiedChunk(cache, cacheKey, chunk) : undefined;
+        let chunkSource: 'edge-cache' | 'storage' = 'edge-cache';
+        let storageFetches = loaded.storageFetches;
+        if (!bytes) {
+          chunkSource = 'storage';
+          const object = await getStorageObject(
+            sourceRole.bucket,
+            chunkObjectKey(sourceRole, chunkId),
+            'chunk'
+          );
+          storageFetches += 1;
+          if (!object) {
+            throw new HttpError(
+              502,
+              'Materialization source chunk storage request failed',
+              storageFetches,
+              'chunk'
+            );
+          }
+          if (object.size !== chunk.size) {
+            throw new HttpError(
+              502,
+              'Materialization source chunk failed verification',
+              storageFetches,
+              'chunk'
+            );
+          }
+          const fetched = new Uint8Array(await object.arrayBuffer());
+          if (fetched.byteLength !== chunk.size || (await sha256Hex(fetched)) !== chunk.sha256) {
+            throw new HttpError(
+              502,
+              'Materialization source chunk failed verification',
+              storageFetches,
+              'chunk'
+            );
+          }
+          bytes = fetched;
+          if (cache && cacheKey) {
+            storeVerifiedChunk(ctx, cache, cacheKey, bytes);
+          }
+        }
+        return noStoreResponse(
+          bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+          200,
           storageFetches,
-          'chunk'
+          {
+            'content-length': String(bytes.byteLength),
+            'content-type': 'application/octet-stream',
+            etag: `"${chunk.id}"`,
+            'x-yucp-chunk-source': chunkSource,
+            'x-yucp-manifest-source': loaded.manifestSource,
+          }
         );
-      }
-      if (object.size !== chunk.size) {
-        throw new HttpError(
-          502,
-          'Materialization source chunk failed verification',
-          storageFetches,
-          'chunk'
-        );
-      }
-      const fetched = new Uint8Array(await object.arrayBuffer());
-      if (fetched.byteLength !== chunk.size || (await sha256Hex(fetched)) !== chunk.sha256) {
-        throw new HttpError(
-          502,
-          'Materialization source chunk failed verification',
-          storageFetches,
-          'chunk'
-        );
-      }
-      bytes = fetched;
-      if (cache && cacheKey) {
-        storeVerifiedChunk(ctx, cache, cacheKey, bytes);
+      } catch (error) {
+        const httpError = error instanceof HttpError ? error : new HttpError(403, 'Forbidden');
+        return noStoreResponse(httpError.message, httpError.status, httpError.storageFetches, {
+          'content-type': 'text/plain; charset=utf-8',
+          'x-yucp-denial-stage': httpError.stage,
+        });
       }
     }
-    return noStoreResponse(
-      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
-      200,
-      storageFetches,
-      {
-        'content-length': String(bytes.byteLength),
-        'content-type': 'application/octet-stream',
-        etag: `"${chunk.id}"`,
-        'x-yucp-chunk-source': chunkSource,
-        'x-yucp-manifest-source': loaded.manifestSource,
-      }
-    );
-  } catch (error) {
-    const httpError = error instanceof HttpError ? error : new HttpError(403, 'Forbidden');
-    return noStoreResponse(httpError.message, httpError.status, httpError.storageFetches, {
-      'content-type': 'text/plain; charset=utf-8',
-      'x-yucp-denial-stage': httpError.stage,
-    });
-  }
+  );
 }
 
 export default {

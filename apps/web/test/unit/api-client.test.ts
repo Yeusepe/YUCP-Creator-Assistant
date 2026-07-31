@@ -10,13 +10,7 @@ vi.mock('@/lib/hyperdx', () => ({
   captureHyperdxException,
 }));
 
-import {
-  ApiError,
-  apiClient,
-  apiFetch,
-  fetchWithDiagnostics,
-  parseServerTimingHeader,
-} from '@/api/client';
+import { apiClient, apiFetch, fetchWithDiagnostics, parseServerTimingHeader } from '@/api/client';
 import { savePrivacyPreferences } from '@/lib/privacyPreferences';
 
 // Mock global fetch
@@ -57,10 +51,23 @@ describe('apiFetch', () => {
 
   it('throws ApiError on non-ok responses', async () => {
     mockFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ error: 'not found' }), { status: 404 })
+      new Response(JSON.stringify({ error: 'not found', token: 'secret-value' }), { status: 404 })
     );
 
-    await expect(apiFetch('/api/missing')).rejects.toThrow(ApiError);
+    await expect(apiFetch('/api/missing')).rejects.toMatchObject({
+      name: 'ApiError',
+      body: { error: 'not found', token: 'secret-value' },
+    });
+    expect(captureHyperdxException).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'First-party API request failed with status 404',
+      }),
+      expect.objectContaining({
+        path: '/api/missing',
+        status: '404',
+      })
+    );
+    expect(JSON.stringify(captureHyperdxException.mock.calls[0])).not.toContain('secret-value');
   });
 
   it('captures transport failures without including request bodies', async () => {

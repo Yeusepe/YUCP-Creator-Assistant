@@ -8,6 +8,10 @@ import {
   verifyMaterializationReceiptV2,
 } from '../../../ops/storage-core/packageContractsV2';
 import { fetchWithSlowDownBackoff } from '../../../ops/storage-core/storageBackoff';
+import {
+  type WorkerExecutionContextLike,
+  withWorkerSpan,
+} from '../../../packages/shared/src/workerObservability';
 
 // Cloudflare recommends streamed responses and bounded request bodies.
 // Reference: https://developers.cloudflare.com/workers/platform/limits/
@@ -394,83 +398,95 @@ async function serveCoupledOutput(input: {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    let storageFetches = 0;
-    try {
-      const config = loadEnv(env);
-      const pathname = new URL(request.url).pathname;
-      const coupledMatch = COUPLED_PATH.exec(pathname);
-      if (coupledMatch?.[1] && coupledMatch[2]) {
-        return await serveCoupledOutput({
-          config,
-          jobId: coupledMatch[1],
-          outputSha256: coupledMatch[2],
-          request,
-        });
+  async fetch(request: Request, env: Env, ctx?: WorkerExecutionContextLike): Promise<Response> {
+    return withWorkerSpan(
+      ctx,
+      'worker.rendition.request',
+      {
+        'service.name': 'yucp-rendition-worker',
+        'app.operation.name': 'worker.rendition.request',
+        'http.request.method': request.method,
+        'http.route': '/v2/renditions/:jobId',
+      },
+      async () => {
+        let storageFetches = 0;
+        try {
+          const config = loadEnv(env);
+          const pathname = new URL(request.url).pathname;
+          const coupledMatch = COUPLED_PATH.exec(pathname);
+          if (coupledMatch?.[1] && coupledMatch[2]) {
+            return await serveCoupledOutput({
+              config,
+              jobId: coupledMatch[1],
+              outputSha256: coupledMatch[2],
+              request,
+            });
+          }
+          const pathMatch = RENDITION_PATH.exec(pathname);
+          if (!pathMatch?.[1]) {
+            throw new HttpError(404, 'Not found');
+          }
+          if (request.method !== 'POST') {
+            throw new HttpError(405, 'Method not allowed');
+          }
+          const authorization = await authorize({
+            config,
+            jobId: pathMatch[1],
+            request,
+          });
+          const encodedReceipt = await readReceipt(request);
+          const receipt = await verifyMaterializationReceiptV2({
+            coseSign1: decodeBase64Url(encodedReceipt, 'Materialization receipt'),
+            expectedKeyId: packageContractKeyId(config.RENDITION_RECEIPT_KEY_ID),
+            publicKey: decodeBase64Url(
+              config.RENDITION_RECEIPT_PUBLIC_KEY,
+              'Materialization receipt public key'
+            ),
+          });
+          validateReceipt({
+            grant: authorization.grant,
+            jobId: pathMatch[1],
+            receipt,
+          });
+          const offset = resumeOffset(request, receipt.rendition.objectBytes);
+          const origin = await getExactRendition(config, pathMatch[1], offset);
+          storageFetches = 1;
+          const expectedStatus = offset > 0 ? 206 : 200;
+          if (origin.status !== expectedStatus || !origin.body) {
+            throw new HttpError(502, 'Rendition origin request failed', 1);
+          }
+          const contentLength = Number(origin.headers.get('content-length'));
+          const expectedLength = receipt.rendition.objectBytes - offset;
+          const expectedContentRange =
+            offset > 0
+              ? `bytes ${offset}-${receipt.rendition.objectBytes - 1}/${receipt.rendition.objectBytes}`
+              : null;
+          // Integrity is enforced by the buyer client's full-file hash against the receipt.
+          if (
+            contentLength !== expectedLength ||
+            (offset > 0 && origin.headers.get('content-range') !== expectedContentRange) ||
+            origin.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase() !==
+              'application/zip'
+          ) {
+            throw new HttpError(502, 'Rendition exact-version metadata failed', 1);
+          }
+          return noStoreResponse(origin.body, expectedStatus, 1, {
+            'accept-ranges': 'bytes',
+            'content-length': String(expectedLength),
+            'content-type': 'application/zip',
+            ...(expectedContentRange ? { 'content-range': expectedContentRange } : {}),
+            'x-yucp-receipt-id': receipt.receiptId,
+          });
+        } catch (error) {
+          const httpError =
+            error instanceof HttpError ? error : new HttpError(403, 'Forbidden', storageFetches);
+          return noStoreResponse(
+            httpError.status === 403 ? 'Forbidden' : httpError.message,
+            httpError.status,
+            httpError.storageFetches
+          );
+        }
       }
-      const pathMatch = RENDITION_PATH.exec(pathname);
-      if (!pathMatch?.[1]) {
-        throw new HttpError(404, 'Not found');
-      }
-      if (request.method !== 'POST') {
-        throw new HttpError(405, 'Method not allowed');
-      }
-      const authorization = await authorize({
-        config,
-        jobId: pathMatch[1],
-        request,
-      });
-      const encodedReceipt = await readReceipt(request);
-      const receipt = await verifyMaterializationReceiptV2({
-        coseSign1: decodeBase64Url(encodedReceipt, 'Materialization receipt'),
-        expectedKeyId: packageContractKeyId(config.RENDITION_RECEIPT_KEY_ID),
-        publicKey: decodeBase64Url(
-          config.RENDITION_RECEIPT_PUBLIC_KEY,
-          'Materialization receipt public key'
-        ),
-      });
-      validateReceipt({
-        grant: authorization.grant,
-        jobId: pathMatch[1],
-        receipt,
-      });
-      const offset = resumeOffset(request, receipt.rendition.objectBytes);
-      const origin = await getExactRendition(config, pathMatch[1], offset);
-      storageFetches = 1;
-      const expectedStatus = offset > 0 ? 206 : 200;
-      if (origin.status !== expectedStatus || !origin.body) {
-        throw new HttpError(502, 'Rendition origin request failed', 1);
-      }
-      const contentLength = Number(origin.headers.get('content-length'));
-      const expectedLength = receipt.rendition.objectBytes - offset;
-      const expectedContentRange =
-        offset > 0
-          ? `bytes ${offset}-${receipt.rendition.objectBytes - 1}/${receipt.rendition.objectBytes}`
-          : null;
-      // Integrity is enforced by the buyer client's full-file hash against the receipt.
-      if (
-        contentLength !== expectedLength ||
-        (offset > 0 && origin.headers.get('content-range') !== expectedContentRange) ||
-        origin.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase() !==
-          'application/zip'
-      ) {
-        throw new HttpError(502, 'Rendition exact-version metadata failed', 1);
-      }
-      return noStoreResponse(origin.body, expectedStatus, 1, {
-        'accept-ranges': 'bytes',
-        'content-length': String(expectedLength),
-        'content-type': 'application/zip',
-        ...(expectedContentRange ? { 'content-range': expectedContentRange } : {}),
-        'x-yucp-receipt-id': receipt.receiptId,
-      });
-    } catch (error) {
-      const httpError =
-        error instanceof HttpError ? error : new HttpError(403, 'Forbidden', storageFetches);
-      return noStoreResponse(
-        httpError.status === 403 ? 'Forbidden' : httpError.message,
-        httpError.status,
-        httpError.storageFetches
-      );
-    }
+    );
   },
 } satisfies ExportedHandler<Env>;

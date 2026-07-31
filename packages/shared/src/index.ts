@@ -72,5 +72,6 @@ export * from './semanticVersion';
 export * from './statusHeartbeat';
 export * from './traceparent';
 export * from './verificationSupport';
+export * from './workerObservability';
 export * from './yucpAliasPackageContract';
 export * from './yucpTrust';

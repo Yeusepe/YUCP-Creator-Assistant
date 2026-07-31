@@ -12,6 +12,10 @@ import {
   verifyDeliveryGrantV2,
 } from '../../../ops/storage-core/packageContractsV2';
 import { createLogicalReleasePublicationV4 } from '../../../ops/storage-core/releasePublication';
+import {
+  type WorkerExecutionContextLike,
+  withWorkerSpan,
+} from '../../../packages/shared/src/workerObservability';
 
 // Storage reads go through native R2 bucket bindings; there is no SigV4 signing,
 // endpoint configuration, or SlowDown backoff on this path anymore.
@@ -456,83 +460,99 @@ async function loadChunk(input: {
   return { bytes, storageFetches: 1 };
 }
 
-async function handleRequest(request: Request, env: Env): Promise<Response> {
-  try {
-    if (request.method !== 'GET') {
-      throw new HttpError(405, 'Method not allowed');
-    }
-    const url = new URL(request.url);
-    const match = DELIVERY_PATH.exec(url.pathname);
-    if (!match?.[1] || !match[2]) {
-      throw new HttpError(404, 'Not found');
-    }
-    let versionId: string;
-    try {
-      versionId = decodeURIComponent(match[1]);
-      deliveryManifestObjectId(versionId);
-    } catch {
-      throw new HttpError(403, 'Forbidden');
-    }
-    const config = loadEnv(env);
-    const grant = await authorize({ config, request, versionId });
-    const loaded = await loadManifest(config, grant, versionId);
+async function handleRequest(
+  request: Request,
+  env: Env,
+  ctx?: WorkerExecutionContextLike
+): Promise<Response> {
+  return withWorkerSpan(
+    ctx,
+    'worker.delivery.request',
+    {
+      'service.name': 'yucp-delivery-worker',
+      'app.operation.name': 'worker.delivery.request',
+      'http.request.method': request.method,
+      'http.route': '/v2/delivery/:versionId/:resource',
+    },
+    async () => {
+      try {
+        if (request.method !== 'GET') {
+          throw new HttpError(405, 'Method not allowed');
+        }
+        const url = new URL(request.url);
+        const match = DELIVERY_PATH.exec(url.pathname);
+        if (!match?.[1] || !match[2]) {
+          throw new HttpError(404, 'Not found');
+        }
+        let versionId: string;
+        try {
+          versionId = decodeURIComponent(match[1]);
+          deliveryManifestObjectId(versionId);
+        } catch {
+          throw new HttpError(403, 'Forbidden');
+        }
+        const config = loadEnv(env);
+        const grant = await authorize({ config, request, versionId });
+        const loaded = await loadManifest(config, grant, versionId);
 
-    if (match[2] === 'manifest') {
-      return noStoreResponse(loaded.body, 200, loaded.storageFetches, {
-        'content-type': 'application/json',
-        'x-yucp-manifest-source': loaded.manifestSource,
-      });
-    }
+        if (match[2] === 'manifest') {
+          return noStoreResponse(loaded.body, 200, loaded.storageFetches, {
+            'content-type': 'application/json',
+            'x-yucp-manifest-source': loaded.manifestSource,
+          });
+        }
 
-    const chunkId = match[3] ?? '';
-    if (!CHUNK_ID.test(chunkId)) {
-      throw new HttpError(403, 'Forbidden', loaded.storageFetches, 'membership');
-    }
-    const chunk = findManifestChunk(loaded.manifest, chunkId);
-    if (!chunk) {
-      throw new HttpError(403, 'Forbidden', loaded.storageFetches, 'membership');
-    }
-    const loadedChunk = await loadChunk({
-      chunk,
-      config,
-      request,
-    });
-    return noStoreResponse(
-      loadedChunk.bytes.buffer.slice(
-        loadedChunk.bytes.byteOffset,
-        loadedChunk.bytes.byteOffset + loadedChunk.bytes.byteLength
-      ) as ArrayBuffer,
-      200,
-      loaded.storageFetches + loadedChunk.storageFetches,
-      {
-        'content-length': String(loadedChunk.bytes.byteLength),
-        'content-type': 'application/octet-stream',
-        etag: `"${chunk.id}"`,
-        'x-yucp-manifest-source': loaded.manifestSource,
+        const chunkId = match[3] ?? '';
+        if (!CHUNK_ID.test(chunkId)) {
+          throw new HttpError(403, 'Forbidden', loaded.storageFetches, 'membership');
+        }
+        const chunk = findManifestChunk(loaded.manifest, chunkId);
+        if (!chunk) {
+          throw new HttpError(403, 'Forbidden', loaded.storageFetches, 'membership');
+        }
+        const loadedChunk = await loadChunk({
+          chunk,
+          config,
+          request,
+        });
+        return noStoreResponse(
+          loadedChunk.bytes.buffer.slice(
+            loadedChunk.bytes.byteOffset,
+            loadedChunk.bytes.byteOffset + loadedChunk.bytes.byteLength
+          ) as ArrayBuffer,
+          200,
+          loaded.storageFetches + loadedChunk.storageFetches,
+          {
+            'content-length': String(loadedChunk.bytes.byteLength),
+            'content-type': 'application/octet-stream',
+            etag: `"${chunk.id}"`,
+            'x-yucp-manifest-source': loaded.manifestSource,
+          }
+        );
+      } catch (error) {
+        const httpError = error instanceof HttpError ? error : new HttpError(403, 'Forbidden');
+        const reason =
+          error instanceof Error && error.message.length <= 256
+            ? error.message
+            : 'Unknown delivery error';
+        console.warn(
+          JSON.stringify({
+            event: 'delivery.request.denied',
+            method: request.method,
+            pathname: new URL(request.url).pathname,
+            reason,
+            stage: httpError.stage,
+            status: httpError.status,
+            storageFetches: httpError.storageFetches,
+          })
+        );
+        return noStoreResponse(httpError.message, httpError.status, httpError.storageFetches, {
+          'content-type': 'text/plain; charset=utf-8',
+          'x-yucp-denial-stage': httpError.stage,
+        });
       }
-    );
-  } catch (error) {
-    const httpError = error instanceof HttpError ? error : new HttpError(403, 'Forbidden');
-    const reason =
-      error instanceof Error && error.message.length <= 256
-        ? error.message
-        : 'Unknown delivery error';
-    console.warn(
-      JSON.stringify({
-        event: 'delivery.request.denied',
-        method: request.method,
-        pathname: new URL(request.url).pathname,
-        reason,
-        stage: httpError.stage,
-        status: httpError.status,
-        storageFetches: httpError.storageFetches,
-      })
-    );
-    return noStoreResponse(httpError.message, httpError.status, httpError.storageFetches, {
-      'content-type': 'text/plain; charset=utf-8',
-      'x-yucp-denial-stage': httpError.stage,
-    });
-  }
+    }
+  );
 }
 
 export default {

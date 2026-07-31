@@ -84,9 +84,8 @@ async function discordPreflight(token: string): Promise<void> {
     10_000
   );
   if (!meResponse.ok) {
-    const body = (await meResponse.text()).slice(0, 300);
     throw new Error(
-      `Discord preflight /users/@me failed: HTTP ${meResponse.status} ${meResponse.statusText}; body=${body}`
+      `Discord preflight /users/@me failed: HTTP ${meResponse.status} ${meResponse.statusText}`
     );
   }
 
@@ -96,14 +95,12 @@ async function discordPreflight(token: string): Promise<void> {
     10_000
   );
   if (!gatewayResponse.ok) {
-    const body = (await gatewayResponse.text()).slice(0, 300);
     if (gatewayResponse.status >= 500) {
       logger.warn(
         'Discord preflight /gateway/bot returned transient server error; continuing to login',
         {
           gatewayStatus: gatewayResponse.status,
           gatewayStatusText: gatewayResponse.statusText,
-          gatewayBody: body,
         }
       );
       logger.info('Discord preflight passed with degraded gateway metadata check', {
@@ -114,7 +111,7 @@ async function discordPreflight(token: string): Promise<void> {
     }
 
     throw new Error(
-      `Discord preflight /gateway/bot failed: HTTP ${gatewayResponse.status} ${gatewayResponse.statusText}; body=${body}`
+      `Discord preflight /gateway/bot failed: HTTP ${gatewayResponse.status} ${gatewayResponse.statusText}`
     );
   }
 

@@ -182,7 +182,7 @@ describe('serverApiFetch', () => {
     expect((error as Error).message).not.toContain('internal-api.example.test');
   });
 
-  it('includes response body text in error message', async () => {
+  it('does not include response body text in error message', async () => {
     mockFetch.mockResolvedValueOnce(
       new Response('{"error":"invalid token","code":"AUTH_FAILED"}', {
         status: 401,
@@ -191,7 +191,12 @@ describe('serverApiFetch', () => {
     );
     const { serverApiFetch } = await import('@/lib/server/api-client');
 
-    await expect(serverApiFetch('/api/protected')).rejects.toThrow(/AUTH_FAILED/);
+    const error = await serverApiFetch('/api/protected').catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('API GET /api/protected failed: 401 Unauthorized');
+    expect((error as Error).message).not.toContain('AUTH_FAILED');
+    expect((error as Error).message).not.toContain('invalid token');
   });
 
   it('returns undefined for 204 No Content', async () => {

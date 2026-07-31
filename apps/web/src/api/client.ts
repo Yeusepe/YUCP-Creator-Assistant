@@ -152,22 +152,11 @@ async function apiRequest(path: string, options: FetchOptions = {}): Promise<Res
   const routeCategory = inferApiRouteCategory(path);
   const startedAt = performance.now();
 
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      ...init,
-      headers,
-      credentials: 'include',
-    });
-  } catch (error) {
-    captureHyperdxException(error, {
-      path,
-      method,
-      routeCategory,
-      networkFailure: true,
-    });
-    throw error;
-  }
+  const response = await fetchWithDiagnostics(url, {
+    ...init,
+    headers,
+    credentials: 'include',
+  });
   const durationMs = Number((performance.now() - startedAt).toFixed(2));
   const requestId = response.headers.get('X-Request-Id') ?? undefined;
   const serverTimingMetrics = parseServerTimingHeader(response.headers.get('Server-Timing'));
@@ -206,15 +195,18 @@ async function apiRequest(path: string, options: FetchOptions = {}): Promise<Res
   if (!response.ok) {
     const body = await response.json().catch(() => null);
     const error = new ApiError(response.status, body, requestId);
-    captureHyperdxException(error, {
-      path,
-      method,
-      routeCategory,
-      requestId: requestId ?? 'unknown',
-      status: String(response.status),
-      durationMs,
-      serverTimingTotalMs,
-    });
+    captureHyperdxException(
+      new Error(`First-party API request failed with status ${response.status}`),
+      {
+        path,
+        method,
+        routeCategory,
+        requestId: requestId ?? 'unknown',
+        status: String(response.status),
+        durationMs,
+        serverTimingTotalMs,
+      }
+    );
     addHyperdxAction(
       'api.request.failed',
       toActionAttributes({

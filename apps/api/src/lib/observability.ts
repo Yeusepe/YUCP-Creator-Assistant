@@ -166,12 +166,14 @@ export async function withApiRequestSpan<T>(
           'app.operation.type': 'api.request',
           'user_agent.original': request.headers.get('user-agent') ?? undefined,
           'diagnostics.session.id': diagnosticsSessionId,
+          'request.id': requestId,
           requestId,
         }),
       },
       async (span) => {
         annotateApiSpan({
           'app.operation.type': 'api.request',
+          'request.id': requestId,
           requestId,
           route: url.pathname,
           method: request.method,

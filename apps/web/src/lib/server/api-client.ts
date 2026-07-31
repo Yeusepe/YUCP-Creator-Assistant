@@ -185,10 +185,7 @@ export async function serverApiFetch<T = unknown>(
       onServerTiming?.(serverTimingMetrics);
 
       if (!response.ok) {
-        const errorBody = await response.text().catch(() => '');
-        throw new Error(
-          `API ${method} ${path} failed: ${response.status} ${response.statusText} - ${errorBody}`
-        );
+        throw new Error(`API ${method} ${path} failed: ${response.status} ${response.statusText}`);
       }
 
       if (response.status === 204) {
