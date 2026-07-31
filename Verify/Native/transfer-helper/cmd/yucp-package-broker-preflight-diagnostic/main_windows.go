@@ -20,11 +20,19 @@ func main() {
 	_, _ = rand.Read(span)
 	_, _ = rand.Read(trace)
 	runID := "preflight-diagnostic-" + hex.EncodeToString(span)
+	aliasID := "com.lunararray.druffle"
+	operation := "preflight"
+	if len(os.Args) > 1 {
+		aliasID = os.Args[1]
+	}
+	if len(os.Args) > 2 {
+		operation = os.Args[2]
+	}
 	request := broker.OperationRequest{
-		AliasID:                    "com.lunar.druffle",
+		AliasID:                    aliasID,
 		ExpectedCurrentReleaseRoot: "0000000000000000000000000000000000000000000000000000000000000000",
 		IdempotencyKey:             runID,
-		Operation:                  "preflight",
+		Operation:                  operation,
 		ProjectIdentity:            "deca070897d28139d38e70be2c079eca746b66a7dc7b5c9b3c6ad06eef264ff5",
 		ProjectPath:                `E:\Unity\ImportTesting`,
 		RunID:                      runID,

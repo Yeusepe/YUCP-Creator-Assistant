@@ -5,10 +5,19 @@
   "compatibility_date": "2026-07-24",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
-  "route": {
-    "pattern": "delivery.yucp.club/v2/renditions*",
-    "zone_name": "yucp.club"
-  },
+  // This worker serves both contract routes, so both have to reach it: a coupled
+  // download that falls through the zone answers 404 and the buyer client reports
+  // the rendition as missing.
+  "routes": [
+    {
+      "pattern": "delivery.yucp.club/v2/renditions*",
+      "zone_name": "yucp.club"
+    },
+    {
+      "pattern": "delivery.yucp.club/v2/coupled/*",
+      "zone_name": "yucp.club"
+    }
+  ],
   "observability": {
     "enabled": true,
     "logs": {
