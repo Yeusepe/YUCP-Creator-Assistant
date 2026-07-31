@@ -43,9 +43,18 @@ function reportProcessError(serviceName: string, event: string, error: unknown) 
     body: redactString(exception.message),
     attributes: {
       'service.name': serviceName,
+      'event.name': 'exception',
       'error.type': exception.name,
+      'error.message': redactString(exception.message),
       'error.event': event,
-      ...(exception.stack ? { 'error.stack': redactString(exception.stack) } : {}),
+      'exception.type': exception.name,
+      'exception.message': redactString(exception.message),
+      ...(exception.stack
+        ? {
+            'error.stack': redactString(exception.stack),
+            'exception.stacktrace': redactString(exception.stack),
+          }
+        : {}),
     },
   });
   console.error(`[${serviceName}] ${event}`, redactString(exception.message));

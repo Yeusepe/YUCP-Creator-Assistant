@@ -2,6 +2,7 @@
 // Main entry point for the logging module
 
 import { logs, SeverityNumber } from '@opentelemetry/api-logs';
+import { recordActiveException } from '../observability';
 
 export {
   type AuditActor,
@@ -36,7 +37,7 @@ export {
 } from './redaction';
 
 import { getCorrelationContext } from './correlation';
-import { redactForLogging } from './redaction';
+import { redactForLogging, redactString } from './redaction';
 
 /**
  * Log levels
@@ -80,6 +81,82 @@ export interface StructuredLogger {
   warn(message: string, meta?: Record<string, unknown>): void;
   error(message: string, meta?: Record<string, unknown>): void;
   child(additionalContext: Record<string, unknown>): StructuredLogger;
+}
+
+type LogAttributeValue = string | number | boolean;
+
+function addFlattenedLogAttributes(
+  attributes: Record<string, LogAttributeValue>,
+  scope: string,
+  value: unknown,
+  depth = 0
+): void {
+  if (depth > 3 || value === undefined || value === null) {
+    return;
+  }
+
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    attributes[`log.${scope}`] =
+      typeof value === 'string' ? redactString(value).slice(0, 2_000) : value;
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    attributes[`log.${scope}`] = redactString(JSON.stringify(value)).slice(0, 2_000);
+    return;
+  }
+
+  if (typeof value === 'object') {
+    for (const [key, nestedValue] of Object.entries(value)) {
+      const normalizedKey = key.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 80);
+      addFlattenedLogAttributes(attributes, `${scope}.${normalizedKey}`, nestedValue, depth + 1);
+    }
+  }
+}
+
+function buildOtelLogAttributes(entry: LogEntry): Record<string, LogAttributeValue> {
+  const attributes: Record<string, LogAttributeValue> = {
+    'service.name': '',
+    'log.severity.text': entry.level.toUpperCase(),
+    'event.name': `log.${entry.level}`,
+  };
+  const values = { ...entry.context, ...entry.metadata };
+
+  addFlattenedLogAttributes(attributes, 'context', entry.context);
+  addFlattenedLogAttributes(attributes, 'metadata', entry.metadata);
+
+  const standardFields: Record<string, string> = {
+    'request.id': 'requestId',
+    'trace.id': 'traceId',
+    'span.id': 'spanId',
+    'release.id': 'releaseId',
+    'app.operation.name': 'operation',
+    'error.code': 'errorCode',
+  };
+  for (const [attributeName, fieldName] of Object.entries(standardFields)) {
+    const value = values[fieldName];
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      attributes[attributeName] = value;
+    }
+  }
+
+  const status = values.status;
+  if (typeof status === 'number') {
+    attributes['http.response.status_code'] = status;
+  }
+
+  const errorValue = values.error ?? values.err;
+  if (typeof errorValue === 'string') {
+    attributes['exception.message'] = redactString(errorValue).slice(0, 2_000);
+  }
+  if (entry.level === 'error') {
+    attributes['exception.type'] = 'ApplicationError';
+    attributes['exception.message'] ??= entry.message;
+    attributes['error.type'] = 'ApplicationError';
+    attributes['error.message'] = entry.message;
+  }
+
+  return attributes;
 }
 
 /**
@@ -131,6 +208,15 @@ export function createStructuredLogger(config: Partial<LoggerConfig> = {}): Stru
   }
 
   function output(entry: LogEntry): void {
+    const otelAttributes = buildOtelLogAttributes(entry);
+    otelAttributes['service.name'] = fullConfig.serviceName;
+    if (entry.level === 'error') {
+      recordActiveException(new Error(entry.message), {
+        'event.name': 'exception',
+        'log.severity.text': entry.level.toUpperCase(),
+      });
+    }
+
     const otelLogger = logs.getLogger(fullConfig.serviceName);
     const severityNumber =
       entry.level === 'error'
@@ -145,11 +231,9 @@ export function createStructuredLogger(config: Partial<LoggerConfig> = {}): Stru
       severityText: entry.level.toUpperCase(),
       body: entry.message,
       attributes: {
-        'service.name': fullConfig.serviceName,
+        ...otelAttributes,
         ...(entry.correlationId ? { 'correlation.id': entry.correlationId } : {}),
         ...(entry.spanId ? { 'span.id': entry.spanId } : {}),
-        ...(entry.context ? { context: JSON.stringify(entry.context) } : {}),
-        ...(entry.metadata ? { metadata: JSON.stringify(entry.metadata) } : {}),
       },
     });
 
@@ -185,6 +269,8 @@ export function createStructuredLogger(config: Partial<LoggerConfig> = {}): Stru
         const data = { ...entry.context, ...entry.metadata };
         switch (entry.level) {
           case 'error':
+            console.error(logMessage, data);
+            break;
           case 'warn':
             console.warn(logMessage, data);
             break;

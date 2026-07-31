@@ -37,11 +37,18 @@ export async function withWorkerSpan<T>(
           'app.operation.outcome',
           result.status >= 500 ? 'server_error' : result.status >= 400 ? 'client_error' : 'success'
         );
+        if (result.status >= 500) {
+          span.setAttribute('event.name', 'http.server.error');
+          span.setAttribute('error.type', 'HttpServerError');
+          span.setAttribute('error.message', `HTTP ${result.status}`);
+        }
       }
       return result;
     } catch (error) {
       span.setAttribute('app.operation.outcome', 'error');
       span.setAttribute('error.type', error instanceof Error ? error.name : 'Error');
+      span.setAttribute('event.name', 'exception');
+      span.setAttribute('error.message', error instanceof Error ? error.message : 'Unknown error');
       throw error;
     }
   });

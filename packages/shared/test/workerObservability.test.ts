@@ -28,6 +28,8 @@ describe('worker observability', () => {
     expect(attributes['http.route']).toBe('/v2/delivery');
     expect(attributes['http.response.status_code']).toBe(502);
     expect(attributes['app.operation.outcome']).toBe('server_error');
+    expect(attributes['event.name']).toBe('http.server.error');
+    expect(attributes['error.type']).toBe('HttpServerError');
   });
 
   it('records error type before rethrowing an unexpected failure', async () => {
@@ -51,5 +53,7 @@ describe('worker observability', () => {
     ).rejects.toThrow('unexpected failure');
     expect(attributes['app.operation.outcome']).toBe('error');
     expect(attributes['error.type']).toBe('TypeError');
+    expect(attributes['event.name']).toBe('exception');
+    expect(attributes['error.message']).toBe('unexpected failure');
   });
 });

@@ -437,5 +437,25 @@ describe('structured logger', () => {
       logger.info('msg', { userId: 'u1' });
       expect(captured[0].metadata).toEqual({ userId: 'u1' });
     });
+
+    it('writes error-level logs to stderr', () => {
+      const originalError = console.error;
+      const originalWarn = console.warn;
+      const errors: unknown[] = [];
+      const warnings: unknown[] = [];
+      console.error = (...args: unknown[]) => errors.push(args);
+      console.warn = (...args: unknown[]) => warnings.push(args);
+
+      try {
+        const logger = createStructuredLogger({ level: 'error', jsonOutput: false });
+        logger.error('database unavailable', { errorCode: 'DB_UNAVAILABLE' });
+      } finally {
+        console.error = originalError;
+        console.warn = originalWarn;
+      }
+
+      expect(errors).toHaveLength(1);
+      expect(warnings).toHaveLength(0);
+    });
   });
 });

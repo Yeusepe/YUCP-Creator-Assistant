@@ -1,16 +1,10 @@
 import { initSDK, setTraceAttributes } from '@hyperdx/node-opentelemetry';
-import {
-  context,
-  propagation,
-  ROOT_CONTEXT,
-  SpanKind,
-  SpanStatusCode,
-  trace,
-} from '@opentelemetry/api';
+import { context, propagation, ROOT_CONTEXT, SpanKind, trace } from '@opentelemetry/api';
 import {
   applyNodeHyperdxDefaults,
   classifyHttpOperationOutcome,
   detectServerObservabilityRuntime,
+  recordActiveException,
   setActiveSpanAttributes,
   toSpanAttributes,
   withObservedSpan,
@@ -186,17 +180,23 @@ export async function withApiRequestSpan<T>(
             span.setAttribute('http.response.status_code', result.status);
             span.setAttribute('app.operation.outcome', classifyHttpOperationOutcome(result.status));
             if (result.status >= 500) {
-              span.setStatus({ code: SpanStatusCode.ERROR });
+              recordActiveException(
+                Object.assign(
+                  new Error(`HTTP ${result.status} ${request.method} ${url.pathname}`),
+                  { name: 'HttpServerError' }
+                ),
+                {
+                  'event.name': 'http.server.error',
+                  'http.response.status_code': result.status,
+                  'http.route': url.pathname,
+                }
+              );
             }
           }
           return result;
         } catch (error) {
           if (error instanceof Error) {
-            span.recordException(error);
-            span.setStatus({
-              code: SpanStatusCode.ERROR,
-              message: error.message,
-            });
+            recordActiveException(error);
           }
           throw error;
         } finally {

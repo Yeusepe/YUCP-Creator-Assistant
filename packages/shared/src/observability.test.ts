@@ -65,5 +65,6 @@ describe('observability', () => {
     expect(span?.attributes['app.operation.outcome']).toBe('error');
     expect(span?.attributes['error.type']).toBe('TypeError');
     expect(span?.status.code).toBe(SpanStatusCode.ERROR);
+    expect(span?.events).toHaveLength(1);
   });
 });

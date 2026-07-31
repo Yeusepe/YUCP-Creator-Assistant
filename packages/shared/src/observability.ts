@@ -1,11 +1,14 @@
 import {
   type Attributes,
   metrics,
+  type Span,
   SpanKind,
   SpanStatusCode,
   type Tracer,
   trace,
 } from '@opentelemetry/api';
+
+const recordedExceptions = new WeakMap<object, Set<string>>();
 
 export type ObservableValue = string | number | boolean | undefined | null;
 export type ObservableAttributes = Record<string, ObservableValue>;
@@ -67,6 +70,46 @@ export function setActiveSpanAttributes(attributes: ObservableAttributes): void 
   }
 }
 
+function recordExceptionOnSpan(
+  span: Span,
+  error: Error,
+  attributes: ObservableAttributes = {}
+): boolean {
+  const key = `${error.name}:${error.message}`;
+  let spanExceptions = recordedExceptions.get(span);
+  if (!spanExceptions) {
+    spanExceptions = new Set<string>();
+    recordedExceptions.set(span, spanExceptions);
+  }
+
+  if (!spanExceptions.has(key)) {
+    span.recordException(error);
+    spanExceptions.add(key);
+  }
+
+  const spanAttributes = {
+    'app.operation.outcome': 'error',
+    'error.type': error.name,
+    'error.message': error.message,
+    ...attributes,
+  };
+  for (const [key, value] of Object.entries(spanAttributes)) {
+    if (value !== undefined && value !== null) {
+      span.setAttribute(key, value);
+    }
+  }
+  span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+  return true;
+}
+
+export function recordActiveException(
+  error: Error,
+  attributes: ObservableAttributes = {}
+): boolean {
+  const span = trace.getActiveSpan();
+  return span ? recordExceptionOnSpan(span, error, attributes) : false;
+}
+
 export async function withObservedSpan<T>(
   tracer: Tracer,
   name: string,
@@ -95,12 +138,7 @@ export async function withObservedSpan<T>(
         outcome = 'error';
         span.setAttribute('app.operation.outcome', 'error');
         if (error instanceof Error) {
-          span.recordException(error);
-          span.setAttribute('error.type', error.name);
-          span.setStatus({
-            code: SpanStatusCode.ERROR,
-            message: error.message,
-          });
+          recordExceptionOnSpan(span, error);
         }
         throw error;
       } finally {
