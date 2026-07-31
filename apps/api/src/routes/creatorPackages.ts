@@ -431,6 +431,7 @@ export function createCreatorPackageRoutes({
           authUserId: authorized.authUserId,
           editionId,
           packageId,
+          requiredCapability: 'packages.releases.delete',
         }
       );
       if (!scope) {

@@ -11,6 +11,7 @@ import {
   AccountSectionCard,
 } from '@/components/account/AccountPage';
 import { DashboardListSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { HoldConfirmButton } from '@/components/ui/HoldConfirmButton';
 import { Icon } from '@/components/ui/Icon';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
@@ -146,14 +147,15 @@ function GrantRow({ grant, index }: Readonly<{ grant: OAuthGrant; index: number 
             >
               Cancel
             </YucpButton>
-            <YucpButton
-              yucp="danger"
-              isLoading={revokeMut.isPending}
-              isDisabled={revokeMut.isPending}
-              onClick={() => revokeMut.mutate()}
+            <HoldConfirmButton
+              accessibleLabel={`Hold to ${actionLabel.toLowerCase()} ${grant.appName}`}
+              confirmLabel={`Keep holding to ${actionLabel.toLowerCase()}...`}
+              isPending={revokeMut.isPending}
+              onConfirm={() => revokeMut.mutate()}
+              pendingLabel={actionPendingLabel}
             >
-              {revokeMut.isPending ? actionPendingLabel : actionLabel}
-            </YucpButton>
+              {actionLabel}
+            </HoldConfirmButton>
           </div>
         </AccountModal>
       ) : null}

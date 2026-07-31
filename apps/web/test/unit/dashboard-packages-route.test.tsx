@@ -3,6 +3,15 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import type { PropsWithChildren } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+async function holdToConfirm(button: HTMLElement) {
+  vi.useFakeTimers();
+  fireEvent.keyDown(button, { key: 'Enter' });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1300);
+  });
+  vi.useRealTimers();
+}
+
 const {
   apiBlobMock,
   apiDeleteMock,
@@ -380,7 +389,10 @@ describe('dashboard packages route', () => {
     apiPutMock.mockResolvedValue({ editionId: 'supporter', saved: true });
   });
 
-  afterEach(() => cleanup());
+  afterEach(() => {
+    vi.useRealTimers();
+    cleanup();
+  });
 
   it('restores product lanes from the current packageRegistry list contract', async () => {
     const Component = DashboardPackagesRoute.options.component;
@@ -625,7 +637,7 @@ describe('dashboard packages route', () => {
     expect(option).toHaveTextContent('Jinxxy');
   });
 
-  it('keeps the main list configured-only while the picker exposes first uploads once', async () => {
+  it('keeps the main list configured-only while the picker accepts a prerelease first upload', async () => {
     const Component = DashboardPackagesRoute.options.component;
     if (!Component) throw new Error('Dashboard packages component is missing');
 
@@ -661,7 +673,15 @@ describe('dashboard packages route', () => {
     fireEvent.change(screen.getByLabelText('Install ID'), {
       target: { value: 'com.creator.first-upload' },
     });
-    fireEvent.change(screen.getByLabelText('Release label'), { target: { value: '1.0.0' } });
+    fireEvent.change(screen.getByLabelText('Release label'), {
+      target: { value: '1.0.0-beta.1' },
+    });
+    expect(screen.getByText('Prerelease')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Installed only when this exact version is selected. Latest continues to choose stable releases.'
+      )
+    ).toBeInTheDocument();
     const file = new File(['package bytes'], 'first-upload.zip', {
       type: 'application/zip',
     });
@@ -677,7 +697,7 @@ describe('dashboard packages route', () => {
     await waitFor(() =>
       expect(apiPostMock).toHaveBeenCalledWith('/api/creator/uploads/authorize', {
         packageId: 'com.creator.first-upload',
-        version: '1.0.0',
+        version: '1.0.0-beta.1',
         catalogProductIds: ['catalog_product_first_upload'],
         editionId: 'standard',
       })
@@ -1299,6 +1319,8 @@ describe('dashboard packages route', () => {
 
     expect(statusPolls).toBeGreaterThan(readyAfterPolls);
     expect(statusPolls).toBeLessThan(40);
+    expect(await screen.findByRole('heading', { name: 'Product details' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Upload a package' })).not.toBeInTheDocument();
     expect(screen.queryByText(/needs attention/i)).not.toBeInTheDocument();
     await waitFor(() => expect(localStorage.getItem(acceptedUploadLaneStorageKey)).toBeNull());
     expect(apiPostMock).toHaveBeenCalledTimes(1);
@@ -1511,7 +1533,7 @@ describe('dashboard packages route', () => {
     await waitFor(() => expect(localStorage.getItem(acceptedUploadLaneStorageKey)).toBeNull());
     expect(screen.queryByText(/needs attention/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/temporary product refresh failure/i)).not.toBeInTheDocument();
-    expect(productRefreshes).toBe(2);
+    expect(productRefreshes).toBe(3);
     expect(apiPostMock).toHaveBeenCalledTimes(1);
   });
 
@@ -1795,7 +1817,7 @@ describe('dashboard packages route', () => {
     expect(await screen.findByText('Summer launch / Wave A')).toBeInTheDocument();
     expect(screen.getByText('Ready')).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Delete release Summer launch / Wave A' })
+      screen.getByRole('button', { name: 'Hold to delete release Summer launch / Wave A' })
     ).toBeInTheDocument();
     expect(apiGetMock).toHaveBeenCalledWith('/api/creator/packages/catalog_product_1');
     expect(apiGetMock).toHaveBeenCalledWith(standardVersionPath, {
@@ -2107,10 +2129,15 @@ describe('dashboard packages route', () => {
     render(<Component />, { wrapper: createWrapper() });
     fireEvent.click(await screen.findByRole('button', { name: 'Open details for Avatar Bundle' }));
     expect(await screen.findByText('Summer launch / Wave A')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Delete release Summer launch / Wave A' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Delete release' }));
+    await holdToConfirm(
+      screen.getByRole('button', { name: 'Hold to delete release Summer launch / Wave A' })
+    );
 
-    expect(await screen.findByRole('button', { name: 'Deleting release...' })).toBeDisabled();
+    const deletingButton = screen.getByRole('button', {
+      name: 'Hold to delete release Summer launch / Wave A',
+    });
+    expect(deletingButton).toBeDisabled();
+    expect(deletingButton).toHaveTextContent('Deleting...');
     expect(apiDeleteMock).toHaveBeenCalledWith(`${standardVersionPath}/version-summer-launch`);
     resolveDelete?.({
       deletedAt: '2026-07-26T13:00:00.000Z',
@@ -2125,7 +2152,7 @@ describe('dashboard packages route', () => {
     expect(screen.getByText('Patreon June drop')).toBeInTheDocument();
   });
 
-  it('asks for a friendly release label without suggesting semantic versions', async () => {
+  it('shows stable and prerelease semantic version examples for the release label', async () => {
     const Component = DashboardPackagesRoute.options.component;
     if (!Component) throw new Error('Dashboard packages component is missing');
 
@@ -2134,8 +2161,9 @@ describe('dashboard packages route', () => {
 
     expect(await screen.findByLabelText('Release label')).toHaveAttribute(
       'placeholder',
-      'Summer launch'
+      '1.0.0 or 1.0.0-beta.1'
     );
+    expect(screen.getByText('Stable: 1.0.0 · Prerelease: 1.0.0-beta.1')).toBeInTheDocument();
     expect(screen.queryByLabelText('Version')).not.toBeInTheDocument();
   });
 
@@ -2223,10 +2251,9 @@ describe('dashboard packages route', () => {
 
     render(<Component />, { wrapper: createWrapper() });
     fireEvent.click(await screen.findByRole('button', { name: 'Open details for Avatar Bundle' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Unlink Jinxxy storefront' }));
-
-    expect(screen.getByText('Unlink Jinxxy?')).toBeVisible();
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm unlink Jinxxy' }));
+    await holdToConfirm(
+      await screen.findByRole('button', { name: 'Hold to unlink Jinxxy storefront' })
+    );
 
     await waitFor(() =>
       expect(apiDeleteMock).toHaveBeenCalledWith(
@@ -2281,9 +2308,7 @@ describe('dashboard packages route', () => {
       expect(apiGetMock).toHaveBeenCalledWith('/api/creator/packages/catalog_product_1')
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Archive edition Commercial' }));
-    expect(screen.getByText('Archive Commercial?')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Archive edition' }));
+    await holdToConfirm(screen.getByRole('button', { name: 'Hold to archive edition Commercial' }));
     await waitFor(() =>
       expect(apiDeleteMock).toHaveBeenCalledWith(
         '/api/creator/packages/catalog_product_1/editions/commercial'
@@ -2402,6 +2427,24 @@ describe('dashboard packages route', () => {
         expect.stringMatching(/\/legal\/verification-and-attestation$/)
       )
     );
+    const inactiveBootstrapButton = await screen.findByRole('button', {
+      name: 'Download bootstrap',
+    });
+    expect(inactiveBootstrapButton).toBeDisabled();
+    expect(
+      screen.getByText('Enable Unity access before downloading a bootstrap.')
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enable Unity access' }));
+    expect(await screen.findByRole('button', { name: 'Creating access...' })).toBeDisabled();
+    resolveCreate?.(createdLink);
+    expect(await screen.findByText('Enabled')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'A verified buyer sees this package automatically in the one private repository they receive for your creator profile.'
+      )
+    ).toBeInTheDocument();
+
     fireEvent.click(await screen.findByRole('button', { name: 'Download bootstrap' }));
     expect(await screen.findByRole('heading', { name: 'Download bootstrap' })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'Latest' })).toBeChecked();
@@ -2451,24 +2494,17 @@ describe('dashboard packages route', () => {
       })
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Enable Unity access' }));
-    expect(await screen.findByRole('button', { name: 'Creating access...' })).toBeDisabled();
-    resolveCreate?.(createdLink);
-    expect(await screen.findByText('Enabled')).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        'A verified buyer sees this package automatically in the one private repository they receive for your creator profile.'
-      )
-    ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Disable Unity access' }));
+    await holdToConfirm(screen.getByRole('button', { name: 'Hold to disable Unity access' }));
     expect(
       screen.getByText(
         'This package disappears from tailored buyer repositories. Packages already installed in Unity stay in their projects.'
       )
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Disable access' }));
-    expect(await screen.findByRole('button', { name: 'Disabling...' })).toBeDisabled();
+    const disablingButton = screen.getByRole('button', {
+      name: 'Hold to disable Unity access',
+    });
+    expect(disablingButton).toBeDisabled();
+    expect(disablingButton).toHaveTextContent('Disabling...');
     await waitFor(() =>
       expect(apiDeleteMock).toHaveBeenCalledWith(
         '/api/creator/packages/by-package/com.creator.avatar-bundle/vcc-link'

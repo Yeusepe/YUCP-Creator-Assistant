@@ -10,7 +10,8 @@
  * 5. Discord OAuth (identify scope) → GET /api/collab/auth/callback
  * 6. Server stores Discord identity in state store, redirects back to consent page
  * 7. Page fetches /api/collab/session/discord-status (returns identity only)
- * 8. Collaborator completes setup, POST /api/collab/session/submit
+ * 8. Collaborator accepts workspace access, POST /api/collab/session/accept
+ *    Legacy provider-specific invites continue through POST /api/collab/session/submit
  * 9. Server reads Discord identity from state store - never from client body
  *
  * Endpoints:
@@ -23,16 +24,25 @@
  * GET    /api/collab/session/webhook-config          – Get webhook URL after OAuth
  * POST   /api/collab/session/webhook-config          – Stage collaborator-provided signing secret
  * GET    /api/collab/session/test-webhook            – Poll for test webhook
+ * POST   /api/collab/session/accept                  – Accept a workspace membership
  * POST   /api/collab/session/submit                  – Submit Jinxxy credentials
+ * GET    /api/collab/memberships                     – List workspace collaborators
  * GET    /api/collab/connections                     – List owner's connections (setup session auth)
  * DELETE /api/collab/connections/:id                 – Remove connection (setup session auth)
  * DELETE /api/collab/connections/as-collaborator/:id – Leave a shared store as collaborator
  */
 
 import { getProviderDescriptor, PROVIDER_REGISTRY } from '@yucp/providers/providerMetadata';
+import {
+  CREATOR_WORKSPACE_CAPABILITIES,
+  type CreatorWorkspaceGrant,
+  normalizeCreatorWorkspaceGrants,
+} from '@yucp/shared/creatorWorkspacePermissions';
 import { base64UrlEncode, sha256Hex } from '@yucp/shared/crypto';
 import { api } from '../../../../convex/_generated/api';
+import type { Id } from '../../../../convex/_generated/dataModel';
 import type { Auth } from '../auth';
+import { createAuthUserActorBinding } from '../lib/apiActor';
 import {
   buildCookie,
   clearCookie,
@@ -259,6 +269,14 @@ export function createCollabRoutes(config: CollabConfig) {
           ownerDisplayName: string;
           ownerGuildId?: string;
           providerKey?: string;
+          permissionPolicyVersion?: number;
+          permissionGrants?: Array<{
+            capabilityKey: string;
+            resourceId?: string;
+            resourceType: string;
+            scope: string;
+          }>;
+          legacyPolicyPendingReview?: boolean;
           expiresAt: number;
           createdAt: number;
         } | null>);
@@ -285,6 +303,14 @@ export function createCollabRoutes(config: CollabConfig) {
           ownerDisplayName: string;
           ownerGuildId?: string;
           providerKey?: string;
+          permissionPolicyVersion?: number;
+          permissionGrants?: Array<{
+            capabilityKey: string;
+            resourceId?: string;
+            resourceType: string;
+            scope: string;
+          }>;
+          legacyPolicyPendingReview?: boolean;
           expiresAt: number;
           createdAt: number;
         } | null>
@@ -332,7 +358,7 @@ export function createCollabRoutes(config: CollabConfig) {
   /**
    * POST /api/collab/invite
    * Creates a collaborator invite and returns the URL to share.
-   * Body: { guildName?, guildId?, authUserId?, providerKey? }
+   * Body: { guildName?, guildId?, authUserId? }
    * Auth: setup session token OR Better Auth web session with authUserId in body
    */
   async function createInvite(request: Request): Promise<Response> {
@@ -344,8 +370,11 @@ export function createCollabRoutes(config: CollabConfig) {
     if (request.method !== 'POST')
       return respond(() => Response.json({ error: 'Method not allowed' }, { status: 405 }));
 
-    let body: { guildName?: string; guildId?: string; authUserId?: string; providerKey?: string } =
-      {};
+    let body: {
+      guildName?: string;
+      guildId?: string;
+      authUserId?: string;
+    } = {};
     try {
       body = (await request.json()) as typeof body;
     } catch {
@@ -356,24 +385,9 @@ export function createCollabRoutes(config: CollabConfig) {
     const ownerAuth = await requireOwnerAuth(request, body.authUserId, timing);
     if (!ownerAuth.ok) return ownerAuth.response;
 
-    const providerKey = body.providerKey?.trim();
-    if (!providerKey) {
-      return respond(() => Response.json({ error: 'providerKey is required' }, { status: 400 }));
-    }
-    const providerDescriptor = getProviderDescriptor(providerKey);
-    if (!isCollaboratorShareableProvider(providerDescriptor)) {
-      return respond(() =>
-        Response.json(
-          { error: `Provider '${providerKey}' does not support collaborator invites` },
-          { status: 400 }
-        )
-      );
-    }
-
     const rawToken = generateToken();
     const tokenHash = await sha256Hex(rawToken);
     const expiresAt = Date.now() + INVITE_TOKEN_TTL_MS;
-
     try {
       await timing.measure(
         'convex_collab_invite_create',
@@ -385,7 +399,7 @@ export function createCollabRoutes(config: CollabConfig) {
             ownerGuildId: body.guildId,
             tokenHash,
             expiresAt,
-            providerKey,
+            permissionGrants: [],
           }),
         'create collaborator invite'
       );
@@ -694,7 +708,90 @@ export function createCollabRoutes(config: CollabConfig) {
         providerDescriptor?.collabCredential?.placeholder ??
         'Paste the credential you want to share',
       collabLinkModes: providerDescriptor?.collabLinkModes ?? ['api'],
+      permissionPolicyVersion: session.invite.permissionPolicyVersion,
+      permissionGrants: session.invite.permissionGrants ?? [],
+      legacyPolicyPendingReview: session.invite.legacyPolicyPendingReview ?? false,
+      capabilityDefinitions: CREATOR_WORKSPACE_CAPABILITIES,
     });
+  }
+
+  /**
+   * POST /api/collab/session/accept
+   * Accepts a provider-independent workspace invitation after Discord OAuth.
+   */
+  async function acceptWorkspaceInvite(request: Request): Promise<Response> {
+    const timing = new RouteTimingCollector();
+    const respond = (
+      buildResponse: () => Response,
+      description = 'serialize collaborator acceptance response'
+    ) => buildTimedResponse(timing, buildResponse, description);
+    const session = await resolveSessionInvite(request, timing);
+    if (!session) return respond(() => Response.json({ error: 'not_found' }, { status: 404 }));
+    const inviteError = inviteErrorResponse(session.invite);
+    if (inviteError) return respond(() => inviteError);
+    if (session.invite.providerKey) {
+      return respond(() => Response.json({ error: 'legacy_provider_invite' }, { status: 409 }));
+    }
+    const rawDiscord = await timing.measure(
+      'session_discord_state',
+      () => store.get(`${COLLAB_DISCORD_PREFIX}${session.invite._id}`),
+      'load Discord identity'
+    );
+    if (!rawDiscord) {
+      return respond(() =>
+        Response.json({ error: 'Discord authentication required' }, { status: 401 })
+      );
+    }
+    const { discordUserId, discordUsername, avatarHash } = JSON.parse(rawDiscord) as {
+      discordUserId: string;
+      discordUsername: string;
+      avatarHash: string | null;
+    };
+
+    try {
+      await timing.measure(
+        'convex_collab_invite_accept',
+        () =>
+          convex.mutation(api.collaboratorInvites.acceptCreatorWorkspaceInvite, {
+            apiSecret,
+            inviteId: session.invite._id,
+            collaboratorDiscordUserId: discordUserId,
+            collaboratorDisplayName: discordUsername,
+            collaboratorAvatarHash: avatarHash ?? undefined,
+          }),
+        'accept creator workspace invitation'
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error('Failed to accept workspace invite', { err: message });
+      const status =
+        message.includes('already been used') ||
+        message.includes('no longer pending') ||
+        message.includes('expired')
+          ? 410
+          : 500;
+      return respond(() =>
+        Response.json(
+          { error: status === 410 ? message : 'Failed to accept invitation' },
+          { status }
+        )
+      );
+    }
+
+    await timing.measure(
+      'session_collab_cleanup',
+      async () => {
+        await store.delete(`${COLLAB_DISCORD_PREFIX}${session.invite._id}`);
+        await store.delete(`${COLLAB_SESSION_PREFIX}${session.sessionId}`);
+      },
+      'clear collaborator session state'
+    );
+    return respond(() =>
+      Response.json(
+        { success: true },
+        { headers: { 'Set-Cookie': clearCookie(COLLAB_SESSION_COOKIE, request) } }
+      )
+    );
   }
 
   /**
@@ -999,23 +1096,308 @@ export function createCollabRoutes(config: CollabConfig) {
     // Construct Discord CDN avatar URLs server-side from the validated hash.
     // The client receives only the pre-built URL, never the raw hash.
     const AVATAR_HASH_RE = /^(a_)?[0-9a-f]{32}$/;
-    const withAvatars = connections.map(
-      (c: {
-        collaboratorAvatarHash?: string | null;
-        collaboratorDiscordUserId?: string;
-        [key: string]: unknown;
-      }) => {
-        const hash = c.collaboratorAvatarHash;
-        const avatarUrl =
-          hash && AVATAR_HASH_RE.test(hash)
-            ? `https://cdn.discordapp.com/avatars/${c.collaboratorDiscordUserId}/${hash}.webp?size=64`
-            : null;
-        const { collaboratorAvatarHash: _drop, ...rest } = c;
-        return { ...rest, avatarUrl };
-      }
+    const actor = await createAuthUserActorBinding({
+      authUserId: ownerAuth.authUserId,
+      source: 'session',
+    });
+    const withAvatars = await timing.measure(
+      'convex_collab_permissions',
+      () =>
+        Promise.all(
+          connections.map(
+            (c: {
+              id?: string;
+              collaboratorAvatarHash?: string | null;
+              collaboratorDiscordUserId?: string;
+              [key: string]: unknown;
+            }) => {
+              const hash = c.collaboratorAvatarHash;
+              const avatarUrl =
+                hash && AVATAR_HASH_RE.test(hash)
+                  ? `https://cdn.discordapp.com/avatars/${c.collaboratorDiscordUserId}/${hash}.webp?size=64`
+                  : null;
+              const { collaboratorAvatarHash: _drop, ...rest } = c;
+              return c.id
+                ? convex
+                    .query(api.creatorWorkspacePermissions.getPolicyForConnection, {
+                      apiSecret,
+                      actor,
+                      ownerAuthUserId: ownerAuth.authUserId,
+                      connectionId: c.id as Id<'collaborator_connections'>,
+                    })
+                    .then((permissions) => ({ ...rest, avatarUrl, permissions }))
+                : { ...rest, avatarUrl, permissions: null };
+            }
+          )
+        ),
+      'load collaborator permission policies'
     );
 
     return respond(() => Response.json({ connections: withAvatars }));
+  }
+
+  async function listMemberships(request: Request): Promise<Response> {
+    const timing = new RouteTimingCollector();
+    const respond = (buildResponse: () => Response) =>
+      buildTimedResponse(timing, buildResponse, 'serialize collaborator memberships');
+    const url = new URL(request.url);
+    const ownerAuth = await requireOwnerAuth(
+      request,
+      url.searchParams.get('authUserId') ?? undefined,
+      timing
+    );
+    if (!ownerAuth.ok) return ownerAuth.response;
+    const actor = await createAuthUserActorBinding({
+      authUserId: ownerAuth.authUserId,
+      source: 'session',
+    });
+    const memberships = await timing.measure(
+      'convex_collab_memberships',
+      () =>
+        convex.query(api.collaboratorInvites.listCreatorWorkspaceMemberships, {
+          apiSecret,
+          ownerAuthUserId: ownerAuth.authUserId,
+        }),
+      'list creator workspace memberships'
+    );
+    const avatarHashPattern = /^(a_)?[0-9a-f]{32}$/;
+    const withPermissions = await timing.measure(
+      'convex_collab_permissions',
+      () =>
+        Promise.all(
+          memberships.map(
+            async (membership: {
+              id: string;
+              collaboratorAvatarHash?: string;
+              collaboratorDiscordUserId: string;
+              [key: string]: unknown;
+            }) => {
+              const avatarUrl =
+                membership.collaboratorAvatarHash &&
+                avatarHashPattern.test(membership.collaboratorAvatarHash)
+                  ? `https://cdn.discordapp.com/avatars/${membership.collaboratorDiscordUserId}/${membership.collaboratorAvatarHash}.webp?size=64`
+                  : null;
+              const { collaboratorAvatarHash: _drop, ...safeMembership } = membership;
+              const permissions = await convex.query(
+                api.creatorWorkspacePermissions.getPolicyForMembership,
+                {
+                  apiSecret,
+                  actor,
+                  ownerAuthUserId: ownerAuth.authUserId,
+                  membershipId: membership.id as Id<'creator_workspace_memberships'>,
+                }
+              );
+              return { ...safeMembership, avatarUrl, permissions };
+            }
+          )
+        ),
+      'load workspace membership policies'
+    );
+    return respond(() => Response.json({ memberships: withPermissions }));
+  }
+
+  async function manageMembershipPermissions(
+    request: Request,
+    membershipId: string
+  ): Promise<Response> {
+    const timing = new RouteTimingCollector();
+    const respond = (buildResponse: () => Response) =>
+      buildTimedResponse(timing, buildResponse, 'serialize membership permission response');
+    const ownerAuth = await requireOwnerAuth(request, undefined, timing);
+    if (!ownerAuth.ok) return ownerAuth.response;
+    const actor = await createAuthUserActorBinding({
+      authUserId: ownerAuth.authUserId,
+      source: 'session',
+    });
+    if (request.method === 'GET') {
+      const permissions = await timing.measure(
+        'convex_collab_permissions',
+        () =>
+          convex.query(api.creatorWorkspacePermissions.getPolicyForMembership, {
+            apiSecret,
+            actor,
+            ownerAuthUserId: ownerAuth.authUserId,
+            membershipId: membershipId as Id<'creator_workspace_memberships'>,
+          }),
+        'load membership permission policy'
+      );
+      return permissions
+        ? respond(() =>
+            Response.json({ permissions, capabilityDefinitions: CREATOR_WORKSPACE_CAPABILITIES })
+          )
+        : respond(() =>
+            Response.json({ error: 'Collaborator membership not found' }, { status: 404 })
+          );
+    }
+    if (request.method !== 'PUT') {
+      return respond(() => Response.json({ error: 'Method not allowed' }, { status: 405 }));
+    }
+    let body: { expectedRevision?: number; grants?: unknown };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return respond(() => Response.json({ error: 'Invalid JSON' }, { status: 400 }));
+    }
+    if (!Number.isSafeInteger(body.expectedRevision) || !Array.isArray(body.grants)) {
+      return respond(() =>
+        Response.json({ error: 'expectedRevision and grants are required' }, { status: 400 })
+      );
+    }
+    let grants: CreatorWorkspaceGrant[];
+    try {
+      grants = normalizeCreatorWorkspaceGrants(
+        body.grants as Array<{
+          capabilityKey: string;
+          resourceId?: string;
+          resourceType: string;
+          scope: string;
+        }>
+      );
+    } catch (error) {
+      return respond(() =>
+        Response.json(
+          { error: error instanceof Error ? error.message : 'Invalid collaborator permissions' },
+          { status: 400 }
+        )
+      );
+    }
+    try {
+      const result = await timing.measure(
+        'convex_collab_permissions',
+        () =>
+          convex.mutation(api.creatorWorkspacePermissions.replacePolicyForMembership, {
+            apiSecret,
+            actor,
+            ownerAuthUserId: ownerAuth.authUserId,
+            membershipId: membershipId as Id<'creator_workspace_memberships'>,
+            expectedRevision: body.expectedRevision as number,
+            grants,
+          }),
+        'replace membership permission policy'
+      );
+      return respond(() => Response.json({ success: true, ...result }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return respond(() =>
+        Response.json({ error: message }, { status: message.includes('changed while') ? 409 : 400 })
+      );
+    }
+  }
+
+  async function removeMembership(request: Request, membershipId: string): Promise<Response> {
+    const timing = new RouteTimingCollector();
+    const respond = (buildResponse: () => Response) =>
+      buildTimedResponse(timing, buildResponse, 'serialize membership removal response');
+    const ownerAuth = await requireOwnerAuth(request, undefined, timing);
+    if (!ownerAuth.ok) return ownerAuth.response;
+    try {
+      await timing.measure(
+        'convex_collab_membership_remove',
+        () =>
+          convex.mutation(api.collaboratorInvites.removeCreatorWorkspaceMembership, {
+            apiSecret,
+            membershipId: membershipId as Id<'creator_workspace_memberships'>,
+            ownerAuthUserId: ownerAuth.authUserId,
+          }),
+        'remove workspace membership'
+      );
+      return respond(() => Response.json({ success: true }));
+    } catch (error) {
+      return respond(() =>
+        Response.json(
+          { error: error instanceof Error ? error.message : String(error) },
+          { status: 400 }
+        )
+      );
+    }
+  }
+
+  async function manageConnectionPermissions(
+    request: Request,
+    connectionId: string
+  ): Promise<Response> {
+    const timing = new RouteTimingCollector();
+    const respond = (buildResponse: () => Response) =>
+      buildTimedResponse(timing, buildResponse, 'serialize collaborator permission response');
+    const ownerAuth = await requireOwnerAuth(request, undefined, timing);
+    if (!ownerAuth.ok) return ownerAuth.response;
+    const actor = await createAuthUserActorBinding({
+      authUserId: ownerAuth.authUserId,
+      source: 'session',
+    });
+    if (request.method === 'GET') {
+      const permissions = await timing.measure(
+        'convex_collab_permissions',
+        () =>
+          convex.query(api.creatorWorkspacePermissions.getPolicyForConnection, {
+            apiSecret,
+            actor,
+            ownerAuthUserId: ownerAuth.authUserId,
+            connectionId: connectionId as Id<'collaborator_connections'>,
+          }),
+        'load collaborator permission policy'
+      );
+      return permissions
+        ? respond(() =>
+            Response.json({ permissions, capabilityDefinitions: CREATOR_WORKSPACE_CAPABILITIES })
+          )
+        : respond(() =>
+            Response.json({ error: 'Collaborator connection not found' }, { status: 404 })
+          );
+    }
+    if (request.method !== 'PUT') {
+      return respond(() => Response.json({ error: 'Method not allowed' }, { status: 405 }));
+    }
+    let body: { expectedRevision?: number; grants?: unknown };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return respond(() => Response.json({ error: 'Invalid JSON' }, { status: 400 }));
+    }
+    if (!Number.isSafeInteger(body.expectedRevision) || !Array.isArray(body.grants)) {
+      return respond(() =>
+        Response.json({ error: 'expectedRevision and grants are required' }, { status: 400 })
+      );
+    }
+    let grants: CreatorWorkspaceGrant[];
+    try {
+      grants = normalizeCreatorWorkspaceGrants(
+        body.grants as Array<{
+          capabilityKey: string;
+          resourceId?: string;
+          resourceType: string;
+          scope: string;
+        }>
+      );
+    } catch (error) {
+      return respond(() =>
+        Response.json(
+          { error: error instanceof Error ? error.message : 'Invalid collaborator permissions' },
+          { status: 400 }
+        )
+      );
+    }
+    try {
+      const result = await timing.measure(
+        'convex_collab_permissions',
+        () =>
+          convex.mutation(api.creatorWorkspacePermissions.replacePolicyForConnection, {
+            apiSecret,
+            actor,
+            ownerAuthUserId: ownerAuth.authUserId,
+            connectionId: connectionId as Id<'collaborator_connections'>,
+            expectedRevision: body.expectedRevision as number,
+            grants,
+          }),
+        'replace collaborator permission policy'
+      );
+      return respond(() => Response.json({ success: true, ...result }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return respond(() =>
+        Response.json({ error: message }, { status: message.includes('changed while') ? 409 : 400 })
+      );
+    }
   }
 
   /**
@@ -1307,8 +1689,12 @@ export function createCollabRoutes(config: CollabConfig) {
       return getWebhookConfig(request);
     if (pathname === '/api/collab/session/test-webhook' && request.method === 'GET')
       return testWebhook(request);
+    if (pathname === '/api/collab/session/accept' && request.method === 'POST')
+      return acceptWorkspaceInvite(request);
     if (pathname === '/api/collab/session/submit' && request.method === 'POST')
       return submitInvite(request);
+    if (pathname === '/api/collab/memberships' && request.method === 'GET')
+      return listMemberships(request);
     if (pathname === '/api/collab/connections' && request.method === 'GET')
       return listConnections(request);
     if (pathname === '/api/collab/connections/as-collaborator' && request.method === 'GET')
@@ -1321,6 +1707,22 @@ export function createCollabRoutes(config: CollabConfig) {
     );
     if (collabConnSelfDeleteMatch && request.method === 'DELETE')
       return removeConnectionAsCollaborator(request, collabConnSelfDeleteMatch[1]);
+
+    const connectionPermissionMatch = pathname.match(
+      /^\/api\/collab\/connections\/([^/]+)\/permissions$/
+    );
+    if (connectionPermissionMatch)
+      return manageConnectionPermissions(request, connectionPermissionMatch[1]);
+
+    const membershipPermissionMatch = pathname.match(
+      /^\/api\/collab\/memberships\/([^/]+)\/permissions$/
+    );
+    if (membershipPermissionMatch)
+      return manageMembershipPermissions(request, membershipPermissionMatch[1]);
+
+    const membershipDeleteMatch = pathname.match(/^\/api\/collab\/memberships\/([^/]+)$/);
+    if (membershipDeleteMatch && request.method === 'DELETE')
+      return removeMembership(request, membershipDeleteMatch[1]);
 
     const connDeleteMatch = pathname.match(/^\/api\/collab\/connections\/([^/]+)$/);
     if (connDeleteMatch && request.method === 'DELETE')

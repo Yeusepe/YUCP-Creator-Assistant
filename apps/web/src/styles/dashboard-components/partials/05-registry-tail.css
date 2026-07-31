@@ -187,10 +187,23 @@
   box-shadow: 0 34px 86px -48px color-mix(in oklch, var(--overlay) 68%, transparent);
 }
 
-.pm-publish-sheet-content[data-sheet-detached].sheet__content--bottom {
-  bottom: calc(24px + env(safe-area-inset-bottom));
+.sheet__content.sheet__content--bottom {
+  --yucp-sheet-viewport-gap: clamp(32px, 4.5svh, 48px);
+
+  bottom: calc(var(--yucp-sheet-viewport-gap) + env(safe-area-inset-bottom, 0px));
   left: 0;
+  max-height: calc(
+    100svh -
+    var(--yucp-sheet-viewport-gap) -
+    var(--yucp-sheet-viewport-gap) -
+    env(safe-area-inset-top, 0px) -
+    env(safe-area-inset-bottom, 0px)
+  );
   right: 0;
+}
+
+.sheet__content.sheet__content--bottom .sheet__footer {
+  padding-bottom: max(20px, calc(12px + env(safe-area-inset-bottom)));
 }
 
 .pm-sheet-dialog {

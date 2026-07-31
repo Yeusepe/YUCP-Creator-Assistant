@@ -17,6 +17,7 @@ import {
   AccountSectionCard,
 } from '@/components/account/AccountPage';
 import { DashboardListSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { HoldConfirmButton } from '@/components/ui/HoldConfirmButton';
 import { Icon } from '@/components/ui/Icon';
 import { ProviderChip } from '@/components/ui/ProviderChip';
 import { StatusChip } from '@/components/ui/StatusChip';
@@ -116,7 +117,6 @@ function ProviderCard({
   connections: UserAccountConnection[];
   index: number;
 }>) {
-  const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -125,7 +125,6 @@ function ProviderCard({
     mutationFn: (id: string) => disconnectUserAccount(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: getUserAccountsQueryKey() });
-      setConfirmingId(null);
       toast.success('Account disconnected', {
         description: `${provider.label} will no longer be used for account verification.`,
       });
@@ -192,7 +191,8 @@ function ProviderCard({
         {hasAnyConnection ? (
           <div className="acct-provider-connection-list">
             {connections.map((connection) => {
-              const isConfirming = confirmingId === connection.id;
+              const isDisconnecting =
+                disconnectMut.isPending && disconnectMut.variables === connection.id;
               return (
                 <div key={connection.id} className="acct-provider-connection-row">
                   <div className="acct-provider-connection-copy">
@@ -211,30 +211,16 @@ function ProviderCard({
                     </div>
                   </div>
                   <div className="acct-provider-actions">
-                    {isConfirming ? (
-                      <div className="account-inline-actions">
-                        <span className="account-field-note">Disconnect?</span>
-                        <YucpButton
-                          yucp="danger"
-                          isLoading={disconnectMut.isPending}
-                          isDisabled={disconnectMut.isPending}
-                          onClick={() => disconnectMut.mutate(connection.id)}
-                        >
-                          {disconnectMut.isPending ? 'Disconnecting...' : 'Yes'}
-                        </YucpButton>
-                        <YucpButton
-                          yucp="secondary"
-                          isDisabled={disconnectMut.isPending}
-                          onClick={() => setConfirmingId(null)}
-                        >
-                          No
-                        </YucpButton>
-                      </div>
-                    ) : (
-                      <YucpButton yucp="ghost" onClick={() => setConfirmingId(connection.id)}>
-                        Disconnect
-                      </YucpButton>
-                    )}
+                    <HoldConfirmButton
+                      accessibleLabel={`Hold to disconnect ${provider.label}`}
+                      confirmLabel="Keep holding to disconnect..."
+                      isDisabled={disconnectMut.isPending && !isDisconnecting}
+                      isPending={isDisconnecting}
+                      onConfirm={() => disconnectMut.mutate(connection.id)}
+                      pendingLabel="Disconnecting..."
+                    >
+                      Disconnect
+                    </HoldConfirmButton>
                   </div>
                 </div>
               );

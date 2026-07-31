@@ -8,6 +8,7 @@ import {
   DashboardActionRowSkeleton,
   DashboardListSkeleton,
 } from '@/components/dashboard/DashboardSkeletons';
+import { HoldConfirmButton } from '@/components/ui/HoldConfirmButton';
 import { Icon } from '@/components/ui/Icon';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
@@ -358,36 +359,26 @@ function OAuthAppsSection({
                 <button className="btn-ghost" type="button" onClick={() => openEditPanel(app)}>
                   Edit
                 </button>
-                <button
-                  className="btn-ghost"
-                  type="button"
-                  disabled={
+                <HoldConfirmButton
+                  accessibleLabel={`Hold to regenerate the secret for ${app.name}`}
+                  confirmLabel="Keep holding to regenerate..."
+                  isPending={
                     regenerateMutation.isPending && regenerateMutation.variables?._id === app._id
                   }
-                  onClick={() => regenerateMutation.mutate(app)}
+                  onConfirm={() => regenerateMutation.mutate(app)}
+                  pendingLabel="Regenerating..."
                 >
-                  {regenerateMutation.isPending && regenerateMutation.variables?._id === app._id
-                    ? 'Regenerating…'
-                    : 'Regenerate Secret'}
-                </button>
-                <button
-                  className="btn-ghost"
-                  type="button"
-                  style={{ color: '#f87171' }}
-                  disabled={deleteMutation.isPending && deleteMutation.variables === app._id}
-                  onClick={() => {
-                    if (
-                      !window.confirm(
-                        `Delete OAuth app "${app.name}"? Existing integrations will stop working.`
-                      )
-                    ) {
-                      return;
-                    }
-                    deleteMutation.mutate(app._id);
-                  }}
+                  Regenerate Secret
+                </HoldConfirmButton>
+                <HoldConfirmButton
+                  accessibleLabel={`Hold to delete OAuth app ${app.name}`}
+                  confirmLabel="Keep holding to delete..."
+                  isPending={deleteMutation.isPending && deleteMutation.variables === app._id}
+                  onConfirm={() => deleteMutation.mutate(app._id)}
+                  pendingLabel="Deleting..."
                 >
                   Delete
-                </button>
+                </HoldConfirmButton>
               </div>
 
               {editingAppId === app._id ? (
@@ -623,38 +614,32 @@ function ApiKeysSection({
                 </div>
               </div>
               <div className="inline-btn-row" style={{ marginLeft: 'auto' }}>
-                <button
-                  className="btn-ghost"
-                  type="button"
-                  disabled={
+                <HoldConfirmButton
+                  accessibleLabel={`Hold to rotate API key ${key.name}`}
+                  confirmLabel="Keep holding to rotate..."
+                  isDisabled={
                     key.status !== 'active' ||
                     (rotateMutation.isPending && rotateMutation.variables?._id === key._id)
                   }
-                  onClick={() => rotateMutation.mutate(key)}
+                  isPending={rotateMutation.isPending && rotateMutation.variables?._id === key._id}
+                  onConfirm={() => rotateMutation.mutate(key)}
+                  pendingLabel="Rotating..."
                 >
-                  {rotateMutation.isPending && rotateMutation.variables?._id === key._id
-                    ? 'Rotating…'
-                    : 'Rotate'}
-                </button>
-                <button
-                  className="btn-ghost"
-                  type="button"
-                  style={{ color: '#f87171' }}
-                  disabled={
+                  Rotate
+                </HoldConfirmButton>
+                <HoldConfirmButton
+                  accessibleLabel={`Hold to revoke API key ${key.name}`}
+                  confirmLabel="Keep holding to revoke..."
+                  isDisabled={
                     key.status !== 'active' ||
                     (revokeMutation.isPending && revokeMutation.variables === key._id)
                   }
-                  onClick={() => {
-                    if (!window.confirm(`Revoke API key "${key.name}"? This cannot be undone.`)) {
-                      return;
-                    }
-                    revokeMutation.mutate(key._id);
-                  }}
+                  isPending={revokeMutation.isPending && revokeMutation.variables === key._id}
+                  onConfirm={() => revokeMutation.mutate(key._id)}
+                  pendingLabel="Revoking..."
                 >
-                  {revokeMutation.isPending && revokeMutation.variables === key._id
-                    ? 'Revoking…'
-                    : 'Revoke'}
-                </button>
+                  Revoke
+                </HoldConfirmButton>
               </div>
             </div>
           ))}

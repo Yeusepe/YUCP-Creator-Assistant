@@ -6,6 +6,9 @@ import type { VpmRouteConfig } from './vpm';
 import { buildYucpAliasVpmPackage } from './vpmAliasPackage';
 
 const convexQueryMock = mock(async (_reference?: unknown, _args?: unknown) => null as unknown);
+const creatorVpmLinkQueryMock = mock(
+  async (_args?: unknown): Promise<ReturnType<typeof link> | null> => link()
+);
 const bootstrapTargetsQueryMock = mock(async (_args?: unknown) => [] as Record<string, unknown>[]);
 const convexMutationMock = mock(async (_reference?: unknown, _args?: unknown) => null as unknown);
 const creatorProfileQueryMock = mock(async (_args?: unknown) => ({
@@ -100,9 +103,11 @@ mock.module('../lib/convex', () => ({
           : args;
       const result = await (reference === apiMock.creatorProfiles.getCreatorProfile
         ? creatorProfileQueryMock(boundArgs)
-        : reference === apiMock.packageVersions.listBootstrapTargetsForService
-          ? bootstrapTargetsQueryMock(boundArgs)
-          : convexQueryMock(reference, boundArgs));
+        : reference === apiMock.creatorVpmLinks.getActiveForCreator
+          ? creatorVpmLinkQueryMock(boundArgs)
+          : reference === apiMock.packageVersions.listBootstrapTargetsForService
+            ? bootstrapTargetsQueryMock(boundArgs)
+            : convexQueryMock(reference, boundArgs));
       if (
         reference === apiMock.packageVersions.resolvePublicBootstrapPresentation &&
         result &&
@@ -409,6 +414,8 @@ describe('package-scoped VPM routes', () => {
 
   beforeEach(() => {
     convexQueryMock.mockReset();
+    creatorVpmLinkQueryMock.mockReset();
+    creatorVpmLinkQueryMock.mockImplementation(async () => link());
     bootstrapTargetsQueryMock.mockReset();
     bootstrapTargetsQueryMock.mockImplementation(async (args?: unknown) => {
       const input = (args ?? {}) as { editionId?: string; packageId?: string };
@@ -435,7 +442,6 @@ describe('package-scoped VPM routes', () => {
   it('returns durable package enablement without exposing an untailored repository link', async () => {
     convexQueryMock.mockImplementation(async (reference: unknown) => {
       if (reference === apiMock.packageRegistry.getByPackageIdForAuthUser) return product();
-      if (reference === apiMock.creatorVpmLinks.getActiveForCreator) return link();
       throw new Error(`Unexpected query ${String(reference)}`);
     });
 
@@ -460,9 +466,6 @@ describe('package-scoped VPM routes', () => {
       if (reference === apiMock.packageRegistry.getByPackageIdForAuthUser) {
         return { ...product(), creatorAuthUserId: 'shared-store-owner' };
       }
-      if (reference === apiMock.creatorVpmLinks.getActiveForCreator) {
-        return link();
-      }
       throw new Error(`Unexpected query ${String(reference)}`);
     });
 
@@ -476,8 +479,7 @@ describe('package-scoped VPM routes', () => {
       apiMock.packageRegistry.getByPackageIdForAuthUser,
       expect.objectContaining({ authUserId: 'collaborating-creator' })
     );
-    expect(convexQueryMock).toHaveBeenCalledWith(
-      apiMock.creatorVpmLinks.getActiveForCreator,
+    expect(creatorVpmLinkQueryMock).toHaveBeenCalledWith(
       expect.objectContaining({ authUserId: 'shared-store-owner' })
     );
   });
@@ -485,7 +487,6 @@ describe('package-scoped VPM routes', () => {
   it('reads package enablement without fabricating a repository URL', async () => {
     convexQueryMock.mockImplementation(async (reference: unknown) => {
       if (reference === apiMock.packageRegistry.getByPackageIdForAuthUser) return product();
-      if (reference === apiMock.creatorVpmLinks.getActiveForCreator) return link();
       throw new Error(`Unexpected query ${String(reference)}`);
     });
 
@@ -2226,6 +2227,36 @@ describe('package-scoped VPM routes', () => {
     expect(response.headers.get('content-disposition')).toBe(
       'attachment; filename="jammr-bootstrap-latest.zip"'
     );
+  });
+
+  it('blocks both bootstrap formats while Unity access is disabled', async () => {
+    creatorVpmLinkQueryMock.mockResolvedValue(null);
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.getByPackageIdForAuthUser) return product();
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+    const routes = createRoutes('creator-auth');
+
+    const vpmResponse = await routes.downloadCreatorBootstrap(
+      new Request('https://api.test/api/creator/packages/by-package/com.yucp.jammr/bootstrap'),
+      'com.yucp.jammr'
+    );
+    const unityPackageResponse = await routes.downloadCreatorUnityPackage(
+      new Request(
+        'https://api.test/api/creator/packages/by-package/com.yucp.jammr/bootstrap.unitypackage'
+      ),
+      'com.yucp.jammr'
+    );
+
+    expect(vpmResponse.status).toBe(409);
+    expect(unityPackageResponse.status).toBe(409);
+    await expect(vpmResponse.json()).resolves.toEqual({
+      error: 'Enable Unity access before downloading a bootstrap',
+    });
+    await expect(unityPackageResponse.json()).resolves.toEqual({
+      error: 'Enable Unity access before downloading a bootstrap',
+    });
+    expect(bootstrapTargetsQueryMock).not.toHaveBeenCalled();
   });
 
   it('pins a Specific bootstrap to the selected immutable release', async () => {

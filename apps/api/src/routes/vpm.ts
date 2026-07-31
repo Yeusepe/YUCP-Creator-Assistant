@@ -561,6 +561,23 @@ export function createVpmRoutes({
     };
   }
 
+  async function requireUnityAccessEnabled(
+    authorized: Exclude<Awaited<ReturnType<typeof getCreatorPackageContext>>, Response>
+  ): Promise<Response | null> {
+    const link = (await authorized.convex.query(api.creatorVpmLinks.getActiveForCreator, {
+      apiSecret: config.convexApiSecret,
+      actor: authorized.actor,
+      authUserId: authorized.authUserId,
+      packageId: authorized.product.packageId as string,
+    })) as ActiveCreatorVpmLink | null;
+    return link
+      ? null
+      : jsonNoStore(
+          { error: 'Enable Unity access before downloading a bootstrap' },
+          { status: 409 }
+        );
+  }
+
   async function publishReservedAlias(input: {
     artifactBaseUrl: string;
     packageId: string;
@@ -1628,6 +1645,9 @@ export function createVpmRoutes({
       if (authorized instanceof Response) {
         return authorized;
       }
+      phase = 'link';
+      const unityAccessBlock = await requireUnityAccessEnabled(authorized);
+      if (unityAccessBlock) return unityAccessBlock;
       if (!aliasArtifactStore) {
         return jsonNoStore({ error: 'VPM delivery is not configured' }, { status: 503 });
       }
@@ -1683,6 +1703,9 @@ export function createVpmRoutes({
       if (authorized instanceof Response) {
         return authorized;
       }
+      phase = 'link';
+      const unityAccessBlock = await requireUnityAccessEnabled(authorized);
+      if (unityAccessBlock) return unityAccessBlock;
       if (!aliasArtifactStore || !config.publicVpmIndexUrl?.trim()) {
         return jsonNoStore({ error: 'VPM delivery is not configured' }, { status: 503 });
       }

@@ -4,6 +4,8 @@ import {
   normalizeCreatorWorkspaceGrants,
 } from '@yucp/shared/creatorWorkspacePermissions';
 import { ConvexError, v } from 'convex/values';
+import type { Doc } from './_generated/dataModel';
+import type { QueryCtx } from './_generated/server';
 import { internalMutation, mutation, query } from './_generated/server';
 import { ApiActorBindingV, requireDelegatedAuthUserActor } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
@@ -24,6 +26,86 @@ const GrantV = v.object({
   ),
   scope: v.union(v.literal('all'), v.literal('selected')),
   resourceId: v.optional(v.string()),
+});
+
+async function readPolicyForMembership(
+  ctx: QueryCtx,
+  membership: Doc<'creator_workspace_memberships'>
+) {
+  if (!membership.currentPolicyVersionId) {
+    return {
+      grants: [],
+      legacyPolicyPendingReview: membership.legacyPolicyPendingReview,
+      membershipId: membership._id,
+      policyVersion: CREATOR_WORKSPACE_POLICY_VERSION,
+      revision: 0,
+    };
+  }
+  const [policy, grants] = await Promise.all([
+    ctx.db.get(membership.currentPolicyVersionId),
+    ctx.db
+      .query('creator_workspace_grants')
+      .withIndex('by_policy', (q) =>
+        q.eq('policyVersionId', membership.currentPolicyVersionId as never)
+      )
+      .collect(),
+  ]);
+  if (!policy) throw new ConvexError('Collaborator permission policy is unavailable');
+  return {
+    grants: grants.map(({ capabilityKey, resourceId, resourceType, scope }) => ({
+      capabilityKey,
+      resourceId,
+      resourceType,
+      scope,
+    })),
+    legacyPolicyPendingReview: membership.legacyPolicyPendingReview,
+    membershipId: membership._id,
+    policyVersion: policy.policyVersion,
+    revision: policy.revision,
+  };
+}
+
+export const getPolicyForMembership = query({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    ownerAuthUserId: v.string(),
+    membershipId: v.id('creator_workspace_memberships'),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.ownerAuthUserId);
+    const membership = await ctx.db.get(args.membershipId);
+    if (!membership || membership.ownerAuthUserId !== args.ownerAuthUserId) return null;
+    return await readPolicyForMembership(ctx, membership);
+  },
+});
+
+export const replacePolicyForMembership = mutation({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    ownerAuthUserId: v.string(),
+    membershipId: v.id('creator_workspace_memberships'),
+    expectedRevision: v.number(),
+    grants: v.array(GrantV),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.ownerAuthUserId);
+    const membership = await ctx.db.get(args.membershipId);
+    if (!membership || membership.ownerAuthUserId !== args.ownerAuthUserId) {
+      throw new ConvexError('Collaborator membership not found');
+    }
+    return await writeCreatorWorkspacePolicy(ctx, {
+      membership,
+      changedByAuthUserId: args.ownerAuthUserId,
+      expectedRevision: args.expectedRevision,
+      grants: normalizeCreatorWorkspaceGrants(args.grants),
+      legacyPolicyPendingReview: false,
+      source: 'owner_edit',
+    });
+  },
 });
 
 export const getPolicyForConnection = query({

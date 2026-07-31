@@ -213,14 +213,15 @@ describe('dashboard connected platforms', () => {
 
     fireEvent.click(disconnectButton);
 
-    const confirmButton = document.getElementById('jinxxy-confirm-btn');
-    if (!(confirmButton instanceof HTMLButtonElement)) {
-      throw new Error('Disconnect confirmation button was not rendered');
-    }
+    vi.useFakeTimers();
+    try {
+      const confirmButton = screen.getByRole('button', {
+        name: /hold to disconnect jinxxy/i,
+      });
+      fireEvent.keyDown(confirmButton, { key: 'Enter' });
+      await vi.advanceTimersByTimeAsync(1300);
+      await Promise.resolve();
 
-    fireEvent.click(confirmButton);
-
-    await waitFor(() =>
       expect(
         vi.mocked(
           (
@@ -229,7 +230,9 @@ describe('dashboard connected platforms', () => {
             }
           ).disconnectDashboardConnection
         )
-      ).toHaveBeenCalledWith('connection-1', 'user-123')
-    );
+      ).toHaveBeenCalledWith('connection-1', 'user-123');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

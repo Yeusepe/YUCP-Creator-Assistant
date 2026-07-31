@@ -12,6 +12,7 @@ import {
   AccountSectionCard,
 } from '@/components/account/AccountPage';
 import { DashboardListSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { HoldConfirmButton } from '@/components/ui/HoldConfirmButton';
 import { Icon } from '@/components/ui/Icon';
 import { ProviderChip } from '@/components/ui/ProviderChip';
 import { type BadgeStatus, StatusChip } from '@/components/ui/StatusChip';
@@ -151,14 +152,15 @@ function EntitlementRow({
             >
               Cancel
             </YucpButton>
-            <YucpButton
-              yucp="danger"
-              isLoading={revokeMut.isPending}
-              isDisabled={revokeMut.isPending}
-              onClick={() => revokeMut.mutate()}
+            <HoldConfirmButton
+              accessibleLabel={`Hold to deactivate ${entitlement.productId}`}
+              confirmLabel="Keep holding to deactivate..."
+              isPending={revokeMut.isPending}
+              onConfirm={() => revokeMut.mutate()}
+              pendingLabel="Deactivating..."
             >
-              {revokeMut.isPending ? 'Deactivating...' : 'Deactivate'}
-            </YucpButton>
+              Deactivate
+            </HoldConfirmButton>
           </div>
         </AccountModal>
       ) : null}

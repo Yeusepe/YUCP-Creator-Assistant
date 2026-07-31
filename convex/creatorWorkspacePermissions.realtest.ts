@@ -1,11 +1,70 @@
 import { describe, expect, it } from 'vitest';
-import { internal } from './_generated/api';
+import { api, internal } from './_generated/api';
 import { hasCreatorWorkspaceCapability } from './lib/creatorWorkspaceAccess';
 import { makeTestConvex } from './testHelpers';
 
 process.env.CONVEX_API_SECRET = 'test-secret';
 
 describe('creator workspace permission enforcement', () => {
+  it('accepts a workspace invitation without creating or sharing a provider connection', async () => {
+    const t = makeTestConvex();
+    const inviteId = await t.run(async (ctx) => {
+      const now = Date.now();
+      return await ctx.db.insert('collaborator_invites', {
+        ownerAuthUserId: 'workspace-invite-owner',
+        tokenHash: 'workspace-invite-token-hash',
+        status: 'pending',
+        ownerDisplayName: 'Workspace Owner',
+        expiresAt: now + 60_000,
+        createdAt: now,
+        permissionPolicyVersion: 1,
+        permissionGrants: [],
+        legacyPolicyPendingReview: false,
+      });
+    });
+
+    const membershipId = await t.mutation(api.collaboratorInvites.acceptCreatorWorkspaceInvite, {
+      apiSecret: 'test-secret',
+      inviteId,
+      collaboratorDiscordUserId: 'workspace-invite-discord',
+      collaboratorDisplayName: 'Workspace Collaborator',
+      collaboratorAvatarHash: 'a'.repeat(32),
+    });
+
+    const accepted = await t.run(async (ctx) => {
+      const invite = await ctx.db.get(inviteId);
+      const membership = await ctx.db.get(membershipId);
+      const policy = membership?.currentPolicyVersionId
+        ? await ctx.db.get(membership.currentPolicyVersionId)
+        : null;
+      const grants = policy
+        ? await ctx.db
+            .query('creator_workspace_grants')
+            .withIndex('by_policy', (q) => q.eq('policyVersionId', policy._id))
+            .collect()
+        : [];
+      const connections = await ctx.db
+        .query('collaborator_connections')
+        .withIndex('by_owner', (q) => q.eq('ownerAuthUserId', 'workspace-invite-owner'))
+        .collect();
+      return { connections, grants, invite, membership, policy };
+    });
+
+    expect(accepted.invite).toMatchObject({
+      status: 'accepted',
+      targetDiscordUserId: 'workspace-invite-discord',
+    });
+    expect(accepted.membership).toMatchObject({
+      legacyPolicyPendingReview: false,
+      memberDisplayName: 'Workspace Collaborator',
+      ownerAuthUserId: 'workspace-invite-owner',
+      status: 'active',
+    });
+    expect(accepted.policy).toMatchObject({ revision: 1, source: 'invite' });
+    expect(accepted.grants).toEqual([]);
+    expect(accepted.connections).toEqual([]);
+  });
+
   it('allows only the selected product for a granular product-view grant', async () => {
     const t = makeTestConvex();
     const ownerAuthUserId = 'permission-owner';
@@ -186,5 +245,58 @@ describe('creator workspace permission enforcement', () => {
         }),
       ])
     );
+  });
+
+  it('creates manually added collaborators with an explicit zero-access policy', async () => {
+    const t = makeTestConvex();
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert('creator_profiles', {
+        authUserId: 'manual-owner',
+        name: 'Manual Owner',
+        ownerDiscordUserId: 'manual-owner-discord',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const connectionId = await t.mutation(api.collaboratorInvites.addCollaboratorConnectionManual, {
+      apiSecret: 'test-secret',
+      ownerAuthUserId: 'manual-owner',
+      credentialEncrypted: 'encrypted-provider-key',
+      provider: 'jinxxy',
+      collaboratorDisplayName: 'Manual Collaborator',
+      collaboratorIdentity: 'manual-collaborator-discord',
+      addedByDiscordUserId: 'manual-owner-discord',
+    });
+
+    const materialized = await t.run(async (ctx) => {
+      const connection = await ctx.db.get(connectionId);
+      const membership = connection?.workspaceMembershipId
+        ? await ctx.db.get(connection.workspaceMembershipId)
+        : null;
+      const policy = membership?.currentPolicyVersionId
+        ? await ctx.db.get(membership.currentPolicyVersionId)
+        : null;
+      const grants = policy
+        ? await ctx.db
+            .query('creator_workspace_grants')
+            .withIndex('by_policy', (q) => q.eq('policyVersionId', policy._id))
+            .collect()
+        : [];
+      return { connection, grants, membership, policy };
+    });
+
+    expect(materialized.connection?.workspaceMembershipId).toBeTruthy();
+    expect(materialized.membership).toMatchObject({
+      legacyPolicyPendingReview: false,
+      status: 'active',
+    });
+    expect(materialized.policy).toMatchObject({
+      revision: 1,
+      source: 'owner_edit',
+    });
+    expect(materialized.grants).toEqual([]);
   });
 });

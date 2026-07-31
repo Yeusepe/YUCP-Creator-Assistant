@@ -1,4 +1,9 @@
 import type { QueryFunctionContext } from '@tanstack/react-query';
+import type {
+  CreatorWorkspaceCapabilityDefinition,
+  CreatorWorkspaceCapabilityKey,
+  CreatorWorkspaceGrant,
+} from '@yucp/shared/creatorWorkspacePermissions';
 import { apiClient } from '@/api/client';
 import type { DashboardProvider } from '@/lib/server/dashboard';
 
@@ -132,7 +137,7 @@ export interface CollabProviderSummary {
 
 export interface PendingCollabInvite {
   id: string;
-  providerKey: string;
+  providerKey?: string;
   ownerDisplayName: string;
   expiresAt: number;
   createdAt: number;
@@ -150,7 +155,37 @@ export interface CollabConnectionSummary {
   collaboratorDisplayName?: string;
   avatarUrl?: string | null;
   createdAt: number;
+  permissions?: CreatorWorkspacePermissionPolicy | null;
 }
+
+export interface CreatorWorkspacePermissionPolicy {
+  connectionId?: string;
+  grants: CreatorWorkspaceGrant[];
+  legacyPolicyPendingReview: boolean;
+  membershipId: string | null;
+  policyVersion: number;
+  revision: number;
+}
+
+export interface CreatorWorkspaceMemberSummary {
+  id: string;
+  status: string;
+  collaboratorDiscordUserId: string;
+  collaboratorDisplayName: string;
+  avatarUrl?: string | null;
+  connectionId?: string;
+  provider?: string;
+  linkType?: 'account' | 'api';
+  webhookConfigured: boolean;
+  createdAt: number;
+  updatedAt: number;
+  permissions?: CreatorWorkspacePermissionPolicy | null;
+}
+
+export type CreatorWorkspaceCapabilityDefinitions = Record<
+  CreatorWorkspaceCapabilityKey,
+  CreatorWorkspaceCapabilityDefinition
+>;
 
 export interface CollabAsCollaboratorSummary {
   id: string;
@@ -448,7 +483,6 @@ export async function listCollabInvites(authUserId: string) {
 export async function createCollabInvite(
   authUserId: string,
   input: {
-    providerKey: string;
     guildId?: string;
   }
 ) {
@@ -456,6 +490,45 @@ export async function createCollabInvite(
     authUserId,
     ...input,
   });
+}
+
+export async function listCreatorWorkspaceMembers(authUserId: string) {
+  const data = await apiClient.get<{ memberships?: CreatorWorkspaceMemberSummary[] }>(
+    '/api/collab/memberships',
+    { params: { authUserId } }
+  );
+  return data.memberships ?? [];
+}
+
+export async function removeCreatorWorkspaceMember(authUserId: string, membershipId: string) {
+  return await apiClient.delete<{ success: boolean }>(
+    `/api/collab/memberships/${encodeURIComponent(membershipId)}`,
+    { params: { authUserId } }
+  );
+}
+
+export async function getCreatorWorkspaceMemberPermissions(membershipId: string): Promise<{
+  capabilityDefinitions: CreatorWorkspaceCapabilityDefinitions;
+  permissions: CreatorWorkspacePermissionPolicy;
+}> {
+  return await apiClient.get(
+    `/api/collab/memberships/${encodeURIComponent(membershipId)}/permissions`
+  );
+}
+
+export async function updateCreatorWorkspaceMemberPermissions(
+  membershipId: string,
+  input: {
+    expectedRevision: number;
+    grants: CreatorWorkspaceGrant[];
+  }
+) {
+  return await apiClient.put<{
+    success: true;
+    membershipId: string;
+    policyVersionId: string;
+    revision: number;
+  }>(`/api/collab/memberships/${encodeURIComponent(membershipId)}/permissions`, input);
 }
 
 export async function revokeCollabInvite(authUserId: string, inviteId: string) {
@@ -484,6 +557,30 @@ export async function removeCollabConnection(authUserId: string, connectionId: s
       params: { authUserId },
     }
   );
+}
+
+export async function getCollabConnectionPermissions(connectionId: string): Promise<{
+  capabilityDefinitions: CreatorWorkspaceCapabilityDefinitions;
+  permissions: CreatorWorkspacePermissionPolicy;
+}> {
+  return await apiClient.get(
+    `/api/collab/connections/${encodeURIComponent(connectionId)}/permissions`
+  );
+}
+
+export async function updateCollabConnectionPermissions(
+  connectionId: string,
+  input: {
+    expectedRevision: number;
+    grants: CreatorWorkspaceGrant[];
+  }
+) {
+  return await apiClient.put<{
+    success: true;
+    membershipId: string;
+    policyVersionId: string;
+    revision: number;
+  }>(`/api/collab/connections/${encodeURIComponent(connectionId)}/permissions`, input);
 }
 
 export async function removeCollabConnectionAsCollaborator(

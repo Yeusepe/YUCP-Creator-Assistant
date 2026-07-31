@@ -1,6 +1,14 @@
+import { Chip } from '@heroui/react';
+import { ItemCard } from '@heroui-pro/react/item-card';
+import { ItemCardGroup } from '@heroui-pro/react/item-card-group';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import {
+  CREATOR_WORKSPACE_CAPABILITIES,
+  type CreatorWorkspaceCapabilityKey,
+  type CreatorWorkspaceGrant,
+} from '@yucp/shared/creatorWorkspacePermissions';
 import confetti from 'canvas-confetti';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { Icon } from '@/components/ui/Icon';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
@@ -79,9 +87,95 @@ type Stage =
 
 interface InviteData {
   ownerDisplayName: string;
-  providerKey: string;
-  expiresAt: string;
+  providerKey?: string;
+  expiresAt: number;
+  legacyPolicyPendingReview?: boolean;
+  permissionGrants?: CreatorWorkspaceGrant[];
+  permissionPolicyVersion?: number;
   [key: string]: unknown;
+}
+
+function InvitePermissionSummary({ grants }: { grants: readonly CreatorWorkspaceGrant[] }) {
+  const capabilities = useMemo(() => {
+    const grouped = new Map<CreatorWorkspaceCapabilityKey, CreatorWorkspaceGrant[]>();
+    for (const grant of grants) {
+      const current = grouped.get(grant.capabilityKey) ?? [];
+      current.push(grant);
+      grouped.set(grant.capabilityKey, current);
+    }
+    return [...grouped.entries()].sort(([left], [right]) =>
+      CREATOR_WORKSPACE_CAPABILITIES[left].label.localeCompare(
+        CREATOR_WORKSPACE_CAPABILITIES[right].label
+      )
+    );
+  }, [grants]);
+
+  if (capabilities.length === 0) {
+    return (
+      <ItemCardGroup variant="outline">
+        <ItemCardGroup.Header>
+          <ItemCardGroup.Title>Workspace access</ItemCardGroup.Title>
+          <ItemCardGroup.Description>
+            Everything starts off. The creator can grant access after you join.
+          </ItemCardGroup.Description>
+        </ItemCardGroup.Header>
+        <ItemCard variant="transparent">
+          <ItemCard.Content>
+            <ItemCard.Title>No workspace access</ItemCard.Title>
+            <ItemCard.Description>
+              The creator can grant workspace permissions later, and you will see the updated access
+              in your dashboard.
+            </ItemCard.Description>
+          </ItemCard.Content>
+          <ItemCard.Action>
+            <Chip variant="secondary">No access</Chip>
+          </ItemCard.Action>
+        </ItemCard>
+      </ItemCardGroup>
+    );
+  }
+
+  return (
+    <ItemCardGroup variant="outline">
+      <ItemCardGroup.Header>
+        <ItemCardGroup.Title>Workspace access requested</ItemCardGroup.Title>
+        <ItemCardGroup.Description>
+          These are the only workspace capabilities this invitation grants.
+        </ItemCardGroup.Description>
+      </ItemCardGroup.Header>
+      {capabilities.map(([capabilityKey, capabilityGrants]) => {
+        const definition = CREATOR_WORKSPACE_CAPABILITIES[capabilityKey];
+        const allScopes = capabilityGrants.filter((grant) => grant.scope === 'all');
+        const selectedScopes = capabilityGrants.filter((grant) => grant.scope === 'selected');
+        const scopeSummary = [
+          ...allScopes.map((grant) => `All ${grant.resourceType.replaceAll('_', ' ')} resources`),
+          ...(selectedScopes.length > 0
+            ? [
+                `${selectedScopes.length} selected ${selectedScopes.length === 1 ? 'resource' : 'resources'}`,
+              ]
+            : []),
+        ].join(' · ');
+        return (
+          <ItemCard key={capabilityKey} variant="transparent">
+            <ItemCard.Content>
+              <ItemCard.Title>{definition.label}</ItemCard.Title>
+              <ItemCard.Description>{scopeSummary}</ItemCard.Description>
+            </ItemCard.Content>
+            {'sensitive' in definition && definition.sensitive ? (
+              <ItemCard.Action>
+                <Chip
+                  variant="soft"
+                  className="bg-warning-soft text-warning-foreground dark:bg-warning-soft dark:text-warning-foreground"
+                >
+                  Sensitive
+                </Chip>
+              </ItemCard.Action>
+            ) : null}
+          </ItemCard>
+        );
+      })}
+    </ItemCardGroup>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -573,7 +667,27 @@ function CollabInvitePage() {
             return;
           }
 
-          goToStage('stage-type');
+          if (invite.providerKey) {
+            goToStage('stage-type');
+            return;
+          }
+          const acceptResponse = await fetch('/api/collab/session/accept', {
+            method: 'POST',
+            credentials: 'include',
+          });
+          const acceptResult = await acceptResponse.json();
+          if (!acceptResponse.ok) {
+            throw new Error(
+              typeof acceptResult.error === 'string'
+                ? acceptResult.error
+                : 'Could not accept this invitation.'
+            );
+          }
+          setSuccessMessage(
+            `You are now a collaborator in ${invite.ownerDisplayName}'s workspace. No access is enabled unless the creator explicitly grants it.`
+          );
+          goToStage('stage-success');
+          confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
         } catch {
           showError(
             'Connection Error',
@@ -594,7 +708,9 @@ function CollabInvitePage() {
   const providerUI = getProviderUI(inviteData?.providerKey);
 
   const consentTitle = inviteData
-    ? `${inviteData.ownerDisplayName} wants to share license verification with your ${providerUI.label} store`
+    ? inviteData.providerKey
+      ? `${inviteData.ownerDisplayName} wants to share license verification with your ${providerUI.label} store`
+      : `${inviteData.ownerDisplayName} invited you to collaborate`
     : '';
 
   const consentExpiry = inviteData
@@ -655,29 +771,47 @@ function CollabInvitePage() {
               </p>
 
               <div className="ci-access-list">
-                <h3>What this grants access to:</h3>
+                <h3>
+                  {inviteData?.providerKey ? 'What this grants access to:' : 'How this works:'}
+                </h3>
                 <ul>
-                  <li>
-                    <Icon name="check" size={16} />
-                    <span>{providerUI.consentDescription}</span>
-                  </li>
+                  {inviteData?.providerKey ? (
+                    <li>
+                      <Icon name="check" size={16} />
+                      <span>{providerUI.consentDescription}</span>
+                    </li>
+                  ) : (
+                    <li>
+                      <Icon name="check" size={16} />
+                      <span>You join the creator&apos;s workspace with everything off</span>
+                    </li>
+                  )}
                   <li>
                     <Icon name="check" size={16} />
                     <span>
-                      The Assistant will only check if a license key is valid. No personal data is
-                      stored beyond your Discord&reg; ID
+                      Your Discord&reg; identity connects this invitation to your collaborator
+                      membership
                     </span>
                   </li>
                   <li>
                     <Icon name="check" size={16} />
-                    <span>You can revoke access at any time by contacting the server owner</span>
+                    <span>
+                      The creator can grant or remove each product and package capability
+                      independently
+                    </span>
                   </li>
                 </ul>
               </div>
 
+              <div className="mb-6">
+                <InvitePermissionSummary grants={inviteData?.permissionGrants ?? []} />
+              </div>
+
               <button type="button" className="btn-discord w-full" onClick={beginDiscordAuth}>
                 <img src="/Icons/Discord.png" width="20" height="20" alt="" />
-                Continue with Discord&reg;
+                {inviteData?.providerKey
+                  ? 'Continue with Discord\u00ae'
+                  : 'Accept with Discord\u00ae'}
               </button>
             </div>
           )}

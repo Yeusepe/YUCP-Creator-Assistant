@@ -32,6 +32,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { DialogContext, Heading } from 'react-aria-components';
 import { AccountInlineError } from '@/components/account/AccountPage';
 import { PackageRegistryWorkspaceSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { HoldConfirmButton } from '@/components/ui/HoldConfirmButton';
 import { Icon } from '@/components/ui/Icon';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
@@ -817,8 +818,6 @@ function ProductDetailsSheet({
     isNew: boolean;
     priority: number;
   } | null>(null);
-  const [confirmArchiveEditionId, setConfirmArchiveEditionId] = useState<string | null>(null);
-  const [confirmDeleteVersionId, setConfirmDeleteVersionId] = useState<string | null>(null);
   const [selectedHistoryEditionId, setSelectedHistoryEditionId] = useState('standard');
   const [isBootstrapDownloadOpen, setIsBootstrapDownloadOpen] = useState(false);
   const [bootstrapDownloadMode, setBootstrapDownloadMode] = useState<'latest' | 'specific'>(
@@ -826,8 +825,6 @@ function ProductDetailsSheet({
   );
   const [bootstrapEditionId, setBootstrapEditionId] = useState('standard');
   const [selectedBootstrapVersionId, setSelectedBootstrapVersionId] = useState<string | null>(null);
-  const [confirmUnlinkStorefrontId, setConfirmUnlinkStorefrontId] = useState<string | null>(null);
-  const [isConfirmingLinkRevoke, setIsConfirmingLinkRevoke] = useState(false);
   const [isCopyingPrivacyNotice, setIsCopyingPrivacyNotice] = useState(false);
   const [storefrontSearch, setStorefrontSearch] = useState('');
   const [bootstrapPackageName, setBootstrapPackageName] = useState('');
@@ -947,6 +944,9 @@ function ProductDetailsSheet({
       if (!packageId) {
         throw new Error('Upload a package before downloading a bootstrap.');
       }
+      if (vccLinkQuery.data?.status !== 'active') {
+        throw new Error('Enable Unity access before downloading a bootstrap.');
+      }
       if (bootstrapDownloadMode === 'specific' && !selectedBootstrapVersionId) {
         throw new Error('Choose the release to pin into this bootstrap.');
       }
@@ -1027,7 +1027,6 @@ function ProductDetailsSheet({
         bootstrapDownloadUrl,
         unityPackageDownloadUrl,
       });
-      setIsConfirmingLinkRevoke(false);
       toast.success('Unity access revoked', {
         description: 'This package was removed from buyer repositories.',
       });
@@ -1151,7 +1150,6 @@ function ProductDetailsSheet({
         }),
         queryClient.invalidateQueries({ queryKey: creatorProductsQueryKey }),
       ]);
-      setConfirmDeleteVersionId(null);
       toast.success('Release deleted', {
         description: 'Files that another release needs remain available.',
       });
@@ -1227,7 +1225,6 @@ function ProductDetailsSheet({
         queryClient.invalidateQueries({ queryKey: creatorProductsQueryKey }),
         queryClient.invalidateQueries({ queryKey: creatorProductPickerQueryKey }),
       ]);
-      setConfirmArchiveEditionId(null);
       toast.success('Package edition archived', {
         description: 'Buyers stop receiving this edition. Its release records remain intact.',
       });
@@ -1280,7 +1277,6 @@ function ProductDetailsSheet({
       return unbindCreatorPackageStorefront(catalogProductId, targetCatalogProductId);
     },
     onSuccess: async () => {
-      setConfirmUnlinkStorefrontId(null);
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: ['creator-package-product', catalogProductId],
@@ -1348,12 +1344,8 @@ function ProductDetailsSheet({
 
   function handleOpenChange(nextIsOpen: boolean): void {
     if (!nextIsOpen) {
-      setConfirmArchiveEditionId(null);
-      setConfirmDeleteVersionId(null);
       setSelectedHistoryEditionId('standard');
-      setConfirmUnlinkStorefrontId(null);
       setEditionEditor(null);
-      setIsConfirmingLinkRevoke(false);
       setIsCopyingPrivacyNotice(false);
       setStorefrontSearch('');
       setBootstrapPackageName('');
@@ -1363,7 +1355,6 @@ function ProductDetailsSheet({
   }
 
   function openNewEdition(): void {
-    setConfirmArchiveEditionId(null);
     setEditionEditor({
       catalogTierIds: [],
       displayName: '',
@@ -1374,7 +1365,6 @@ function ProductDetailsSheet({
   }
 
   function openEditionEditor(edition: CreatorPackageEditionSummary): void {
-    setConfirmArchiveEditionId(null);
     setEditionEditor({
       catalogTierIds: edition.catalogTierIds,
       displayName: edition.displayName,
@@ -1417,7 +1407,7 @@ function ProductDetailsSheet({
       <Sheet isOpen={isOpen} onOpenChange={handleOpenChange}>
         <Sheet.Backdrop variant="blur">
           <Sheet.Content
-            className="pm-sheet-content mx-auto max-h-[94vh] max-w-[760px]"
+            className="pm-sheet-content mx-auto max-w-[760px]"
             aria-label="Product details"
           >
             <Sheet.Dialog className="pm-sheet-dialog" aria-label="Product details">
@@ -1565,8 +1555,6 @@ function ProductDetailsSheet({
                           <div className="space-y-2">
                             {linkedStorefronts.map((storefront) => {
                               const providerLabel = formatProviderLabel(storefront.provider);
-                              const isConfirming =
-                                confirmUnlinkStorefrontId === storefront.catalogProductId;
                               const isUnlinking =
                                 unbindStorefrontMutation.isPending &&
                                 unbindStorefrontMutation.variables === storefront.catalogProductId;
@@ -1584,57 +1572,26 @@ function ProductDetailsSheet({
                                         {storefront.displayName || storefront.productId}
                                       </p>
                                     </div>
-                                    {linkedStorefronts.length > 1 && !isConfirming ? (
-                                      <YucpButton
-                                        yucp="ghost"
-                                        size="sm"
+                                    {linkedStorefronts.length > 1 ? (
+                                      <HoldConfirmButton
+                                        accessibleLabel={`Hold to unlink ${providerLabel} storefront`}
+                                        confirmLabel="Keep holding to unlink..."
                                         isDisabled={
                                           bindStorefrontMutation.isPending ||
-                                          unbindStorefrontMutation.isPending
+                                          (unbindStorefrontMutation.isPending && !isUnlinking)
                                         }
-                                        aria-label={`Unlink ${providerLabel} storefront`}
-                                        onPress={() =>
-                                          setConfirmUnlinkStorefrontId(storefront.catalogProductId)
+                                        isPending={isUnlinking}
+                                        onConfirm={() =>
+                                          unbindStorefrontMutation.mutate(
+                                            storefront.catalogProductId
+                                          )
                                         }
+                                        pendingLabel="Unlinking..."
                                       >
                                         Unlink
-                                      </YucpButton>
+                                      </HoldConfirmButton>
                                     ) : null}
                                   </div>
-                                  {isConfirming ? (
-                                    <div className="pm-inline-note space-y-3 rounded-xl p-3">
-                                      <div>
-                                        <p className="text-foreground text-sm font-semibold">
-                                          Unlink {providerLabel}?
-                                        </p>
-                                        <p className="pm-subtle-copy mt-1 text-sm leading-6">
-                                          Buyers from this listing stop receiving package access.
-                                        </p>
-                                      </div>
-                                      <div className="flex flex-wrap justify-end gap-2">
-                                        <Button
-                                          size="sm"
-                                          variant="secondary"
-                                          isDisabled={isUnlinking}
-                                          onPress={() => setConfirmUnlinkStorefrontId(null)}
-                                        >
-                                          Keep linked
-                                        </Button>
-                                        <YucpButton
-                                          size="sm"
-                                          isLoading={isUnlinking}
-                                          aria-label={`Confirm unlink ${providerLabel}`}
-                                          onPress={() =>
-                                            unbindStorefrontMutation.mutate(
-                                              storefront.catalogProductId
-                                            )
-                                          }
-                                        >
-                                          {isUnlinking ? 'Unlinking...' : 'Unlink storefront'}
-                                        </YucpButton>
-                                      </div>
-                                    </div>
-                                  ) : null}
                                 </div>
                               );
                             })}
@@ -1814,63 +1771,40 @@ function ProductDetailsSheet({
                                 </div>
                               )}
 
+                              {vccLinkQuery.data.status === 'active' ? (
+                                <p className="pm-subtle-copy text-sm leading-6">
+                                  This package disappears from tailored buyer repositories. Packages
+                                  already installed in Unity stay in their projects.
+                                </p>
+                              ) : null}
+
                               <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                                 <YucpButton
                                   yucp="secondary"
                                   size="sm"
+                                  isDisabled={vccLinkQuery.data.status !== 'active'}
                                   onPress={() => setIsBootstrapDownloadOpen(true)}
                                 >
                                   <Icon name="download" className="size-4" />
                                   Download bootstrap
                                 </YucpButton>
-                                {vccLinkQuery.data.status === 'active' &&
-                                !isConfirmingLinkRevoke ? (
-                                  <YucpButton
-                                    yucp="ghost"
-                                    size="sm"
-                                    isDisabled={
-                                      createVccLinkMutation.isPending ||
-                                      revokeVccLinkMutation.isPending
-                                    }
-                                    onPress={() => setIsConfirmingLinkRevoke(true)}
+                                {vccLinkQuery.data.status === 'active' ? (
+                                  <HoldConfirmButton
+                                    accessibleLabel="Hold to disable Unity access"
+                                    confirmLabel="Keep holding to disable..."
+                                    isDisabled={createVccLinkMutation.isPending}
+                                    isPending={revokeVccLinkMutation.isPending}
+                                    onConfirm={() => revokeVccLinkMutation.mutate()}
+                                    pendingLabel="Disabling..."
                                   >
                                     Disable Unity access
-                                  </YucpButton>
+                                  </HoldConfirmButton>
                                 ) : null}
                               </div>
-
-                              {vccLinkQuery.data.status === 'active' && isConfirmingLinkRevoke ? (
-                                <div className="pm-inline-note space-y-3 rounded-xl p-3">
-                                  <div className="space-y-1">
-                                    <p className="text-foreground text-sm font-semibold">
-                                      Disable Unity access?
-                                    </p>
-                                    <p className="pm-subtle-copy text-sm leading-6">
-                                      This package disappears from tailored buyer repositories.
-                                      Packages already installed in Unity stay in their projects.
-                                    </p>
-                                  </div>
-                                  <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                                    <Button
-                                      size="sm"
-                                      variant="secondary"
-                                      isDisabled={revokeVccLinkMutation.isPending}
-                                      onPress={() => setIsConfirmingLinkRevoke(false)}
-                                    >
-                                      Keep enabled
-                                    </Button>
-                                    <YucpButton
-                                      yucp="danger"
-                                      size="sm"
-                                      isLoading={revokeVccLinkMutation.isPending}
-                                      onPress={() => revokeVccLinkMutation.mutate()}
-                                    >
-                                      {revokeVccLinkMutation.isPending
-                                        ? 'Disabling...'
-                                        : 'Disable access'}
-                                    </YucpButton>
-                                  </div>
-                                </div>
+                              {vccLinkQuery.data.status !== 'active' ? (
+                                <p className="pm-subtle-copy text-xs leading-5">
+                                  Enable Unity access before downloading a bootstrap.
+                                </p>
                               ) : null}
                             </>
                           )}
@@ -2031,8 +1965,6 @@ function ProductDetailsSheet({
                               const isArchiving =
                                 archiveEditionMutation.isPending &&
                                 archiveEditionMutation.variables === edition.editionId;
-                              const isConfirmingArchive =
-                                confirmArchiveEditionId === edition.editionId;
                               return (
                                 <div
                                   key={edition.editionId}
@@ -2056,71 +1988,38 @@ function ProductDetailsSheet({
                                           : 'All buyers of this product'}
                                       </p>
                                     </div>
-                                    {!isConfirmingArchive ? (
-                                      <div className="flex flex-wrap gap-2">
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
+                                    <div className="flex flex-wrap gap-2">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        isDisabled={
+                                          saveEditionMutation.isPending ||
+                                          archiveEditionMutation.isPending
+                                        }
+                                        aria-label={`Edit edition ${edition.displayName}`}
+                                        onPress={() => openEditionEditor(edition)}
+                                      >
+                                        Edit
+                                      </Button>
+                                      {edition.status === 'active' ? (
+                                        <HoldConfirmButton
+                                          accessibleLabel={`Hold to archive edition ${edition.displayName}`}
+                                          confirmLabel="Keep holding to archive..."
                                           isDisabled={
                                             saveEditionMutation.isPending ||
-                                            archiveEditionMutation.isPending
+                                            (archiveEditionMutation.isPending && !isArchiving)
                                           }
-                                          aria-label={`Edit edition ${edition.displayName}`}
-                                          onPress={() => openEditionEditor(edition)}
-                                        >
-                                          Edit
-                                        </Button>
-                                        {edition.status === 'active' ? (
-                                          <YucpButton
-                                            yucp="ghost"
-                                            size="sm"
-                                            isDisabled={
-                                              saveEditionMutation.isPending ||
-                                              archiveEditionMutation.isPending
-                                            }
-                                            aria-label={`Archive edition ${edition.displayName}`}
-                                            onPress={() =>
-                                              setConfirmArchiveEditionId(edition.editionId)
-                                            }
-                                          >
-                                            Archive
-                                          </YucpButton>
-                                        ) : null}
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                  {isConfirmingArchive ? (
-                                    <div className="pm-inline-note space-y-3 rounded-xl p-3">
-                                      <div className="space-y-1">
-                                        <p className="text-foreground text-sm font-semibold">
-                                          Archive {edition.displayName}?
-                                        </p>
-                                        <p className="pm-subtle-copy text-sm leading-6">
-                                          Buyers stop receiving this edition. Its release records
-                                          remain intact.
-                                        </p>
-                                      </div>
-                                      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                                        <Button
-                                          size="sm"
-                                          variant="secondary"
-                                          isDisabled={isArchiving}
-                                          onPress={() => setConfirmArchiveEditionId(null)}
-                                        >
-                                          Keep edition
-                                        </Button>
-                                        <YucpButton
-                                          size="sm"
-                                          isLoading={isArchiving}
-                                          onPress={() =>
+                                          isPending={isArchiving}
+                                          onConfirm={() =>
                                             archiveEditionMutation.mutate(edition.editionId)
                                           }
+                                          pendingLabel="Archiving..."
                                         >
-                                          {isArchiving ? 'Archiving edition...' : 'Archive edition'}
-                                        </YucpButton>
-                                      </div>
+                                          Archive
+                                        </HoldConfirmButton>
+                                      ) : null}
                                     </div>
-                                  ) : null}
+                                  </div>
                                 </div>
                               );
                             })}
@@ -2167,7 +2066,6 @@ function ProductDetailsSheet({
                           onChange={(key) => {
                             const nextEditionId = String(key ?? '');
                             if (nextEditionId) {
-                              setConfirmDeleteVersionId(null);
                               setSelectedHistoryEditionId(nextEditionId);
                             }
                           }}
@@ -2217,8 +2115,6 @@ function ProductDetailsSheet({
                           </div>
                         ) : packageVersions.length ? (
                           packageVersions.map((packageVersion) => {
-                            const isConfirming =
-                              confirmDeleteVersionId === packageVersion.versionId;
                             const isDeleting =
                               deleteVersionMutation.isPending &&
                               deleteVersionMutation.variables?.editionId ===
@@ -2247,55 +2143,23 @@ function ProductDetailsSheet({
                                       }).format(new Date(packageVersion.createdAt))}
                                     </p>
                                   </div>
-                                  {!isConfirming ? (
-                                    <YucpButton
-                                      yucp="ghost"
-                                      size="sm"
-                                      isDisabled={deleteVersionMutation.isPending}
-                                      onPress={() =>
-                                        setConfirmDeleteVersionId(packageVersion.versionId)
-                                      }
-                                      aria-label={`Delete release ${packageVersion.version}`}
-                                    >
-                                      <Icon name="trash" className="size-4" />
-                                      Delete
-                                    </YucpButton>
-                                  ) : null}
+                                  <HoldConfirmButton
+                                    accessibleLabel={`Hold to delete release ${packageVersion.version}`}
+                                    confirmLabel="Keep holding to delete..."
+                                    isDisabled={deleteVersionMutation.isPending && !isDeleting}
+                                    isPending={isDeleting}
+                                    onConfirm={() =>
+                                      deleteVersionMutation.mutate({
+                                        editionId: selectedHistoryEditionId,
+                                        versionId: packageVersion.versionId,
+                                      })
+                                    }
+                                    pendingLabel="Deleting..."
+                                  >
+                                    <Icon name="trash" className="size-4" />
+                                    Delete
+                                  </HoldConfirmButton>
                                 </div>
-                                {isConfirming ? (
-                                  <div className="pm-inline-note space-y-3 rounded-xl p-3">
-                                    <p className="text-foreground text-sm font-semibold">
-                                      Delete release {packageVersion.version}?
-                                    </p>
-                                    <p className="pm-subtle-copy text-sm leading-6">
-                                      Buyers cannot install this release after deletion. Other
-                                      releases keep every file they still need.
-                                    </p>
-                                    <div className="flex flex-wrap justify-end gap-2">
-                                      <Button
-                                        size="sm"
-                                        variant="secondary"
-                                        isDisabled={isDeleting}
-                                        onPress={() => setConfirmDeleteVersionId(null)}
-                                      >
-                                        Keep release
-                                      </Button>
-                                      <YucpButton
-                                        yucp="danger"
-                                        size="sm"
-                                        isLoading={isDeleting}
-                                        onPress={() =>
-                                          deleteVersionMutation.mutate({
-                                            editionId: selectedHistoryEditionId,
-                                            versionId: packageVersion.versionId,
-                                          })
-                                        }
-                                      >
-                                        {isDeleting ? 'Deleting release...' : 'Delete release'}
-                                      </YucpButton>
-                                    </div>
-                                  </div>
-                                ) : null}
                               </div>
                             );
                           })
@@ -2340,7 +2204,7 @@ function ProductDetailsSheet({
       >
         <Sheet.Backdrop variant="blur">
           <Sheet.Content
-            className="pm-sheet-content mx-auto max-h-[94vh] max-w-[720px]"
+            className="pm-sheet-content mx-auto max-w-[720px]"
             aria-label="Download bootstrap"
           >
             <Sheet.Dialog className="pm-sheet-dialog" aria-label="Download bootstrap">
@@ -2744,6 +2608,10 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
   const selectedUploadEdition = uploadEditionOptions.find(
     (candidate) => candidate.editionId === editionId
   );
+  const normalizedReleaseLabel = version.trim();
+  const isPrereleaseUpload =
+    isStrictSemanticVersion(normalizedReleaseLabel) &&
+    isPrereleaseSemanticVersion(normalizedReleaseLabel);
 
   const uploadMutation = useMutation({
     mutationFn: async () => {
@@ -2870,6 +2738,9 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
         queryClient.invalidateQueries({ queryKey: creatorProductPickerQueryKey }),
       ]);
       toast.success('Package uploaded');
+      setDetailsProductId(readyProduct._id);
+      setIsUploadOpen(false);
+      setIsDetailsOpen(true);
     },
     onError: (error) => {
       if (error instanceof PackageVersionStatusCheckError) {
@@ -3014,6 +2885,9 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
         queryClient.invalidateQueries({ queryKey: creatorProductPickerQueryKey }),
       ]);
       toast.success('Package ready');
+      setDetailsProductId(readyProduct._id);
+      setIsUploadOpen(false);
+      setIsDetailsOpen(true);
     },
     onError: (error) => {
       if (error instanceof PackageVersionStatusCheckError) {
@@ -3274,7 +3148,7 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
       <Sheet isDetached isOpen={isUploadOpen} onOpenChange={setIsUploadOpen}>
         <Sheet.Backdrop variant="blur">
           <Sheet.Content
-            className="pm-sheet-content pm-publish-sheet-content mx-auto max-h-[calc(100svh-48px)] max-w-[680px]"
+            className="pm-sheet-content mx-auto max-w-[680px]"
             aria-label="Upload a package"
           >
             <Sheet.Dialog className="pm-sheet-dialog" aria-label="Upload a package">
@@ -3432,13 +3306,38 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
                       />
                     </div>
                     <div className="pm-field-stack">
-                      <p className="pm-field-label">Release label</p>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="pm-field-label">Release label</p>
+                        {isPrereleaseUpload ? (
+                          <Chip size="sm" variant="soft">
+                            Prerelease
+                          </Chip>
+                        ) : null}
+                      </div>
                       <YucpInput
                         aria-label="Release label"
-                        placeholder="Summer launch"
+                        aria-describedby={
+                          isPrereleaseUpload
+                            ? 'release-label-help release-label-prerelease-note'
+                            : 'release-label-help'
+                        }
+                        placeholder="1.0.0 or 1.0.0-beta.1"
                         value={version}
                         onValueChange={setVersion}
                       />
+                      <p id="release-label-help" className="pm-subtle-copy text-xs leading-5">
+                        Stable: 1.0.0 &middot; Prerelease: 1.0.0-beta.1
+                      </p>
+                      {isPrereleaseUpload ? (
+                        <p
+                          id="release-label-prerelease-note"
+                          className="pm-subtle-copy text-xs leading-5"
+                          aria-live="polite"
+                        >
+                          Installed only when this exact version is selected. Latest continues to
+                          choose stable releases.
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                 </div>

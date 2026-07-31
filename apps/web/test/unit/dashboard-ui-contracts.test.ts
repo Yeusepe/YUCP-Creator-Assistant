@@ -247,7 +247,36 @@ describe('dashboard UI contracts', () => {
     }
   });
 
-  it('keeps package upload actions clear of the sheet edge and device safe area', () => {
+  it('keeps every package drawer clear of the viewport edge and device safe area', () => {
+    expect(
+      readCssDeclaration(
+        dashboardComponentsCss,
+        '.sheet__content.sheet__content--bottom',
+        '--yucp-sheet-viewport-gap'
+      )
+    ).toBe('clamp(32px, 4.5svh, 48px)');
+    expect(
+      readCssDeclaration(dashboardComponentsCss, '.sheet__content.sheet__content--bottom', 'bottom')
+    ).toBe('calc(var(--yucp-sheet-viewport-gap) + env(safe-area-inset-bottom, 0px))');
+    expect(
+      readCssDeclaration(
+        dashboardComponentsCss,
+        '.sheet__content.sheet__content--bottom',
+        'max-height'
+      )
+        .replace(/\s+/g, ' ')
+        .replace(/\(\s+/g, '(')
+        .replace(/\s+\)/g, ')')
+    ).toBe(
+      'calc(100svh - var(--yucp-sheet-viewport-gap) - var(--yucp-sheet-viewport-gap) - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))'
+    );
+    expect(
+      readCssDeclaration(
+        dashboardComponentsCss,
+        '.sheet__content.sheet__content--bottom .sheet__footer',
+        'padding-bottom'
+      )
+    ).toBe('max(20px, calc(12px + env(safe-area-inset-bottom)))');
     expect(readCssDeclaration(dashboardComponentsCss, '.pm-sheet-footer', 'padding-bottom')).toBe(
       'max(20px, calc(12px + env(safe-area-inset-bottom)))'
     );

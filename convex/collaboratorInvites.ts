@@ -304,6 +304,74 @@ export const acceptCollaboratorInvite = mutation({
 });
 
 /**
+ * Accept a provider-independent workspace invitation.
+ * New invitations create membership only. Provider credentials stay separate
+ * and can be connected later through the provider connection flow.
+ */
+export const acceptCreatorWorkspaceInvite = mutation({
+  args: {
+    apiSecret: v.string(),
+    inviteId: v.id('collaborator_invites'),
+    collaboratorDiscordUserId: v.string(),
+    collaboratorDisplayName: v.string(),
+    collaboratorAvatarHash: v.optional(v.string()),
+  },
+  returns: v.id('creator_workspace_memberships'),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const now = Date.now();
+    const invite = await ctx.db.get(args.inviteId);
+    if (!invite) throw new Error('Invite not found');
+    if (invite.providerKey) {
+      throw new ConvexError('Provider-specific invitations require the legacy connection flow');
+    }
+    if (invite.usedAt !== undefined) {
+      throw new ConvexError('This invite has already been used');
+    }
+    if (invite.status !== 'pending') throw new Error('Invite is no longer pending');
+    if (now > invite.expiresAt) throw new Error('Invite has expired');
+
+    const memberProfile = await ctx.db
+      .query('creator_profiles')
+      .withIndex('by_discord_user', (q) =>
+        q.eq('ownerDiscordUserId', args.collaboratorDiscordUserId)
+      )
+      .first();
+    const policy = await materializeCreatorWorkspaceMembership(ctx, {
+      changedByAuthUserId: invite.ownerAuthUserId,
+      grants: normalizeCreatorWorkspaceGrants(invite.permissionGrants ?? []),
+      legacyPolicyPendingReview: false,
+      memberAuthUserId: memberProfile?.authUserId,
+      memberAvatarHash: args.collaboratorAvatarHash,
+      memberDiscordUserId: args.collaboratorDiscordUserId,
+      memberDisplayName: args.collaboratorDisplayName,
+      ownerAuthUserId: invite.ownerAuthUserId,
+      source: 'invite',
+    });
+
+    await ctx.db.patch(args.inviteId, {
+      status: 'accepted',
+      targetDiscordUserId: args.collaboratorDiscordUserId,
+      targetDiscordDisplayName: args.collaboratorDisplayName,
+      usedAt: now,
+    });
+    await ctx.db.insert('audit_events', {
+      authUserId: invite.ownerAuthUserId,
+      eventType: 'collaborator.invite.accepted',
+      actorType: 'system',
+      metadata: {
+        inviteId: args.inviteId,
+        membershipId: policy.membershipId,
+        collaboratorDiscordUserId: args.collaboratorDiscordUserId,
+        providerConnectionShared: false,
+      },
+      createdAt: now,
+    });
+    return policy.membershipId;
+  },
+});
+
+/**
  * Manually add a collaborator connection (no invite).
  * Used when a creator shares their API key directly (e.g. via DM).
  * Identity comes from provider API since collaborator may not be in Discord server.
@@ -344,6 +412,15 @@ export const addCollaboratorConnectionManual = mutation({
       addedByDiscordUserId: args.addedByDiscordUserId,
       createdAt: now,
       updatedAt: now,
+    });
+    await materializeCreatorWorkspaceMembership(ctx, {
+      changedByAuthUserId: args.ownerAuthUserId,
+      collaboratorConnectionId: connectionId,
+      grants: [],
+      legacyPolicyPendingReview: false,
+      memberDiscordUserId: args.collaboratorIdentity,
+      ownerAuthUserId: args.ownerAuthUserId,
+      source: 'owner_edit',
     });
     await ctx.db.insert('audit_events', {
       authUserId: args.ownerAuthUserId,
@@ -447,11 +524,87 @@ export const listPendingInvitesByOwner = query({
       .filter((i) => i.expiresAt > now)
       .map((i) => ({
         id: i._id,
-        providerKey: i.providerKey ?? 'jinxxy',
+        providerKey: i.providerKey,
         ownerDisplayName: i.ownerDisplayName,
         expiresAt: i.expiresAt,
         createdAt: i.createdAt,
       }));
+  },
+});
+
+/**
+ * List durable workspace memberships for the owner. This is the canonical
+ * collaborator surface and does not depend on a shared provider credential.
+ */
+export const listCreatorWorkspaceMemberships = query({
+  args: {
+    apiSecret: v.string(),
+    ownerAuthUserId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const memberships = await ctx.db
+      .query('creator_workspace_memberships')
+      .withIndex('by_owner', (q) => q.eq('ownerAuthUserId', args.ownerAuthUserId))
+      .collect();
+    return await Promise.all(
+      memberships
+        .filter((membership) => membership.status !== 'removed')
+        .map(async (membership) => {
+          const connection = membership.collaboratorConnectionId
+            ? await ctx.db.get(membership.collaboratorConnectionId)
+            : null;
+          return {
+            id: membership._id,
+            status: membership.status,
+            collaboratorDiscordUserId: membership.memberDiscordUserId,
+            collaboratorDisplayName:
+              membership.memberDisplayName ?? connection?.collaboratorDisplayName ?? 'Collaborator',
+            collaboratorAvatarHash:
+              membership.memberAvatarHash ?? connection?.collaboratorAvatarHash,
+            createdAt: membership.createdAt,
+            updatedAt: membership.updatedAt,
+            connectionId: connection?._id,
+            provider: connection?.provider,
+            linkType: connection?.linkType,
+            webhookConfigured: connection?.webhookConfigured ?? false,
+          };
+        })
+    );
+  },
+});
+
+export const removeCreatorWorkspaceMembership = mutation({
+  args: {
+    apiSecret: v.string(),
+    membershipId: v.id('creator_workspace_memberships'),
+    ownerAuthUserId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const membership = await ctx.db.get(args.membershipId);
+    if (!membership || membership.ownerAuthUserId !== args.ownerAuthUserId) {
+      throw new ConvexError('Collaborator membership not found');
+    }
+    const now = Date.now();
+    await ctx.db.patch(membership._id, {
+      status: 'removed',
+      removedAt: now,
+      updatedAt: now,
+    });
+    if (membership.collaboratorConnectionId) {
+      await ctx.db.patch(membership.collaboratorConnectionId, {
+        status: 'disconnected',
+        updatedAt: now,
+      });
+    }
+    await ctx.db.insert('audit_events', {
+      authUserId: args.ownerAuthUserId,
+      eventType: 'collaborator.membership.removed',
+      actorType: 'system',
+      metadata: { membershipId: membership._id },
+      createdAt: now,
+    });
   },
 });
 
