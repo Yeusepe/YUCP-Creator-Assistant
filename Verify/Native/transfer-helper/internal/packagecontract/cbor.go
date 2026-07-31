@@ -155,11 +155,15 @@ func requireString(value any, name string) (string, error) {
 }
 
 func requireExactIntegerLabels(mapped map[any]any, labels []int64, name string) error {
-	if len(mapped) != len(labels) {
-		return fmt.Errorf("%s contains missing or unknown labels", name)
+	return requireIntegerLabels(mapped, labels, nil, name)
+}
+
+func requireIntegerLabels(mapped map[any]any, required []int64, optional []int64, name string) error {
+	allowed := make(map[int64]struct{}, len(required)+len(optional))
+	for _, label := range required {
+		allowed[label] = struct{}{}
 	}
-	allowed := make(map[int64]struct{}, len(labels))
-	for _, label := range labels {
+	for _, label := range optional {
 		allowed[label] = struct{}{}
 	}
 	for key := range mapped {
@@ -169,6 +173,11 @@ func requireExactIntegerLabels(mapped map[any]any, labels []int64, name string) 
 		}
 		if _, ok := allowed[label]; !ok {
 			return fmt.Errorf("%s contains unknown label %d", name, label)
+		}
+	}
+	for _, label := range required {
+		if _, ok := mapped[label]; !ok {
+			return fmt.Errorf("%s contains missing or unknown labels", name)
 		}
 	}
 	return nil

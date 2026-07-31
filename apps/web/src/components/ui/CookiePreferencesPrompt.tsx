@@ -1,4 +1,6 @@
+import { useConvexAuth, useMutation as useConvexMutation } from 'convex/react';
 import { useEffect, useState } from 'react';
+import { api } from '../../../../../convex/_generated/api';
 import { YucpButton } from '@/components/ui/YucpButton';
 import {
   getPrivacyPreferenceSummary,
@@ -11,6 +13,22 @@ import {
 function usePrivacyPreferencesState() {
   const [preferences, setPreferences] = useState<PrivacyPreferences | null>(null);
   const [ready, setReady] = useState(false);
+  const { isAuthenticated } = useConvexAuth();
+  const recordConsent = useConvexMutation(api.accountDiagnosticsConsent.recordConsent);
+
+  function remember(next: PrivacyPreferences) {
+    setPreferences(next);
+    if (isAuthenticated) {
+      void recordConsent({
+        choice: next.choice,
+        source: 'banner',
+        ...(next.diagnosticsSessionId
+          ? { diagnosticsSessionId: next.diagnosticsSessionId }
+          : {}),
+      }).catch(() => undefined);
+    }
+    return next;
+  }
 
   useEffect(() => {
     setPreferences(readStoredPrivacyPreferences());
@@ -40,9 +58,8 @@ function usePrivacyPreferencesState() {
   return {
     preferences,
     ready,
-    setNecessaryOnly: () => setPreferences(savePrivacyPreferences('necessary-only', 'banner')),
-    setHelpfulDiagnostics: () =>
-      setPreferences(savePrivacyPreferences('helpful-diagnostics', 'banner')),
+    setNecessaryOnly: () => remember(savePrivacyPreferences('necessary-only', 'banner')),
+    setHelpfulDiagnostics: () => remember(savePrivacyPreferences('helpful-diagnostics', 'banner')),
   };
 }
 

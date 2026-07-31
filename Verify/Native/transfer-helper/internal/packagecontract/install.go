@@ -22,6 +22,13 @@ type InstallBootstrap struct {
 	URL    string
 }
 
+const installSessionDiagnosticsLabel = int64(22)
+
+type InstallDiagnostics struct {
+	Enabled   bool
+	SessionID string
+}
+
 type InstallSession struct {
 	AliasID                string
 	AllowedAPIOrigins      []string
@@ -32,6 +39,7 @@ type InstallSession struct {
 	BuyerID                string
 	CreatorID              string
 	DeviceKeyThumbprint    [32]byte
+	Diagnostics            InstallDiagnostics
 	ExpiresAt              int64
 	IssuedAt               int64
 	Issuer                 string
@@ -83,7 +91,12 @@ func ParseInstallSession(payload []byte) (InstallSession, error) {
 	for index := range labels {
 		labels[index] = int64(index)
 	}
-	if err := requireExactIntegerLabels(mapped, labels, "InstallSessionV2"); err != nil {
+	if err := requireIntegerLabels(
+		mapped,
+		labels,
+		[]int64{installSessionDiagnosticsLabel},
+		"InstallSessionV2",
+	); err != nil {
 		return InstallSession{}, err
 	}
 	version, err := requireInt(mapped[int64(0)], "InstallSessionV2.schemaVersion")
@@ -196,10 +209,45 @@ func ParseInstallSession(payload []byte) (InstallSession, error) {
 		}
 		*destination = value
 	}
+	diagnostics, err := parseInstallDiagnostics(mapped[installSessionDiagnosticsLabel])
+	if err != nil {
+		return InstallSession{}, err
+	}
+	session.Diagnostics = diagnostics
 	if err := validateInstallSession(session); err != nil {
 		return InstallSession{}, err
 	}
 	return session, nil
+}
+
+func parseInstallDiagnostics(value any) (InstallDiagnostics, error) {
+	if value == nil {
+		return InstallDiagnostics{}, nil
+	}
+	mapped, err := requireMap(value, "InstallSessionV2.diagnostics")
+	if err != nil {
+		return InstallDiagnostics{}, err
+	}
+	if err := requireIntegerLabels(
+		mapped,
+		[]int64{0},
+		[]int64{1},
+		"InstallSessionV2.diagnostics",
+	); err != nil {
+		return InstallDiagnostics{}, err
+	}
+	enabled, ok := mapped[int64(0)].(bool)
+	if !ok {
+		return InstallDiagnostics{}, fmt.Errorf("InstallSessionV2.diagnostics.enabled must be a boolean")
+	}
+	if !enabled {
+		return InstallDiagnostics{}, nil
+	}
+	sessionID, err := requireString(mapped[int64(1)], "InstallSessionV2.diagnostics.sessionId")
+	if err != nil || len([]byte(sessionID)) > 128 {
+		return InstallDiagnostics{}, fmt.Errorf("InstallSessionV2.diagnostics.sessionId is invalid")
+	}
+	return InstallDiagnostics{Enabled: true, SessionID: sessionID}, nil
 }
 
 func ParseDeliveryGrant(payload []byte) (DeliveryGrant, error) {

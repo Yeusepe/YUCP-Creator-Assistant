@@ -1722,6 +1722,16 @@ const account_security_state = defineTable({
   .index('by_auth_user', ['authUserId'])
   .index('by_next_prompt', ['nextRecoveryPromptAt']);
 
+const account_diagnostics_consent = defineTable({
+  authUserId: v.string(),
+  diagnosticsEnabled: v.boolean(),
+  diagnosticsSessionId: v.optional(v.string()),
+  choice: v.union(v.literal('necessary-only'), v.literal('helpful-diagnostics')),
+  source: v.string(),
+  decidedAt: v.number(),
+  updatedAt: v.number(),
+}).index('by_auth_user', ['authUserId']);
+
 const account_recovery_sessions = defineTable({
   authUserId: v.string(),
   lookupEmailHash: v.optional(v.string()),
@@ -3217,6 +3227,7 @@ export default defineSchema({
   entitlement_evidence,
   creator_oauth_apps,
   account_recovery_contacts,
+  account_diagnostics_consent,
   account_security_state,
   account_recovery_sessions,
   collaborator_invites,

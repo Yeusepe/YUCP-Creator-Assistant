@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as accountDiagnosticsConsent from "../accountDiagnosticsConsent.js";
 import type * as accountSecurity from "../accountSecurity.js";
 import type * as adminNotifications from "../adminNotifications.js";
 import type * as attestation from "../attestation.js";
@@ -140,6 +141,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  accountDiagnosticsConsent: typeof accountDiagnosticsConsent;
   accountSecurity: typeof accountSecurity;
   adminNotifications: typeof adminNotifications;
   attestation: typeof attestation;

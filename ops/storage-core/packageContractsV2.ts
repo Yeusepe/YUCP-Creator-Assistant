@@ -60,6 +60,11 @@ export type InstallSessionOperation =
   | 'uninstall'
   | 'update';
 
+export type InstallSessionDiagnosticsV2 = {
+  enabled: boolean;
+  sessionId?: string;
+};
+
 export type InstallSessionV2 = {
   aliasId: string;
   allowedApiOrigins: string[];
@@ -70,6 +75,7 @@ export type InstallSessionV2 = {
   buyerId: string;
   creatorId: string;
   deviceKeyThumbprint: Uint8Array;
+  diagnostics?: InstallSessionDiagnosticsV2;
   expiresAt: number;
   issuedAt: number;
   issuer: string;
@@ -1358,7 +1364,18 @@ function bootstrapMap(bootstrap: InstallSessionBootstrapV2) {
   ]);
 }
 
+function installSessionDiagnosticsMap(diagnostics: InstallSessionDiagnosticsV2) {
+  const map = new Map<number, PackageContractCborValue>([[0, diagnostics.enabled]]);
+  if (diagnostics.enabled && diagnostics.sessionId) {
+    map.set(1, diagnostics.sessionId);
+  }
+  return map;
+}
+
 function installSessionMap(session: InstallSessionV2) {
+  const diagnostics: Array<[number, PackageContractCborValue]> = session.diagnostics
+    ? [[22, installSessionDiagnosticsMap(session.diagnostics)]]
+    : [];
   return new Map<number, PackageContractCborValue>([
     [0, PACKAGE_CONTRACT_VERSION],
     [1, session.tokenType],
@@ -1382,6 +1399,7 @@ function installSessionMap(session: InstallSessionV2) {
     [19, session.sessionId],
     [20, session.maxLifetimeSeconds],
     [21, session.operation],
+    ...diagnostics,
   ]);
 }
 

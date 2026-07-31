@@ -1,6 +1,8 @@
 import { useMutation } from '@tanstack/react-query';
 import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
+import { useMutation as useConvexMutation } from 'convex/react';
 import { useEffect, useRef, useState } from 'react';
+import { api } from '../../../../../../convex/_generated/api';
 import { apiClient } from '@/api/client';
 import { AccountModal, AccountPage, AccountSectionCard } from '@/components/account/AccountPage';
 import { useToast } from '@/components/ui/Toast';
@@ -57,6 +59,9 @@ function AccountPrivacy() {
   const [preferences, setPreferences] = useState<PrivacyPreferences | null>(null);
   const [preferencesReady, setPreferencesReady] = useState(false);
   const deleteInputRef = useRef<HTMLInputElement>(null);
+  const recordDiagnosticsConsent = useConvexMutation(
+    api.accountDiagnosticsConsent.recordConsent
+  );
 
   const deleteMut = useMutation({
     mutationFn: () => apiClient.delete('/api/connect/user/gdpr-delete'),
@@ -107,10 +112,15 @@ function AccountPrivacy() {
   function applyPreference(choice: 'necessary-only' | 'helpful-diagnostics') {
     const next = savePrivacyPreferences(choice, 'account');
     setPreferences(next);
+    void recordDiagnosticsConsent({
+      choice,
+      source: 'account',
+      ...(next.diagnosticsSessionId ? { diagnosticsSessionId: next.diagnosticsSessionId } : {}),
+    }).catch(() => undefined);
     toast.success('Privacy choices updated', {
       description:
         choice === 'helpful-diagnostics'
-          ? 'Helpful diagnostics are now available when you need to reproduce a bug.'
+          ? 'Helpful diagnostics are now available when you need to reproduce a bug, including the Unity importer.'
           : 'Optional diagnostics are now disabled. Only necessary cookies remain active.',
     });
   }
