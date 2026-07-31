@@ -5,10 +5,30 @@
  * their Jinxxy API key so license verification works across both stores.
  */
 
+import {
+  CREATOR_WORKSPACE_POLICY_VERSION,
+  LEGACY_CREATOR_WORKSPACE_GRANTS,
+  normalizeCreatorWorkspaceGrants,
+} from '@yucp/shared/creatorWorkspacePermissions';
 import { ConvexError, v } from 'convex/values';
 import { internalQuery, mutation, query } from './_generated/server';
 import { enqueueCatalogMaterialization } from './catalogMaterialization';
 import { requireApiSecret } from './lib/apiAuth';
+import { materializeCreatorWorkspaceMembership } from './lib/creatorWorkspacePolicy';
+
+const CreatorWorkspaceGrantV = v.object({
+  capabilityKey: v.string(),
+  resourceType: v.union(
+    v.literal('workspace'),
+    v.literal('product'),
+    v.literal('package'),
+    v.literal('guild'),
+    v.literal('provider_connection'),
+    v.literal('developer_integration')
+  ),
+  scope: v.union(v.literal('all'), v.literal('selected')),
+  resourceId: v.optional(v.string()),
+});
 
 /**
  * Create a collaborator invite.
@@ -24,12 +44,17 @@ export const createCollaboratorInvite = mutation({
     expiresAt: v.number(),
     /** Commerce provider for this invite (e.g. 'jinxxy', 'lemonsqueezy'). Defaults to 'jinxxy'. */
     providerKey: v.optional(v.string()),
+    permissionGrants: v.optional(v.array(CreatorWorkspaceGrantV)),
   },
   returns: v.id('collaborator_invites'),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const MAX_EXPIRES_AT = Date.now() + 30 * 24 * 60 * 60 * 1000;
     const expiresAt = Math.min(args.expiresAt, MAX_EXPIRES_AT);
+    const permissionGrants =
+      args.permissionGrants === undefined
+        ? undefined
+        : normalizeCreatorWorkspaceGrants(args.permissionGrants);
     const inviteId = await ctx.db.insert('collaborator_invites', {
       ownerAuthUserId: args.ownerAuthUserId,
       tokenHash: args.tokenHash,
@@ -39,6 +64,10 @@ export const createCollaboratorInvite = mutation({
       expiresAt,
       createdAt: Date.now(),
       providerKey: args.providerKey,
+      permissionPolicyVersion:
+        permissionGrants === undefined ? undefined : CREATOR_WORKSPACE_POLICY_VERSION,
+      permissionGrants,
+      legacyPolicyPendingReview: permissionGrants === undefined,
     });
     await ctx.db.insert('audit_events', {
       authUserId: args.ownerAuthUserId,
@@ -69,6 +98,9 @@ export const getCollaboratorInviteByTokenHash = query({
       expiresAt: v.number(),
       createdAt: v.number(),
       providerKey: v.optional(v.string()),
+      permissionPolicyVersion: v.optional(v.number()),
+      permissionGrants: v.optional(v.array(CreatorWorkspaceGrantV)),
+      legacyPolicyPendingReview: v.optional(v.boolean()),
     }),
     v.null()
   ),
@@ -88,6 +120,9 @@ export const getCollaboratorInviteByTokenHash = query({
       expiresAt: invite.expiresAt,
       createdAt: invite.createdAt,
       providerKey: invite.providerKey,
+      permissionPolicyVersion: invite.permissionPolicyVersion,
+      permissionGrants: invite.permissionGrants,
+      legacyPolicyPendingReview: invite.legacyPolicyPendingReview,
     };
   },
 });
@@ -111,6 +146,9 @@ export const getCollaboratorInviteById = query({
       expiresAt: v.number(),
       createdAt: v.number(),
       providerKey: v.optional(v.string()),
+      permissionPolicyVersion: v.optional(v.number()),
+      permissionGrants: v.optional(v.array(CreatorWorkspaceGrantV)),
+      legacyPolicyPendingReview: v.optional(v.boolean()),
     }),
     v.null()
   ),
@@ -128,6 +166,9 @@ export const getCollaboratorInviteById = query({
       expiresAt: invite.expiresAt,
       createdAt: invite.createdAt,
       providerKey: invite.providerKey,
+      permissionPolicyVersion: invite.permissionPolicyVersion,
+      permissionGrants: invite.permissionGrants,
+      legacyPolicyPendingReview: invite.legacyPolicyPendingReview,
     };
   },
 });
@@ -226,6 +267,18 @@ export const acceptCollaboratorInvite = mutation({
       collaboratorAvatarHash: args.collaboratorAvatarHash,
       createdAt: now,
       updatedAt: now,
+    });
+    await materializeCreatorWorkspaceMembership(ctx, {
+      changedByAuthUserId: invite.ownerAuthUserId,
+      collaboratorConnectionId: connectionId,
+      grants:
+        invite.permissionGrants === undefined
+          ? LEGACY_CREATOR_WORKSPACE_GRANTS
+          : normalizeCreatorWorkspaceGrants(invite.permissionGrants),
+      legacyPolicyPendingReview: invite.permissionGrants === undefined,
+      memberDiscordUserId: args.collaboratorDiscordUserId,
+      ownerAuthUserId: invite.ownerAuthUserId,
+      source: invite.permissionGrants === undefined ? 'legacy_migration' : 'invite',
     });
     await ctx.db.patch(args.inviteId, { usedAt: now });
     await ctx.db.insert('audit_events', {
@@ -480,10 +533,18 @@ export const removeCollaboratorConnection = mutation({
     if (!conn || conn.ownerAuthUserId !== args.ownerAuthUserId) {
       throw new Error('Connection not found or access denied');
     }
+    const now = Date.now();
     await ctx.db.patch(args.connectionId, {
       status: 'disconnected',
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
+    if (conn.workspaceMembershipId) {
+      await ctx.db.patch(conn.workspaceMembershipId, {
+        status: 'removed',
+        removedAt: now,
+        updatedAt: now,
+      });
+    }
     await ctx.db.insert('audit_events', {
       authUserId: args.ownerAuthUserId,
       eventType: 'collaborator.connection.removed',
@@ -520,10 +581,18 @@ export const removeCollaboratorConnectionAsCollaborator = mutation({
       throw new Error('Connection not found or access denied');
     }
 
+    const now = Date.now();
     await ctx.db.patch(args.connectionId, {
       status: 'disconnected',
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
+    if (conn.workspaceMembershipId) {
+      await ctx.db.patch(conn.workspaceMembershipId, {
+        status: 'removed',
+        removedAt: now,
+        updatedAt: now,
+      });
+    }
     await ctx.db.insert('audit_events', {
       authUserId: conn.ownerAuthUserId,
       eventType: 'collaborator.connection.removed',

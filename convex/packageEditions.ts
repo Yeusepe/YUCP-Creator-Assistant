@@ -10,8 +10,8 @@ import {
 } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
 import {
-  hasCreatorWorkspaceAccess,
-  requireCreatorWorkspaceActor,
+  hasCreatorWorkspaceCapability,
+  requireCreatorWorkspaceCapability,
 } from './lib/creatorWorkspaceAccess';
 
 const EDITION_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
@@ -129,7 +129,10 @@ export const upsertForCreator = mutation({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
+    await requireCreatorWorkspaceCapability(ctx, args.actor, args.authUserId, {
+      capabilityKey: 'packages.editions.manage',
+      resources: [{ resourceId: args.packageId, resourceType: 'package' }],
+    });
     const packageId = normalizedPackageId(args.packageId);
     const editionId = normalizedEditionId(args.editionId);
     const displayName = normalizedDisplayName(args.displayName);
@@ -192,7 +195,10 @@ export const listForCreator = query({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
+    await requireCreatorWorkspaceCapability(ctx, args.actor, args.authUserId, {
+      capabilityKey: 'packages.view',
+      resources: [{ resourceId: args.packageId, resourceType: 'package' }],
+    });
     return (
       await ctx.db
         .query('package_editions')
@@ -218,6 +224,7 @@ export const getManagementScopeForCreator = query({
     authUserId: v.string(),
     packageId: v.string(),
     editionId: v.string(),
+    requiredCapability: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
@@ -230,7 +237,13 @@ export const getManagementScopeForCreator = query({
       .unique();
     if (
       !registration ||
-      !(await hasCreatorWorkspaceAccess(ctx, args.authUserId, registration.yucpUserId))
+      !(await hasCreatorWorkspaceCapability(ctx, args.authUserId, registration.yucpUserId, {
+        capabilityKey:
+          args.requiredCapability === 'packages.releases.delete'
+            ? 'packages.releases.delete'
+            : 'packages.view',
+        resources: [{ resourceId: packageId, resourceType: 'package' }],
+      }))
     ) {
       return null;
     }
@@ -273,7 +286,10 @@ export const ensureStandardForCreatorUpload = mutation({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
+    await requireCreatorWorkspaceCapability(ctx, args.actor, args.authUserId, {
+      capabilityKey: 'packages.releases.upload',
+      resources: [{ resourceId: args.packageId, resourceType: 'package' }],
+    });
     const packageId = normalizedPackageId(args.packageId);
     const existing = await ctx.db
       .query('package_editions')
@@ -338,7 +354,10 @@ export const ensureCatalogTierForCreatorUpload = mutation({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
+    await requireCreatorWorkspaceCapability(ctx, args.actor, args.authUserId, {
+      capabilityKey: 'packages.releases.upload',
+      resources: [{ resourceId: args.packageId, resourceType: 'package' }],
+    });
     const packageId = normalizedPackageId(args.packageId);
     const editionId = normalizedEditionId(args.editionId);
     if (editionId !== catalogTierPackageEditionId(String(args.catalogTierId))) {
@@ -423,7 +442,10 @@ export const archiveForCreator = mutation({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
+    await requireCreatorWorkspaceCapability(ctx, args.actor, args.authUserId, {
+      capabilityKey: 'packages.editions.manage',
+      resources: [{ resourceId: args.packageId, resourceType: 'package' }],
+    });
     const packageId = normalizedPackageId(args.packageId);
     const editionId = normalizedEditionId(args.editionId);
     if (editionId === 'standard') {

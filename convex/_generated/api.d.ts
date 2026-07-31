@@ -28,6 +28,7 @@ import type * as couplingForensics from "../couplingForensics.js";
 import type * as creatorEvents from "../creatorEvents.js";
 import type * as creatorProfiles from "../creatorProfiles.js";
 import type * as creatorVpmLinks from "../creatorVpmLinks.js";
+import type * as creatorWorkspacePermissions from "../creatorWorkspacePermissions.js";
 import type * as crons from "../crons.js";
 import type * as dashboardViews from "../dashboardViews.js";
 import type * as downloads from "../downloads.js";
@@ -52,6 +53,7 @@ import type * as lib_certificateBillingProjection from "../lib/certificateBillin
 import type * as lib_certificateCapabilityProjection from "../lib/certificateCapabilityProjection.js";
 import type * as lib_certificateSigning from "../lib/certificateSigning.js";
 import type * as lib_creatorWorkspaceAccess from "../lib/creatorWorkspaceAccess.js";
+import type * as lib_creatorWorkspacePolicy from "../lib/creatorWorkspacePolicy.js";
 import type * as lib_credentialKeys from "../lib/credentialKeys.js";
 import type * as lib_externalAccountIdentity from "../lib/externalAccountIdentity.js";
 import type * as lib_hkdfAesGcm from "../lib/hkdfAesGcm.js";
@@ -158,6 +160,7 @@ declare const fullApi: ApiFromModules<{
   creatorEvents: typeof creatorEvents;
   creatorProfiles: typeof creatorProfiles;
   creatorVpmLinks: typeof creatorVpmLinks;
+  creatorWorkspacePermissions: typeof creatorWorkspacePermissions;
   crons: typeof crons;
   dashboardViews: typeof dashboardViews;
   downloads: typeof downloads;
@@ -182,6 +185,7 @@ declare const fullApi: ApiFromModules<{
   "lib/certificateCapabilityProjection": typeof lib_certificateCapabilityProjection;
   "lib/certificateSigning": typeof lib_certificateSigning;
   "lib/creatorWorkspaceAccess": typeof lib_creatorWorkspaceAccess;
+  "lib/creatorWorkspacePolicy": typeof lib_creatorWorkspacePolicy;
   "lib/credentialKeys": typeof lib_credentialKeys;
   "lib/externalAccountIdentity": typeof lib_externalAccountIdentity;
   "lib/hkdfAesGcm": typeof lib_hkdfAesGcm;

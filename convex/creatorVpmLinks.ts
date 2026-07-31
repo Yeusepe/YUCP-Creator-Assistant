@@ -4,7 +4,7 @@ import type { MutationCtx, QueryCtx } from './_generated/server';
 import { mutation, query } from './_generated/server';
 import { ApiActorBindingV, requireServiceActor } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
-import { requireCreatorWorkspaceActor } from './lib/creatorWorkspaceAccess';
+import { requireCreatorWorkspaceCapability } from './lib/creatorWorkspaceAccess';
 
 const LINK_ID_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const PACKAGE_ID_PATTERN = /^[a-z0-9\-_./:]{1,128}$/;
@@ -142,7 +142,10 @@ export const getActiveForCreator = query({
   ),
   handler: async (ctx, args): Promise<ActiveCreatorVpmLink | null> => {
     requireApiSecret(args.apiSecret);
-    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
+    await requireCreatorWorkspaceCapability(ctx, args.actor, args.authUserId, {
+      capabilityKey: 'packages.view',
+      resources: [{ resourceId: args.packageId, resourceType: 'package' }],
+    });
     await requireOwnedPackage(ctx, args);
     const link = await ctx.db
       .query('creator_vpm_links')
@@ -213,7 +216,10 @@ export const ensureActive = mutation({
   }),
   handler: async (ctx, args): Promise<ActiveCreatorVpmLink & { created: boolean }> => {
     requireApiSecret(args.apiSecret);
-    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
+    await requireCreatorWorkspaceCapability(ctx, args.actor, args.authUserId, {
+      capabilityKey: 'packages.public_links.manage',
+      resources: [{ resourceId: args.packageId, resourceType: 'package' }],
+    });
     validateLinkId(args.proposedLinkId);
     await requireOwnedPackage(ctx, args);
     await requireCreatorSlug(ctx, args);
@@ -283,7 +289,10 @@ export const revokeActive = mutation({
   returns: v.object({ revoked: v.boolean() }),
   handler: async (ctx, args): Promise<{ revoked: boolean }> => {
     requireApiSecret(args.apiSecret);
-    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
+    await requireCreatorWorkspaceCapability(ctx, args.actor, args.authUserId, {
+      capabilityKey: 'packages.public_links.manage',
+      resources: [{ resourceId: args.packageId, resourceType: 'package' }],
+    });
     await requireOwnedPackage(ctx, args);
     const links = await ctx.db
       .query('creator_vpm_links')

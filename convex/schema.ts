@@ -502,6 +502,7 @@ const AuditEventType = v.union(
   v.literal('collaborator.invite.revoked'),
   v.literal('collaborator.connection.added'),
   v.literal('collaborator.connection.removed'),
+  v.literal('collaborator.permissions.changed'),
   v.literal('release.artifact.published'),
   v.literal('coupling.lookup.performed'),
   v.literal('setup.job.created'),
@@ -2033,6 +2034,22 @@ const manual_licenses = defineTable({
  * Collaborator Invites - Single-use invite tokens for cross-creator API key sharing
  * Allows a server owner to invite another creator to share Jinxxy credentials.
  */
+const CreatorWorkspaceResourceType = v.union(
+  v.literal('workspace'),
+  v.literal('product'),
+  v.literal('package'),
+  v.literal('guild'),
+  v.literal('provider_connection'),
+  v.literal('developer_integration')
+);
+
+const CreatorWorkspaceInviteGrant = v.object({
+  capabilityKey: v.string(),
+  resourceType: CreatorWorkspaceResourceType,
+  scope: v.union(v.literal('all'), v.literal('selected')),
+  resourceId: v.optional(v.string()),
+});
+
 const collaborator_invites = defineTable({
   ownerAuthUserId: v.string(),
   // @deprecated Legacy field from tenant-first architecture
@@ -2051,6 +2068,10 @@ const collaborator_invites = defineTable({
   usedAt: v.optional(v.number()),
   /** Commerce provider for this invite (e.g. 'jinxxy', 'lemonsqueezy'). Defaults to 'jinxxy' for legacy records. */
   providerKey: v.optional(v.string()),
+  /** Explicit proposed workspace permissions shown to the invitee before acceptance. */
+  permissionPolicyVersion: v.optional(v.number()),
+  permissionGrants: v.optional(v.array(CreatorWorkspaceInviteGrant)),
+  legacyPolicyPendingReview: v.optional(v.boolean()),
 })
   .index('by_token_hash', ['tokenHash'])
   .index('by_owner', ['ownerAuthUserId'])
@@ -2086,6 +2107,8 @@ const collaborator_connections = defineTable({
   source: v.optional(v.union(v.literal('invite'), v.literal('manual'))),
   /** Discord user ID of admin who ran the manual add (audit) */
   addedByDiscordUserId: v.optional(v.string()),
+  /** Workspace membership is separate from provider credential sharing. */
+  workspaceMembershipId: v.optional(v.id('creator_workspace_memberships')),
   createdAt: v.number(),
   updatedAt: v.optional(v.number()),
 })
@@ -2094,6 +2117,64 @@ const collaborator_connections = defineTable({
   .index('by_owner_status', ['ownerAuthUserId', 'status'])
   .index('by_owner_provider', ['ownerAuthUserId', 'provider'])
   .index('by_collaborator_discord', ['collaboratorDiscordUserId']);
+
+/**
+ * Durable membership between a creator workspace and one collaborator.
+ * Provider credential sharing remains in collaborator_connections.
+ */
+const creator_workspace_memberships = defineTable({
+  ownerAuthUserId: v.string(),
+  memberAuthUserId: v.optional(v.string()),
+  memberDiscordUserId: v.string(),
+  collaboratorConnectionId: v.optional(v.id('collaborator_connections')),
+  status: v.union(v.literal('active'), v.literal('paused'), v.literal('removed')),
+  currentPolicyVersionId: v.optional(v.id('creator_workspace_policy_versions')),
+  legacyPolicyPendingReview: v.boolean(),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+  removedAt: v.optional(v.number()),
+})
+  .index('by_owner', ['ownerAuthUserId'])
+  .index('by_owner_member_discord', ['ownerAuthUserId', 'memberDiscordUserId'])
+  .index('by_member_auth_user', ['memberAuthUserId'])
+  .index('by_member_discord', ['memberDiscordUserId'])
+  .index('by_connection', ['collaboratorConnectionId']);
+
+/**
+ * Immutable policy headers. A membership points at exactly one current revision.
+ */
+const creator_workspace_policy_versions = defineTable({
+  membershipId: v.id('creator_workspace_memberships'),
+  revision: v.number(),
+  policyVersion: v.number(),
+  source: v.union(v.literal('invite'), v.literal('owner_edit'), v.literal('legacy_migration')),
+  changedByAuthUserId: v.string(),
+  note: v.optional(v.string()),
+  createdAt: v.number(),
+})
+  .index('by_membership', ['membershipId'])
+  .index('by_membership_revision', ['membershipId', 'revision']);
+
+/**
+ * Normalized grants for one immutable policy revision.
+ * An absent grant is a denial.
+ */
+const creator_workspace_grants = defineTable({
+  policyVersionId: v.id('creator_workspace_policy_versions'),
+  capabilityKey: v.string(),
+  resourceType: CreatorWorkspaceResourceType,
+  scope: v.union(v.literal('all'), v.literal('selected')),
+  resourceId: v.optional(v.string()),
+  createdAt: v.number(),
+})
+  .index('by_policy', ['policyVersionId'])
+  .index('by_policy_capability', ['policyVersionId', 'capabilityKey'])
+  .index('by_policy_capability_resource', [
+    'policyVersionId',
+    'capabilityKey',
+    'resourceType',
+    'resourceId',
+  ]);
 
 /**
  * Admin Notifications - Short-lived real-time dashboard toasts
@@ -3140,6 +3221,9 @@ export default defineSchema({
   account_recovery_sessions,
   collaborator_invites,
   collaborator_connections,
+  creator_workspace_memberships,
+  creator_workspace_policy_versions,
+  creator_workspace_grants,
   better_auth_reservations,
 
   // Public API v2 tables

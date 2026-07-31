@@ -26,9 +26,9 @@ import {
   inspectCatalogProductDeletionDependencies,
 } from './lib/catalogProductDeletion';
 import {
-  hasCreatorWorkspaceAccess,
+  hasCreatorWorkspaceCapability,
   listCreatorWorkspaceAccess,
-  requireCreatorWorkspaceActor,
+  requireCreatorWorkspaceCapability,
 } from './lib/creatorWorkspaceAccess';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
@@ -548,7 +548,13 @@ export const bindCatalogProductForCreator = mutation({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
+    await requireCreatorWorkspaceCapability(ctx, args.actor, args.authUserId, {
+      capabilityKey: 'packages.storefront_bindings.manage',
+      resources: [
+        { resourceId: args.packageId, resourceType: 'package' },
+        { resourceId: String(args.catalogProductId), resourceType: 'product' },
+      ],
+    });
     return await bindOwnedCatalogProduct(ctx, args);
   },
 });
@@ -563,7 +569,13 @@ export const unbindCatalogProductForCreator = mutation({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
+    await requireCreatorWorkspaceCapability(ctx, args.actor, args.authUserId, {
+      capabilityKey: 'packages.storefront_bindings.manage',
+      resources: [
+        { resourceId: args.packageId, resourceType: 'package' },
+        { resourceId: String(args.catalogProductId), resourceType: 'product' },
+      ],
+    });
     await requireOwnedActivePackageAndProduct(ctx, args);
     const bindings = await ctx.db
       .query('package_catalog_bindings')
@@ -662,13 +674,30 @@ export const claimPackageForCreatorUpload = mutation({
   },
   handler: async (ctx, args): Promise<CreatorUploadRegistrationResult> => {
     requireApiSecret(args.apiSecret);
-    await requireCreatorWorkspaceActor(ctx, args.actor, args.authUserId);
 
     const catalogProductIds = [
       ...new Map(args.catalogProductIds.map((id) => [String(id), id])).values(),
     ];
     if (catalogProductIds.length === 0 || catalogProductIds.length > 32) {
       throw new ConvexError('Creator upload requires from 1 to 32 catalog products');
+    }
+    const existingRegistration = await ctx.db
+      .query('package_registry')
+      .withIndex('by_package_id', (q) => q.eq('packageId', args.packageId))
+      .unique();
+    if (existingRegistration?.yucpUserId === args.authUserId) {
+      await requireCreatorWorkspaceCapability(ctx, args.actor, args.authUserId, {
+        capabilityKey: 'packages.releases.upload',
+        resources: [{ resourceId: args.packageId, resourceType: 'package' }],
+      });
+    } else {
+      await requireCreatorWorkspaceCapability(ctx, args.actor, args.authUserId, {
+        capabilityKey: 'packages.create',
+        resources: catalogProductIds.map((catalogProductId) => ({
+          resourceId: String(catalogProductId),
+          resourceType: 'product' as const,
+        })),
+      });
     }
     const products = await Promise.all(catalogProductIds.map(async (id) => await ctx.db.get(id)));
     if (
@@ -759,10 +788,15 @@ export const listByAuthUser = query({
     let products = (
       await Promise.all(
         workspaceAccess.map(async (access) => {
-          return await ctx.db
+          const creatorProducts = await ctx.db
             .query('product_catalog')
             .withIndex('by_auth_user', (q) => q.eq('authUserId', access.creatorAuthUserId))
             .collect();
+          if (access.resourceScope?.kind !== 'selected') {
+            return creatorProducts;
+          }
+          const allowedIds = new Set(access.resourceScope.resourceIds);
+          return creatorProducts.filter((product) => allowedIds.has(String(product._id)));
         })
       )
     ).flat();
@@ -846,7 +880,13 @@ export const getByIdForAuthUser = query({
     requireApiSecret(args.apiSecret);
     await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const doc = await ctx.db.get(args.catalogProductId);
-    if (!doc || !(await hasCreatorWorkspaceAccess(ctx, args.authUserId, doc.authUserId))) {
+    if (
+      !doc ||
+      !(await hasCreatorWorkspaceCapability(ctx, args.authUserId, doc.authUserId, {
+        capabilityKey: 'products.view',
+        resources: [{ resourceId: String(doc._id), resourceType: 'product' }],
+      }))
+    ) {
       return null;
     }
     return await buildCreatorPackageProductSummary(
@@ -875,7 +915,10 @@ export const getByPackageIdForAuthUser = query({
       .unique();
     if (
       !registration ||
-      !(await hasCreatorWorkspaceAccess(ctx, args.authUserId, registration.yucpUserId)) ||
+      !(await hasCreatorWorkspaceCapability(ctx, args.authUserId, registration.yucpUserId, {
+        capabilityKey: 'packages.view',
+        resources: [{ resourceId: args.packageId, resourceType: 'package' }],
+      })) ||
       isArchivedRegistration(registration)
     ) {
       return null;
@@ -939,7 +982,10 @@ export const updatePublicNamespace = mutation({
       .unique();
     if (
       !registration ||
-      !(await hasCreatorWorkspaceAccess(ctx, args.authUserId, registration.yucpUserId)) ||
+      !(await hasCreatorWorkspaceCapability(ctx, args.authUserId, registration.yucpUserId, {
+        capabilityKey: 'packages.public_links.manage',
+        resources: [{ resourceId: args.packageId, resourceType: 'package' }],
+      })) ||
       isArchivedRegistration(registration)
     ) {
       throw new ConvexError('Package is not available');
