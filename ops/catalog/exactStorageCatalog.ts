@@ -701,6 +701,26 @@ export class ExactStorageCatalog {
         throw new Error('Storage write intent lost commit ownership');
       }
 
+      const revived = await transaction<{ id: string }[]>`
+        UPDATE storage_object_versions
+        SET verification_state = 'VERIFIED', verified_at = clock_timestamp(), deleted_at = NULL
+        WHERE storage_role = ${intent.storageRole}
+          AND bucket_name = ${intent.bucketName}
+          AND object_key = ${intent.objectKey}
+          AND provider_version = ${providerVersion}
+          AND verification_state = 'DELETED'
+          AND file_identifier = ${fileIdentifier}
+          AND sha256 = decode(${intent.expectedSha256}, 'hex')
+          AND bytes = ${intent.expectedBytes}
+          AND content_type = ${intent.contentType}
+        RETURNING id
+      `;
+      if (revived.length > 0) {
+        await transaction`
+          DELETE FROM storage_gc_candidates
+          WHERE object_version_id = ANY(${revived.map((row) => row.id)}::uuid[])
+        `;
+      }
       const inserted = await transaction<StorageObjectVersionRow[]>`
         INSERT INTO storage_object_versions (
           id,
@@ -1051,6 +1071,45 @@ export class ExactStorageCatalog {
           : []
       );
       if (pending.length > 0) {
+        const revived = await transaction<{ id: string }[]>`
+          UPDATE storage_object_versions object
+          SET verification_state = 'VERIFIED', verified_at = clock_timestamp(), deleted_at = NULL
+          FROM unnest(
+            ${pending.map(({ intent }) => intent.storageRole)}::text[],
+            ${pending.map(({ intent }) => intent.bucketName)}::text[],
+            ${pending.map(({ intent }) => intent.objectKey)}::text[],
+            ${pending.map(({ entry }) => entry.providerVersion)}::text[],
+            ${pending.map(({ entry }) => entry.fileIdentifier)}::text[],
+            ${pending.map(({ intent }) => intent.expectedSha256)}::text[],
+            ${pending.map(({ intent }) => intent.expectedBytes)}::bigint[],
+            ${pending.map(({ intent }) => intent.contentType)}::text[]
+          ) AS batch(
+            storage_role,
+            bucket_name,
+            object_key,
+            provider_version,
+            file_identifier,
+            sha256,
+            bytes,
+            content_type
+          )
+          WHERE object.storage_role = batch.storage_role
+            AND object.bucket_name = batch.bucket_name
+            AND object.object_key = batch.object_key
+            AND object.provider_version = batch.provider_version
+            AND object.verification_state = 'DELETED'
+            AND object.file_identifier = batch.file_identifier
+            AND object.sha256 = decode(batch.sha256, 'hex')
+            AND object.bytes = batch.bytes
+            AND object.content_type = batch.content_type
+          RETURNING object.id
+        `;
+        if (revived.length > 0) {
+          await transaction`
+            DELETE FROM storage_gc_candidates
+            WHERE object_version_id = ANY(${revived.map((row) => row.id)}::uuid[])
+          `;
+        }
         await transaction`
           INSERT INTO storage_object_versions (
             id,

@@ -1490,6 +1490,63 @@ describe.serial('PostgreSQL catalog integration', () => {
     });
   });
 
+  it('re-commits content whose object version was tombstoned as lost', async () => {
+    const storage = new ExactStorageCatalog(requireSql());
+    const ownerId = await createUploadingVersion('exact-storage-revival-owner');
+    const objectKey = `v2/common/chunks/${'e'.repeat(64)}`;
+    const beginIntent = async () =>
+      storage.beginWriteIntent({
+        bucketName: 'common',
+        contentType: 'application/octet-stream',
+        expectedBytes: 4_096,
+        expectedSha256: 'e'.repeat(64),
+        idempotencyKey: `package-version:${ownerId}:chunk:${'e'.repeat(64)}`,
+        objectKey,
+        operation: 'PUT',
+        ownerId,
+        ownerKind: 'package-version',
+        storageDomain: 'common:global:v2',
+        storageRole: 'common',
+      });
+
+    const first = await beginIntent();
+    const committed = await storage.commitVerifiedObject({
+      fileIdentifier: 'file-id-revival',
+      intentId: first.id,
+      providerVersion: 'provider-version-revival',
+    });
+
+    // The object goes missing from the provider, so the intent is reopened and
+    // the row is tombstoned.
+    expect(
+      await storage.reopenLostObjectWriteIntent({
+        intentId: first.id,
+        objectVersionId: committed.id,
+      })
+    ).toBe(true);
+
+    // Content addressing means the retry writes the same bytes to the same key
+    // and gets the same provider version back, so the commit lands on the
+    // tombstone. It has to revive it rather than refuse the write.
+    const reopened = await beginIntent();
+    const claim = await storage.claimUncertainWriteRetry({
+      claimDurationMs: 60_000,
+      intentId: reopened.id,
+    });
+    expect(
+      await storage.commitVerifiedObject({
+        fileIdentifier: 'file-id-revival',
+        intentId: reopened.id,
+        providerVersion: 'provider-version-revival',
+        retryClaimToken: claim?.token,
+      })
+    ).toMatchObject({
+      fileIdentifier: 'file-id-revival',
+      providerVersion: 'provider-version-revival',
+      verificationState: 'VERIFIED',
+    });
+  });
+
   it('provides reverse indexes for bounded exact-version GC lookups', async () => {
     const indexes = await requireSql()<
       {
