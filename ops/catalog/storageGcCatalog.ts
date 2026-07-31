@@ -400,7 +400,21 @@ export class StorageGcCatalog {
     return this.sql.begin(async (transaction) => {
       const pending = await transaction<{ deletion_allowed: boolean }[]>`
         SELECT (
+          -- Deletion addresses a key, not a version: the provider keeps one
+          -- object per key and ignores a conditional delete. Re-publishing a
+          -- release rewrites its keys, so collecting the superseded row would
+          -- destroy whichever bytes the key holds now. Another verified row on
+          -- the same key means exactly that, so leave the key alone.
           NOT EXISTS (
+            SELECT 1
+            FROM storage_object_versions live
+            WHERE live.storage_role = object.storage_role
+              AND live.bucket_name = object.bucket_name
+              AND live.object_key = object.object_key
+              AND live.id <> object.id
+              AND live.verification_state = 'VERIFIED'
+          )
+          AND NOT EXISTS (
             SELECT 1
             FROM package_release_storage_objects release_object
             JOIN package_versions package_version

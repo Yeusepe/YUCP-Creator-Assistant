@@ -797,10 +797,12 @@ export async function deleteS3ObjectVersion(
   if (!versionId.trim()) {
     throw new Error('S3 deletion version identifier must not be empty');
   }
-  // The provider keeps one physical object per key, so a key-only DELETE would remove
-  // whatever the key holds now. A key rewritten after this version was queued for
-  // deletion holds live bytes, so the delete is conditional on the exact identity and
-  // a 412 means those bytes are already gone.
+  // The provider keeps one physical object per key, so this removes whatever the key
+  // holds now. The condition is sent for providers that honour it, but R2 ignores
+  // if-match on DELETE (verified against production: it answers 204 and removes the
+  // object anyway), so it is not a safeguard. Never delete a key whose bytes may have
+  // been rewritten: the caller decides that, and storageGcCatalog refuses to collect a
+  // version whose key another verified version now occupies.
   const response = await signedRequest({
     allowedStatuses: [412],
     config,

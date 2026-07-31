@@ -10,6 +10,7 @@ import {
   PACKAGE_INSTALL_DPOP_PROOF_MAX_AGE_SECONDS,
 } from '../storage-core/dpopReplayPolicy';
 import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId';
+import { StorageGcCatalog } from './storageGcCatalog';
 import { waitForPostgres } from '../testing/postgresReadiness';
 import {
   Catalog,
@@ -356,6 +357,70 @@ describe.serial('PostgreSQL catalog integration', () => {
       consumedAt: expect.any(Date),
       tokenSha256: record.tokenSha256,
     });
+  });
+
+  it('refuses to collect a version whose key another verified version now holds', async () => {
+    const database = requireSql();
+    const gc = new StorageGcCatalog(database);
+    const objectKey = `indexes/${randomUUID()}.logical-tree-v4.json`;
+    const superseded = randomUUID();
+    const live = randomUUID();
+
+    // A re-publish rewrites the key: the superseded row keeps its provider
+    // version, the new bytes land under a new one on the same key.
+    for (const [id, providerVersion, state] of [
+      [superseded, 'a'.repeat(32), 'VERIFIED'],
+      [live, 'b'.repeat(32), 'VERIFIED'],
+    ] as const) {
+      await database`
+        INSERT INTO storage_object_versions (
+          id, storage_role, bucket_name, object_key, provider_version,
+          file_identifier, sha256, bytes, content_type, verification_state, verified_at
+        ) VALUES (
+          ${id}, 'metadata', 'yucp-metadata', ${objectKey}, ${providerVersion},
+          ${providerVersion}, decode(${'c'.repeat(64)}, 'hex'), 1024,
+          'application/json', ${state}, clock_timestamp()
+        )
+      `;
+    }
+    const generation = await gc.observeGeneration();
+    await database`
+      INSERT INTO storage_gc_candidates (
+        object_version_id, first_generation_id, last_generation_id,
+        consecutive_generations, state, first_observed_at, last_observed_at
+      ) VALUES (
+        ${superseded}, ${generation.generation.id}, ${generation.generation.id},
+        1, 'DELETING', clock_timestamp(), clock_timestamp()
+      )
+      ON CONFLICT (object_version_id) DO UPDATE SET state = 'DELETING'
+    `;
+    const journalId = randomUUID();
+    await database`
+      INSERT INTO storage_gc_deletion_journal (
+        id, generation_id, object_version_id, storage_role, bucket_name,
+        object_key, provider_version, state, started_at
+      ) VALUES (
+        ${journalId}, ${generation.generation.id}, ${superseded}, 'metadata',
+        'yucp-metadata', ${objectKey}, ${'a'.repeat(32)}, 'STARTED', clock_timestamp()
+      )
+    `;
+
+    let handoffRan = false;
+    const fence = await gc.withPendingDeletionFence({
+      handoff: async () => {
+        handoffRan = true;
+        return { state: 'DELETED' as const };
+      },
+      journalId,
+      objectVersionId: superseded,
+    });
+
+    expect(fence.deletionAllowed).toBeFalse();
+    expect(handoffRan).toBeFalse();
+    const [survivor] = await database`
+      SELECT verification_state FROM storage_object_versions WHERE id = ${live}
+    `;
+    expect(survivor?.verification_state).toBe('VERIFIED');
   });
 
   it('re-points an unconsumed reservation at the release a re-publish produced', async () => {
