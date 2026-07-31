@@ -84,10 +84,8 @@ func (client Client) WithSession(sessionID string) Client {
 }
 
 // Enabled reports whether the client may send the operational tier: anonymous
-// failure records carrying a stable code and a redacted reason, but no buyer
-// identity, credential, or filesystem path. The product emits redacted
-// operational failures without optional consent; consent only adds
-// user-associated correlation.
+// failures carrying a stable code and a redacted reason, but no buyer identity,
+// credential, or path. Consent only adds user-associated correlation.
 func (client Client) Enabled() bool {
 	return client.APIBaseURL != "" && client.Service != ""
 }
@@ -108,12 +106,10 @@ func (client Client) Emit(_ context.Context, event Event) error {
 	if !client.Enabled() {
 		return nil
 	}
+	// Both tiers carry the reason: a code alone cannot separate a server
+	// rejection from a disk failure. normalizeEvent strips credentials and
+	// paths, so the operational tier stays anonymous but still explains itself.
 	consented := client.Consented()
-	// Both tiers carry the reason. A stable code alone cannot distinguish a
-	// server rejection from a disk failure, which is the whole point of
-	// reporting. normalizeEvent strips credentials and filesystem paths from
-	// the message, and the API redacts again, so the operational tier stays
-	// anonymous without becoming an unexplained error.
 	endpoint, err := telemetryEndpoint(client.APIBaseURL)
 	if err != nil {
 		return err

@@ -111,10 +111,8 @@ export async function handleNativeTelemetry(
   const releaseId = readSafeText(payload.releaseId);
   const os = readSafeText(payload.os);
   const arch = readSafeText(payload.arch);
-  // Both tiers carry the reason, because a stable code with no cause is still an
-  // unexplained failure. redactString below is applied server-side regardless of
-  // what the client sent, so a modified client cannot smuggle identifying text
-  // into the anonymous tier.
+  // Both tiers carry the reason. redactString runs server-side regardless of
+  // what the client sent, so the anonymous tier cannot smuggle identifying text.
   const message = readSafeText(payload.message);
   const traceId = parseTraceparent(traceparent)?.traceId;
   const metadata = {
@@ -168,10 +166,8 @@ export async function handleNativeTelemetry(
         code: SpanStatusCode.ERROR,
         message: errorCode ?? event,
       });
-      // Recording an exception makes the failure a first-class error event with
-      // exception.type/exception.message, which is what HyperDX's error views
-      // and ClickHouse exception queries read. The operational tier has no
-      // message, so the stable code carries the meaning.
+      // A recorded exception gives HyperDX and ClickHouse the exception.type and
+      // exception.message their error views read.
       const exception = new Error(message ? redactString(message) : (errorCode ?? event));
       exception.name = errorCode ?? 'NativeOperationFailed';
       activeSpan.recordException(exception);

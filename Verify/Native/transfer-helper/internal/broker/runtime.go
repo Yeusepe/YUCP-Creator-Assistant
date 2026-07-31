@@ -214,9 +214,8 @@ func (runtime Runtime) Handle(
 			},
 			operationErr,
 		)
-		// Terminal failures reach here whether or not an install session was ever
-		// issued, so this is the only funnel that can report pre-session failures
-		// such as ErrAuthenticationRequired. Best effort: never alter the result.
+		// Reached whether or not a session was ever issued, so this is the only
+		// funnel that can report pre-session failures like ErrAuthenticationRequired.
 		runtime.emitOperationalFailure(
 			ctx,
 			request,
@@ -423,11 +422,9 @@ func childTraceparent(parent string) (string, error) {
 	return parent[:36] + hex.EncodeToString(spanID) + parent[52:], nil
 }
 
-// emitOperationalFailure reports an anonymous failure record: a stable code and
-// the redacted reason behind it, with no buyer identity, credential, or
-// filesystem path, so it needs no diagnostics consent. A code without a reason
-// is still an unexplained error, so the cause travels with it. Delivery is best
-// effort and can never change the install result.
+// emitOperationalFailure reports an anonymous failure: a stable code plus the
+// redacted reason behind it, so it needs no diagnostics consent. Best effort;
+// it can never change the install result.
 func (runtime Runtime) emitOperationalFailure(
 	ctx context.Context,
 	request OperationRequest,
@@ -457,8 +454,7 @@ func (runtime Runtime) emitOperationalFailure(
 }
 
 // emitOperationalCompletion records how long a successful operation took. The
-// client is the only vantage point that observes a whole install, so without it
-// a slow install cannot be attributed between the server and local staging.
+// client is the only vantage point that observes a whole install.
 func (runtime Runtime) emitOperationalCompletion(
 	ctx context.Context,
 	request OperationRequest,
