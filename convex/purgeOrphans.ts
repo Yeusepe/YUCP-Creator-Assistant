@@ -1,6 +1,10 @@
 import { v } from 'convex/values';
 import { mutation } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
+import {
+  getCatalogProductDeleteBlockedReason,
+  inspectCatalogProductDeletionDependencies,
+} from './lib/catalogProductDeletion';
 
 export const purge = mutation({
   args: {
@@ -9,27 +13,23 @@ export const purge = mutation({
   returns: v.any(),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    // Get everything in the product catalog
     const catalog = await ctx.db.query('product_catalog').collect();
     let purged = 0;
 
     for (const prod of catalog) {
-      // Check if any rule references this catalog product
-      const refs = await ctx.db
-        .query('role_rules')
-        .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', prod._id))
-        .first();
+      const dependencies = await inspectCatalogProductDeletionDependencies(ctx.db, prod._id);
+      if (getCatalogProductDeleteBlockedReason(dependencies)) {
+        continue;
+      }
 
-      // If no rules explicitly reference this catalog ID, try a fallback search by productId
-      // just in case old rules don't have catalogProductId set
-      const refsByStringId = await ctx.db
+      // Rules predating catalogProductId reference the product by its provider id.
+      const legacyRuleReference = await ctx.db
         .query('role_rules')
         .withIndex('by_auth_user', (q) => q.eq('authUserId', prod.authUserId))
         .filter((q) => q.eq(q.field('productId'), prod.productId))
         .first();
 
-      if (!refs && !refsByStringId) {
-        // Find and delete links first
+      if (!legacyRuleReference) {
         const links = await ctx.db
           .query('catalog_product_links')
           .filter((q) => q.eq(q.field('catalogProductId'), prod._id))
@@ -39,7 +39,6 @@ export const purge = mutation({
           await ctx.db.delete(link._id);
         }
 
-        // Delete the catalog entry itself
         await ctx.db.delete(prod._id);
         purged++;
       }
