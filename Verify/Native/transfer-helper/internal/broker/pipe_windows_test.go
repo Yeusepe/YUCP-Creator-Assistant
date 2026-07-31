@@ -99,10 +99,10 @@ func TestNamedPipeInvokesOneHighLevelOperationForAuthenticatedClient(t *testing.
 		if received != request {
 			t.Fatalf("received request = %#v, want %#v", received, request)
 		}
-		if err := report("preparing", 0, 100); err != nil {
+		if err := report("preparing", 0, 100, 0, 0); err != nil {
 			return OperationResult{}, err
 		}
-		if err := report("finalizing", 100, 100); err != nil {
+		if err := report("finalizing", 100, 100, 0, 0); err != nil {
 			return OperationResult{}, err
 		}
 		return OperationResult{

@@ -197,6 +197,8 @@ type ProgressReporter func(
 	phase string,
 	completedBytes int64,
 	totalBytes int64,
+	completedFiles int64,
+	totalFiles int64,
 ) error
 
 func Execute(
@@ -402,11 +404,15 @@ func Execute(
 				materializationCompletedBytes,
 				progress,
 			)
-			return report(
+			// Nothing transfers while the server watermarks each protected
+			// file, so only the file counts can move.
+			return reportFiles(
 				reportProgress,
-				"downloading",
+				"personalizing",
 				materializationCompletedBytes,
 				totalBytes,
+				progress.CompletedFiles,
+				progress.TotalFiles,
 			)
 		}
 		stageConfig.Populate = func(
@@ -718,10 +724,27 @@ func report(
 	completedBytes int64,
 	totalBytes int64,
 ) error {
+	return reportFiles(reporter, phase, completedBytes, totalBytes, 0, 0)
+}
+
+func reportFiles(
+	reporter ProgressReporter,
+	phase string,
+	completedBytes int64,
+	totalBytes int64,
+	completedFiles int64,
+	totalFiles int64,
+) error {
 	if reporter == nil {
 		return nil
 	}
-	if err := reporter(phase, completedBytes, totalBytes); err != nil {
+	if err := reporter(
+		phase,
+		completedBytes,
+		totalBytes,
+		completedFiles,
+		totalFiles,
+	); err != nil {
 		return fmt.Errorf("publish package lifecycle progress: %w", err)
 	}
 	return nil

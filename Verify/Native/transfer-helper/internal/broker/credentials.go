@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -13,6 +14,10 @@ import (
 )
 
 const accessTokenRefreshMargin = 30 * time.Second
+
+// An unexpired access token only proves this machine was signed in when the
+// token was minted, so the issuer is asked again after this long.
+const statusVerificationWindow = time.Minute
 
 type CredentialAccessMode uint8
 
@@ -47,8 +52,32 @@ type ManagedCredentials struct {
 	Store          *TokenStore
 	Now            func() time.Time
 
-	deviceMu  sync.Mutex
-	userLocks credentialUserLocks
+	deviceMu   sync.Mutex
+	userLocks  credentialUserLocks
+	verifyMu   sync.Mutex
+	verifiedAt map[string]time.Time
+}
+
+func (credentials *ManagedCredentials) recentlyVerified(
+	userSID string,
+	now time.Time,
+) bool {
+	credentials.verifyMu.Lock()
+	defer credentials.verifyMu.Unlock()
+	verified, found := credentials.verifiedAt[userSID]
+	return found && now.Sub(verified) < statusVerificationWindow
+}
+
+func (credentials *ManagedCredentials) markVerified(
+	userSID string,
+	now time.Time,
+) {
+	credentials.verifyMu.Lock()
+	defer credentials.verifyMu.Unlock()
+	if credentials.verifiedAt == nil {
+		credentials.verifiedAt = make(map[string]time.Time)
+	}
+	credentials.verifiedAt[userSID] = now
 }
 
 func (credentials *ManagedCredentials) Status(
@@ -74,7 +103,8 @@ func (credentials *ManagedCredentials) Status(
 	if credentials.Now != nil {
 		now = credentials.Now()
 	}
-	if now.Add(accessTokenRefreshMargin).Before(stored.ExpiresAt) {
+	locallyValid := now.Add(accessTokenRefreshMargin).Before(stored.ExpiresAt)
+	if locallyValid && credentials.recentlyVerified(clientIdentity.UserSID, now) {
 		return true, nil
 	}
 	if stored.RefreshToken == "" {
@@ -92,11 +122,17 @@ func (credentials *ManagedCredentials) Status(
 	}
 	refreshed, err := oauth.Refresh(ctx, identity.PrivateKey, stored.RefreshToken)
 	if err != nil {
-		return false, err
+		var refused OAuthResponseError
+		if errors.As(err, &refused) && refused.StatusCode < 500 {
+			return false, nil
+		}
+		// Unreachable is not refused: an offline machine stays signed in.
+		return locallyValid, nil
 	}
 	if err := credentials.Store.Save(clientIdentity.UserSID, refreshed); err != nil {
 		return false, err
 	}
+	credentials.markVerified(clientIdentity.UserSID, now)
 	return true, nil
 }
 
@@ -225,7 +261,7 @@ func (credentials *ManagedCredentials) Access(
 			return OAuthTokens{}, deviceidentity.Identity{}, err
 		}
 	}
-	if err := report("signing-in", 0, 0); err != nil {
+	if err := report("signing-in", 0, 0, 0, 0); err != nil {
 		return OAuthTokens{}, deviceidentity.Identity{}, err
 	}
 	thumbprint, err := hex.DecodeString(identity.Thumbprint)

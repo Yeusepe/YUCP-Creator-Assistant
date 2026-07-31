@@ -183,7 +183,7 @@ func TestPackageOperationAuthenticationFailureDoesNotStartInteractiveCredentials
 		context.Background(),
 		ClientIdentity{ProcessID: 42, UserSID: "S-1-5-21-auth-failure"},
 		request,
-		func(string, int64, int64) error { return nil },
+		func(string, int64, int64, int64, int64) error { return nil },
 	)
 	if err != nil {
 		t.Fatalf("Handle() error = %v", err)
@@ -277,7 +277,7 @@ func TestVerificationPollingAuthenticationFailureDoesNotStartInteractiveCredenti
 		context.Background(),
 		ClientIdentity{ProcessID: 42, UserSID: "S-1-5-21-verification-auth"},
 		request,
-		func(string, int64, int64) error { return nil },
+		func(string, int64, int64, int64, int64) error { return nil },
 	)
 	if err != nil {
 		t.Fatalf("Handle() error = %v", err)
@@ -387,7 +387,7 @@ func TestRuntimeOpensVerificationAndRetriesWithoutExposingCapabilities(t *testin
 		context.Background(),
 		ClientIdentity{ProcessID: 42, UserSID: "S-1-5-21-test"},
 		request,
-		func(phase string, _ int64, _ int64) error {
+		func(phase string, _ int64, _ int64, _ int64, _ int64) error {
 			phases = append(phases, phase)
 			return nil
 		},
@@ -479,7 +479,7 @@ func TestRuntimePersistsAndRedactsFailedTerminalResult(t *testing.T) {
 			context.Background(),
 			ClientIdentity{ProcessID: 42, UserSID: "S-1-5-21-test"},
 			request,
-			func(string, int64, int64) error { return nil },
+			func(string, int64, int64, int64, int64) error { return nil },
 		)
 		if err != nil {
 			t.Fatalf("Handle() attempt %d error = %v", attempt, err)

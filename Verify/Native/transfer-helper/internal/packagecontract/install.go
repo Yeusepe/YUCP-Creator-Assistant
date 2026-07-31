@@ -270,14 +270,20 @@ func ParseDeliveryGrant(payload []byte) (DeliveryGrant, error) {
 	return grant, nil
 }
 
+// Clock-skew allowance for the start of the window only. An authorization that
+// has actually expired stays expired.
+const installAuthorizationStartLeewaySeconds = 60
+
 func ValidateInstallAuthorization(
 	session InstallSession,
 	grant DeliveryGrant,
 	context InstallAuthorizationContext,
 ) error {
 	now := context.Now.Unix()
-	if now < session.NotBefore || now >= session.ExpiresAt ||
-		now < grant.NotBefore || now >= grant.ExpiresAt {
+	if now+installAuthorizationStartLeewaySeconds < session.NotBefore ||
+		now >= session.ExpiresAt ||
+		now+installAuthorizationStartLeewaySeconds < grant.NotBefore ||
+		now >= grant.ExpiresAt {
 		return fmt.Errorf("package install authorization is not active")
 	}
 	if session.AliasID != context.AliasID ||

@@ -184,3 +184,79 @@ func mustInstallCanonical(t *testing.T, value any) []byte {
 	}
 	return data
 }
+
+func installAuthorizationFixture() (InstallSession, DeliveryGrant, InstallAuthorizationContext) {
+	session := InstallSession{
+		AliasID:             "alias-1",
+		Audience:            "https://delivery.example.test",
+		BindingRoot:         [32]byte{0x22},
+		BuyerID:             "buyer-1",
+		CreatorID:           "creator-1",
+		DeviceKeyThumbprint: [32]byte{0x33},
+		ExpiresAt:           1_000_300,
+		Issuer:              "https://api.example.test",
+		NotBefore:           1_000_000,
+		Operation:           "preflight",
+		ProductID:           "product-1",
+		ReleaseRoot:         [32]byte{0x11},
+		SessionID:           "session-1",
+	}
+	grant := DeliveryGrant{
+		Audience:            session.Audience,
+		BindingRoot:         session.BindingRoot,
+		BuyerID:             session.BuyerID,
+		CreatorID:           session.CreatorID,
+		DeviceKeyThumbprint: session.DeviceKeyThumbprint,
+		ExpiresAt:           session.ExpiresAt,
+		GrantID:             "grant-1",
+		InstallSessionID:    session.SessionID,
+		Issuer:              session.Issuer,
+		NotBefore:           session.NotBefore,
+		ProductID:           session.ProductID,
+		ReleaseRoot:         session.ReleaseRoot,
+		Scopes:              []string{"materialization:job-1:read", "package:version-1:read"},
+	}
+	context := InstallAuthorizationContext{
+		AliasID:             session.AliasID,
+		DeviceKeyThumbprint: session.DeviceKeyThumbprint[:],
+		ExpectedReleaseRoot: session.ReleaseRoot[:],
+		Now:                 time.Unix(session.NotBefore, 0),
+		Operation:           session.Operation,
+	}
+	return session, grant, context
+}
+
+func TestValidateInstallAuthorizationToleratesClockBehindIssuer(t *testing.T) {
+	session, grant, context := installAuthorizationFixture()
+	for _, secondsBehind := range []int64{1, 30, installAuthorizationStartLeewaySeconds} {
+		context.Now = time.Unix(session.NotBefore-secondsBehind, 0)
+		if err := ValidateInstallAuthorization(session, grant, context); err != nil {
+			t.Fatalf("clock %ds behind rejected: %v", secondsBehind, err)
+		}
+	}
+}
+
+func TestValidateInstallAuthorizationRejectsClockBeyondLeeway(t *testing.T) {
+	session, grant, context := installAuthorizationFixture()
+	context.Now = time.Unix(
+		session.NotBefore-installAuthorizationStartLeewaySeconds-1,
+		0,
+	)
+	if err := ValidateInstallAuthorization(session, grant, context); err == nil {
+		t.Fatal("a clock beyond the leeway was accepted")
+	}
+}
+
+func TestValidateInstallAuthorizationStillRejectsExpiredWindow(t *testing.T) {
+	session, grant, context := installAuthorizationFixture()
+	context.Now = time.Unix(session.ExpiresAt, 0)
+	if err := ValidateInstallAuthorization(session, grant, context); err == nil {
+		t.Fatal("an expired authorization was accepted")
+	}
+	session, grant, context = installAuthorizationFixture()
+	grant.ExpiresAt = session.NotBefore + 10
+	context.Now = time.Unix(grant.ExpiresAt, 0)
+	if err := ValidateInstallAuthorization(session, grant, context); err == nil {
+		t.Fatal("an expired grant was accepted")
+	}
+}

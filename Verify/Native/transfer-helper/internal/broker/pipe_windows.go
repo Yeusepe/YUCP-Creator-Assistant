@@ -207,17 +207,25 @@ func (server *Server) handleConnection(ctx context.Context, connection net.Conn)
 	}()
 	var writeMu sync.Mutex
 	var sequence int64
-	report := func(phase string, completedBytes int64, totalBytes int64) error {
+	report := func(
+		phase string,
+		completedBytes int64,
+		totalBytes int64,
+		completedFiles int64,
+		totalFiles int64,
+	) error {
 		writeMu.Lock()
 		defer writeMu.Unlock()
 		sequence++
 		event := Progress{
 			CompletedBytes: completedBytes,
+			CompletedFiles: completedFiles,
 			Phase:          phase,
 			RunID:          operation.Request.RunID,
 			SchemaVersion:  BrokerProtocolSchemaVersion,
 			Sequence:       sequence,
 			TotalBytes:     totalBytes,
+			TotalFiles:     totalFiles,
 		}
 		if err := validateProgress(event); err != nil {
 			return err

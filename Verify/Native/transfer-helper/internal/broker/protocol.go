@@ -54,11 +54,13 @@ type OperationRequest struct {
 
 type Progress struct {
 	CompletedBytes int64  `json:"completedBytes"`
+	CompletedFiles int64  `json:"completedFiles,omitempty"`
 	Phase          string `json:"phase"`
 	RunID          string `json:"runId"`
 	SchemaVersion  int    `json:"schemaVersion"`
 	Sequence       int64  `json:"sequence"`
 	TotalBytes     int64  `json:"totalBytes"`
+	TotalFiles     int64  `json:"totalFiles,omitempty"`
 }
 
 func DecodeOperationRequest(raw []byte) (OperationRequest, error) {

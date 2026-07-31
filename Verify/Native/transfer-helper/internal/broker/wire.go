@@ -51,6 +51,8 @@ type ProgressReporter func(
 	phase string,
 	completedBytes int64,
 	totalBytes int64,
+	completedFiles int64,
+	totalFiles int64,
 ) error
 
 type Handler interface {
@@ -186,12 +188,15 @@ func validateProgress(event Progress) error {
 		event.Sequence <= 0 ||
 		event.CompletedBytes < 0 ||
 		event.TotalBytes < 0 ||
-		(event.TotalBytes > 0 && event.CompletedBytes > event.TotalBytes) {
+		(event.TotalBytes > 0 && event.CompletedBytes > event.TotalBytes) ||
+		event.CompletedFiles < 0 ||
+		event.TotalFiles < 0 ||
+		(event.TotalFiles > 0 && event.CompletedFiles > event.TotalFiles) {
 		return fmt.Errorf("broker progress event is invalid")
 	}
 	switch event.Phase {
-	case "preparing", "signing-in", "verifying-access", "downloading", "verifying",
-		"assembling", "finalizing":
+	case "preparing", "signing-in", "verifying-access", "downloading", "personalizing",
+		"verifying", "assembling", "finalizing":
 		return nil
 	default:
 		return fmt.Errorf("broker progress phase is invalid")

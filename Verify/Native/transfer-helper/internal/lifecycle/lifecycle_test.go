@@ -340,7 +340,7 @@ func TestExecutePreflightThenStagesVerifiedCommonTree(t *testing.T) {
 		installRequest,
 		identity,
 		trustDocument,
-		func(phase string, completedBytes int64, totalBytes int64) error {
+		func(phase string, completedBytes int64, totalBytes int64, _ int64, _ int64) error {
 			progressEvents = append(progressEvents, struct {
 				phase     string
 				completed int64
@@ -1107,7 +1107,7 @@ func TestExecuteRoutesProtectedDeliveryByReceiptVersion(t *testing.T) {
 				request,
 				identity,
 				trustDocument,
-				func(phase string, completedBytes int64, totalBytes int64) error {
+				func(phase string, completedBytes int64, totalBytes int64, _ int64, _ int64) error {
 					progressEvents = append(progressEvents, struct {
 						phase     string
 						completed int64

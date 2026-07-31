@@ -175,6 +175,16 @@ func (client OAuthClient) Authorize(
 	})
 }
 
+// OAuthResponseError reports that the token endpoint answered and refused,
+// which a transport failure does not.
+type OAuthResponseError struct {
+	StatusCode int
+}
+
+func (failure OAuthResponseError) Error() string {
+	return fmt.Sprintf("OAuth token endpoint returned HTTP %d", failure.StatusCode)
+}
+
 func (client OAuthClient) Refresh(
 	ctx context.Context,
 	privateKey *ecdsa.PrivateKey,
@@ -287,10 +297,7 @@ func (client OAuthClient) exchangeToken(
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return OAuthTokens{}, fmt.Errorf(
-			"OAuth token endpoint returned HTTP %d",
-			response.StatusCode,
-		)
+		return OAuthTokens{}, OAuthResponseError{StatusCode: response.StatusCode}
 	}
 	decoder := json.NewDecoder(io.LimitReader(response.Body, maxOAuthResponseBytes))
 	var tokenResponse oauthTokenResponse

@@ -17,7 +17,7 @@ func TestPreflightHandlerReturnsACompleteBoundTerminalResult(t *testing.T) {
 		context.Background(),
 		broker.ClientIdentity{ProcessID: 42, UserSID: "S-1-5-21-test"},
 		request,
-		func(string, int64, int64) error { return nil },
+		func(string, int64, int64, int64, int64) error { return nil },
 	)
 	assertValidPreflightResult(t, request, result, err)
 }

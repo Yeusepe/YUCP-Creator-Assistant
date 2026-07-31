@@ -88,7 +88,7 @@ func (runtime Runtime) HandleAuthentication(
 			ctx,
 			clientIdentity,
 			CredentialAccessInteractive,
-			func(string, int64, int64) error { return nil },
+			func(string, int64, int64, int64, int64) error { return nil },
 		)
 		return AuthenticationResult{SignedIn: err == nil}, err
 	case "sign-out":
@@ -146,7 +146,7 @@ func (runtime Runtime) handleNew(
 	request OperationRequest,
 	report ProgressReporter,
 ) (OperationResult, error) {
-	if err := report("preparing", 0, 0); err != nil {
+	if err := report("preparing", 0, 0, 0, 0); err != nil {
 		return OperationResult{}, err
 	}
 	tokens, device, err := runtime.Credentials.Access(
@@ -384,7 +384,7 @@ func (runtime Runtime) waitForVerification(
 			err,
 		)
 	}
-	if err := report("verifying-access", 0, 0); err != nil {
+	if err := report("verifying-access", 0, 0, 0, 0); err != nil {
 		return AuthorizedOperation{}, tokens, device, err
 	}
 	interval := runtime.VerificationPollInterval

@@ -13,6 +13,7 @@ import (
 
 type controlledOAuthFlow struct {
 	authorizeStarted chan struct{}
+	refreshErr       error
 	releaseAuthorize chan struct{}
 	revoked          chan string
 	startOnce        sync.Once
@@ -35,11 +36,14 @@ func (flow *controlledOAuthFlow) Authorize(
 	}
 }
 
-func (*controlledOAuthFlow) Refresh(
+func (flow *controlledOAuthFlow) Refresh(
 	_ context.Context,
 	_ *ecdsa.PrivateKey,
 	_ string,
 ) (OAuthTokens, error) {
+	if flow.refreshErr != nil {
+		return OAuthTokens{}, flow.refreshErr
+	}
 	return OAuthTokens{}, errors.New("refresh was not expected")
 }
 
@@ -78,6 +82,54 @@ func TestManagedCredentialsStatusReusesWindowsProtectedSessionWithoutBrowser(
 	case <-flow.authorizeStarted:
 		t.Fatal("Status() opened browser authorization for a saved session")
 	default:
+	}
+}
+
+func TestManagedCredentialsStatusReportsSessionRevokedAtTheIssuer(t *testing.T) {
+	const userSID = "S-1-5-21-revoked"
+	flow := newControlledOAuthFlow("revoked")
+	flow.refreshErr = OAuthResponseError{StatusCode: 400}
+	credentials := newTestManagedCredentials(t, map[string]OAuthFlow{
+		userSID: flow,
+	})
+	if err := credentials.Store.Save(userSID, flow.tokens); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	signedIn, err := credentials.Status(
+		context.Background(),
+		ClientIdentity{UserSID: userSID},
+	)
+	if err != nil {
+		t.Fatalf("Status() error = %v", err)
+	}
+	if signedIn {
+		t.Fatal("Status() = signed in for a session the issuer refused")
+	}
+}
+
+func TestManagedCredentialsStatusKeepsSessionWhenTheIssuerIsUnreachable(
+	t *testing.T,
+) {
+	const userSID = "S-1-5-21-offline"
+	flow := newControlledOAuthFlow("offline")
+	flow.refreshErr = errors.New("dial tcp: no such host")
+	credentials := newTestManagedCredentials(t, map[string]OAuthFlow{
+		userSID: flow,
+	})
+	if err := credentials.Store.Save(userSID, flow.tokens); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	signedIn, err := credentials.Status(
+		context.Background(),
+		ClientIdentity{UserSID: userSID},
+	)
+	if err != nil {
+		t.Fatalf("Status() error = %v", err)
+	}
+	if !signedIn {
+		t.Fatal("Status() = signed out because the issuer could not be reached")
 	}
 }
 
@@ -264,6 +316,6 @@ func newTestManagedCredentials(
 	}
 }
 
-func discardCredentialProgress(string, int64, int64) error {
+func discardCredentialProgress(string, int64, int64, int64, int64) error {
 	return nil
 }
