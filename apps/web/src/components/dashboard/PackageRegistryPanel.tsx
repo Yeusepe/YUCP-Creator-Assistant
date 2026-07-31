@@ -2608,6 +2608,10 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
   const selectedUploadEdition = uploadEditionOptions.find(
     (candidate) => candidate.editionId === editionId
   );
+  const normalizedReleaseLabel = version.trim();
+  const isPrereleaseUpload =
+    isStrictSemanticVersion(normalizedReleaseLabel) &&
+    isPrereleaseSemanticVersion(normalizedReleaseLabel);
 
   const uploadMutation = useMutation({
     mutationFn: async () => {
@@ -3302,13 +3306,38 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
                       />
                     </div>
                     <div className="pm-field-stack">
-                      <p className="pm-field-label">Release label</p>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="pm-field-label">Release label</p>
+                        {isPrereleaseUpload ? (
+                          <Chip size="sm" variant="soft">
+                            Prerelease
+                          </Chip>
+                        ) : null}
+                      </div>
                       <YucpInput
                         aria-label="Release label"
-                        placeholder="1.0.0"
+                        aria-describedby={
+                          isPrereleaseUpload
+                            ? 'release-label-help release-label-prerelease-note'
+                            : 'release-label-help'
+                        }
+                        placeholder="1.0.0 or 1.0.0-beta.1"
                         value={version}
                         onValueChange={setVersion}
                       />
+                      <p id="release-label-help" className="pm-subtle-copy text-xs leading-5">
+                        Stable: 1.0.0 &middot; Prerelease: 1.0.0-beta.1
+                      </p>
+                      {isPrereleaseUpload ? (
+                        <p
+                          id="release-label-prerelease-note"
+                          className="pm-subtle-copy text-xs leading-5"
+                          aria-live="polite"
+                        >
+                          Installed only when this exact version is selected. Latest continues to
+                          choose stable releases.
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                 </div>

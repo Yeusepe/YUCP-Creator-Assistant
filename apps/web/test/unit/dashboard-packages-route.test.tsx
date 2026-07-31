@@ -637,7 +637,7 @@ describe('dashboard packages route', () => {
     expect(option).toHaveTextContent('Jinxxy');
   });
 
-  it('keeps the main list configured-only while the picker exposes first uploads once', async () => {
+  it('keeps the main list configured-only while the picker accepts a prerelease first upload', async () => {
     const Component = DashboardPackagesRoute.options.component;
     if (!Component) throw new Error('Dashboard packages component is missing');
 
@@ -673,7 +673,15 @@ describe('dashboard packages route', () => {
     fireEvent.change(screen.getByLabelText('Install ID'), {
       target: { value: 'com.creator.first-upload' },
     });
-    fireEvent.change(screen.getByLabelText('Release label'), { target: { value: '1.0.0' } });
+    fireEvent.change(screen.getByLabelText('Release label'), {
+      target: { value: '1.0.0-beta.1' },
+    });
+    expect(screen.getByText('Prerelease')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Installed only when this exact version is selected. Latest continues to choose stable releases.'
+      )
+    ).toBeInTheDocument();
     const file = new File(['package bytes'], 'first-upload.zip', {
       type: 'application/zip',
     });
@@ -689,7 +697,7 @@ describe('dashboard packages route', () => {
     await waitFor(() =>
       expect(apiPostMock).toHaveBeenCalledWith('/api/creator/uploads/authorize', {
         packageId: 'com.creator.first-upload',
-        version: '1.0.0',
+        version: '1.0.0-beta.1',
         catalogProductIds: ['catalog_product_first_upload'],
         editionId: 'standard',
       })
@@ -2144,14 +2152,18 @@ describe('dashboard packages route', () => {
     expect(screen.getByText('Patreon June drop')).toBeInTheDocument();
   });
 
-  it('shows a valid semantic version example for the release label', async () => {
+  it('shows stable and prerelease semantic version examples for the release label', async () => {
     const Component = DashboardPackagesRoute.options.component;
     if (!Component) throw new Error('Dashboard packages component is missing');
 
     render(<Component />, { wrapper: createWrapper() });
     fireEvent.click(await screen.findByRole('button', { name: 'Upload a package' }));
 
-    expect(await screen.findByLabelText('Release label')).toHaveAttribute('placeholder', '1.0.0');
+    expect(await screen.findByLabelText('Release label')).toHaveAttribute(
+      'placeholder',
+      '1.0.0 or 1.0.0-beta.1'
+    );
+    expect(screen.getByText('Stable: 1.0.0 · Prerelease: 1.0.0-beta.1')).toBeInTheDocument();
     expect(screen.queryByLabelText('Version')).not.toBeInTheDocument();
   });
 

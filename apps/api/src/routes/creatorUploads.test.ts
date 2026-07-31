@@ -142,7 +142,7 @@ describe('creator upload authorization', () => {
     });
   });
 
-  it('claims an unregistered package for every selected storefront before first upload', async () => {
+  it('claims an unregistered package with an exact prerelease version', async () => {
     convexQueryMock.mockImplementation(async (reference: unknown, args?: unknown) => {
       if (reference === apiMock.packageRegistry.lookupRegistration) {
         return null;
@@ -168,12 +168,17 @@ describe('creator upload authorization', () => {
     const response = await createRoutes('creator-123').authorizeUpload(
       authorizeRequest({
         packageId: 'com.yucp.first-upload',
-        version: '1.0.0',
+        version: '1.0.0-beta.1',
         catalogProductIds: ['catalog-product-456', 'catalog-product-789'],
       })
     );
 
     expect(response.status).toBe(200);
+    await expect(response.clone().json()).resolves.toMatchObject({
+      headers: {
+        [UPLOAD_CAPABILITY_HEADERS.version]: '1.0.0-beta.1',
+      },
+    });
     expect(convexMutationMock).toHaveBeenCalledWith(
       apiMock.packageRegistry.claimPackageForCreatorUpload,
       {
