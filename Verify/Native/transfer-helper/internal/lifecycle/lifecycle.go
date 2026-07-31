@@ -254,7 +254,9 @@ func Execute(
 	var diagnostics *telemetry.Client
 	if request.telemetry != nil && session.Diagnostics.Enabled {
 		sessionTelemetry := request.telemetry.WithSession(session.Diagnostics.SessionID)
-		if sessionTelemetry.Enabled() {
+		// Per-phase progress telemetry stays consent-only; terminal failures are
+		// reported separately through the operational tier.
+		if sessionTelemetry.Consented() {
 			diagnostics = &sessionTelemetry
 			startedAt := time.Now()
 			lastPhase := ""

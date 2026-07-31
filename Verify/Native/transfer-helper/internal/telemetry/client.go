@@ -83,15 +83,34 @@ func (client Client) WithSession(sessionID string) Client {
 	return client
 }
 
+// Enabled reports whether the client may send the operational tier: anonymous,
+// code-only failure records carrying no buyer identity, message, or path. The
+// product emits redacted operational failures without optional consent; consent
+// only adds user-associated correlation.
 func (client Client) Enabled() bool {
-	return client.SessionID != "" && client.APIBaseURL != "" && client.Service != ""
+	return client.APIBaseURL != "" && client.Service != ""
+}
+
+// Consented reports whether a signed diagnostics session permits the richer
+// tier (redacted message plus diagnostics-session correlation).
+func (client Client) Consented() bool {
+	return client.Enabled() && client.SessionID != ""
 }
 
 // Emit is best effort. Telemetry must never make an install fail or obscure
 // the original operational error.
+//
+// Without consent the event is downgraded to the operational tier rather than
+// dropped: authentication failures happen before any install session exists, so
+// a consent-gated-only channel can never report them.
 func (client Client) Emit(_ context.Context, event Event) error {
 	if !client.Enabled() {
 		return nil
+	}
+	consented := client.Consented()
+	if !consented {
+		// Operational tier carries a stable code, never free-form text.
+		event.Message = ""
 	}
 	endpoint, err := telemetryEndpoint(client.APIBaseURL)
 	if err != nil {
@@ -119,7 +138,12 @@ func (client Client) Emit(_ context.Context, event Event) error {
 		return err
 	}
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("X-YUCP-Diagnostics-Session", client.SessionID)
+	if consented {
+		request.Header.Set("X-YUCP-Diagnostics-Session", client.SessionID)
+		request.Header.Set("X-YUCP-Telemetry-Tier", "diagnostics")
+	} else {
+		request.Header.Set("X-YUCP-Telemetry-Tier", "operational")
+	}
 	if traceparentPattern.MatchString(event.Traceparent) {
 		request.Header.Set("traceparent", event.Traceparent)
 	}

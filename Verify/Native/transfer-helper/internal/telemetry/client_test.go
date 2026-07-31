@@ -15,19 +15,66 @@ const (
 	testTraceparent = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01"
 )
 
-func TestClientDoesNotSendWithoutDiagnosticsConsent(t *testing.T) {
-	called := false
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		called = true
+// Without consent the client still reports an anonymous, code-only failure:
+// authentication errors happen before any install session exists, so a
+// consent-gated-only channel could never report them.
+func TestClientSendsOperationalTierWithoutConsent(t *testing.T) {
+	received := make(chan struct {
+		header http.Header
+		body   []byte
+	}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		received <- struct {
+			header http.Header
+			body   []byte
+		}{header: request.Header.Clone(), body: body}
+		writer.WriteHeader(http.StatusNoContent)
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "service", "process", "release")
+	client := NewClient(server.URL, "yucp-native-package-broker", "package-broker", "release-1")
+	client.HTTPClient = server.Client()
+	if client.Consented() {
+		t.Fatal("client without a diagnostics session reported consent")
+	}
+	if err := client.Emit(context.Background(), Event{
+		Name:        "native.lifecycle.failed",
+		Severity:    "error",
+		Operation:   "preflight",
+		ErrorCode:   "AUTHENTICATION_REQUIRED",
+		Traceparent: testTraceparent,
+		Message:     `failed for buyer at C:\Users\buyer\project`,
+	}); err != nil {
+		t.Fatalf("Emit() error = %v", err)
+	}
+
+	request := <-received
+	if request.header.Get("X-YUCP-Telemetry-Tier") != "operational" {
+		t.Fatalf("telemetry tier header = %q", request.header.Get("X-YUCP-Telemetry-Tier"))
+	}
+	if request.header.Get("X-YUCP-Diagnostics-Session") != "" {
+		t.Fatal("operational tier leaked a diagnostics session header")
+	}
+	var event Event
+	if err := json.Unmarshal(request.body, &event); err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+	if event.Message != "" {
+		t.Fatalf("operational tier must not carry a message, got %q", event.Message)
+	}
+	if event.ErrorCode != "AUTHENTICATION_REQUIRED" {
+		t.Fatalf("error code = %q", event.ErrorCode)
+	}
+}
+
+func TestClientWithoutAPIBaseURLStaysSilent(t *testing.T) {
+	client := NewClient("", "service", "process", "release")
+	if client.Enabled() {
+		t.Fatal("client without an API base URL reported enabled")
+	}
 	if err := client.Emit(context.Background(), Event{Name: "native.test"}); err != nil {
 		t.Fatalf("Emit() returned an error for disabled telemetry: %v", err)
-	}
-	if called {
-		t.Fatal("disabled telemetry made an HTTP request")
 	}
 }
 
@@ -84,7 +131,10 @@ func TestClientSendsRedactedCorrelatedMetadata(t *testing.T) {
 
 func TestClientRejectsInvalidDiagnosticsSession(t *testing.T) {
 	client := NewClient("https://api.example.test", "service", "process", "release").WithSession("not-a-uuid")
-	if client.Enabled() {
-		t.Fatal("invalid diagnostics session enabled telemetry")
+	if client.Consented() {
+		t.Fatal("invalid diagnostics session granted consented telemetry")
+	}
+	if client.SessionID != "" {
+		t.Fatalf("invalid diagnostics session was retained: %q", client.SessionID)
 	}
 }

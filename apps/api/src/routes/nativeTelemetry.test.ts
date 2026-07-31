@@ -19,12 +19,14 @@ function request(body: unknown, headers: Record<string, string> = {}) {
 }
 
 describe('native telemetry ingestion', () => {
-  test('requires the consented diagnostics session and W3C trace context', async () => {
-    const missingConsent = await handleNativeTelemetry(
+  test('requires W3C trace context and enforces consent for the diagnostics tier', async () => {
+    // No diagnostics session is the anonymous operational tier, not a rejection:
+    // authentication failures occur before any install session exists.
+    const operational = await handleNativeTelemetry(
       request({ event: 'native.operation' }, { 'x-yucp-diagnostics-session': '' }),
       activeConsent
     );
-    expect(missingConsent.status).toBe(401);
+    expect(operational.status).toBe(204);
 
     const missingTrace = await handleNativeTelemetry(
       request({ event: 'native.operation' }, { traceparent: '' }),
@@ -37,6 +39,35 @@ describe('native telemetry ingestion', () => {
       async () => false
     );
     expect(withdrawn.status).toBe(403);
+  });
+
+  test('never logs a message for the anonymous operational tier', async () => {
+    const logged: unknown[] = [];
+    const consoleError = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      logged.push(...args);
+    });
+    const consentResolver = vi.fn(async () => true);
+    const response = await handleNativeTelemetry(
+      request(
+        {
+          event: 'native.lifecycle.failed',
+          severity: 'error',
+          errorCode: 'AUTHENTICATION_REQUIRED',
+          operation: 'preflight',
+          message: 'buyer-identifying detail that must never be stored',
+        },
+        { 'x-yucp-diagnostics-session': '' }
+      ),
+      consentResolver
+    );
+    expect(response.status).toBe(204);
+    // Consent is never consulted when no diagnostics session is presented.
+    expect(consentResolver).not.toHaveBeenCalled();
+    const serialized = JSON.stringify(logged);
+    expect(serialized).not.toContain('buyer-identifying detail');
+    expect(serialized).toContain('AUTHENTICATION_REQUIRED');
+    expect(serialized).toContain('operational');
+    consoleError.mockRestore();
   });
 
   test('accepts bounded operational metadata without exposing payloads as a response', async () => {

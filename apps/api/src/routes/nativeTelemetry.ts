@@ -57,15 +57,24 @@ export async function handleNativeTelemetry(
 
   const sessionId = diagnosticsSessionId(request);
   const traceparent = request.headers.get('traceparent')?.trim() ?? '';
-  if (!sessionId || !parseTraceparent(traceparent)) {
-    return new Response('Diagnostics consent and trace context are required', { status: 401 });
+  // Trace context is the correlation key for both tiers and is always available,
+  // even for failures that happen before an install session is ever issued.
+  if (!parseTraceparent(traceparent)) {
+    return new Response('Trace context is required', { status: 401 });
   }
-  try {
-    if (!(await resolveConsent(sessionId))) {
-      return new Response('Diagnostics consent is not active', { status: 403 });
+  // Two tiers. The operational tier is anonymous and code-only, so it needs no
+  // consent: authentication failures happen before a session exists, and a
+  // consent-gated-only channel could never report them. Consent adds the
+  // diagnostics session correlation and the redacted message.
+  const consented = sessionId !== undefined;
+  if (consented) {
+    try {
+      if (!(await resolveConsent(sessionId))) {
+        return new Response('Diagnostics consent is not active', { status: 403 });
+      }
+    } catch {
+      return new Response('Diagnostics consent is unavailable', { status: 503 });
     }
-  } catch {
-    return new Response('Diagnostics consent is unavailable', { status: 503 });
   }
 
   const contentLength = Number.parseInt(request.headers.get('content-length') ?? '', 10);
@@ -102,7 +111,10 @@ export async function handleNativeTelemetry(
   const releaseId = readSafeText(payload.releaseId);
   const os = readSafeText(payload.os);
   const arch = readSafeText(payload.arch);
-  const message = readSafeText(payload.message);
+  // Free-form text is a consented-tier field. Enforced server-side so a modified
+  // client cannot promote itself into sending message content anonymously.
+  const message = consented ? readSafeText(payload.message) : undefined;
+  const traceId = parseTraceparent(traceparent)?.traceId;
   const metadata = {
     event,
     native: true,
@@ -119,14 +131,16 @@ export async function handleNativeTelemetry(
     os,
     arch,
     message: message ? redactString(message) : undefined,
+    'telemetry.tier': consented ? 'diagnostics' : 'operational',
     'diagnostics.session.id': sessionId,
-    'trace.id': parseTraceparent(traceparent)?.traceId,
-    consent: 'helpful-diagnostics',
+    'trace.id': traceId,
+    ...(consented ? { consent: 'helpful-diagnostics' } : {}),
   };
 
   annotateApiSpan({
     'app.operation.name': 'native.telemetry.event',
     'telemetry.source': 'native',
+    'telemetry.tier': consented ? 'diagnostics' : 'operational',
     'native.event': event,
     'native.service.name': service,
     'native.process': process,
@@ -134,9 +148,15 @@ export async function handleNativeTelemetry(
     'native.phase': phase,
     'native.error.code': errorCode,
     'native.http.status_code': status,
+    'native.duration_ms': durationMs,
     'native.run.id': runId,
     'release.id': releaseId,
+    'os.type': os,
+    'host.arch': arch,
     'diagnostics.session.id': sessionId,
+    // OpenTelemetry's conventional low-cardinality grouping key: this is what
+    // HyperDX facets and ClickHouse aggregates failures by.
+    ...(errorCode ? { 'error.type': errorCode } : {}),
   });
 
   if (severity === 'error' || (status !== undefined && status >= 500)) {
@@ -146,9 +166,13 @@ export async function handleNativeTelemetry(
         code: SpanStatusCode.ERROR,
         message: errorCode ?? event,
       });
-      if (message) {
-        activeSpan.recordException(new Error(redactString(message)));
-      }
+      // Recording an exception makes the failure a first-class error event with
+      // exception.type/exception.message, which is what HyperDX's error views
+      // and ClickHouse exception queries read. The operational tier has no
+      // message, so the stable code carries the meaning.
+      const exception = new Error(message ? redactString(message) : (errorCode ?? event));
+      exception.name = errorCode ?? 'NativeOperationFailed';
+      activeSpan.recordException(exception);
     }
   }
 

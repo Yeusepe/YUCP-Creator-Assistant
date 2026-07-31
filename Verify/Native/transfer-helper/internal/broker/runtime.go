@@ -213,6 +213,10 @@ func (runtime Runtime) Handle(
 			},
 			operationErr,
 		)
+		// Terminal failures reach here whether or not an install session was ever
+		// issued, so this is the only funnel that can report pre-session failures
+		// such as ErrAuthenticationRequired. Best effort: never alter the result.
+		runtime.emitOperationalFailure(ctx, request, result, reached)
 	} else {
 		record.Write(diagnostics.Event{
 			Bytes:     result.LogicalBytes,
@@ -389,6 +393,30 @@ func childTraceparent(parent string) (string, error) {
 		return "", fmt.Errorf("create package renewal trace context: %w", err)
 	}
 	return parent[:36] + hex.EncodeToString(spanID) + parent[52:], nil
+}
+
+// emitOperationalFailure reports an anonymous, code-only failure record. It
+// carries no buyer identity, no message, and no filesystem path, so it needs no
+// diagnostics consent — consent only adds user-associated correlation on top.
+// Delivery is best effort and can never change the install result.
+func (runtime Runtime) emitOperationalFailure(
+	ctx context.Context,
+	request OperationRequest,
+	result OperationResult,
+	phase string,
+) {
+	if runtime.Telemetry == nil || !runtime.Telemetry.Enabled() {
+		return
+	}
+	_ = runtime.Telemetry.Emit(ctx, telemetry.Event{
+		ErrorCode:   result.ErrorCode,
+		Name:        "native.lifecycle.failed",
+		Operation:   request.Operation,
+		Phase:       phase,
+		RunID:       request.RunID,
+		Severity:    "error",
+		Traceparent: request.Traceparent,
+	})
 }
 
 func failedOperationResult(
