@@ -331,6 +331,12 @@ func failedOperationResultWithCode(
 	code string,
 	message string,
 ) OperationResult {
+	// A rejected frame can reach here before the traceparent was validated, so the
+	// span is sliced only when it is actually present.
+	traceID := ""
+	if len(request.Traceparent) >= 35 {
+		traceID = request.Traceparent[3:35]
+	}
 	return OperationResult{
 		ErrorCode:         code,
 		ErrorMessage:      message,
@@ -342,7 +348,7 @@ func failedOperationResultWithCode(
 		SchemaVersion:     OperationRequestSchemaVersion,
 		Status:            "failed",
 		TargetReleaseRoot: request.ExpectedCurrentReleaseRoot,
-		TraceID:           request.Traceparent[3:35],
+		TraceID:           traceID,
 	}
 }
 

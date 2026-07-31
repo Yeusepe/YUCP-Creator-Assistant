@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -156,11 +157,16 @@ func (server *Server) handleConnection(ctx context.Context, connection net.Conn)
 	// A silently closed pipe reaches the client as a bare transport error, so a
 	// rejected frame reports the stage that refused it instead.
 	if requestHeader.Kind != "operate" {
-		rejectOperation(connection, operation.Request, "PACKAGE_REQUEST_KIND_INVALID")
+		rejectOperation(
+			connection,
+			operation.Request,
+			"PACKAGE_REQUEST_KIND_INVALID",
+			fmt.Errorf("kind %q", requestHeader.Kind),
+		)
 		return
 	}
 	if err := jsonUnmarshalStrict(requestLine, &operation); err != nil {
-		rejectOperation(connection, operation.Request, "PACKAGE_REQUEST_MALFORMED")
+		rejectOperation(connection, operation.Request, "PACKAGE_REQUEST_MALFORMED", err)
 		return
 	}
 	if err := authorization.Consume(
@@ -169,11 +175,11 @@ func (server *Server) handleConnection(ctx context.Context, connection net.Conn)
 		identity.ProcessID,
 		time.Now(),
 	); err != nil {
-		rejectOperation(connection, operation.Request, "PACKAGE_REQUEST_UNAUTHORIZED")
+		rejectOperation(connection, operation.Request, "PACKAGE_REQUEST_UNAUTHORIZED", err)
 		return
 	}
 	if err := validateOperationRequest(operation.Request); err != nil {
-		rejectOperation(connection, operation.Request, "PACKAGE_REQUEST_INVALID")
+		rejectOperation(connection, operation.Request, "PACKAGE_REQUEST_INVALID", err)
 		return
 	}
 	_ = connection.SetDeadline(time.Time{})
@@ -511,14 +517,28 @@ func rejectOperation(
 	connection net.Conn,
 	request OperationRequest,
 	code string,
+	reason error,
 ) {
-	fmt.Fprintf(
-		os.Stderr,
-		"package operation rejected run=%s trace=%s: %s\n",
+	line := fmt.Sprintf(
+		"%s package operation rejected run=%q op=%q trace=%q: %s: %v\n",
+		time.Now().UTC().Format(time.RFC3339),
 		request.RunID,
+		request.Operation,
 		request.Traceparent,
 		code,
+		reason,
 	)
+	fmt.Fprint(os.Stderr, line)
+	// The broker is started detached, so stderr usually has nowhere to go; a
+	// rejection is undiagnosable without a durable copy.
+	if file, err := os.OpenFile(
+		filepath.Join(os.TempDir(), "yucp-broker-rejections.log"),
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
+		0o600,
+	); err == nil {
+		_, _ = file.WriteString(line)
+		_ = file.Close()
+	}
 	_ = writeFrame(connection, resultFrame{
 		Kind: "result",
 		Result: failedOperationResultWithCode(
