@@ -824,61 +824,73 @@ export const reservePublicationForService = mutation({
       : existingCandidates.find(
           (candidate) => candidate.presentationFingerprintSha256 === fingerprint
         );
-    // A version number is only immutable while the release it points at still exists.
-    // An unreleased package is deleted and re-uploaded at the same version many times
-    // before it ships, and a publication whose target has been deleted can no longer be
-    // installed, so it must not hold that version number hostage.
-    const retargeted =
-      targetFieldCount === 3
-        ? existingCandidates.filter(
-            (candidate) =>
-              candidate.packageVersion === packageVersion &&
-              candidate.versionId !== undefined &&
-              (candidate.editionId !== editionId ||
-                candidate.versionId !== versionId ||
-                candidate.releaseRoot !== releaseRoot)
-          )
-        : [];
-    const abandoned: Doc<'vpm_alias_publications'>[] = [];
-    for (const candidate of retargeted) {
+    // A publication only holds its version number while the exact release it points at is
+    // still the live one. An unreleased package is deleted and re-uploaded at the same
+    // version many times before it ships, and each re-upload rebuilds the release under a
+    // new root, so the recorded target stops being installable even when the version id
+    // survives. Retiring it is what lets the number be reused; a target that is still live
+    // keeps the number locked so a released package cannot change under its consumers.
+    const targetStillLive = async (candidate: Doc<'vpm_alias_publications'>) => {
+      if (candidate.versionId === undefined) {
+        return false;
+      }
       const target = await ctx.db
         .query('package_versions_ref')
         .withIndex('by_version_id', (q) => q.eq('versionId', candidate.versionId as string))
         .first();
-      if (target && target.state !== 'DELETED') {
-        throw new ConvexError('Published VPM package version target is immutable');
-      }
-      abandoned.push(candidate);
-    }
-    for (const candidate of abandoned) {
+      return Boolean(
+        target && target.state !== 'DELETED' && target.releaseRoot === candidate.releaseRoot
+      );
+    };
+    const pointsElsewhere = (candidate: Doc<'vpm_alias_publications'>) =>
+      candidate.editionId !== editionId ||
+      candidate.versionId !== versionId ||
+      candidate.releaseRoot !== releaseRoot;
+    const retire = async (candidate: Doc<'vpm_alias_publications'>) => {
       if (candidate.status !== 'FAILED') {
         await ctx.db.patch(candidate._id, {
-          failureCode: 'TARGET_DELETED',
+          failureCode: 'TARGET_SUPERSEDED',
           status: 'FAILED',
           updatedAt: Date.now(),
         });
       }
-    }
-    if (existing && existing.status !== 'FAILED') {
-      if (
-        targetFieldCount === 3 &&
-        (existing.editionId !== editionId ||
-          existing.versionId !== versionId ||
-          existing.releaseRoot !== releaseRoot)
-      ) {
-        throw new ConvexError('Published VPM package version target is immutable');
+    };
+
+    let reusable = existing;
+    if (targetFieldCount === 3) {
+      for (const candidate of existingCandidates) {
+        if (
+          candidate.packageVersion !== packageVersion ||
+          candidate.versionId === undefined ||
+          !pointsElsewhere(candidate)
+        ) {
+          continue;
+        }
+        if (await targetStillLive(candidate)) {
+          throw new ConvexError('Published VPM package version target is immutable');
+        }
+        await retire(candidate);
       }
-      return serializeReservation(existing, false);
+      if (reusable && pointsElsewhere(reusable)) {
+        if (await targetStillLive(reusable)) {
+          throw new ConvexError('Published VPM package version target is immutable');
+        }
+        await retire(reusable);
+        reusable = undefined;
+      }
     }
-    if (existing) {
+    if (reusable && reusable.status !== 'FAILED') {
+      return serializeReservation(reusable, false);
+    }
+    if (reusable) {
       const now = Date.now();
-      await ctx.db.patch(existing._id, {
+      await ctx.db.patch(reusable._id, {
         status: 'PREPARING',
         failureCode: undefined,
         traceparent: args.traceparent,
         updatedAt: now,
       });
-      return serializeReservation({ ...existing, status: 'PREPARING', updatedAt: now }, false);
+      return serializeReservation({ ...reusable, status: 'PREPARING', updatedAt: now }, false);
     }
     const duplicateId = await ctx.db
       .query('vpm_alias_publications')
