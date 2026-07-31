@@ -39,6 +39,8 @@ describe('protection policy materialization semantics', () => {
           bytes: 128,
           normalizedPath: 'Assets/Product/texture.png',
           path: 'texture.png',
+          pixelHeight: 1024,
+          pixelWidth: 1024,
           sha256: '22'.repeat(32),
         },
         {
@@ -91,5 +93,33 @@ describe('protection policy materialization semantics', () => {
       },
     ]);
     expect(snapshot.id).toBe(ACTIVE_PROTECTION_POLICY_ID);
+  });
+
+  it('carries images too small to hold the watermark as common content', () => {
+    const classify = (pixels?: { pixelHeight: number; pixelWidth: number }) =>
+      classifyPackageFiles({
+        files: [
+          {
+            bytes: 128,
+            normalizedPath: 'Assets/Product/icon.png',
+            path: 'icon.png',
+            ...(pixels ?? {}),
+            sha256: '55'.repeat(32),
+          },
+        ],
+        policyId: ACTIVE_PROTECTION_POLICY_ID,
+      }).files[0];
+
+    expect(classify({ pixelHeight: 6, pixelWidth: 6 })?.classification).toBe('common');
+    expect(classify({ pixelHeight: 256, pixelWidth: 256 })?.classification).toBe('common');
+    expect(classify()?.classification).toBe('common');
+    expect(classify({ pixelHeight: 512, pixelWidth: 512 })).toEqual({
+      bytes: 128,
+      classification: 'protected',
+      materializerType: 'png',
+      normalizedPath: 'Assets/Product/icon.png',
+      path: 'icon.png',
+      sha256: '55'.repeat(32),
+    });
   });
 });

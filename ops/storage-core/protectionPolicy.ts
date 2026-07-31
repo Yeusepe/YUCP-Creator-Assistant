@@ -9,10 +9,24 @@ export {
   PROTECTION_POLICY_IDS,
 } from './protectionPolicyId';
 
+export type ClassifiablePackageFile = NormalizedPackageFile & {
+  pixelHeight?: number;
+  pixelWidth?: number;
+};
+
 export type ClassifiedPackageFile = NormalizedPackageFile & {
   classification: 'common' | 'protected';
   materializerType?: 'fbx' | 'png' | 'zip';
 };
+
+export const COUPLING_MIN_PNG_BLOCKS = 3456;
+
+function pngCouplingBlocks(file: ClassifiablePackageFile): number | null {
+  if (file.pixelWidth === undefined || file.pixelHeight === undefined) {
+    return null;
+  }
+  return Math.floor(file.pixelWidth / 8) * Math.floor(file.pixelHeight / 8);
+}
 
 export type ProtectionPolicySnapshot = {
   digest: string;
@@ -47,25 +61,34 @@ export function protectionMaterializationPolicy(policyId: string): ProtectionMat
 }
 
 export function classifyPackageFiles(input: {
-  files: readonly NormalizedPackageFile[];
+  files: readonly ClassifiablePackageFile[];
   policyId: ProtectionPolicyId;
 }): ProtectionPolicySnapshot {
   const files = input.files.map((file): ClassifiedPackageFile => {
+    const { pixelHeight, pixelWidth, ...carried } = file;
     const normalizedPath = file.normalizedPath.toLocaleLowerCase('en-US');
     const rule = classificationRules.find(({ extension }) => normalizedPath.endsWith(extension));
-    return rule
-      ? {
-          ...file,
-          classification: 'protected',
-          materializerType: rule.materializerType,
-        }
-      : { ...file, classification: 'common' };
+    if (!rule) {
+      return { ...carried, classification: 'common' };
+    }
+    if (rule.materializerType === 'png') {
+      const blocks = pngCouplingBlocks(file);
+      if (blocks === null || blocks < COUPLING_MIN_PNG_BLOCKS) {
+        return { ...carried, classification: 'common' };
+      }
+    }
+    return {
+      ...carried,
+      classification: 'protected',
+      materializerType: rule.materializerType,
+    };
   });
   const policyBody = JSON.stringify({
     id: input.policyId,
     materialization: materializationPolicy,
+    minimumPngCouplingBlocks: COUPLING_MIN_PNG_BLOCKS,
     rules: classificationRules,
-    schemaVersion: 2,
+    schemaVersion: 3,
   });
   return {
     digest: createHash('sha256')

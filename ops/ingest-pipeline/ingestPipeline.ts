@@ -490,7 +490,22 @@ async function prepareLogicalAssembly(
   });
   const prepared = await prepareInstallablePackageTree(normalized.files);
   const classified = classifyPackageFiles({
-    files: prepared.files,
+    files: await mapBoundedOrdered(
+      prepared.files,
+      async (file) => {
+        signal?.throwIfAborted();
+        if (!file.normalizedPath.toLocaleLowerCase('en-US').endsWith('.png')) {
+          return file;
+        }
+        const metadata = readPngCouplingMetadata(
+          await readFileHeader(file.path, PNG_HEADER_BYTES)
+        );
+        return metadata
+          ? { ...file, pixelHeight: metadata.height, pixelWidth: metadata.width }
+          : file;
+      },
+      LOGICAL_FILE_INGEST_CONCURRENCY
+    ),
     policyId: input.protectionPolicyId,
   });
   const bootstrapMetadata = prepared.bootstrapMetadata;
