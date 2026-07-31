@@ -904,6 +904,74 @@ describe('package install session route', () => {
     expect(beginExchange).not.toHaveBeenCalled();
   });
 
+  test('carries the diagnostics answer only to a client that asked for it', async () => {
+    const consented = { diagnosticsEnabled: true, diagnosticsSessionId: 'diag-session-1' };
+    async function issueWith(input: {
+      consent: { diagnosticsEnabled: boolean; diagnosticsSessionId: string | null };
+      sessionCapabilities?: string[];
+    }) {
+      const port = accessPort({
+        resolveDiagnosticsConsent: mock(async () => input.consent),
+      });
+      const handler = createPackageInstallSessionRoute({
+        accessPort: port,
+        authorizationPort: defaultAuthorizationPort,
+        audience,
+        issuer,
+        keyId,
+        privateKey,
+        releasePins: defaultReleasePins,
+        verificationBaseUrl,
+        verifyAccessRequest: async () => ({
+          buyerId: 'buyer-1',
+          deviceKeyThumbprint,
+          ok: true,
+        }),
+      });
+      const response = await handler(
+        request(
+          await requestBody(
+            input.sessionCapabilities ? { sessionCapabilities: input.sessionCapabilities } : {}
+          )
+        )
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as Record<string, string>;
+      return await verifyInstallSessionV2({
+        coseSign1: Uint8Array.from(Buffer.from(body.installSession, 'base64url')),
+        expectedKeyId: new TextEncoder().encode(keyId),
+        publicKey,
+        context: {
+          aliasId: 'jammr',
+          allowedApiOrigins: [issuer],
+          allowedArtifactOrigins: [audience],
+          audience,
+          bindingRoot: Uint8Array.from(Buffer.from('22'.repeat(32), 'hex')),
+          deviceKeyThumbprint: Uint8Array.from(Buffer.from(deviceKeyThumbprint, 'hex')),
+          issuer,
+          now: Math.floor(Date.now() / 1000),
+          operation: 'install',
+          releaseRoot: Uint8Array.from(Buffer.from('11'.repeat(32), 'hex')),
+        },
+      });
+    }
+
+    const silent = await issueWith({ consent: consented });
+    expect(silent.diagnostics).toBeUndefined();
+
+    const asked = await issueWith({
+      consent: consented,
+      sessionCapabilities: ['install-session-diagnostics'],
+    });
+    expect(asked.diagnostics).toEqual({ enabled: true, sessionId: 'diag-session-1' });
+
+    const declined = await issueWith({
+      consent: { diagnosticsEnabled: false, diagnosticsSessionId: null },
+      sessionCapabilities: ['install-session-diagnostics'],
+    });
+    expect(declined.diagnostics).toEqual({ enabled: false });
+  });
+
   test('rejects a bearer-only native request before access or publication work', async () => {
     const port = accessPort();
     const verifyAccessRequest = mock(async () => ({

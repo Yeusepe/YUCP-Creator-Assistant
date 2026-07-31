@@ -44,9 +44,12 @@ const PACKAGE_OPERATION_FIELDS = new Set([
   'idempotencyKey',
   'operation',
   'projectIdentity',
+  'sessionCapabilities',
   'targetReleaseRoot',
   'traceparent',
 ]);
+export const INSTALL_SESSION_DIAGNOSTICS_CAPABILITY = 'install-session-diagnostics';
+const MAX_SESSION_CAPABILITIES = 16;
 
 export interface PackageInstallStorefront {
   catalogProductId: string;
@@ -62,6 +65,9 @@ export interface PackageInstallProductGroup {
 }
 
 export interface PackageInstallAccessPort {
+  resolveDiagnosticsConsent?(
+    buyerId: string
+  ): Promise<{ diagnosticsEnabled: boolean; diagnosticsSessionId: string | null }>;
   resolveEntitledEdition(
     buyerId: string,
     group: PackageInstallProductGroup
@@ -293,6 +299,7 @@ type PackageOperationRequest = {
   idempotencyKey: string;
   operation: InstallSessionOperation;
   projectIdentity: string;
+  sessionCapabilities: string[];
   targetReleaseRoot?: string;
   traceparent: string;
 };
@@ -359,6 +366,43 @@ function optionalBootstrapIntent(value: unknown): YucpBootstrapIntent | undefine
   }
 }
 
+async function resolveSessionDiagnostics(input: {
+  accessPort: PackageInstallAccessPort;
+  buyerId: string;
+  sessionCapabilities: string[];
+}): Promise<{ enabled: boolean; sessionId?: string } | null> {
+  if (!input.sessionCapabilities.includes(INSTALL_SESSION_DIAGNOSTICS_CAPABILITY)) {
+    return null;
+  }
+  if (!input.accessPort.resolveDiagnosticsConsent) {
+    return null;
+  }
+  const consent = await input.accessPort
+    .resolveDiagnosticsConsent(input.buyerId)
+    .catch(() => null);
+  if (!consent?.diagnosticsEnabled) {
+    return { enabled: false };
+  }
+  return {
+    enabled: true,
+    ...(consent.diagnosticsSessionId ? { sessionId: consent.diagnosticsSessionId } : {}),
+  };
+}
+
+function normalizeSessionCapabilities(value: unknown): string[] {
+  if (value === undefined) {
+    return [];
+  }
+  if (
+    !Array.isArray(value) ||
+    value.length > MAX_SESSION_CAPABILITIES ||
+    value.some((entry) => typeof entry !== 'string' || !ID_PATTERN.test(entry))
+  ) {
+    throw new RequestBodyError('sessionCapabilities is invalid', 400);
+  }
+  return [...new Set(value as string[])];
+}
+
 function normalizeOperationBody(
   body: Record<string, unknown>,
   includeCapability = false
@@ -383,6 +427,7 @@ function normalizeOperationBody(
   if (typeof body.traceparent !== 'string' || !parseTraceparent(body.traceparent)) {
     throw new RequestBodyError('traceparent is invalid', 400);
   }
+  const sessionCapabilities = normalizeSessionCapabilities(body.sessionCapabilities);
   const approvedActiveContentDigest = optionalDigest(
     body.approvedActiveContentDigest,
     'approvedActiveContentDigest'
@@ -432,6 +477,7 @@ function normalizeOperationBody(
       (() => {
         throw new RequestBodyError('projectIdentity is required', 400);
       })(),
+    sessionCapabilities,
     ...(targetReleaseRoot ? { targetReleaseRoot } : {}),
     traceparent: body.traceparent,
   };
@@ -1086,6 +1132,11 @@ export function createPackageInstallSessionRoute(
         : new Date(
             (issuedAt + PACKAGE_INSTALL_AUTHORIZATION_POLICY.operationLifetimeSeconds) * 1_000
           );
+    const diagnostics = await resolveSessionDiagnostics({
+      accessPort: options.accessPort,
+      buyerId: authentication.buyerId,
+      sessionCapabilities: input.sessionCapabilities,
+    });
     let issued: Awaited<ReturnType<typeof issuePackageInstallSession>>;
     try {
       issued = await issuePackageInstallSession({
@@ -1093,6 +1144,7 @@ export function createPackageInstallSessionRoute(
         buyerId: authentication.buyerId,
         deliveryGrantId,
         deviceKeyThumbprint: authentication.deviceKeyThumbprint,
+        ...(diagnostics ? { diagnostics } : {}),
         expiresAt: grantExpiresAt,
         issuer: options.issuer,
         keyId: options.keyId,

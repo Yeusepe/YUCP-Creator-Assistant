@@ -59,17 +59,27 @@ type AuthorizationRenewal struct {
 	VersionID      string
 }
 
+// SessionCapabilityDiagnostics tells the issuer this build can parse the
+// diagnostics claim. A session carrying a claim the client cannot parse is
+// rejected outright, so the issuer only adds one when the client asks for it.
+const SessionCapabilityDiagnostics = "install-session-diagnostics"
+
+func sessionCapabilities() []string {
+	return []string{SessionCapabilityDiagnostics}
+}
+
 type packageOperationBody struct {
-	AliasID                     string `json:"aliasId"`
-	ApprovedActiveContentDigest string `json:"approvedActiveContentDigest,omitempty"`
-	ApprovedPolicyVersion       string `json:"approvedPolicyVersion,omitempty"`
-	BootstrapIntentJSON         string `json:"bootstrapIntentJson,omitempty"`
-	ExpectedCurrentReleaseRoot  string `json:"expectedCurrentReleaseRoot"`
-	IdempotencyKey              string `json:"idempotencyKey"`
-	Operation                   string `json:"operation"`
-	ProjectIdentity             string `json:"projectIdentity"`
-	TargetReleaseRoot           string `json:"targetReleaseRoot,omitempty"`
-	Traceparent                 string `json:"traceparent"`
+	AliasID                     string   `json:"aliasId"`
+	ApprovedActiveContentDigest string   `json:"approvedActiveContentDigest,omitempty"`
+	ApprovedPolicyVersion       string   `json:"approvedPolicyVersion,omitempty"`
+	BootstrapIntentJSON         string   `json:"bootstrapIntentJson,omitempty"`
+	ExpectedCurrentReleaseRoot  string   `json:"expectedCurrentReleaseRoot"`
+	IdempotencyKey              string   `json:"idempotencyKey"`
+	Operation                   string   `json:"operation"`
+	ProjectIdentity             string   `json:"projectIdentity"`
+	SessionCapabilities         []string `json:"sessionCapabilities,omitempty"`
+	TargetReleaseRoot           string   `json:"targetReleaseRoot,omitempty"`
+	Traceparent                 string   `json:"traceparent"`
 }
 
 type operationAuthorizationResponse struct {
@@ -163,6 +173,7 @@ func (client RemoteClient) AuthorizeAndExchange(
 		IdempotencyKey:              request.IdempotencyKey,
 		Operation:                   request.Operation,
 		ProjectIdentity:             request.ProjectIdentity,
+		SessionCapabilities:         sessionCapabilities(),
 		TargetReleaseRoot:           request.TargetReleaseRoot,
 		Traceparent:                 request.Traceparent,
 	}

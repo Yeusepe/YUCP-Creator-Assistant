@@ -48,6 +48,7 @@ export interface IssuePackageInstallSessionInput {
   buyerId: string;
   deliveryGrantId: string;
   deviceKeyThumbprint: string;
+  diagnostics?: { enabled: boolean; sessionId?: string };
   expiresAt?: number;
   issuer: string;
   keyId: string;
@@ -202,6 +203,7 @@ export async function issuePackageInstallSession(
     buyerId,
     creatorId: publication.creatorId,
     deviceKeyThumbprint,
+    ...(input.diagnostics ? { diagnostics: input.diagnostics } : {}),
     expiresAt,
     issuedAt: input.now,
     issuer,

@@ -241,6 +241,18 @@ export function createConvexPackageInstallAccess(
   }
 
   return {
+    async resolveDiagnosticsConsent(buyerId) {
+      const { actor, convex } = await serviceClient(buyerId);
+      const consent = (await convex.query(api.accountDiagnosticsConsent.getConsentForService, {
+        actor,
+        apiSecret: config.convexApiSecret,
+        authUserId: buyerId,
+      })) as { diagnosticsEnabled: boolean; diagnosticsSessionId: string | null };
+      return {
+        diagnosticsEnabled: consent.diagnosticsEnabled,
+        diagnosticsSessionId: consent.diagnosticsSessionId,
+      };
+    },
     async resolveProductGroup(aliasId) {
       const packageId = aliasId.trim();
       if (!packageId) {

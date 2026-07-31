@@ -387,8 +387,23 @@ function requireExactLabels(
   labels: readonly number[],
   name: string
 ): void {
+  requireLabels(value, labels, [], name);
+}
+
+function requireLabels(
+  value: Map<number | string, PackageContractCborValue>,
+  required: readonly number[],
+  optional: readonly number[],
+  name: string
+): void {
+  const expected = [...required, ...optional].sort((left, right) => left - right);
   const actual = [...value.keys()];
-  if (actual.length !== labels.length || actual.some((label, index) => label !== labels[index])) {
+  const missing = required.some((label) => !value.has(label));
+  const unknown = actual.some((label) => !expected.includes(label as number));
+  const noncanonical = actual.some(
+    (label, index) => index > 0 && (label as number) <= (actual[index - 1] as number)
+  );
+  if (missing || unknown || noncanonical) {
     throw new Error(`${name} contains missing, unknown, or noncanonical labels`);
   }
 }
@@ -1408,11 +1423,36 @@ export function encodeInstallSessionV2(session: InstallSessionV2): Uint8Array {
   return encodeCanonicalPackageCbor(installSessionMap(session));
 }
 
+function decodeInstallSessionDiagnostics(
+  value: PackageContractCborValue | undefined
+): InstallSessionDiagnosticsV2 | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const map = requireMap(value, 'InstallSessionV2.diagnostics');
+  requireLabels(map, [0], [1], 'InstallSessionV2.diagnostics');
+  const enabled = map.get(0);
+  if (typeof enabled !== 'boolean') {
+    throw new Error('InstallSessionV2.diagnostics.enabled is invalid');
+  }
+  if (!enabled) {
+    return { enabled: false };
+  }
+  const sessionId = map.get(1);
+  return {
+    enabled: true,
+    ...(sessionId === undefined
+      ? {}
+      : { sessionId: requireString(sessionId, 'InstallSessionV2.diagnostics.sessionId') }),
+  };
+}
+
 export function decodeInstallSessionV2(payload: Uint8Array): InstallSessionV2 {
   const map = requireMap(decodeCanonicalPackageCbor(payload), 'InstallSessionV2');
-  requireExactLabels(
+  requireLabels(
     map,
     Array.from({ length: 22 }, (_, index) => index),
+    [22],
     'InstallSessionV2'
   );
   const bootstrap = requireArray(map.get(15), 'InstallSessionV2.bootstrap').map((value, index) => {
@@ -1432,6 +1472,7 @@ export function decodeInstallSessionV2(payload: Uint8Array): InstallSessionV2 {
   if (tokenType !== INSTALL_SESSION_TOKEN_TYPE) {
     throw new Error('InstallSessionV2 token type is invalid');
   }
+  const diagnostics = decodeInstallSessionDiagnostics(map.get(22));
   const session: InstallSessionV2 = {
     aliasId: requireString(map.get(9), 'InstallSessionV2.aliasId'),
     allowedApiOrigins: readStringArray(map.get(13), 'InstallSessionV2.allowedApiOrigins'),
@@ -1446,6 +1487,7 @@ export function decodeInstallSessionV2(payload: Uint8Array): InstallSessionV2 {
       'InstallSessionV2.deviceKeyThumbprint',
       SHA256_BYTES
     ),
+    ...(diagnostics ? { diagnostics } : {}),
     expiresAt: requireInteger(map.get(18), 'InstallSessionV2.expiresAt'),
     issuedAt: requireInteger(map.get(16), 'InstallSessionV2.issuedAt'),
     issuer: requireString(map.get(2), 'InstallSessionV2.issuer'),
