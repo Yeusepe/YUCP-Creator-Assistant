@@ -41,7 +41,38 @@ describe('native telemetry ingestion', () => {
     expect(withdrawn.status).toBe(403);
   });
 
-  test('never logs a message for the anonymous operational tier', async () => {
+  test('keeps the failure reason on the anonymous tier while redacting credentials', async () => {
+    const logged: unknown[] = [];
+    const consoleError = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      logged.push(...args);
+    });
+    const consentResolver = vi.fn(async () => true);
+    const response = await handleNativeTelemetry(
+      request(
+        {
+          event: 'native.lifecycle.failed',
+          severity: 'error',
+          errorCode: 'PACKAGE_API_UNAVAILABLE',
+          operation: 'install',
+          message: 'package broker API returned HTTP 503 authorization: Bearer abc.def',
+        },
+        { 'x-yucp-diagnostics-session': '' }
+      ),
+      consentResolver
+    );
+    expect(response.status).toBe(204);
+    expect(consentResolver).not.toHaveBeenCalled();
+    const serialized = JSON.stringify(logged);
+    // A code with no cause is still an unexplained error, so the reason stays.
+    expect(serialized).toContain('returned HTTP 503');
+    expect(serialized).toContain('PACKAGE_API_UNAVAILABLE');
+    expect(serialized).toContain('operational');
+    // Credentials never survive, whatever the client sent.
+    expect(serialized).not.toContain('abc.def');
+    consoleError.mockRestore();
+  });
+
+  test('records the anonymous tier without consulting consent', async () => {
     const logged: unknown[] = [];
     const consoleError = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
       logged.push(...args);
@@ -54,7 +85,6 @@ describe('native telemetry ingestion', () => {
           severity: 'error',
           errorCode: 'AUTHENTICATION_REQUIRED',
           operation: 'preflight',
-          message: 'buyer-identifying detail that must never be stored',
         },
         { 'x-yucp-diagnostics-session': '' }
       ),
@@ -64,9 +94,9 @@ describe('native telemetry ingestion', () => {
     // Consent is never consulted when no diagnostics session is presented.
     expect(consentResolver).not.toHaveBeenCalled();
     const serialized = JSON.stringify(logged);
-    expect(serialized).not.toContain('buyer-identifying detail');
     expect(serialized).toContain('AUTHENTICATION_REQUIRED');
     expect(serialized).toContain('operational');
+    expect(serialized).not.toContain('diagnostics.session.id":"');
     consoleError.mockRestore();
   });
 

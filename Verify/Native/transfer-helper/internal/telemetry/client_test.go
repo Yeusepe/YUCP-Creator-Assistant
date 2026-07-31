@@ -60,11 +60,20 @@ func TestClientSendsOperationalTierWithoutConsent(t *testing.T) {
 	if err := json.Unmarshal(request.body, &event); err != nil {
 		t.Fatalf("decode event: %v", err)
 	}
-	if event.Message != "" {
-		t.Fatalf("operational tier must not carry a message, got %q", event.Message)
-	}
 	if event.ErrorCode != "AUTHENTICATION_REQUIRED" {
 		t.Fatalf("error code = %q", event.ErrorCode)
+	}
+	// A code with no reason is still an unexplained error, so the operational
+	// tier keeps the cause — with paths and credentials stripped out of it.
+	if event.Message == "" {
+		t.Fatal("operational tier dropped the failure reason")
+	}
+	if !strings.Contains(event.Message, "failed for buyer") {
+		t.Fatalf("operational tier lost the reason: %q", event.Message)
+	}
+	if strings.Contains(event.Message, `C:\Users\buyer`) ||
+		strings.Contains(event.Message, "project") {
+		t.Fatalf("operational tier leaked a filesystem path: %q", event.Message)
 	}
 }
 

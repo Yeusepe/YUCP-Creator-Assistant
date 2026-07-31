@@ -161,6 +161,7 @@ func (runtime Runtime) Handle(
 		return existing.withClientSchemaVersion(request), nil
 	}
 	record := diagnostics.New(runtime.StateRoot)
+	startedAt := time.Now()
 	traceID := ""
 	if len(request.Traceparent) == 55 {
 		traceID = request.Traceparent[3:35]
@@ -216,7 +217,14 @@ func (runtime Runtime) Handle(
 		// Terminal failures reach here whether or not an install session was ever
 		// issued, so this is the only funnel that can report pre-session failures
 		// such as ErrAuthenticationRequired. Best effort: never alter the result.
-		runtime.emitOperationalFailure(ctx, request, result, reached)
+		runtime.emitOperationalFailure(
+			ctx,
+			request,
+			result,
+			reached,
+			operationErr,
+			startedAt,
+		)
 	} else {
 		record.Write(diagnostics.Event{
 			Bytes:     result.LogicalBytes,
@@ -227,6 +235,7 @@ func (runtime Runtime) Handle(
 			RunID:     request.RunID,
 			TraceID:   traceID,
 		})
+		runtime.emitOperationalCompletion(ctx, request, result, startedAt)
 	}
 	if result.Files == nil {
 		result.Files = []OperationResultFile{}
@@ -414,26 +423,58 @@ func childTraceparent(parent string) (string, error) {
 	return parent[:36] + hex.EncodeToString(spanID) + parent[52:], nil
 }
 
-// emitOperationalFailure reports an anonymous, code-only failure record. It
-// carries no buyer identity, no message, and no filesystem path, so it needs no
-// diagnostics consent — consent only adds user-associated correlation on top.
-// Delivery is best effort and can never change the install result.
+// emitOperationalFailure reports an anonymous failure record: a stable code and
+// the redacted reason behind it, with no buyer identity, credential, or
+// filesystem path, so it needs no diagnostics consent. A code without a reason
+// is still an unexplained error, so the cause travels with it. Delivery is best
+// effort and can never change the install result.
 func (runtime Runtime) emitOperationalFailure(
 	ctx context.Context,
 	request OperationRequest,
 	result OperationResult,
 	phase string,
+	operationErr error,
+	startedAt time.Time,
 ) {
 	if runtime.Telemetry == nil || !runtime.Telemetry.Enabled() {
 		return
 	}
+	message := ""
+	if operationErr != nil {
+		message = operationErr.Error()
+	}
 	_ = runtime.Telemetry.Emit(ctx, telemetry.Event{
+		DurationMS:  time.Since(startedAt).Milliseconds(),
 		ErrorCode:   result.ErrorCode,
+		Message:     message,
 		Name:        "native.lifecycle.failed",
 		Operation:   request.Operation,
 		Phase:       phase,
 		RunID:       request.RunID,
 		Severity:    "error",
+		Traceparent: request.Traceparent,
+	})
+}
+
+// emitOperationalCompletion records how long a successful operation took. The
+// client is the only vantage point that observes a whole install, so without it
+// a slow install cannot be attributed between the server and local staging.
+func (runtime Runtime) emitOperationalCompletion(
+	ctx context.Context,
+	request OperationRequest,
+	result OperationResult,
+	startedAt time.Time,
+) {
+	if runtime.Telemetry == nil || !runtime.Telemetry.Enabled() {
+		return
+	}
+	_ = runtime.Telemetry.Emit(ctx, telemetry.Event{
+		DurationMS:  time.Since(startedAt).Milliseconds(),
+		Name:        "native.lifecycle.completed",
+		Operation:   request.Operation,
+		Phase:       result.JournalState,
+		RunID:       request.RunID,
+		Severity:    "info",
 		Traceparent: request.Traceparent,
 	})
 }

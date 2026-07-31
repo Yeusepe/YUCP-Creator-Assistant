@@ -111,9 +111,11 @@ export async function handleNativeTelemetry(
   const releaseId = readSafeText(payload.releaseId);
   const os = readSafeText(payload.os);
   const arch = readSafeText(payload.arch);
-  // Free-form text is a consented-tier field. Enforced server-side so a modified
-  // client cannot promote itself into sending message content anonymously.
-  const message = consented ? readSafeText(payload.message) : undefined;
+  // Both tiers carry the reason, because a stable code with no cause is still an
+  // unexplained failure. redactString below is applied server-side regardless of
+  // what the client sent, so a modified client cannot smuggle identifying text
+  // into the anonymous tier.
+  const message = readSafeText(payload.message);
   const traceId = parseTraceparent(traceparent)?.traceId;
   const metadata = {
     event,
