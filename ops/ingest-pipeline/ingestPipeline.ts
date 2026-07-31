@@ -45,6 +45,7 @@ import { prepareInstallablePackageTree } from '../storage-core/installablePackag
 import { reconstructLogicalFile, storeLogicalFile } from '../storage-core/logicalFileCas';
 import { normalizePackageArtifact } from '../storage-core/packageNormalizer';
 import {
+  classifiablePath,
   classifyPackageFiles,
   type ProtectionPolicyId,
   protectionMaterializationPolicy,
@@ -494,7 +495,7 @@ async function prepareLogicalAssembly(
       prepared.files,
       async (file) => {
         signal?.throwIfAborted();
-        if (!file.normalizedPath.toLocaleLowerCase('en-US').endsWith('.png')) {
+        if (!classifiablePath(file.normalizedPath).endsWith('.png')) {
           return file;
         }
         const metadata = readPngCouplingMetadata(

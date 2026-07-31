@@ -48,6 +48,21 @@ const classificationRules: ReadonlyArray<{
   { extension: '.zip', materializerType: 'zip' },
 ];
 
+/**
+ * Assets that ship deactivated carry this marker until the installer renames them
+ * onto their real extension. The bytes are still the asset the buyer receives, so
+ * classification reads through the marker; matching the stored name instead would
+ * quietly deliver every deactivated asset unprotected.
+ */
+const DEACTIVATED_ASSET_SUFFIX = '.yucp_disabled';
+
+export function classifiablePath(normalizedPath: string): string {
+  const lowered = normalizedPath.toLocaleLowerCase('en-US');
+  return lowered.endsWith(DEACTIVATED_ASSET_SUFFIX)
+    ? lowered.slice(0, -DEACTIVATED_ASSET_SUFFIX.length)
+    : lowered;
+}
+
 const materializationPolicy: ProtectionMaterializationPolicy = {
   minimumCoupledFiles: 1,
   protectedFileRequirement: 'best-effort',
@@ -66,7 +81,7 @@ export function classifyPackageFiles(input: {
 }): ProtectionPolicySnapshot {
   const files = input.files.map((file): ClassifiedPackageFile => {
     const { pixelHeight, pixelWidth, ...carried } = file;
-    const normalizedPath = file.normalizedPath.toLocaleLowerCase('en-US');
+    const normalizedPath = classifiablePath(file.normalizedPath);
     const rule = classificationRules.find(({ extension }) => normalizedPath.endsWith(extension));
     if (!rule) {
       return { ...carried, classification: 'common' };

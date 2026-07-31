@@ -95,6 +95,43 @@ describe('protection policy materialization semantics', () => {
     expect(snapshot.id).toBe(ACTIVE_PROTECTION_POLICY_ID);
   });
 
+  it('protects an asset that ships deactivated by its real extension', () => {
+    const snapshot = classifyPackageFiles({
+      files: [
+        {
+          bytes: 128,
+          normalizedPath: 'Assets/Product/FBX/Headphones.fbx.yucp_disabled',
+          path: 'Headphones.fbx.yucp_disabled',
+          sha256: '77'.repeat(32),
+        },
+        {
+          bytes: 128,
+          normalizedPath: 'Assets/Product/Textures/Skin.png.yucp_disabled',
+          path: 'Skin.png.yucp_disabled',
+          pixelHeight: 1024,
+          pixelWidth: 1024,
+          sha256: '88'.repeat(32),
+        },
+        {
+          bytes: 128,
+          normalizedPath: 'Assets/Product/FBX/Headphones.fbx.meta.yucp_disabled',
+          path: 'Headphones.fbx.meta.yucp_disabled',
+          sha256: '99'.repeat(32),
+        },
+      ],
+      policyId: ACTIVE_PROTECTION_POLICY_ID,
+    });
+
+    expect(snapshot.files.map((file) => [file.classification, file.materializerType])).toEqual([
+      ['protected', 'fbx'],
+      ['protected', 'png'],
+      ['common', undefined],
+    ]);
+    expect(snapshot.files[0]?.normalizedPath).toBe(
+      'Assets/Product/FBX/Headphones.fbx.yucp_disabled'
+    );
+  });
+
   it('carries images too small to hold the watermark as common content', () => {
     const classify = (pixels?: { pixelHeight: number; pixelWidth: number }) =>
       classifyPackageFiles({
