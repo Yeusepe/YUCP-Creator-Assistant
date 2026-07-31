@@ -366,6 +366,25 @@ function optionalBootstrapIntent(value: unknown): YucpBootstrapIntent | undefine
   }
 }
 
+function logInstallUnresolved(fields: {
+  aliasId: string;
+  currentReleaseRoot?: string;
+  editionId?: string;
+  operation: string;
+  reason: string;
+  requestedReleaseRoot?: string;
+  resolvedAliasId?: string;
+  traceparent: string;
+}): void {
+  console.warn(
+    JSON.stringify({
+      event: 'package_install.unresolved',
+      ...fields,
+      traceId: parseTraceparent(fields.traceparent)?.traceId ?? null,
+    })
+  );
+}
+
 async function resolveSessionDiagnostics(input: {
   accessPort: PackageInstallAccessPort;
   buyerId: string;
@@ -658,13 +677,36 @@ async function resolveAuthorizedPublication(input: {
   }
   const group = await input.accessPort.resolveProductGroup(input.operation.aliasId);
   if (!group || group.aliasId !== input.operation.aliasId) {
-    return { response: jsonNoStore({ error: 'Package alias not found' }, 404) };
+    logInstallUnresolved({
+      aliasId: input.operation.aliasId,
+      operation: input.operation.operation,
+      reason: group ? 'alias-mismatch' : 'alias-unknown',
+      traceparent: input.operation.traceparent,
+      ...(group ? { resolvedAliasId: group.aliasId } : {}),
+    });
+    return {
+      response: jsonNoStore(
+        { error: 'Package alias not found', errorCode: 'PACKAGE_ALIAS_NOT_FOUND' },
+        404
+      ),
+    };
   }
   const entitledEditionId = await input.accessPort.resolveEntitledEdition(input.buyerId, group);
   if (!entitledEditionId) {
     const verificationCatalogProductId = group.catalogProductIds[0];
     if (!verificationCatalogProductId) {
-      return { response: jsonNoStore({ error: 'Package alias not found' }, 404) };
+      logInstallUnresolved({
+        aliasId: input.operation.aliasId,
+        operation: input.operation.operation,
+        reason: 'no-storefront',
+        traceparent: input.operation.traceparent,
+      });
+      return {
+        response: jsonNoStore(
+          { error: 'Package alias not found', errorCode: 'PACKAGE_ALIAS_NOT_FOUND' },
+          404
+        ),
+      };
     }
     return {
       response: jsonNoStore(
@@ -715,13 +757,36 @@ async function resolveAuthorizedPublication(input: {
         )
       : await input.accessPort.resolvePublication(group, entitledEditionId, requestedReleaseRoot);
   if (!publication) {
+    // A pinned root that no longer resolves is a stale target, not an unpublished
+    // product: the buyer has to move to the current release rather than retry.
+    const current = requestedReleaseRoot
+      ? await input.accessPort.resolvePublication(group, entitledEditionId, undefined)
+      : null;
+    const errorCode =
+      input.operation.operation === 'uninstall'
+        ? 'INSTALLED_RELEASE_UNAVAILABLE'
+        : current
+          ? 'RELEASE_ROOT_UNAVAILABLE'
+          : 'PRODUCT_NOT_PUBLISHED';
+    logInstallUnresolved({
+      aliasId: input.operation.aliasId,
+      editionId: entitledEditionId,
+      operation: input.operation.operation,
+      reason: errorCode,
+      traceparent: input.operation.traceparent,
+      ...(requestedReleaseRoot ? { requestedReleaseRoot } : {}),
+      ...(current ? { currentReleaseRoot: current.releaseRoot } : {}),
+    });
     return {
       response: jsonNoStore(
         {
           error:
             input.operation.operation === 'uninstall'
               ? 'Installed package release is unavailable'
-              : 'Product is not yet published',
+              : current
+                ? 'The requested release is no longer available'
+                : 'Product is not yet published',
+          errorCode,
         },
         404
       ),

@@ -904,6 +904,48 @@ describe('package install session route', () => {
     expect(beginExchange).not.toHaveBeenCalled();
   });
 
+  test('separates a stale release target from a package with no release', async () => {
+    async function preflight(overrides: Partial<PackageInstallAccessPort>) {
+      const handler = createPackageOperationAuthorizationRoute({
+        accessPort: accessPort(overrides),
+        authorizationPort: defaultAuthorizationPort,
+        audience,
+        issuer,
+        keyId,
+        privateKey,
+        verificationBaseUrl,
+        verifyAccessRequest: async () => ({
+          buyerId: 'buyer-1',
+          deviceKeyThumbprint,
+          ok: true,
+        }),
+      });
+      const {
+        operationCapability: _capability,
+        ...operation
+      } = await requestBody({ operation: 'preflight', targetReleaseRoot: '99'.repeat(32) });
+      const response = await handler(request(operation));
+      return { body: (await response.json()) as Record<string, string>, status: response.status };
+    }
+
+    // The pinned target is gone but the package still has a current release.
+    const current = await accessPort().resolvePublication(productGroup(), 'commercial');
+    const stale = await preflight({
+      resolvePublication: mock(async (_group, _edition, releaseRoot?: string) =>
+        releaseRoot ? null : current
+      ),
+    });
+    expect(stale.status).toBe(404);
+    expect(stale.body.errorCode).toBe('RELEASE_ROOT_UNAVAILABLE');
+
+    // Nothing is published for this edition at all.
+    const unpublished = await preflight({
+      resolvePublication: mock(async () => null),
+    });
+    expect(unpublished.status).toBe(404);
+    expect(unpublished.body.errorCode).toBe('PRODUCT_NOT_PUBLISHED');
+  });
+
   test('carries the diagnostics answer only to a client that asked for it', async () => {
     const consented = { diagnosticsEnabled: true, diagnosticsSessionId: 'diag-session-1' };
     async function issueWith(input: {
