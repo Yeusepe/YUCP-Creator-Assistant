@@ -31,6 +31,7 @@ import {
   annotateApiSpan,
   getActiveTraceIds,
   initApiObservability,
+  setApiDiagnosticsConsentResolver,
   withApiRequestSpan,
 } from './lib/observability';
 import { verifyPackageBrokerAccessRequest } from './lib/packageBrokerAccessToken';
@@ -68,7 +69,10 @@ import {
   mountVerificationRouteHandlers,
   type VerificationConfig,
 } from './routes';
+import { handleBrowserTelemetry } from './routes/browserTelemetry';
 import { createCollabRoutes } from './routes/collab';
+import { handleConvexTelemetry } from './routes/convexTelemetry';
+import { handleNativeTelemetry } from './routes/nativeTelemetry';
 import { createPackageInstallerTufRoute } from './routes/packageInstallerTuf';
 import {
   createPackageInstallSessionRenewalRoute,
@@ -110,6 +114,8 @@ let vpmAliasPublicationDatabase: CatalogDatabase | null = null;
 let packageMaterializationStatusRoute: ((request: Request) => Promise<Response>) | null = null;
 let packageInstallerTufRoute: ((request: Request) => Promise<Response>) | null = null;
 let packageInstallerTufRuntime: PackageInstallerTufRepositoryRuntime | null = null;
+let nativeDiagnosticsConsentResolver: (diagnosticsSessionId: string) => Promise<boolean> =
+  async () => false;
 let allowedCorsOrigins = new Set<string>();
 
 // Resolved after initializeAuth - used for apiBase injection and CORS
@@ -443,6 +449,8 @@ function initializeAuth(webhookBaseUrl?: string) {
   const packagePublicationAuthority = packageOperationAuthorizationDatabase
     ? new Catalog(packageOperationAuthorizationDatabase)
     : null;
+  nativeDiagnosticsConsentResolver = async () => false;
+  setApiDiagnosticsConsentResolver(nativeDiagnosticsConsentResolver);
   const packageInstallRouteOptions =
     packageInstallConfig && operationAuthorizationStore && packagePublicationAuthority
       ? {
@@ -487,6 +495,11 @@ function initializeAuth(webhookBaseUrl?: string) {
           },
         }
       : null;
+  if (packageInstallRouteOptions?.accessPort.resolveDiagnosticsSessionConsent) {
+    nativeDiagnosticsConsentResolver =
+      packageInstallRouteOptions.accessPort.resolveDiagnosticsSessionConsent;
+    setApiDiagnosticsConsentResolver(nativeDiagnosticsConsentResolver);
+  }
   packageOperationAuthorizationRoute = packageInstallRouteOptions
     ? createPackageOperationAuthorizationRoute(packageInstallRouteOptions)
     : null;
@@ -617,6 +630,22 @@ async function routeRequest(request: Request): Promise<Response> {
   const pathname = url.pathname;
   const clientAddress = getClientAddress(request);
   let publicApiRateLimitHeaders: Record<string, string> | undefined;
+
+  if (pathname === '/api/telemetry/browser-error') {
+    if (isRateLimited(`browser-telemetry:${clientAddress}`, 60, 60_000)) {
+      return new Response(null, { status: 429 });
+    }
+    return handleBrowserTelemetry(request);
+  }
+  if (pathname === '/api/telemetry/convex') {
+    return handleConvexTelemetry(request);
+  }
+  if (pathname === '/api/telemetry/native') {
+    if (isRateLimited(`native-telemetry:${clientAddress}`, 120, 60_000)) {
+      return new Response(null, { status: 429 });
+    }
+    return handleNativeTelemetry(request, nativeDiagnosticsConsentResolver);
+  }
 
   // Basic in-memory guardrails for abuse-prone routes.
   if (pathname === INTERNAL_RPC_PATH && internalRpcRouter) {

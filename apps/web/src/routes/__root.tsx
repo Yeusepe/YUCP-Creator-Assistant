@@ -27,7 +27,7 @@ import {
 } from '@/lib/runtimeConfig';
 import { getDocumentRequestUrl } from '@/lib/server/runtimeConfig';
 import { useVersionPoller } from '@/lib/versionPoller';
-import { logRootRenderError } from '@/lib/webDiagnostics';
+import { installGlobalWebErrorHandlers, logRootRenderError } from '@/lib/webDiagnostics';
 
 import '@/styles/tokens.css';
 import '@/styles/loading.css';
@@ -79,6 +79,7 @@ function AppEffects() {
 
   useEffect(() => {
     installChunkErrorRecovery();
+    installGlobalWebErrorHandlers();
     initializeHyperdxBrowser();
   }, []);
 

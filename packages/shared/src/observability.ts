@@ -1,8 +1,24 @@
-import { type Attributes, SpanKind, SpanStatusCode, type Tracer, trace } from '@opentelemetry/api';
+import {
+  type Attributes,
+  metrics,
+  SpanKind,
+  SpanStatusCode,
+  type Tracer,
+  trace,
+} from '@opentelemetry/api';
 
 export type ObservableValue = string | number | boolean | undefined | null;
 export type ObservableAttributes = Record<string, ObservableValue>;
 export type OperationOutcome = 'success' | 'redirect' | 'client_error' | 'server_error' | 'error';
+
+const operationMeter = metrics.getMeter('yucp.shared.observability');
+const operationCount = operationMeter.createCounter('yucp.operation.count', {
+  description: 'Count of observed application operations',
+});
+const operationDuration = operationMeter.createHistogram('yucp.operation.duration', {
+  description: 'Duration of observed application operations in milliseconds',
+  unit: 'ms',
+});
 
 export function toSpanAttributes(input: ObservableAttributes): Attributes {
   return Object.fromEntries(
@@ -69,11 +85,14 @@ export async function withObservedSpan<T>(
       }),
     },
     async (span) => {
+      const startedAt = performance.now();
+      let outcome: OperationOutcome = 'success';
       try {
         const result = await run();
         span.setAttribute('app.operation.outcome', 'success');
         return result;
       } catch (error) {
+        outcome = 'error';
         span.setAttribute('app.operation.outcome', 'error');
         if (error instanceof Error) {
           span.recordException(error);
@@ -85,6 +104,12 @@ export async function withObservedSpan<T>(
         }
         throw error;
       } finally {
+        const metricAttributes = {
+          'app.operation.kind': spanKindToOperationKind(kind),
+          'app.operation.outcome': outcome,
+        };
+        operationCount.add(1, metricAttributes);
+        operationDuration.record(performance.now() - startedAt, metricAttributes);
         span.end();
       }
     }

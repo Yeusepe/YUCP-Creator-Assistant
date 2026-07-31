@@ -12,4 +12,8 @@ describe('sync-convex-env', () => {
     expect(CONVEX_ENV_VARS).toContain('YUCP_KEY_ID');
     expect(CONVEX_ENV_VARS).toContain('YUCP_TRUST_BUNDLE_JSON');
   });
+
+  it('syncs the authenticated Convex log-stream webhook secret', () => {
+    expect(CONVEX_ENV_VARS).toContain('CONVEX_LOG_STREAM_SECRET');
+  });
 });

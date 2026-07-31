@@ -21,6 +21,7 @@ import (
 	"github.com/yucp/transfer-helper/internal/delivery"
 	"github.com/yucp/transfer-helper/internal/deviceidentity"
 	"github.com/yucp/transfer-helper/internal/packagecontract"
+	"github.com/yucp/transfer-helper/internal/telemetry"
 	"github.com/yucp/transfer-helper/internal/trust"
 )
 
@@ -80,6 +81,7 @@ type AuthorizedRequest struct {
 
 	deliveryGrant  string
 	installSession string
+	telemetry      *telemetry.Client
 	renew          func(
 		ctx context.Context,
 		deliveryGrant string,
@@ -115,6 +117,13 @@ func (request AuthorizedRequest) WithRenewal(
 	}
 	request.renew = renew
 	return request, nil
+}
+
+func (request AuthorizedRequest) WithTelemetry(
+	client *telemetry.Client,
+) AuthorizedRequest {
+	request.telemetry = client
+	return request
 }
 
 type verifiedGrantSource struct {
@@ -201,13 +210,34 @@ type ProgressReporter func(
 	totalFiles int64,
 ) error
 
+func reportProgressSafely(
+	reporter ProgressReporter,
+	phase string,
+	completedBytes int64,
+	totalBytes int64,
+	completedFiles int64,
+	totalFiles int64,
+) error {
+	if reporter == nil {
+		return nil
+	}
+	return reporter(phase, completedBytes, totalBytes, completedFiles, totalFiles)
+}
+
+func telemetryFailureMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	return "package lifecycle failed"
+}
+
 func Execute(
 	ctx context.Context,
 	request AuthorizedRequest,
 	identity deviceidentity.Identity,
 	trustDocument trust.Document,
 	reportProgress ProgressReporter,
-) (Result, error) {
+) (result Result, err error) {
 	if err := validateRequest(request); err != nil {
 		return Result{}, err
 	}
@@ -220,6 +250,68 @@ func Execute(
 	)
 	if err != nil {
 		return Result{}, err
+	}
+	var diagnostics *telemetry.Client
+	if request.telemetry != nil && session.Diagnostics.Enabled {
+		sessionTelemetry := request.telemetry.WithSession(session.Diagnostics.SessionID)
+		if sessionTelemetry.Enabled() {
+			diagnostics = &sessionTelemetry
+			startedAt := time.Now()
+			lastPhase := ""
+			originalReport := reportProgress
+			reportProgress = func(
+				phase string,
+				completedBytes int64,
+				totalBytes int64,
+				completedFiles int64,
+				totalFiles int64,
+			) error {
+				if phase != lastPhase {
+					_ = diagnostics.Emit(ctx, telemetry.Event{
+						Name:        "native.lifecycle.phase",
+						Operation:   request.Operation,
+						Phase:       phase,
+						RunID:       request.RunID,
+						Traceparent: request.Traceparent,
+					})
+					lastPhase = phase
+				}
+				return reportProgressSafely(
+					originalReport,
+					phase,
+					completedBytes,
+					totalBytes,
+					completedFiles,
+					totalFiles,
+				)
+			}
+			_ = diagnostics.Emit(ctx, telemetry.Event{
+				Name:        "native.lifecycle.started",
+				Operation:   request.Operation,
+				RunID:       request.RunID,
+				Traceparent: request.Traceparent,
+			})
+			defer func() {
+				event := telemetry.Event{
+					Name:        "native.lifecycle.completed",
+					Operation:   request.Operation,
+					RunID:       request.RunID,
+					Traceparent: request.Traceparent,
+					DurationMS:  time.Since(startedAt).Milliseconds(),
+				}
+				if err != nil {
+					event.Name = "native.lifecycle.failed"
+					event.Severity = "error"
+					event.ErrorCode = ErrorCode(err)
+					event.Message = telemetryFailureMessage(err)
+					var statusError interface{ HTTPStatus() int }
+					if errors.As(err, &statusError) {
+						event.HTTPStatus = statusError.HTTPStatus()
+					}
+				}
+				_ = diagnostics.Emit(ctx, event)
+			}()
+		}
 	}
 	authorizationContext := packagecontract.InstallAuthorizationContext{
 		AliasID:             request.AliasID,

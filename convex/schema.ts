@@ -1730,7 +1730,9 @@ const account_diagnostics_consent = defineTable({
   source: v.string(),
   decidedAt: v.number(),
   updatedAt: v.number(),
-}).index('by_auth_user', ['authUserId']);
+})
+  .index('by_auth_user', ['authUserId'])
+  .index('by_diagnostics_session', ['diagnosticsSessionId']);
 
 const account_recovery_sessions = defineTable({
   authUserId: v.string(),

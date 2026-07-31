@@ -1,6 +1,7 @@
 export const PRIVACY_PREFERENCES_STORAGE_KEY = 'yucp_privacy_preferences';
 export const PRIVACY_PREFERENCES_COOKIE = 'yucp_privacy_preferences';
 export const PRIVACY_PREFERENCES_EVENT = 'yucp:privacy-preferences-changed';
+export const DIAGNOSTICS_SESSION_HEADER = 'X-YUCP-Diagnostics-Session';
 const PRIVACY_PREFERENCES_VERSION = 1;
 const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 180;
 
@@ -165,6 +166,15 @@ export function readStoredPrivacyPreferences() {
     serializePrivacyPreferences(fromCookie)
   );
   return fromCookie;
+}
+
+export function getDiagnosticsRequestHeaders(): Record<string, string> {
+  const preferences = readStoredPrivacyPreferences();
+  const sessionId = preferences?.diagnosticsEnabled
+    ? preferences.diagnosticsSessionId?.trim()
+    : undefined;
+
+  return sessionId ? { [DIAGNOSTICS_SESSION_HEADER]: sessionId } : {};
 }
 
 function writeCookie(value: string) {

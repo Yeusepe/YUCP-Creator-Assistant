@@ -152,6 +152,10 @@ func (err *packageAPIStatusError) StableCode() string {
 	return err.code
 }
 
+func (err *packageAPIStatusError) HTTPStatus() int {
+	return err.status
+}
+
 func (client RemoteClient) AuthorizeAndExchange(
 	ctx context.Context,
 	request OperationRequest,

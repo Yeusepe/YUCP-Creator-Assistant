@@ -1,6 +1,8 @@
 // Structured logging with JSON output, correlation IDs, and redaction
 // Main entry point for the logging module
 
+import { logs, SeverityNumber } from '@opentelemetry/api-logs';
+
 export {
   type AuditActor,
   type AuditContext,
@@ -129,6 +131,28 @@ export function createStructuredLogger(config: Partial<LoggerConfig> = {}): Stru
   }
 
   function output(entry: LogEntry): void {
+    const otelLogger = logs.getLogger(fullConfig.serviceName);
+    const severityNumber =
+      entry.level === 'error'
+        ? SeverityNumber.ERROR
+        : entry.level === 'warn'
+          ? SeverityNumber.WARN
+          : entry.level === 'debug'
+            ? SeverityNumber.DEBUG
+            : SeverityNumber.INFO;
+    otelLogger.emit({
+      severityNumber,
+      severityText: entry.level.toUpperCase(),
+      body: entry.message,
+      attributes: {
+        'service.name': fullConfig.serviceName,
+        ...(entry.correlationId ? { 'correlation.id': entry.correlationId } : {}),
+        ...(entry.spanId ? { 'span.id': entry.spanId } : {}),
+        ...(entry.context ? { context: JSON.stringify(entry.context) } : {}),
+        ...(entry.metadata ? { metadata: JSON.stringify(entry.metadata) } : {}),
+      },
+    });
+
     if (fullConfig.sink) {
       fullConfig.sink(entry);
       return;

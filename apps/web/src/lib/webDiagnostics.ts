@@ -1,4 +1,4 @@
-import { captureHyperdxException } from '@/lib/hyperdx';
+import { captureHyperdxException, isHyperdxDiagnosticsEnabled } from '@/lib/hyperdx';
 import { getPublicRuntimeConfig } from '@/lib/runtimeConfig';
 
 export interface WebDiagnosticsEnv {
@@ -41,6 +41,26 @@ export interface ProtectedAuthState {
 }
 
 const loggedRootErrors = new WeakSet<Error>();
+const loggedErrorObjects = new WeakSet<Error>();
+const loggedGlobalErrors = new Set<string>();
+let globalErrorHandlersInstalled = false;
+
+const OPERATIONAL_ERROR_MAX_BYTES = 12_000;
+const SAFE_OPERATIONAL_CONTEXT_KEYS = new Set([
+  'column',
+  'durationMs',
+  'line',
+  'method',
+  'networkFailure',
+  'operation',
+  'phase',
+  'reason',
+  'route',
+  'routeCategory',
+  'source',
+  'stage',
+  'status',
+]);
 
 function getDefaultEnv(): WebDiagnosticsEnv {
   const processEnv = typeof process !== 'undefined' ? process.env : undefined;
@@ -146,16 +166,129 @@ function serializeError(error: unknown): Record<string, unknown> {
   return { value: redactSensitiveText(String(error)) };
 }
 
+function buildOperationalErrorPayload(
+  event: string,
+  error: unknown,
+  context: Record<string, unknown>
+) {
+  const runtimeConfig = typeof window !== 'undefined' ? getPublicRuntimeConfig() : null;
+  const safeContext = Object.fromEntries(
+    Object.entries(context)
+      .filter(([key]) => SAFE_OPERATIONAL_CONTEXT_KEYS.has(key))
+      .map(([key, value]) => {
+        if (typeof value === 'string') {
+          return [key, redactSensitiveText(value).slice(0, 240)];
+        }
+        if (typeof value === 'number' || typeof value === 'boolean') {
+          return [key, value];
+        }
+        return [key, undefined];
+      })
+      .filter(([, value]) => value !== undefined)
+  );
+
+  return {
+    event: redactSensitiveText(event).slice(0, 160),
+    error: serializeError(error),
+    context: compactRecord(safeContext),
+    route: typeof window !== 'undefined' ? window.location.pathname : undefined,
+    release: runtimeConfig?.buildId,
+    userAgent: typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 240) : undefined,
+  };
+}
+
+export function reportOperationalWebError(
+  event: string,
+  error: unknown,
+  context: Record<string, unknown> = {}
+): void {
+  if (typeof window === 'undefined' || isHyperdxDiagnosticsEnabled()) {
+    return;
+  }
+
+  const payload = JSON.stringify(buildOperationalErrorPayload(event, error, context));
+  if (new TextEncoder().encode(payload).byteLength > OPERATIONAL_ERROR_MAX_BYTES) {
+    return;
+  }
+
+  const body = new Blob([payload], { type: 'application/json' });
+  if (
+    typeof navigator.sendBeacon === 'function' &&
+    navigator.sendBeacon('/api/telemetry/browser-error', body)
+  ) {
+    return;
+  }
+
+  void Promise.resolve()
+    .then(() =>
+      fetch('/api/telemetry/browser-error', {
+        method: 'POST',
+        body: payload,
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        keepalive: true,
+      })
+    )
+    .catch(() => undefined);
+}
+
 export function logWebError(
   event: string,
   error: unknown,
   context: Record<string, unknown> = {}
 ): void {
-  captureHyperdxException(error, {
+  if (error instanceof Error) {
+    if (loggedErrorObjects.has(error)) {
+      return;
+    }
+    loggedErrorObjects.add(error);
+  }
+
+  const captured = captureHyperdxException(error, {
     event,
     ...context,
   });
+  if (!captured) {
+    reportOperationalWebError(event, error, context);
+  }
   console.error(`[web] ${event}`, compactRecord({ ...context, error: serializeError(error) }));
+}
+
+function getGlobalErrorKey(event: string, error: unknown) {
+  const serialized = serializeError(error);
+  return `${event}:${serialized.name ?? 'Error'}:${serialized.message ?? 'unknown'}`;
+}
+
+export function installGlobalWebErrorHandlers(): void {
+  if (typeof window === 'undefined' || globalErrorHandlersInstalled) {
+    return;
+  }
+
+  globalErrorHandlersInstalled = true;
+  window.addEventListener('error', (event) => {
+    const error = event.error ?? new Error(event.message || 'Unhandled browser error');
+    const key = getGlobalErrorKey('Unhandled browser exception', error);
+    if (loggedGlobalErrors.has(key)) {
+      return;
+    }
+    loggedGlobalErrors.add(key);
+    logWebError('Unhandled browser exception', error, {
+      source: event.filename ? new URL(event.filename, window.location.origin).pathname : undefined,
+      line: event.lineno || undefined,
+      column: event.colno || undefined,
+      phase: 'window.error',
+    });
+  });
+
+  window.addEventListener('unhandledrejection', (event) => {
+    const error = event.reason instanceof Error ? event.reason : new Error(String(event.reason));
+    const key = getGlobalErrorKey('Unhandled promise rejection', error);
+    if (loggedGlobalErrors.has(key)) {
+      return;
+    }
+    loggedGlobalErrors.add(key);
+    logWebError('Unhandled promise rejection', error, { phase: 'window.unhandledrejection' });
+  });
 }
 
 export async function loadProtectedAuthState({

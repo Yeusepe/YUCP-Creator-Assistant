@@ -5,7 +5,7 @@ import {
   runWranglerVersionsUpload,
   WEB_GENERATED_WRANGLER_CONFIG_PATH,
 } from './cloudflare-web-config';
-import { runWebBuild } from './deploy-web-worker';
+import { runWebBuild, uploadWebSourceMaps } from './deploy-web-worker';
 
 const passthroughArgs = process.argv
   .slice(2)
@@ -31,11 +31,13 @@ export function getWebVersionUploadArgs(
 async function main(): Promise<void> {
   const workerEnvName = readFlag('--worker-env');
   const resolved = resolveWebEnvValues({}, { prod: false });
+  const releaseId = resolved.BUILD_ID ?? 'dev';
 
   await runWebBuild();
+  await uploadWebSourceMaps(releaseId);
   await runWranglerVersionsUpload(
     WEB_GENERATED_WRANGLER_CONFIG_PATH,
-    createWebDeployEnvironment(resolved),
+    createWebDeployEnvironment({ ...resolved, BUILD_ID: releaseId }),
     passthroughArgs,
     workerEnvName
   );

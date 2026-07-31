@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -55,6 +56,19 @@ func TestProtectedMaterializationProgressAdvancesRemainingProtectedBytes(t *test
 	progress.Status = "completed"
 	if verified := protectedMaterializationCompletedBytes(90, 100, completed, progress); verified != 99 {
 		t.Fatalf("verified bytes = %d; want 99", verified)
+	}
+}
+
+func TestTelemetryLifecycleFailureMessageDoesNotIncludeOperationalErrorText(t *testing.T) {
+	err := errors.New(`open C:\Users\buyer\project\token-secret: access denied`)
+	if message := telemetryFailureMessage(err); message != "package lifecycle failed" {
+		t.Fatalf("telemetryFailureMessage() = %q", message)
+	}
+}
+
+func TestReportProgressSafelyAllowsNilReporter(t *testing.T) {
+	if err := reportProgressSafely(nil, "download", 1, 2, 1, 2); err != nil {
+		t.Fatalf("reportProgressSafely() error = %v", err)
 	}
 }
 

@@ -139,3 +139,29 @@ export const getConsentForService = query({
         };
   },
 });
+
+export const getConsentForDiagnosticsSession = query({
+  args: {
+    actor: ApiActorBindingV,
+    apiSecret: v.string(),
+    diagnosticsSessionId: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['downloads:service']);
+    const diagnosticsSessionId = requireDiagnosticsSessionId(args.diagnosticsSessionId);
+    if (!diagnosticsSessionId) {
+      return false;
+    }
+    const consent = await ctx.db
+      .query('account_diagnostics_consent')
+      .withIndex('by_diagnostics_session', (q) =>
+        q.eq('diagnosticsSessionId', diagnosticsSessionId)
+      )
+      .first();
+    return Boolean(
+      consent?.diagnosticsEnabled && consent.diagnosticsSessionId === diagnosticsSessionId
+    );
+  },
+});

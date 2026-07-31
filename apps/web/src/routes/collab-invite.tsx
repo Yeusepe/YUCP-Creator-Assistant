@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import confetti from 'canvas-confetti';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { fetchWithDiagnostics } from '@/api/client';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { Icon } from '@/components/ui/Icon';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
@@ -170,7 +171,7 @@ function CollabInvitePage() {
     if (!secret || secret.length < 16) {
       throw new Error('Create a signing secret with at least 16 characters.');
     }
-    const res = await fetch('/api/collab/session/webhook-config', {
+    const res = await fetchWithDiagnostics('/api/collab/session/webhook-config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -268,7 +269,7 @@ function CollabInvitePage() {
     goToStage('stage-account-wizard');
 
     try {
-      const res = await fetch('/api/collab/session/webhook-config', {
+      const res = await fetchWithDiagnostics('/api/collab/session/webhook-config', {
         credentials: 'include',
       });
       if (!res.ok) throw new Error('Failed to fetch webhook config');
@@ -304,7 +305,7 @@ function CollabInvitePage() {
     const interval = setInterval(async () => {
       elapsed += 2500;
       try {
-        const res = await fetch('/api/collab/session/test-webhook', {
+        const res = await fetchWithDiagnostics('/api/collab/session/test-webhook', {
           credentials: 'include',
         });
         const data = await res.json();
@@ -347,7 +348,7 @@ function CollabInvitePage() {
     setAccountSubmitting(true);
 
     try {
-      const res = await fetch('/api/collab/session/submit', {
+      const res = await fetchWithDiagnostics('/api/collab/session/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -390,7 +391,7 @@ function CollabInvitePage() {
     setApiSubmitting(true);
 
     try {
-      const res = await fetch('/api/collab/session/submit', {
+      const res = await fetchWithDiagnostics('/api/collab/session/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -424,7 +425,7 @@ function CollabInvitePage() {
 
   const exchangeInviteToken = useCallback(
     async (rawToken: string): Promise<InviteData> => {
-      const res = await fetch('/api/collab/session/exchange', {
+      const res = await fetchWithDiagnostics('/api/collab/session/exchange', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -513,7 +514,7 @@ function CollabInvitePage() {
         if (inviteTokenFromSearch) {
           invite = await exchangeInviteToken(inviteTokenFromSearch);
         } else {
-          const res = await fetch('/api/collab/session/invite', {
+          const res = await fetchWithDiagnostics('/api/collab/session/invite', {
             credentials: 'include',
           });
           const data = await res.json();
@@ -560,7 +561,7 @@ function CollabInvitePage() {
 
       if (auth === 'done') {
         try {
-          const statusRes = await fetch('/api/collab/session/discord-status', {
+          const statusRes = await fetchWithDiagnostics('/api/collab/session/discord-status', {
             credentials: 'include',
           });
           const status = await statusRes.json();
@@ -1149,7 +1150,7 @@ function CollabInvitePage() {
                       <input
                         id="signing-secret-input"
                         type="password"
-                        className={`input-field${signingSecretError ? ' input-field-error' : ''}`}
+                        className={`input-field hdx-mask${signingSecretError ? ' input-field-error' : ''}`}
                         autoComplete="off"
                         placeholder="Create a long secret, then paste the same value into Jinxxy&trade;"
                         value={signingSecret}

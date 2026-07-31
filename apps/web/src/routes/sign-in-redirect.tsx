@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { normalizeAuthRedirectTarget } from '@yucp/shared/authRedirects';
 import { useCallback, useEffect, useState } from 'react';
+import { fetchWithDiagnostics } from '@/api/client';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { CloudBackground } from '@/components/three/CloudBackground';
 import { Icon } from '@/components/ui/Icon';
@@ -63,7 +64,7 @@ function SignInRedirectPageContent() {
     if (!setupToken && !connectToken) return false;
 
     const bootstrapUrl = new URL('/api/connect/bootstrap', window.location.origin);
-    const response = await fetch(bootstrapUrl.toString(), {
+    const response = await fetchWithDiagnostics(bootstrapUrl.toString(), {
       method: 'POST',
       credentials: 'include',
       headers: {

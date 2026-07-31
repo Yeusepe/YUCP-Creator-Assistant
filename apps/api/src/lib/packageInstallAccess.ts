@@ -253,6 +253,14 @@ export function createConvexPackageInstallAccess(
         diagnosticsSessionId: consent.diagnosticsSessionId,
       };
     },
+    async resolveDiagnosticsSessionConsent(diagnosticsSessionId) {
+      const { actor, convex } = await serviceClient();
+      return convex.query(api.accountDiagnosticsConsent.getConsentForDiagnosticsSession, {
+        actor,
+        apiSecret: config.convexApiSecret,
+        diagnosticsSessionId,
+      });
+    },
     async resolveProductGroup(aliasId) {
       const packageId = aliasId.trim();
       if (!packageId) {

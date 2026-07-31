@@ -332,7 +332,7 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
                   </label>
                   <input
                     id="recovery-email"
-                    className="recovery-input"
+                    className="recovery-input hdx-mask"
                     type="email"
                     value={recoveryEmail}
                     onChange={(event) => setRecoveryEmail(event.target.value)}
@@ -364,7 +364,7 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
                         </label>
                         <input
                           id="recovery-otp"
-                          className="recovery-input"
+                          className="recovery-input hdx-mask"
                           type="text"
                           value={recoveryOtp}
                           onChange={(event) => setRecoveryOtp(event.target.value)}
@@ -393,7 +393,7 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
                         </label>
                         <input
                           id="recovery-backup-code"
-                          className="recovery-input"
+                          className="recovery-input hdx-mask"
                           type="text"
                           value={recoveryBackupCode}
                           onChange={(event) => setRecoveryBackupCode(event.target.value)}

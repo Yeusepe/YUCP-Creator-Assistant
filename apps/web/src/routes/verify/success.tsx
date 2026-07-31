@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
+import { fetchWithDiagnostics } from '@/api/client';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { Icon } from '@/components/ui/Icon';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
@@ -47,7 +48,7 @@ function VerifySuccessPage() {
     setIsVisible(true);
 
     if (panelToken) {
-      fetch('/api/verification/panel/refresh', {
+      fetchWithDiagnostics('/api/verification/panel/refresh', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ panelToken }),

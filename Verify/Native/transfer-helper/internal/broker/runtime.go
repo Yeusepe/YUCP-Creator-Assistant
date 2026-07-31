@@ -13,6 +13,7 @@ import (
 	"github.com/yucp/transfer-helper/internal/deviceidentity"
 	"github.com/yucp/transfer-helper/internal/diagnostics"
 	"github.com/yucp/transfer-helper/internal/lifecycle"
+	"github.com/yucp/transfer-helper/internal/telemetry"
 	"github.com/yucp/transfer-helper/internal/trust"
 )
 
@@ -66,6 +67,7 @@ type Runtime struct {
 	Results                  *ResultStore
 	StateRoot                string
 	TrustDocument            trust.Document
+	Telemetry                *telemetry.Client
 	VerificationPollInterval time.Duration
 }
 
@@ -309,6 +311,7 @@ func (runtime Runtime) handleNew(
 	if err != nil {
 		return OperationResult{}, err
 	}
+	lifecycleRequest = lifecycleRequest.WithTelemetry(runtime.Telemetry)
 	lifecycleRequest, err = lifecycleRequest.WithRenewal(func(
 		renewalContext context.Context,
 		currentGrant string,

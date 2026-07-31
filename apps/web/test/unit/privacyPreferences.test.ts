@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   buildPrivacyPreferences,
+  getDiagnosticsRequestHeaders,
   PRIVACY_PREFERENCES_COOKIE,
   PRIVACY_PREFERENCES_STORAGE_KEY,
   parsePrivacyPreferences,
@@ -53,6 +54,21 @@ describe('privacyPreferences', () => {
     expect(saved.diagnosticsEnabled).toBe(false);
     expect(localStorage.getItem(PRIVACY_PREFERENCES_STORAGE_KEY)).toContain('necessary-only');
     expect(document.cookie).toContain(`${PRIVACY_PREFERENCES_COOKIE}=`);
+  });
+
+  it('only propagates a diagnostics session after helpful diagnostics is accepted', () => {
+    expect(getDiagnosticsRequestHeaders()).toEqual({});
+
+    savePrivacyPreferences('helpful-diagnostics', 'banner');
+    const headers = getDiagnosticsRequestHeaders();
+
+    expect(headers).toHaveProperty('X-YUCP-Diagnostics-Session');
+    expect(headers['X-YUCP-Diagnostics-Session']).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    );
+
+    savePrivacyPreferences('necessary-only', 'account');
+    expect(getDiagnosticsRequestHeaders()).toEqual({});
   });
 
   it('restores preferences from cookies when localStorage is empty', () => {

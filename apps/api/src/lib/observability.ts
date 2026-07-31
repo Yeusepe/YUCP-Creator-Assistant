@@ -19,6 +19,37 @@ import { initBunServerObservability } from '@yucp/shared/serverObservability';
 
 const tracer = trace.getTracer('yucp-api');
 let initialized = false;
+const DIAGNOSTICS_SESSION_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+type DiagnosticsConsentResolver = (diagnosticsSessionId: string) => Promise<boolean>;
+
+let diagnosticsConsentResolver: DiagnosticsConsentResolver = async () => false;
+
+function getDiagnosticsSessionId(request: Request): string | undefined {
+  const value = request.headers.get('x-yucp-diagnostics-session')?.trim();
+  return value && DIAGNOSTICS_SESSION_PATTERN.test(value) ? value : undefined;
+}
+
+export function setApiDiagnosticsConsentResolver(resolver: DiagnosticsConsentResolver): void {
+  diagnosticsConsentResolver = resolver;
+}
+
+export async function resolveDiagnosticsSessionId(
+  request: Request,
+  resolver: DiagnosticsConsentResolver = diagnosticsConsentResolver
+): Promise<string | undefined> {
+  const sessionId = getDiagnosticsSessionId(request);
+  if (!sessionId) {
+    return undefined;
+  }
+
+  try {
+    return (await resolver(sessionId)) ? sessionId : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export function sanitizeApiRequestUrl(value: string | URL): URL {
   const url = new URL(value);
@@ -113,8 +144,14 @@ export async function withApiRequestSpan<T>(
   run: () => Promise<T>
 ): Promise<T> {
   const url = sanitizeApiRequestUrl(request.url);
-  const carrier = Object.fromEntries(request.headers.entries());
+  const carrier = Object.fromEntries(
+    [
+      ['traceparent', request.headers.get('traceparent')?.trim()],
+      ['tracestate', request.headers.get('tracestate')?.trim()],
+    ].filter((entry): entry is [string, string] => Boolean(entry[1]))
+  );
   const parentContext = propagation.extract(ROOT_CONTEXT, carrier);
+  const diagnosticsSessionId = await resolveDiagnosticsSessionId(request);
 
   return context.with(parentContext, async () =>
     tracer.startActiveSpan(
@@ -128,6 +165,7 @@ export async function withApiRequestSpan<T>(
           'http.route': url.pathname,
           'app.operation.type': 'api.request',
           'user_agent.original': request.headers.get('user-agent') ?? undefined,
+          'diagnostics.session.id': diagnosticsSessionId,
           requestId,
         }),
       },
@@ -137,6 +175,7 @@ export async function withApiRequestSpan<T>(
           requestId,
           route: url.pathname,
           method: request.method,
+          'diagnostics.session.id': diagnosticsSessionId,
         });
 
         try {

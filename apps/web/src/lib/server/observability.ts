@@ -11,13 +11,11 @@ type ObservableValue = string | number | boolean | undefined;
 export function buildIncomingTraceCarrier(headers: Headers): Record<string, string> {
   const traceparent = headers.get('traceparent')?.trim();
   const tracestate = headers.get('tracestate')?.trim();
-  const baggage = headers.get('baggage')?.trim();
 
   return Object.fromEntries(
     [
       ['traceparent', traceparent],
       ['tracestate', tracestate],
-      ['baggage', baggage],
     ].filter((entry): entry is [string, string] => Boolean(entry[1]))
   );
 }

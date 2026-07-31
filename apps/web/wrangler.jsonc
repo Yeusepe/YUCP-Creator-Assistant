@@ -5,6 +5,31 @@
   "compatibility_flags": ["nodejs_compat", "nodejs_compat_populate_process_env"],
   "main": "@tanstack/react-start/server-entry",
   "observability": {
-    "enabled": true
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "destinations": ["hyperdx-yucp-web-logs"],
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "destinations": ["hyperdx-yucp-web-traces"],
+      "head_sampling_rate": 1
+    }
+  },
+  "previews": {
+    "observability": {
+      "enabled": true,
+      "logs": {
+        "enabled": true,
+        "destinations": ["hyperdx-yucp-web-logs"],
+        "head_sampling_rate": 0.25
+      },
+      "traces": {
+        "enabled": true,
+        "destinations": ["hyperdx-yucp-web-traces"],
+        "head_sampling_rate": 0.25
+      }
+    }
   }
 }

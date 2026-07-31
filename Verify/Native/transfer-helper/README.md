@@ -59,6 +59,14 @@ The command writes one JSON result to standard output.
 
 The result includes the trace identifier, target digest, byte length, cache state, and final path.
 
+## HyperDX diagnostics
+
+The package broker requests the `install-session-diagnostics` capability. The API includes the signed diagnostics claim only when the buyer accepted Helpful diagnostics in the web UI. The broker verifies that claim before sending telemetry to the first-party API endpoint, so browser cookies and HyperDX keys never enter the native process.
+
+Native lifecycle events carry the same W3C `traceparent` and `runId` as the package operation. HyperDX can therefore join the browser or installer request, package authorization and renewal spans, broker lifecycle phases, and the terminal failure. Events contain only redacted operational metadata: service, process, operation, phase, stable error code, status, duration, release, OS, architecture, and trace identifiers. Request bodies, response bodies, credentials, cookies, signed grants, project paths, and file contents are excluded.
+
+Telemetry delivery is best effort and cannot change an installation result. The API receives these events at `/api/telemetry/native` and keeps the HyperDX ingest credentials server-side. This follows HyperDX's OpenTelemetry-based exception and trace correlation model: [HyperDX Node SDK](https://www.hyperdx.io/docs/install/javascript), [HyperDX Browser SDK](https://www.hyperdx.io/docs/install/browser), and [OpenTelemetry recording errors](https://opentelemetry.io/docs/specs/semconv/general/recording-errors/).
+
 ## Reconstruct command
 
 Use `reconstruct` with a signed file-table shard and trusted signing key.

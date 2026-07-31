@@ -1,6 +1,7 @@
 import { createLazyFileRoute } from '@tanstack/react-router';
 import confetti from 'canvas-confetti';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { fetchWithDiagnostics } from '@/api/client';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { buildSetupAuthQuery, withSetupAuthUserId } from '@/lib/setupAuth';
 import '@/styles/jinxxy-setup.css';
@@ -26,7 +27,7 @@ function generateSecret(): string {
 }
 
 function apiFetch(url: string, options: RequestInit = {}) {
-  return fetch(url, { credentials: 'include', ...options });
+  return fetchWithDiagnostics(url, { credentials: 'include', ...options });
 }
 
 function JinxxySetupPage() {
@@ -664,7 +665,7 @@ function JinxxySetupPage() {
                               placeholder="16-40 characters, paste the same value into Jinxxy™"
                               value={signingSecret}
                               onChange={(e) => setSigningSecret(e.target.value)}
-                              className="flex-1 min-w-0 px-2 py-2.5 rounded-lg border-0 bg-transparent focus:ring-0 outline-none transition-colors text-[#ffffff] placeholder:text-white/40"
+                              className="hdx-mask flex-1 min-w-0 px-2 py-2.5 rounded-lg border-0 bg-transparent focus:ring-0 outline-none transition-colors text-[#ffffff] placeholder:text-white/40"
                             />
                             <button
                               type="button"
@@ -947,7 +948,7 @@ function JinxxySetupPage() {
                         placeholder="Paste your Jinxxy™ API key"
                         value={apiKey}
                         onChange={(e) => setApiKey(e.target.value)}
-                        className="w-full px-4 py-3 rounded-xl border-2 border-white/20 focus:border-[#0ea5e9] focus:ring-0 outline-none transition-colors text-[#ffffff]"
+                        className="hdx-mask w-full px-4 py-3 rounded-xl border-2 border-white/20 focus:border-[#0ea5e9] focus:ring-0 outline-none transition-colors text-[#ffffff]"
                       />
                     </div>
 

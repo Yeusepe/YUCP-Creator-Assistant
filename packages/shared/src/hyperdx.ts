@@ -24,6 +24,7 @@ export interface HyperdxEnvLike {
   OTEL_EXPORTER_OTLP_PROTOCOL?: string;
   OTEL_SERVICE_NAME?: string;
   HDX_NODE_BETA_MODE?: string;
+  HDX_NODE_EXPERIMENTAL_EXCEPTION_CAPTURE?: string;
 }
 
 export interface ResolvedHyperdxConfig {
@@ -151,6 +152,7 @@ export function applyNodeHyperdxDefaults(
   env.OTEL_EXPORTER_OTLP_PROTOCOL ??= resolved.otelExporterProtocol;
   env.OTEL_SERVICE_NAME ??= serviceName;
   env.HDX_NODE_BETA_MODE ??= '1';
+  env.HDX_NODE_EXPERIMENTAL_EXCEPTION_CAPTURE ??= '1';
 
   return resolved;
 }

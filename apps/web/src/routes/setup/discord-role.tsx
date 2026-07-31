@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useState } from 'react';
+import { fetchWithDiagnostics } from '@/api/client';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { Icon } from '@/components/ui/Icon';
 import { Select } from '@/components/ui/Select';
@@ -91,7 +92,7 @@ function DiscordRoleSetupPage() {
 
       if (hashToken) {
         try {
-          const res = await fetch('/api/setup/discord-role-session/exchange', {
+          const res = await fetchWithDiagnostics('/api/setup/discord-role-session/exchange', {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
@@ -124,7 +125,7 @@ function DiscordRoleSetupPage() {
       };
 
       try {
-        const res = await fetch('/api/setup/discord-role-guilds', {
+        const res = await fetchWithDiagnostics('/api/setup/discord-role-guilds', {
           credentials: 'include',
         });
         if (!res.ok) {
@@ -190,7 +191,7 @@ function DiscordRoleSetupPage() {
 
     setIsSaving(true);
     try {
-      const res = await fetch('/api/setup/discord-role-save', {
+      const res = await fetchWithDiagnostics('/api/setup/discord-role-save', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },

@@ -68,6 +68,7 @@ export interface PackageInstallAccessPort {
   resolveDiagnosticsConsent?(
     buyerId: string
   ): Promise<{ diagnosticsEnabled: boolean; diagnosticsSessionId: string | null }>;
+  resolveDiagnosticsSessionConsent?(diagnosticsSessionId: string): Promise<boolean>;
   resolveEntitledEdition(
     buyerId: string,
     group: PackageInstallProductGroup
@@ -396,9 +397,7 @@ async function resolveSessionDiagnostics(input: {
   if (!input.accessPort.resolveDiagnosticsConsent) {
     return null;
   }
-  const consent = await input.accessPort
-    .resolveDiagnosticsConsent(input.buyerId)
-    .catch(() => null);
+  const consent = await input.accessPort.resolveDiagnosticsConsent(input.buyerId).catch(() => null);
   if (!consent?.diagnosticsEnabled) {
     return { enabled: false };
   }

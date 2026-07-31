@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { logWebError } from '@/lib/webDiagnostics';
 
 const BackgroundApp = lazy(() => import('./BackgroundApp'));
 const Cloud404App = lazy(() => import('./Cloud404App'));
@@ -17,7 +18,10 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
     super(props);
     this.state = { hasError: false };
   }
-  override componentDidCatch(_error: unknown) {
+  override componentDidCatch(error: unknown) {
+    logWebError('Cloud background render error', error, {
+      phase: 'cloud-background-error-boundary',
+    });
     this.setState({ hasError: true });
   }
   override render() {

@@ -19,8 +19,6 @@ const API_CORS_ALLOWED_HEADERS = [
   'traceparent',
   'Tracestate',
   'tracestate',
-  'Baggage',
-  'baggage',
   'X-YUCP-File-Name',
   'x-yucp-file-name',
   'X-YUCP-Media-Kind',

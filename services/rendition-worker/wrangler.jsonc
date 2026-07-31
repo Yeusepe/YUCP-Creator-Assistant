@@ -22,11 +22,28 @@
     "enabled": true,
     "logs": {
       "enabled": true,
-      "head_sampling_rate": 0.1
+      "destinations": ["hyperdx-yucp-rendition-logs"],
+      "head_sampling_rate": 1
     },
     "traces": {
       "enabled": true,
-      "head_sampling_rate": 0.01
+      "destinations": ["hyperdx-yucp-rendition-traces"],
+      "head_sampling_rate": 1
+    }
+  },
+  "previews": {
+    "observability": {
+      "enabled": true,
+      "logs": {
+        "enabled": true,
+        "destinations": ["hyperdx-yucp-rendition-logs"],
+        "head_sampling_rate": 0.25
+      },
+      "traces": {
+        "enabled": true,
+        "destinations": ["hyperdx-yucp-rendition-traces"],
+        "head_sampling_rate": 0.25
+      }
     }
   },
   "vars": {

@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createLazyFileRoute, Link, Outlet, useNavigate } from '@tanstack/react-router';
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ApiError, apiClient } from '@/api/client';
+import { ApiError, apiClient, fetchWithDiagnostics } from '@/api/client';
 import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { CloudBackground } from '@/components/three/CloudBackground';
@@ -20,6 +20,7 @@ import {
 } from '@/lib/hyperdx';
 import { type Guild } from '@/lib/server/dashboard';
 import { getServerIconUrl } from '@/lib/utils';
+import { logWebError } from '@/lib/webDiagnostics';
 import { BILLING_CAPABILITY_KEYS } from '../../../../../convex/lib/billingCapabilities';
 import { clearDashboardLoaderCache } from './dashboard';
 
@@ -282,7 +283,7 @@ function DashboardLayout() {
 
     async function bootstrapDashboardSetup() {
       try {
-        const response = await fetch('/api/connect/bootstrap', {
+        const response = await fetchWithDiagnostics('/api/connect/bootstrap', {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -918,6 +919,10 @@ function SidebarLogoArea({
 }
 
 function DashboardRouteErrorComponent({ error }: { error: Error }) {
+  logWebError('Dashboard route error', error, {
+    phase: 'dashboard-route-error-boundary',
+    route: typeof window !== 'undefined' ? window.location.pathname : undefined,
+  });
   const dashboardRouteErrorDetail = import.meta.env.DEV
     ? error.message
     : 'Dashboard failed to load.';

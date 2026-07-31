@@ -142,6 +142,9 @@ export async function proxyApiRequest(request: Request): Promise<Response> {
   copyHeaderIfPresent(request.headers, headers, 'x-yucp-file-name');
   copyHeaderIfPresent(request.headers, headers, 'x-yucp-media-kind');
   copyHeaderIfPresent(request.headers, headers, 'x-yucp-source-path');
+  copyHeaderIfPresent(request.headers, headers, 'traceparent');
+  copyHeaderIfPresent(request.headers, headers, 'tracestate');
+  copyHeaderIfPresent(request.headers, headers, 'x-yucp-diagnostics-session');
 
   const forwardedCookies = filterForwardedAuthCookieHeader(request.headers.get('cookie'));
   if (forwardedCookies) {

@@ -81,6 +81,11 @@ export default defineConfig(async () => {
   const allowedHosts = buildViteAllowedHosts();
 
   return {
+    build: {
+      // Keep source maps out of public responses while allowing HyperDX to resolve
+      // production browser stacks after the deployment upload step.
+      sourcemap: 'hidden',
+    },
     server: {
       allowedHosts,
       host: process.env.WEB_DEV_HOST,

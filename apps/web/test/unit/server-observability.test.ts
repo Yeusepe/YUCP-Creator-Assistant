@@ -13,7 +13,6 @@ describe('web server observability', () => {
 
     expect(carrier).toEqual({
       traceparent: '00-8109a1b16b114f960bcfe458d6f59aa1-392a189c995ccc0d-01',
-      baggage: 'userId=123',
     });
   });
 });

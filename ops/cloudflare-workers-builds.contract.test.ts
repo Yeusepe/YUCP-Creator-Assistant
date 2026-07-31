@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { getWebBuildCommand } from './deploy-web-worker';
+import {
+  getHyperdxCliEnvironment,
+  getWebBuildCommand,
+  removePublicSourceMaps,
+  SOURCE_MAP_UPLOAD_TIMEOUT_MS,
+} from './deploy-web-worker';
 
 describe('Cloudflare Workers Builds contract', () => {
   test('exposes clean-checkout commands that install dependencies with build secrets', () => {
@@ -40,7 +46,12 @@ describe('Cloudflare Workers Builds contract', () => {
     expect(packageJson.scripts?.['icons:run']).toBe('bun run ../../ops/run-web-with-icons.ts');
     expect(packageJson.scripts?.build).toBe('bun run icons:run -- build');
     expect(getWebBuildCommand()).toEqual(['bun', 'run', '--filter', '@yucp/web', 'build']);
-    expect(versionUploadSource).toContain("import { runWebBuild } from './deploy-web-worker';");
+    expect(versionUploadSource).toMatch(
+      /import\s*\{[^}]*\brunWebBuild\b[^}]*\}\s*from\s*['"]\.\/deploy-web-worker['"]\s*;/
+    );
+    expect(versionUploadSource).toMatch(
+      /import\s*\{[^}]*\buploadWebSourceMaps\b[^}]*\}\s*from\s*['"]\.\/deploy-web-worker['"]\s*;/
+    );
     expect(versionUploadSource).toContain('await runWebBuild();');
     expect(packageJson.scripts?.['cloudflare:worker:deploy']).toBe(
       'cd ../.. && bun run cloudflare:worker:deploy'
@@ -48,6 +59,33 @@ describe('Cloudflare Workers Builds contract', () => {
     expect(packageJson.scripts?.['cloudflare:worker:version:upload']).toBe(
       'cd ../.. && bun run cloudflare:worker:version:upload'
     );
+  });
+
+  test('removes source maps from the public asset tree after upload', async () => {
+    const publicRoot = mkdtempSync(resolve(tmpdir(), 'yucp-source-map-test-'));
+    const clientRoot = resolve(publicRoot, 'client');
+    const serverRoot = resolve(publicRoot, 'server');
+    mkdirSync(clientRoot, { recursive: true });
+    mkdirSync(serverRoot, { recursive: true });
+    writeFileSync(resolve(clientRoot, 'app.js'), 'console.log("ok");');
+    writeFileSync(resolve(clientRoot, 'app.js.map'), '{}');
+    writeFileSync(resolve(serverRoot, 'entry.js.map'), '{}');
+
+    try {
+      await removePublicSourceMaps(publicRoot);
+      expect(await Bun.file(resolve(clientRoot, 'app.js.map')).exists()).toBe(false);
+      expect(await Bun.file(resolve(serverRoot, 'entry.js.map')).exists()).toBe(false);
+      expect(await Bun.file(resolve(clientRoot, 'app.js')).exists()).toBe(true);
+    } finally {
+      rmSync(publicRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('does not forward the deployment environment to the HyperDX CLI', () => {
+    expect(getHyperdxCliEnvironment('service-key', { AWS_SECRET_ACCESS_KEY: 'secret' })).toEqual({
+      HYPERDX_SERVICE_KEY: 'service-key',
+    });
+    expect(SOURCE_MAP_UPLOAD_TIMEOUT_MS).toBeGreaterThan(0);
   });
 
   test('routes every build-or-serve entrypoint through one licensed-icon runner', () => {

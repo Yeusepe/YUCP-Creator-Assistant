@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useRef } from 'react';
+import { fetchWithDiagnostics } from '@/api/client';
 import { useToast } from '@/components/ui/Toast';
 import { getPublicRuntimeConfig } from '@/lib/runtimeConfig';
 
@@ -21,7 +22,7 @@ interface VersionResponse {
 
 async function fetchBuildId(): Promise<string | null> {
   try {
-    const res = await fetch(VERSION_ENDPOINT, {
+    const res = await fetchWithDiagnostics(VERSION_ENDPOINT, {
       cache: 'no-store',
       headers: { Accept: 'application/json' },
     });

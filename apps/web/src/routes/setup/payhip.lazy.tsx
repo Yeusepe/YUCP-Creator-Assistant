@@ -517,7 +517,7 @@ function PayhipSetupPage() {
                         type="password"
                         autoComplete="off"
                         placeholder="Paste your Payhip API key"
-                        className="api-key-input"
+                        className="api-key-input hdx-mask"
                         value={apiKey}
                         onChange={(e) => setApiKey(e.target.value)}
                       />
@@ -962,7 +962,7 @@ function PayhipSetupPage() {
                               <input
                                 id={`product-secret-key-${product.id}`}
                                 type="password"
-                                className="api-key-input product-secret-key"
+                                className="api-key-input product-secret-key hdx-mask"
                                 placeholder="From product edit page"
                                 value={product.secretKey}
                                 onChange={(e) =>

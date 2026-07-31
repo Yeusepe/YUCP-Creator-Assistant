@@ -1,6 +1,7 @@
 import { createLazyFileRoute } from '@tanstack/react-router';
 import confetti from 'canvas-confetti';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { fetchWithDiagnostics } from '@/api/client';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { withSetupAuthUserId } from '@/lib/setupAuth';
 import '@/styles/lemonsqueezy-setup.css';
@@ -32,7 +33,7 @@ function getUrlParams(): {
 }
 
 async function apiFetch(url: string, opts: RequestInit = {}) {
-  return fetch(url, { credentials: 'include', ...opts });
+  return fetchWithDiagnostics(url, { credentials: 'include', ...opts });
 }
 
 async function bootstrapSetupSession(apiBase: string): Promise<boolean> {

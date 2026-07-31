@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { fetchWithDiagnostics } from '@/api/client';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { CloudBackground } from '@/components/three/CloudBackground';
 import { Icon } from '@/components/ui/Icon';
@@ -91,7 +92,7 @@ function OAuthLoginPageContent() {
       return;
     }
 
-    const response = await fetch(resumePath, {
+    const response = await fetchWithDiagnostics(resumePath, {
       headers: {
         accept: 'application/json',
       },

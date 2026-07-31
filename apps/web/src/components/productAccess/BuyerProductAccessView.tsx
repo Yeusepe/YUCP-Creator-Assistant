@@ -15,6 +15,7 @@ import {
 } from '@/lib/productAccess';
 import type { BuyerProductAccessResponse } from '@/lib/productAccessTypes';
 import { copyToClipboard } from '@/lib/utils';
+import { logWebError } from '@/lib/webDiagnostics';
 
 interface BuyerProductAccessViewProps {
   access: BuyerProductAccessResponse;
@@ -320,7 +321,13 @@ export function BuyerProductAccessView({ access, search }: BuyerProductAccessVie
   );
 }
 
-export function BuyerProductAccessError() {
+export function BuyerProductAccessError({ error }: { error?: Error }) {
+  if (error) {
+    logWebError('Buyer product access route error', error, {
+      phase: 'buyer-product-access-error-boundary',
+    });
+  }
+
   return (
     <AccessPageShell>
       <div className="vp-card vp-card--error">

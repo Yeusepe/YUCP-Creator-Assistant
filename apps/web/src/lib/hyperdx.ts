@@ -12,6 +12,7 @@ import { getPublicRuntimeConfig } from '@/lib/runtimeConfig';
 let initialized = false;
 let diagnosticsEnabled = false;
 let listenerInstalled = false;
+let performanceObservers: PerformanceObserver[] = [];
 
 export interface HyperdxNavigationTimingMetric {
   name: string;
@@ -82,11 +83,18 @@ function buildTraceTargets(): RegExp[] {
 }
 
 function serializeContextValue(value: unknown): string {
-  if (typeof value === 'string') {
-    return value;
-  }
+  const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+  return redactHyperdxText(serialized);
+}
 
-  return JSON.stringify(value);
+function redactHyperdxText(value: string): string {
+  return value
+    .replace(/\b(Bearer\s+)[A-Za-z0-9._-]+/gi, '$1[REDACTED]')
+    .replace(/([?&](?:token|session|password|secret|apiKey|key)=)[^&\s]+/gi, '$1[REDACTED]')
+    .replace(
+      /(["'](?:token|session|password|secret|apiKey|key)["']\s*:\s*["'])[^"']+(["'])/gi,
+      '$1[REDACTED]$2'
+    );
 }
 
 function serializeActionAttributes(
@@ -95,7 +103,7 @@ function serializeActionAttributes(
   return Object.fromEntries(
     Object.entries(attributes)
       .filter(([, value]) => value !== undefined)
-      .map(([key, value]) => [key, String(value)])
+      .map(([key, value]) => [key, redactHyperdxText(String(value))])
   );
 }
 
@@ -116,8 +124,15 @@ function applyDiagnosticsPreference(preferences: PrivacyPreferences | null) {
       service: 'yucp-web',
       url: config.otlpHttpUrl,
       tracePropagationTargets: buildTraceTargets(),
+      ignoreUrls: [
+        /\/api\/auth\/oauth2\/authorize/,
+        /\/api\/verification\/finish\//,
+        /[?&](?:token|session|password|secret|apiKey|key|sig|code)=/i,
+      ],
       consoleCapture: true,
       advancedNetworkCapture: false,
+      blockClass: 'hdx-block',
+      maskClass: 'hdx-mask',
       maskAllInputs: true,
       maskAllText: false,
       disableReplay: false,
@@ -125,6 +140,7 @@ function applyDiagnosticsPreference(preferences: PrivacyPreferences | null) {
         'deployment.environment': import.meta.env.MODE,
         'service.namespace': 'yucp',
         'service.version': getPublicRuntimeConfig().buildId,
+        'release.id': getPublicRuntimeConfig().buildId,
       },
     });
     initialized = true;
@@ -136,16 +152,70 @@ function applyDiagnosticsPreference(preferences: PrivacyPreferences | null) {
 
   if (diagnosticsEnabled) {
     HyperDX.resumeSessionRecorder();
-    HyperDX.enableAdvancedNetworkCapture();
+    installWebPerformanceObservers();
   } else {
     HyperDX.stopSessionRecorder();
-    HyperDX.disableAdvancedNetworkCapture();
+    for (const observer of performanceObservers) {
+      observer.disconnect();
+    }
+    performanceObservers = [];
   }
 
-  HyperDX.setGlobalAttributes({
+  const globalAttributes: Record<string, string> = {
     diagnosticsEnabled: diagnosticsEnabled ? 'true' : 'false',
     diagnosticsSessionId: preferences?.diagnosticsSessionId ?? 'none',
-  });
+  };
+  if (!diagnosticsEnabled) {
+    globalAttributes.userId = 'none';
+  }
+  HyperDX.setGlobalAttributes(globalAttributes);
+}
+
+function installWebPerformanceObservers() {
+  if (typeof PerformanceObserver === 'undefined' || performanceObservers.length > 0) {
+    return;
+  }
+
+  const observe = (
+    type: string,
+    action: string,
+    readValue: (entries: PerformanceEntryList) => number | undefined
+  ) => {
+    try {
+      const observer = new PerformanceObserver((list) => {
+        const value = readValue(list.getEntries());
+        if (value !== undefined && Number.isFinite(value)) {
+          HyperDX.addAction(action, { valueMs: String(Number(value.toFixed(2))) });
+        }
+      });
+      observer.observe({ type, buffered: true } as PerformanceObserverInit);
+      performanceObservers.push(observer);
+    } catch {}
+  };
+
+  observe(
+    'paint',
+    'web.performance.fcp',
+    (entries) => entries.find((entry) => entry.name === 'first-contentful-paint')?.startTime
+  );
+  observe(
+    'largest-contentful-paint',
+    'web.performance.lcp',
+    (entries) => entries.at(-1)?.startTime
+  );
+  observe('layout-shift', 'web.performance.cls', (entries) =>
+    entries.reduce(
+      (total, entry) => total + Number((entry as PerformanceEntry & { value?: number }).value ?? 0),
+      0
+    )
+  );
+  observe('event', 'web.performance.inp', (entries) =>
+    entries.reduce((max, entry) => Math.max(max, entry.duration), 0)
+  );
+}
+
+export function isHyperdxDiagnosticsEnabled() {
+  return initialized && diagnosticsEnabled;
 }
 
 async function syncAuthenticatedUser() {
@@ -184,17 +254,24 @@ export function initializeHyperdxBrowser() {
 }
 
 export function captureHyperdxException(error: unknown, context: Record<string, unknown> = {}) {
-  if (!initialized || !diagnosticsEnabled) {
-    return;
+  if (!isHyperdxDiagnosticsEnabled()) {
+    return false;
   }
 
-  const exception = error instanceof Error ? error : new Error(String(error));
+  const exception = new Error(
+    redactHyperdxText(error instanceof Error ? error.message : String(error))
+  );
+  exception.name = error instanceof Error ? error.name : 'Error';
+  if (error instanceof Error && error.stack) {
+    exception.stack = redactHyperdxText(error.stack);
+  }
   HyperDX.recordException(
     exception,
     Object.fromEntries(
       Object.entries(context).map(([key, value]) => [key, serializeContextValue(value)])
     )
   );
+  return true;
 }
 
 export function addHyperdxAction(name: string, attributes: Record<string, string> = {}) {

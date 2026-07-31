@@ -1,5 +1,6 @@
 import { createLazyFileRoute } from '@tanstack/react-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { fetchWithDiagnostics } from '@/api/client';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { Icon } from '@/components/ui/Icon';
 import { buildSetupAuthQuery } from '@/lib/setupAuth';
@@ -33,7 +34,7 @@ async function bootstrapSetupSession(apiBase: string): Promise<boolean> {
   const accessToken = hash.get('access_token');
   if (!setupToken || accessToken) return false;
 
-  const response = await fetch(`${apiBase}/api/connect/bootstrap`, {
+  const response = await fetchWithDiagnostics(`${apiBase}/api/connect/bootstrap`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -183,7 +184,7 @@ function ItchioSetupPage() {
       const finishPath = creatorSetupCallback
         ? '/api/connect/itchio/finish'
         : '/api/verification/finish/itchio';
-      const response = await fetch(`${apiBase}${finishPath}`, {
+      const response = await fetchWithDiagnostics(`${apiBase}${finishPath}`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },

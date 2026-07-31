@@ -1,4 +1,4 @@
-import { apiClient } from '@/api/client';
+import { apiClient, fetchWithDiagnostics } from '@/api/client';
 import { authClient } from '@/lib/auth-client';
 
 export interface UserLicenseEntitlement {
@@ -213,7 +213,7 @@ export async function revokeUserOAuthGrant(consentId: string) {
 }
 
 export async function downloadUserDataExport() {
-  const response = await fetch('/api/connect/user/data-export', {
+  const response = await fetchWithDiagnostics('/api/connect/user/data-export', {
     credentials: 'include',
   });
 

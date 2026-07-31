@@ -4,12 +4,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   loadProtectedAuthState,
   logRootRenderError,
+  reportOperationalWebError,
   resolveRequiredConvexUrl,
 } from '@/lib/webDiagnostics';
 
 describe('web diagnostics', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(navigator, 'sendBeacon').mockReturnValue(true);
   });
 
   it('sets the SSR auth token on the server HTTP client when protected auth bootstrap succeeds', async () => {
@@ -213,6 +215,23 @@ describe('web diagnostics', () => {
         }),
       })
     );
+  });
+
+  it('sends only bounded redacted operational errors before diagnostics consent', async () => {
+    reportOperationalWebError('browser failure', new Error('Bearer secret-value'), {
+      token: 'do-not-send',
+      route: '/dashboard',
+    });
+
+    expect(navigator.sendBeacon).toHaveBeenCalledWith(
+      '/api/telemetry/browser-error',
+      expect.any(Blob)
+    );
+    const payload = JSON.parse(
+      await (vi.mocked(navigator.sendBeacon).mock.calls[0]?.[1] as Blob).text()
+    );
+    expect(JSON.stringify(payload)).not.toContain('secret-value');
+    expect(JSON.stringify(payload)).not.toContain('do-not-send');
   });
 });
 

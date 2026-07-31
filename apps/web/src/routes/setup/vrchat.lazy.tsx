@@ -1,6 +1,7 @@
 import { createLazyFileRoute, useSearch } from '@tanstack/react-router';
 import { getSafeRelativeRedirectTarget } from '@yucp/shared/authRedirects';
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { fetchWithDiagnostics } from '@/api/client';
 import '@/styles/vrchat-verify.css';
 
 const SLIDE_IMAGES = [
@@ -130,7 +131,7 @@ function VRChatVerifyPage() {
     restorePendingStep();
     setIsSubmitting(true);
 
-    fetch(getSessionEndpoint(), {
+    fetchWithDiagnostics(getSessionEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -251,7 +252,7 @@ function VRChatVerifyPage() {
     setIsSubmitting(true);
 
     try {
-      const res = await fetch(getSessionEndpoint(), {
+      const res = await fetchWithDiagnostics(getSessionEndpoint(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

@@ -10,7 +10,14 @@ vi.mock('@/lib/hyperdx', () => ({
   captureHyperdxException,
 }));
 
-import { ApiError, apiClient, apiFetch, parseServerTimingHeader } from '@/api/client';
+import {
+  ApiError,
+  apiClient,
+  apiFetch,
+  fetchWithDiagnostics,
+  parseServerTimingHeader,
+} from '@/api/client';
+import { savePrivacyPreferences } from '@/lib/privacyPreferences';
 
 // Mock global fetch
 const mockFetch = vi.fn();
@@ -54,6 +61,26 @@ describe('apiFetch', () => {
     );
 
     await expect(apiFetch('/api/missing')).rejects.toThrow(ApiError);
+  });
+
+  it('captures transport failures without including request bodies', async () => {
+    mockFetch.mockRejectedValueOnce(new Error('network unavailable'));
+
+    await expect(
+      apiFetch('/api/items', {
+        method: 'POST',
+        body: JSON.stringify({ apiKey: 'secret-value' }),
+      })
+    ).rejects.toThrow('network unavailable');
+
+    expect(captureHyperdxException).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        path: '/api/items',
+        networkFailure: true,
+      })
+    );
+    expect(JSON.stringify(captureHyperdxException.mock.calls[0])).not.toContain('secret-value');
   });
 
   it('appends query params when provided', async () => {
@@ -111,6 +138,35 @@ describe('apiFetch', () => {
         durationMs: '48.75',
       })
     );
+  });
+});
+
+describe('fetchWithDiagnostics', () => {
+  it('propagates the diagnostics session only after consent and keeps query values out of actions', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
+    savePrivacyPreferences('helpful-diagnostics', 'banner');
+
+    await fetchWithDiagnostics('/api/oauth/authorize?token=secret-value');
+
+    const [, options] = mockFetch.mock.calls[0];
+    expect(options.headers.get('X-YUCP-Diagnostics-Session')).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    );
+    expect(addHyperdxAction).toHaveBeenCalledWith(
+      'first-party.request.completed',
+      expect.objectContaining({ path: '/api/oauth/authorize' })
+    );
+    expect(JSON.stringify(addHyperdxAction.mock.calls)).not.toContain('secret-value');
+  });
+
+  it('does not attach the diagnostics session to cross-origin requests', async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
+    savePrivacyPreferences('helpful-diagnostics', 'banner');
+
+    await fetchWithDiagnostics('https://third-party.example.test/api/collect');
+
+    const [, options] = mockFetch.mock.calls[0];
+    expect(options.headers.get('X-YUCP-Diagnostics-Session')).toBeNull();
   });
 });
 

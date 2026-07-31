@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/yucp/transfer-helper/internal/broker"
+	"github.com/yucp/transfer-helper/internal/telemetry"
 	"golang.org/x/sys/windows/svc"
 )
 
@@ -149,6 +150,10 @@ func runBroker(ctx context.Context, config serviceConfig) error {
 		return err
 	}
 	httpClient := &http.Client{Timeout: 60 * time.Second}
+	releaseID := os.Getenv("BUILD_ID")
+	if releaseID == "" {
+		releaseID = "dev"
+	}
 	credentials := &broker.ManagedCredentials{
 		OAuthForClient: func(identity broker.ClientIdentity) broker.OAuthFlow {
 			return broker.OAuthClient{
@@ -169,6 +174,7 @@ func runBroker(ctx context.Context, config serviceConfig) error {
 		LaunchURL:     broker.LaunchURLForClient,
 		Results:       resultStore,
 		StateRoot:     config.stateRoot,
+		Telemetry:     telemetryClient(config.apiBaseURL, httpClient, releaseID),
 		TrustDocument: trustDocument,
 	}
 	server, err := broker.Listen(config.pipeName, runtime)
@@ -177,4 +183,15 @@ func runBroker(ctx context.Context, config serviceConfig) error {
 	}
 	defer server.Close()
 	return server.Serve(ctx)
+}
+
+func telemetryClient(apiBaseURL string, httpClient *http.Client, releaseID string) *telemetry.Client {
+	client := telemetry.NewClient(
+		apiBaseURL,
+		"yucp-native-package-broker",
+		"package-broker",
+		releaseID,
+	)
+	client.HTTPClient = httpClient
+	return &client
 }
