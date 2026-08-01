@@ -206,6 +206,24 @@ async function readFileTail(path: string, length: number): Promise<Uint8Array> {
 const BAND_BLOCKS = 864;
 const BAND_MIN_FRACTION = 0.05;
 
+/**
+ * How many images may be banded at once.
+ *
+ * Deliberately not LOGICAL_FILE_INGEST_CONCURRENCY. Banding holds roughly three
+ * full rasters per image at once (the inflated scanlines, the unfiltered
+ * pixels, and the three filtered segments), and a 4096x4096 16-bit RGBA raster
+ * is 134 MiB, so one image can be ~400 MiB live. At eight in flight that is
+ * over 3 GiB and the container is capped near 2: the first real package to band
+ * asynchronously peaked at 1,985 MiB and was OOM-killed 98 seconds into its
+ * assembly, which quarantined the version.
+ *
+ * Two is what fits with headroom. It costs wall time on small images, where the
+ * bound is far too conservative; the honest fix is a budget over each image's
+ * raster bytes rather than a count, which needs a concurrency helper that can
+ * weigh its items.
+ */
+const BAND_CONCURRENCY = 2;
+
 // Async, not the *Sync variants: this runs in the same process that serves the
 // status endpoint, and a synchronous deflate over a megapixel raster blocks it
 // outright. The threadpool keeps the loop answering and makes
@@ -275,7 +293,10 @@ export async function bandProtectedPngs<T extends ClassifiedPackageFile>(
       let placement: BandPlacement;
       let pixels = { height: 0, width: 0 };
       const skip = (reason: string): T => {
-        console.log(
+        // console.info, not console.log: the log shipper only forwards
+        // info and above, which is why this pass was invisible in HyperDX
+        // while it was running.
+        console.info(
           JSON.stringify({
             bytes: file.bytes,
             event: 'ingest_pipeline.band_skipped',
@@ -309,7 +330,7 @@ export async function bandProtectedPngs<T extends ClassifiedPackageFile>(
         throw error;
       }
       await writeFile(file.path, banded.base);
-      console.log(
+      console.info(
         JSON.stringify({
           bandRows: placement.rows,
           bandY0: placement.y0,
@@ -336,13 +357,13 @@ export async function bandProtectedPngs<T extends ClassifiedPackageFile>(
         sha256: createHash('sha256').update(banded.base).digest('hex'),
       };
     },
-    LOGICAL_FILE_INGEST_CONCURRENCY
+    BAND_CONCURRENCY
   );
   const banded = results.filter((file) => file.band).length;
   const eligible = files.filter(
     (file) => file.classification === 'protected' && file.materializerType === 'png'
   ).length;
-  console.log(
+  console.info(
     JSON.stringify({
       banded,
       event: 'ingest_pipeline.banding_completed',
