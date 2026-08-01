@@ -383,6 +383,25 @@ function sendCapabilityError(response: ServerResponse, status: 401 | 403): void 
   response.end(status === 401 ? 'Upload capability required\n' : 'Invalid upload capability\n');
 }
 
+/**
+ * An assembled upload is deleted, but its ID is derived from the version ID and
+ * tus clients cache the upload URL, so re-uploading the same version resumes a
+ * URL that no longer exists. The protocol answer is 404, which makes a client
+ * discard the cached URL and start over; 403 reads as forbidden and strands it.
+ */
+function sendUploadGone(response: ServerResponse): void {
+  response.writeHead(404, {
+    'Cache-Control': 'no-store',
+    'Content-Type': 'text/plain; charset=utf-8',
+  });
+  response.end('Upload not found\n');
+}
+
+/** Only the version that owns an upload ID may learn whether it still exists. */
+function uploadIdBelongsToVersion(uploadId: string, versionId: string): boolean {
+  return uploadId.toLowerCase().startsWith(versionId.replaceAll('-', '').toLowerCase());
+}
+
 function loggedErrorDetail(error: unknown): { reason: string; errorMessage: string } {
   return error instanceof Error
     ? { reason: error.name, errorMessage: error.message.slice(0, 500) }
@@ -714,7 +733,11 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Ingest
             return;
           }
         } catch {
-          sendCapabilityError(response, 403);
+          if (uploadIdBelongsToVersion(uploadId, authorization.versionId)) {
+            sendUploadGone(response);
+          } else {
+            sendCapabilityError(response, 403);
+          }
           return;
         }
       }

@@ -536,6 +536,68 @@ describe('ingest tus upload capability isolation', () => {
     expect(duplicateBody).not.toContain('package_versions_package_version_unique');
   });
 
+  it('tells a client its assembled upload is gone instead of forbidding it', async () => {
+    const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-ingest-resume-'));
+    scratchPaths.add(scratchPath);
+    const { catalog } = createMemoryCatalog();
+    const server = createServer(
+      createIngestTusServer({
+        catalog,
+        commonStore: localCasStore(join(scratchPath, 'common')),
+        metadataStore: localCasStore(join(scratchPath, 'metadata')),
+        protectedStore: localCasStore(join(scratchPath, 'protected')),
+        quarantineStorage: createMemoryQuarantineStorage(),
+        scratchRoot: join(scratchPath, 'pipeline-scratch'),
+        uploadDir: join(scratchPath, 'uploads'),
+        uploadHmacKey,
+        catalogControlSharedSecret: 'security-catalog-control-test-secret-32-bytes',
+      })
+    );
+    openServers.add(server);
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    const { port } = server.address() as AddressInfo;
+    const versionId = crypto.randomUUID();
+    const capability = await signUploadCapability({
+      creatorId: 'creator-resume',
+      expiresAt: Date.now() + 60_000,
+      key: uploadHmacKey,
+      packageId: 'com.creator.resume',
+      protectionPolicyId: 'supported-visual-assets-v2',
+      version: '1.0.0',
+      versionId,
+    });
+    const capabilityHeaders = {
+      'Tus-Resumable': '1.0.0',
+      'x-yucp-upload-creator-id': capability.creatorId,
+      'x-yucp-upload-edition-id': capability.editionId,
+      'x-yucp-upload-exp': capability.exp,
+      'x-yucp-upload-package-id': encodeURIComponent(capability.packageId),
+      'x-yucp-upload-protection-policy-id': capability.protectionPolicyId,
+      'x-yucp-upload-sig': capability.sig,
+      'x-yucp-upload-version': encodeURIComponent(capability.version),
+      'x-yucp-upload-version-id': capability.versionId,
+    };
+    // The URL a tus client caches for this version, after assembly removed it.
+    const ownUploadId = `${versionId.replaceAll('-', '')}.unitypackage`;
+
+    const resumed = await fetch(`http://127.0.0.1:${port}${INGEST_TUS_PATH}/${ownUploadId}`, {
+      method: 'HEAD',
+      headers: capabilityHeaders,
+    });
+    const foreign = await fetch(
+      `http://127.0.0.1:${port}${INGEST_TUS_PATH}/${'0'.repeat(32)}.unitypackage`,
+      { method: 'HEAD', headers: capabilityHeaders }
+    );
+
+    // 404 makes the client start a fresh upload; 403 would strand it forever.
+    expect(resumed.status).toBe(404);
+    // Another version's upload ID must not reveal whether it exists.
+    expect(foreign.status).toBe(403);
+  });
+
   it('rejects cross-package metadata before creating a catalog row', async () => {
     const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-ingest-security-'));
     scratchPaths.add(scratchPath);
