@@ -30,6 +30,7 @@ import {
 import { isStrictSemanticVersion } from '@yucp/shared/semanticVersion';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DialogContext, Heading } from 'react-aria-components';
+import type { Upload as TusUpload } from 'tus-js-client';
 import { ApiError } from '@/api/client';
 import { AccountInlineError } from '@/components/account/AccountPage';
 import { PackageRegistryWorkspaceSkeleton } from '@/components/dashboard/DashboardSkeletons';
@@ -429,6 +430,7 @@ function uploadPackageAndWait(input: {
   catalogProductIds: string[];
   onProgress: (progress: number) => void;
   onAuthorized: (versionId: string) => void;
+  onStarted: (upload: TusUpload) => void;
   onTransferComplete: (versionId: string) => void;
 }): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -456,6 +458,7 @@ function uploadPackageAndWait(input: {
         versionId = authorization.versionId;
         input.onAuthorized(versionId);
       },
+      onStarted: input.onStarted,
       onSuccess: resolveOnce,
       onError: rejectOnce,
     }).catch((error: unknown) => {
@@ -2781,6 +2784,8 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
   } = useDashboardSession();
   const [initialAcceptedUploadLane] = useState(readAcceptedUploadLane);
   const preparationAbortControllerRef = useRef<AbortController | null>(null);
+  // A stalled transfer can only be stopped through the tus handle, so keep it.
+  const activeUploadRef = useRef<TusUpload | null>(null);
   const selectedUploadRef = useRef<SelectedUpload | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isUploadOpen, setIsUploadOpen] = useState(false);
@@ -2989,6 +2994,9 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
                 }
               : current
           ),
+        onStarted: (upload) => {
+          activeUploadRef.current = upload;
+        },
         onTransferComplete: (versionId) =>
           setSelectedUpload((current) =>
             current
@@ -3264,6 +3272,40 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
     setIsDetailsOpen(false);
     setIsUploadOpen(true);
   }
+
+  const stopUploadMutation = useMutation({
+    mutationFn: async () => {
+      // abort(true) terminates the upload on the server and drops the cached
+      // fingerprint, so the next attempt starts clean instead of resuming a URL
+      // whose upload is gone.
+      await activeUploadRef.current?.abort(true);
+      activeUploadRef.current = null;
+      preparationAbortControllerRef.current?.abort();
+      const versionId = selectedUpload?.versionId;
+      const uploadEditionId = selectedUpload?.editionId;
+      const uploadPackageId = selectedUpload?.packageId;
+      if (versionId && uploadEditionId && uploadPackageId) {
+        await cancelCreatorPackageVersion(uploadPackageId, uploadEditionId, versionId);
+      }
+    },
+    onSuccess: () => {
+      setSelectedUpload((current) =>
+        current
+          ? { ...current, progress: 0, status: 'failed', errorMessage: 'Upload stopped.' }
+          : current
+      );
+      toast.success('Upload stopped');
+    },
+    onError: (error) => {
+      if (isDashboardAuthError(error)) {
+        markSessionExpired();
+        return;
+      }
+      toast.error('Could not stop the upload', {
+        description: getApiErrorMessage(error, 'Try again.'),
+      });
+    },
+  });
 
   function resetUploadDraft(): void {
     if (uploadMutation.isPending) return;
@@ -3700,6 +3742,15 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
                     {uploadMutation.isPending ? 'Close' : 'Cancel'}
                   </Button>
                 </Sheet.Close>
+                {uploadMutation.isPending ? (
+                  <Button
+                    variant="outline"
+                    isDisabled={stopUploadMutation.isPending}
+                    onPress={() => stopUploadMutation.mutate()}
+                  >
+                    {stopUploadMutation.isPending ? 'Stopping upload...' : 'Stop upload'}
+                  </Button>
+                ) : null}
                 {selectedUpload?.status === 'complete' ? (
                   <Button variant="outline" onPress={resetUploadDraft}>
                     Upload another version

@@ -85,6 +85,8 @@ export async function uploadPackageFile(input: {
   catalogProductIds?: readonly string[];
   catalogTierId?: string;
   onAuthorized?: (authorization: UploadAuthorization) => void;
+  /** Hands back the live transfer so a stalled upload can be aborted. */
+  onStarted?: (upload: Upload) => void;
   onProgress?: (percent: number) => void;
   onError?: (error: Error) => void;
   onSuccess?: () => void;
@@ -137,5 +139,6 @@ export async function uploadPackageFile(input: {
     upload.resumeFromPreviousUpload(previousUpload);
   }
   upload.start();
+  input.onStarted?.(upload);
   return upload;
 }
