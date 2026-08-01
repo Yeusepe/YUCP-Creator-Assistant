@@ -173,6 +173,9 @@
     },
     "0.1.80": {
       "sha256": "6a71348a16a8443f45b027eaa5da53bc096ef4cfd7b80d5e348dbf41cc7bb6dd"
+    },
+    "0.1.81": {
+      "sha256": "b5ff312461d0639d3253940b89ee3319e7e9f2b5f56ad18b9e1a1ffe88224bfb"
     }
   },
   "schemaVersion": 1
