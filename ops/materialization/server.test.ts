@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
-import { createMaterializationControlPlaneHandler } from './server';
+import { createMaterializationControlPlaneHandler, parseFailureReason } from './server';
 
 const endpoint = 'https://control.example.test/v2/internal/materialization-capabilities/consume';
 const capabilityToken = Buffer.from('signed-capability').toString('base64url');
@@ -580,6 +580,12 @@ describe('materialization control-plane HTTP boundary', () => {
     const failEndpoint = 'https://control.example.test/v2/internal/materialization-jobs/fail';
     const calls: string[] = [];
     const rejectedEvents: Array<{ errorCode?: string; status: string }> = [];
+    const controlPlaneEvents: Array<{
+      event: string;
+      failureReason?: string;
+      status: string;
+      traceId: string;
+    }> = [];
     let rejectCreate = false;
     const handler = createMaterializationControlPlaneHandler({
       apiSharedSecret: apiSecret,
@@ -667,6 +673,7 @@ describe('materialization control-plane HTTP boundary', () => {
       materializerSharedSecret: materializerSecret,
       now: () => new Date(now * 1_000),
       onEvent: (event) => {
+        controlPlaneEvents.push(event);
         if (event.status === 'rejected') {
           rejectedEvents.push(event);
         }
@@ -888,6 +895,9 @@ describe('materialization control-plane HTTP boundary', () => {
           capability: capabilityToken,
           capabilityId: 'capability-1',
           errorCode: 'CODEC_REJECTED',
+          // The materializer's container stdout is never shipped, so which check
+          // rejected the job only reaches the log store via the fail call.
+          failureReason: 'SOURCE_MANIFEST_CONTRACT_INVALID',
           jobId: 'job-1',
           leaseGeneration: 3,
           materializerId: 'data-node-1',
@@ -911,5 +921,25 @@ describe('materialization control-plane HTTP boundary', () => {
       'attribution:creator-1:product-1:128:cursor-1',
       'fail:data-node-1:proof-fail-1',
     ]);
+    const failureEvent = controlPlaneEvents.find(
+      (event) => event.event === 'materialization.job.fail' && event.status === 'accepted'
+    );
+    expect(failureEvent?.traceId).toBeTruthy();
+    expect(failureEvent?.failureReason).toBe('SOURCE_MANIFEST_CONTRACT_INVALID');
+  });
+
+  it('refuses to let a failure reason become a free-text channel', () => {
+    expect(parseFailureReason('SOURCE_MANIFEST_DIGEST_MISMATCH')).toBe(
+      'SOURCE_MANIFEST_DIGEST_MISMATCH'
+    );
+    expect(parseFailureReason('  SOURCE_MANIFEST_URL_INVALID  ')).toBe(
+      'SOURCE_MANIFEST_URL_INVALID'
+    );
+    // A materializer must not be able to push internal text across the boundary.
+    expect(parseFailureReason('/srv/private/path/to/asset.png')).toBeUndefined();
+    expect(parseFailureReason('lowercase_reason')).toBeUndefined();
+    expect(parseFailureReason('A'.repeat(65))).toBeUndefined();
+    expect(parseFailureReason(undefined)).toBeUndefined();
+    expect(parseFailureReason(42)).toBeUndefined();
   });
 });

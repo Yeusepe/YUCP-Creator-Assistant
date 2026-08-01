@@ -46,6 +46,22 @@ const COMPLETION_REQUEST_BODY_LIMIT = 32 * 1_024 * 1_024;
 const COMPLETION_V2_MAX_OUTPUT_FILES = 512;
 const COMPLETION_V3_MAX_OUTPUT_FILES = 4_096;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
+const FAILURE_REASON = /^[A-Z][A-Z0-9_]{0,63}$/;
+
+/**
+ * Which check rejected a job, reported alongside its stable error code. The
+ * shape is constrained rather than trusted, so a materializer cannot turn this
+ * into a free-text channel out of its own trust boundary. Anything unusable is
+ * dropped rather than rejected: a job that has already failed must still be
+ * recorded as failed, and losing the report to a 400 would strand the lease.
+ */
+export function parseFailureReason(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const reason = value.trim();
+  return FAILURE_REASON.test(reason) ? reason : undefined;
+}
 
 type ConsumeCapabilityInput = Parameters<MaterializationBroker['consumeCapability']>[0];
 type CompleteRenditionInput = Parameters<MaterializationBroker['completeRendition']>[0];
@@ -79,6 +95,11 @@ type MaterializationControlBroker = {
 type MaterializationControlPlaneEvent = {
   durationMs: number;
   errorCode?: string;
+  // The materializer runs its job loop inside a container whose stdout is not
+  // shipped, so which check rejected a job never reached the log store. It
+  // reports a code from a fixed vocabulary - never its raw cause text - and
+  // this files it under the same traceId as the broker and the job row.
+  failureReason?: string;
   event:
     | 'materialization.capability.consume'
     | 'materialization.attribution.candidates'
@@ -526,15 +547,21 @@ export function createMaterializationControlPlaneHandler(
                     : url.pathname === COMPLETE_PATH
                       ? 'materialization.rendition.complete'
                       : 'materialization.capability.consume';
-    const emit = (status: 'accepted' | 'rejected', errorCode?: string) => {
+    const emit = (
+      status: 'accepted' | 'rejected',
+      errorCode?: string,
+      failureReason?: string
+    ) => {
       config.onEvent?.({
         durationMs: performance.now() - startedAt,
         ...(errorCode ? { errorCode } : {}),
+        ...(failureReason ? { failureReason } : {}),
         event,
         status,
         traceId,
       });
     };
+    let failureReason: string | undefined;
     if (!routeUrl) {
       return noStoreJson({ error: 'not_found' }, 404, traceId);
     }
@@ -866,11 +893,13 @@ export function createMaterializationControlPlaneHandler(
           'capability',
           'capabilityId',
           'errorCode',
+          ...(body.failureReason === undefined ? [] : ['failureReason']),
           'jobId',
           'leaseGeneration',
           'materializerId',
           'proof',
         ]);
+        failureReason = parseFailureReason(body.failureReason);
         await config.broker.failCapabilityJob({
           capabilityId: requireString(body.capabilityId, 'capability_id', 128),
           coseSign1: Buffer.from(capability, 'base64url'),
@@ -884,7 +913,7 @@ export function createMaterializationControlPlaneHandler(
         });
         result = { status: 'failed' };
       }
-      emit('accepted');
+      emit('accepted', undefined, failureReason);
       return noStoreJson(result, 200, traceId);
     } catch (error) {
       if (error instanceof RequestBoundaryError) {
