@@ -188,6 +188,12 @@
     },
     "0.1.85": {
       "sha256": "d3cc5ab7009e5949be3f592eb5cbf3c48a264312f295561937c8b2a5dc6b64a2"
+    },
+    "0.1.86": {
+      "sha256": "805a08219c7110cb5152376d88ab6333594a9aebc4e9ccc12a9a6834e196ce52"
+    },
+    "0.1.87": {
+      "sha256": "7644cdccda2df7823e2bc4b39b6283b153415defcd7fa9df2ce7d329c800780a"
     }
   },
   "schemaVersion": 1
