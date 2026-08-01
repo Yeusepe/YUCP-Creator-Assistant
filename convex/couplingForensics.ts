@@ -191,3 +191,169 @@ export const recordLookupAudit = mutation({
     });
   },
 });
+
+/**
+ * Largest number of buyers one trace may de-anonymise. A lookup matches a
+ * handful of assets to a handful of buyers; anything beyond this is a scrape
+ * rather than an investigation.
+ */
+const TRACE_IDENTITY_RESOLUTION_LIMIT = 64;
+
+function buildLicenseFingerprint(provider: string | undefined, licenseSubject: string): string {
+  const fingerprint = licenseSubject.slice(0, 10);
+  return provider ? `${provider} · ${fingerprint}` : fingerprint;
+}
+
+/**
+ * Puts a name and a licence to the buyer behind a matched trace.
+ *
+ * The coupling records only ever carry a pseudonym, and the buyer id behind it
+ * is sealed; the caller unseals that first and passes it here. This is the step
+ * that turns it into something a creator can act on, so it is gated on the same
+ * ownership check as the lookup itself: a creator may only resolve buyers of a
+ * package they own, and only for the product the trace was run against.
+ *
+ * The licence key stays encrypted in transit - the decryption key lives with
+ * the caller, not in the database.
+ */
+export const resolveTraceBuyerIdentitiesForAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    buyerIds: v.array(v.string()),
+    packageId: v.string(),
+  },
+  returns: v.object({
+    identities: v.array(
+      v.object({
+        buyerId: v.string(),
+        buyerProviderUserId: v.optional(v.string()),
+        buyerProviderUsername: v.optional(v.string()),
+        buyerSubjectDiscordUserId: v.optional(v.string()),
+        buyerSubjectDisplayName: v.optional(v.string()),
+        licenseFingerprint: v.optional(v.string()),
+        licenseKeyEncrypted: v.optional(v.string()),
+        /**
+         * Licences written before the encrypted column existed are stored in
+         * the clear. Returning them keeps older purchases traceable; they are
+         * no more exposed here than they already are at rest.
+         */
+        licenseKeyLegacy: v.optional(v.string()),
+        provider: v.optional(v.string()),
+      })
+    ),
+    packageOwned: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    assertPackageId(args.packageId);
+    // Naming a buyer is a stronger disclosure than matching one, so it is
+    // gated on exactly what the lookup is gated on - never less.
+    const capabilityEnabled = await ctx.runQuery(
+      internal.certificateBilling.hasCapabilityForAuthUser,
+      {
+        authUserId: args.authUserId,
+        capabilityKey: BILLING_CAPABILITY_KEYS.couplingTraceability,
+      }
+    );
+    if (!capabilityEnabled) {
+      return { identities: [], packageOwned: false };
+    }
+    const registration: Doc<'package_registry'> | null = await ctx.runQuery(
+      internal.packageRegistry.getRegistration,
+      { packageId: args.packageId }
+    );
+    const packageOwned =
+      Boolean(registration) &&
+      registration?.yucpUserId === args.authUserId &&
+      !isArchivedPackage(registration);
+    if (!packageOwned) {
+      return { identities: [], packageOwned: false };
+    }
+
+    const identities: Array<{
+      buyerId: string;
+      buyerProviderUserId?: string;
+      buyerProviderUsername?: string;
+      buyerSubjectDiscordUserId?: string;
+      buyerSubjectDisplayName?: string;
+      licenseFingerprint?: string;
+      licenseKeyEncrypted?: string;
+      licenseKeyLegacy?: string;
+      provider?: string;
+    }> = [];
+    // Resolved concurrently: three reads per buyer, serialized across 64
+    // buyers, is up to 192 round trips inside one query, which approaches
+    // Convex's execution limits and sits on the lookup's response path.
+    const uniqueBuyerIds = [...new Set(args.buyerIds.filter(Boolean))].slice(
+      0,
+      TRACE_IDENTITY_RESOLUTION_LIMIT
+    );
+    const resolvedIdentities = await Promise.all(
+      uniqueBuyerIds.map(async (buyerId) => {
+
+      // The sealed buyer id is the buyer's account, which is what carries the
+      // Discord handle a creator recognises.
+      const subject = await ctx.db
+        .query('subjects')
+        .withIndex('by_auth_user', (q) => q.eq('authUserId', buyerId))
+        .first();
+      if (!subject) {
+        return { buyerId };
+      }
+
+      // Scoped to this product: owning a package does not entitle a creator to
+      // the buyer's licences for anything else.
+      const entitlement = await ctx.db
+        .query('entitlements')
+        .withIndex('by_subject', (q) => q.eq('subjectId', subject._id))
+        .filter((q) => q.eq(q.field('productId'), args.packageId))
+        .first();
+      const licenseSubject = entitlement?.licenseSubject;
+      // licenseVerification writes this link under the BUYER's account
+      // (upsertLicenseSubjectLink receives buyerAuthUserId), so keying it by
+      // the creator finds nothing and silently drops the licence.
+      const link = licenseSubject
+        ? await ctx.db
+            .query('license_subject_links')
+            .withIndex('by_auth_user_subject', (q) =>
+              q.eq('authUserId', buyerId).eq('licenseSubject', licenseSubject)
+            )
+            .first()
+        : null;
+
+      let buyerProviderUsername: string | undefined;
+      if (link?.providerUserId) {
+        const externalAccount = await ctx.db
+          .query('external_accounts')
+          .withIndex('by_provider_user', (q) =>
+            q.eq('provider', link.provider).eq('providerUserId', link.providerUserId as string)
+          )
+          .filter((q) => q.eq(q.field('status'), 'active'))
+          .first();
+        buyerProviderUsername = externalAccount?.providerUsername;
+      }
+
+      return {
+        buyerId,
+        ...(link?.providerUserId ? { buyerProviderUserId: link.providerUserId } : {}),
+        ...(buyerProviderUsername ? { buyerProviderUsername } : {}),
+        ...(subject.primaryDiscordUserId
+          ? { buyerSubjectDiscordUserId: subject.primaryDiscordUserId }
+          : {}),
+        ...(subject.displayName ? { buyerSubjectDisplayName: subject.displayName } : {}),
+        ...(licenseSubject
+          ? { licenseFingerprint: buildLicenseFingerprint(link?.provider, licenseSubject) }
+          : {}),
+        ...(link?.licenseKeyEncrypted ? { licenseKeyEncrypted: link.licenseKeyEncrypted } : {}),
+        ...(!link?.licenseKeyEncrypted && link?.licenseKey
+          ? { licenseKeyLegacy: link.licenseKey }
+          : {}),
+        ...(link?.provider ? { provider: link.provider } : {}),
+      };
+      })
+    );
+    identities.push(...resolvedIdentities);
+    return { identities, packageOwned: true };
+  },
+});

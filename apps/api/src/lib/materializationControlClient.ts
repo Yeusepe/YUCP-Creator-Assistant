@@ -7,6 +7,7 @@ import type { CouplingAttributionCandidate } from './couplingForensicsService';
 const CREATE_PATH = '/v2/internal/materialization-jobs/create';
 const STATUS_PATH = '/v2/internal/materialization-jobs/status';
 const ATTRIBUTION_CANDIDATES_PATH = '/v2/internal/materialization-attribution/candidates';
+const ATTRIBUTION_SUBJECTS_PATH = '/v2/internal/materialization-attribution/subjects';
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 const TRACEPARENT_PATTERN = /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/;
 const MAXIMUM_RESPONSE_BYTES = 64 * 1024;
@@ -47,6 +48,16 @@ export interface MaterializationControlClient extends PackageInstallMaterializat
     productId: string;
     traceparent?: string;
   }): Promise<MaterializationAttributionCandidatePage>;
+  /**
+   * The sealed buyer mappings behind matched records. They stay sealed here -
+   * only the materializer holds the key that opens them.
+   */
+  listAttributionSubjectMappings(input: {
+    attributionIds: string[];
+    creatorId: string;
+    productId: string;
+    traceparent?: string;
+  }): Promise<MaterializationAttributionSubjectMapping[]>;
 }
 
 export type MaterializationAttributionCandidatePage = {
@@ -281,6 +292,48 @@ function validateAttributionCandidate(value: unknown): MaterializationAttributio
   };
 }
 
+export type MaterializationAttributionSubjectMapping = {
+  attributionId: string;
+  buyerSubjectPseudonym: string;
+  encryptedSubjectMapping: string;
+  jobId: string;
+  keyEpoch: number;
+};
+
+function validateAttributionSubjectMappings(
+  value: unknown
+): MaterializationAttributionSubjectMapping[] {
+  const body = requireObject(value);
+  if (!Array.isArray(body.subjects) || body.subjects.length > 64) {
+    throw new Error('Materialization control-plane returned an invalid response');
+  }
+  return body.subjects.map((entry) => {
+    const subject = requireObject(entry);
+    if (
+      !Number.isSafeInteger(subject.keyEpoch) ||
+      (subject.keyEpoch as number) < 0 ||
+      !BASE64URL_PATTERN.test(String(subject.encryptedSubjectMapping ?? ''))
+    ) {
+      throw new Error('Materialization control-plane returned an invalid response');
+    }
+    return {
+      attributionId: requireText(subject.attributionId, 'attribution identifier', 512),
+      buyerSubjectPseudonym: requireText(
+        subject.buyerSubjectPseudonym,
+        'buyer subject pseudonym',
+        512
+      ),
+      encryptedSubjectMapping: requireText(
+        subject.encryptedSubjectMapping,
+        'encrypted subject mapping',
+        4_096
+      ),
+      jobId: requireText(subject.jobId, 'job identifier', 512),
+      keyEpoch: subject.keyEpoch as number,
+    };
+  });
+}
+
 function validateAttributionCandidates(value: unknown): MaterializationAttributionCandidatePage {
   const body = requireObject(value);
   if (
@@ -399,6 +452,23 @@ export function createMaterializationControlClient(
       return validateAttributionCandidates(
         await post(
           ATTRIBUTION_CANDIDATES_PATH,
+          body,
+          200,
+          traceparent,
+          MAXIMUM_ATTRIBUTION_RESPONSE_BYTES
+        )
+      );
+    },
+    async listAttributionSubjectMappings(input) {
+      const { traceparent, ...body } = input;
+      if (body.attributionIds.length < 1 || body.attributionIds.length > 64) {
+        throw new Error('Materialization attribution reveal batch is invalid');
+      }
+      return validateAttributionSubjectMappings(
+        // A full 64-subject batch of sealed mappings runs to a few hundred KiB,
+        // well past the 64 KiB default.
+        await post(
+          ATTRIBUTION_SUBJECTS_PATH,
           body,
           200,
           traceparent,

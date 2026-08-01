@@ -21,10 +21,19 @@ export interface CouplingForensicsMatchSummary {
   provider?: string | null;
   /** Non-secret license identifier (provider + short fingerprint). */
   licenseMasked?: string | null;
+  /**
+   * The buyer's actual license key. Only ever sent to the creator who owns the
+   * package, who issued it in the first place.
+   */
+  licenseKey?: string | null;
+  /** Provider + short fingerprint, shown when the raw key is unavailable. */
+  licenseFingerprint?: string | null;
   /** Provider-native buyer account username, if known */
   buyerProviderUsername?: string | null;
   /** Linked Discord subject display name, if the buyer verified through the bot */
   buyerSubjectDisplayName?: string | null;
+  /** Linked Discord account id, so the creator can act on the match */
+  buyerSubjectDiscordUserId?: string | null;
 }
 
 export interface CouplingForensicsAssetResult {

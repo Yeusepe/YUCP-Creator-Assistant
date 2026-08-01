@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import type { ExtractedForensicsAsset } from './couplingForensicsArchives';
+import type { MaterializationAttributionSubjectMapping } from './materializationControlClient';
 
 export type CouplingForensicsServiceConfig = {
   attributionMaxCandidateEvaluationsPerRequest?: number;
@@ -381,6 +382,94 @@ type AttributeServiceResponse = {
 
 function buildAttributeUrl(baseUrl: string): string {
   return buildCouplingServiceUrl(baseUrl, 'v2/internal/coupling/attribution/evaluate');
+}
+
+function buildRevealUrl(baseUrl: string): string {
+  return buildCouplingServiceUrl(baseUrl, 'v2/internal/coupling/attribution/reveal');
+}
+
+/**
+ * Exactly what the control plane hands back, reused rather than restated so a
+ * field change on one side cannot silently diverge from the other.
+ */
+export type CouplingRevealSubject = MaterializationAttributionSubjectMapping;
+
+/**
+ * Opens the sealed mappings behind matched records, via the one service that
+ * holds the master epoch key.
+ *
+ * A reveal that fails must not fail the trace: the creator still deserves the
+ * match they earned, just without a name attached. Callers get whatever opened
+ * and nothing for the rest.
+ */
+export async function revealCouplingSubjects(
+  input: {
+    creatorId: string;
+    productId: string;
+    subjects: CouplingRevealSubject[];
+  },
+  config: CouplingForensicsServiceConfig
+): Promise<Map<string, string>> {
+  const revealed = new Map<string, string>();
+  if (input.subjects.length === 0) {
+    return revealed;
+  }
+  const sharedSecret = config.sharedSecret.trim();
+  if (!sharedSecret) {
+    throw new CouplingServiceConfigurationError('Coupling service shared secret is not configured');
+  }
+  const { response, responseText } = await fetchCouplingServiceResponse(
+    buildRevealUrl(config.baseUrl),
+    {
+      method: 'POST',
+      redirect: 'error',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${sharedSecret}`,
+        'Cache-Control': 'no-store',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        creatorId: input.creatorId,
+        productId: input.productId,
+        subjects: input.subjects,
+      }),
+    },
+    config,
+    'Coupling attribution reveal timed out',
+    config.attributionTimeoutMs ?? config.requestTimeoutMs
+  );
+  if (!response.ok) {
+    throw new CouplingServiceRequestError(
+      `Coupling attribution reveal failed with status ${response.status}`,
+      response.status
+    );
+  }
+  const payload = parseResponsePayload<{
+    revealed?: Array<{ attributionId?: string; buyerId?: string }>;
+  }>(responseText);
+  if (!payload || !Array.isArray(payload.revealed)) {
+    throw new CouplingServiceRequestError('Coupling service returned an invalid reveal', 502);
+  }
+  const requested = new Set(input.subjects.map((subject) => subject.attributionId));
+  for (const entry of payload.revealed) {
+    // The declared type is a compile-time assertion over parsed JSON, not a
+    // runtime guarantee: a number here would throw instead of rejecting.
+    const rawAttributionId: unknown = entry?.attributionId;
+    const rawBuyerId: unknown = entry?.buyerId;
+    const attributionId = typeof rawAttributionId === 'string' ? rawAttributionId.trim() : '';
+    const buyerId = typeof rawBuyerId === 'string' ? rawBuyerId.trim() : '';
+    // Only what was asked about: an id the caller never sent would mean the
+    // service is pairing buyers with records of its own choosing.
+    if (!attributionId || !buyerId || !requested.has(attributionId)) {
+      throw new CouplingServiceRequestError(
+        'Coupling service revealed a subject outside the request',
+        502
+      );
+    }
+    revealed.set(attributionId, buyerId);
+  }
+  return revealed;
 }
 
 type SerializedAttributionAsset = {

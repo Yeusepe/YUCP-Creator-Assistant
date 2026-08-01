@@ -85,13 +85,19 @@ function getBuyerDisplayLabel(match: {
   buyerSubjectDisplayName?: string | null;
   buyerProviderUsername?: string | null;
   licenseMasked?: string | null;
+  licenseFingerprint?: string | null;
   buyerSubjectPseudonym?: string | null;
 }) {
   const pseudonym = match.buyerSubjectPseudonym?.trim();
+  // A match with only the newer identity fields must still produce a label:
+  // this doubles as the filter that decides which matches become buyer cards,
+  // so returning null here would drop the match entirely. The raw licence key
+  // is deliberately not a label - it is a secret, not a name.
   return (
     match.buyerSubjectDisplayName?.trim() ||
     match.buyerProviderUsername?.trim() ||
     match.licenseMasked?.trim() ||
+    match.licenseFingerprint?.trim() ||
     (pseudonym ? `Buyer ${pseudonym.slice(0, 10)}` : null) ||
     null
   );
@@ -550,8 +556,11 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
       packVersion?: string | null;
       provider?: string | null;
       licenseMasked?: string | null;
+      licenseKey?: string | null;
+      licenseFingerprint?: string | null;
       buyerProviderUsername?: string | null;
       buyerSubjectDisplayName?: string | null;
+      buyerSubjectDiscordUserId?: string | null;
       buyerSubjectPseudonym?: string | null;
       buyerDisplayLabel: string;
     }> = [];
@@ -570,8 +579,11 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
             packVersion: match.packVersion,
             provider: match.provider,
             licenseMasked: match.licenseMasked,
+            licenseKey: match.licenseKey,
+            licenseFingerprint: match.licenseFingerprint,
             buyerProviderUsername: match.buyerProviderUsername,
             buyerSubjectDisplayName: match.buyerSubjectDisplayName,
+            buyerSubjectDiscordUserId: match.buyerSubjectDiscordUserId,
             buyerSubjectPseudonym: match.buyerSubjectPseudonym,
             buyerDisplayLabel,
           });
@@ -920,9 +932,16 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="min-w-0 space-y-1">
                             <p className="text-muted text-xs">License</p>
-                            {buyer.licenseMasked ? (
+                            {/* The creator issued this key, so they see it in
+                                full. The fingerprint is the fallback for a
+                                purchase whose key was never stored. */}
+                            {buyer.licenseKey ? (
+                              <p className="text-foreground font-mono text-base font-semibold break-all select-all">
+                                {buyer.licenseKey}
+                              </p>
+                            ) : buyer.licenseFingerprint || buyer.licenseMasked ? (
                               <p className="text-foreground font-mono text-base font-semibold tabular-nums break-all">
-                                {buyer.licenseMasked}
+                                {buyer.licenseFingerprint ?? buyer.licenseMasked}
                               </p>
                             ) : (
                               <p className="text-muted text-base">Not recorded for this purchase</p>
@@ -936,6 +955,16 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                         </div>
                         <dl className="grid grid-cols-1 gap-x-6 gap-y-2.5 sm:grid-cols-2">
                           <MetaField label="Buyer">{buyer.buyerDisplayLabel}</MetaField>
+                          {/* The Discord id is what a creator actually acts on,
+                              so it is shown as a copyable handle rather than
+                              folded into the display name. */}
+                          {buyer.buyerSubjectDiscordUserId ? (
+                            <MetaField label="Discord" mono>
+                              {buyer.buyerSubjectDisplayName
+                                ? `@${buyer.buyerSubjectDisplayName} · ${buyer.buyerSubjectDiscordUserId}`
+                                : buyer.buyerSubjectDiscordUserId}
+                            </MetaField>
+                          ) : null}
                           {buyer.buyerProviderUsername &&
                           buyer.buyerProviderUsername !== buyer.buyerDisplayLabel ? (
                             <MetaField label="Store account">

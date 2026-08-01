@@ -285,6 +285,11 @@ export type MaterializationAttributionCandidatePage = {
 };
 
 const MATERIALIZATION_ATTRIBUTION_CANDIDATE_LIMIT = 512;
+/**
+ * A trace de-anonymises the handful of records it actually matched, never the
+ * candidate set it scanned, so this bound is far below the candidate limit.
+ */
+const MATERIALIZATION_ATTRIBUTION_REVEAL_LIMIT = 64;
 const MATERIALIZATION_ATTRIBUTION_CURSOR_MAX_BYTES = 2_048;
 
 type MaterializationAttributionCursor = {
@@ -1263,6 +1268,89 @@ export class MaterializationBroker {
           }
         : {}),
       truncated,
+    };
+  }
+
+  /**
+   * Hands back the sealed buyer mapping behind matched attribution records.
+   *
+   * The blob stays sealed here: this broker cannot open it, and neither can
+   * anything else that does not hold the master epoch key. What this method
+   * decides is *whose* mappings a caller may ask about at all, so the scope is
+   * the same as the candidate listing it follows - the creator's own jobs, for
+   * the product the trace ran against. An attribution id from another product
+   * or another creator simply is not returned.
+   *
+   * The pseudonym rides along so the caller can prove the opened mapping
+   * belongs to the record it matched rather than trusting the pairing.
+   */
+  async listAttributionSubjectMappings(input: {
+    attributionIds: string[];
+    creatorId: string;
+    productId: string;
+  }): Promise<{
+    subjects: Array<{
+      attributionId: string;
+      buyerSubjectPseudonym: string;
+      encryptedSubjectMapping: string;
+      jobId: string;
+      keyEpoch: number;
+    }>;
+  }> {
+    const creatorId = requireText(input.creatorId, 'creatorId', 512);
+    const productId = requireText(input.productId, 'productId', 512);
+    if (!Array.isArray(input.attributionIds) || input.attributionIds.length < 1) {
+      throw new Error('attributionIds are required');
+    }
+    if (input.attributionIds.length > MATERIALIZATION_ATTRIBUTION_REVEAL_LIMIT) {
+      throw new Error('attributionIds exceed the reveal limit');
+    }
+    const attributionIds = input.attributionIds.map((value, index) =>
+      requireText(value, `attributionIds[${index}]`, 512)
+    );
+    const rows = await this.sql<
+      Array<{
+        attributionId: string;
+        buyerSubjectPseudonym: string;
+        encryptedSubjectMapping: string | null;
+        jobId: string;
+        keyEpoch: number;
+      }>
+    >`
+      SELECT DISTINCT ON (a.attribution_id)
+        a.attribution_id AS "attributionId",
+        j.buyer_subject_pseudonym AS "buyerSubjectPseudonym",
+        encode(j.encrypted_subject_mapping, 'base64') AS "encryptedSubjectMapping",
+        j.id AS "jobId",
+        a.key_epoch AS "keyEpoch"
+      FROM materialization_attribution_records a
+      JOIN materialization_jobs j ON j.id = a.job_id
+      WHERE
+        j.creator_id = ${creatorId}
+        AND j.product_id = ${productId}
+        AND j.state = 'SUCCEEDED'
+        AND a.attribution_id = ANY(${attributionIds})
+      ORDER BY a.attribution_id, a.created_at DESC, j.id DESC
+    `;
+    return {
+      subjects: rows.flatMap((row) =>
+        row.encryptedSubjectMapping
+          ? [
+              {
+                attributionId: row.attributionId,
+                buyerSubjectPseudonym: row.buyerSubjectPseudonym,
+                // Postgres encodes base64 with padding; the mapping travels as
+                // base64url everywhere else.
+                encryptedSubjectMapping: Buffer.from(
+                  row.encryptedSubjectMapping,
+                  'base64'
+                ).toString('base64url'),
+                jobId: row.jobId,
+                keyEpoch: Number(row.keyEpoch),
+              },
+            ]
+          : []
+      ),
     };
   }
 

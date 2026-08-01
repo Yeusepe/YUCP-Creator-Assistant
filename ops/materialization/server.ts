@@ -35,8 +35,11 @@ const PROGRESS_JOB_PATH = '/v2/internal/materialization-jobs/progress';
 const STATUS_JOB_PATH = '/v2/internal/materialization-jobs/status';
 const FAIL_JOB_PATH = '/v2/internal/materialization-jobs/fail';
 const ATTRIBUTION_CANDIDATES_PATH = '/v2/internal/materialization-attribution/candidates';
+const ATTRIBUTION_SUBJECTS_PATH = '/v2/internal/materialization-attribution/subjects';
 const PACKAGE_INSTALLER_TUF_PREFIX = '/v2/internal/package-installer/tuf/';
 const ATTRIBUTION_CANDIDATE_PAGE_LIMIT = 512;
+/** Matches the broker's reveal bound: matched records, never the scanned set. */
+const ATTRIBUTION_SUBJECT_PAGE_LIMIT = 64;
 const REQUEST_BODY_LIMIT = 64 * 1_024;
 const CAPABILITY_REQUEST_BODY_LIMIT = 2 * 1_024 * 1_024;
 // v3 coupled completions declare up to 4096 output files (worst case ~1.7 KiB
@@ -86,6 +89,9 @@ type MaterializationControlBroker = {
   listAttributionCandidates?: (
     input: Parameters<MaterializationBroker['listAttributionCandidates']>[0]
   ) => ReturnType<MaterializationBroker['listAttributionCandidates']>;
+  listAttributionSubjectMappings?: (
+    input: Parameters<MaterializationBroker['listAttributionSubjectMappings']>[0]
+  ) => ReturnType<MaterializationBroker['listAttributionSubjectMappings']>;
   reportJobProgress?: (
     input: ReportJobProgressInput
   ) => ReturnType<MaterializationBroker['reportJobProgress']>;
@@ -103,6 +109,7 @@ type MaterializationControlPlaneEvent = {
   event:
     | 'materialization.capability.consume'
     | 'materialization.attribution.candidates'
+    | 'materialization.attribution.subjects'
     | 'materialization.job.claim'
     | 'materialization.job.create'
     | 'materialization.job.fail'
@@ -507,8 +514,17 @@ export function createMaterializationControlPlaneHandler(
       ATTRIBUTION_CANDIDATES_PATH,
       publicRouteUrl(config.publicBaseUrl, ATTRIBUTION_CANDIDATES_PATH),
     ],
+    [
+      ATTRIBUTION_SUBJECTS_PATH,
+      publicRouteUrl(config.publicBaseUrl, ATTRIBUTION_SUBJECTS_PATH),
+    ],
   ]);
-  const apiPaths = new Set([ATTRIBUTION_CANDIDATES_PATH, CREATE_JOB_PATH, STATUS_JOB_PATH]);
+  const apiPaths = new Set([
+    ATTRIBUTION_CANDIDATES_PATH,
+    ATTRIBUTION_SUBJECTS_PATH,
+    CREATE_JOB_PATH,
+    STATUS_JOB_PATH,
+  ]);
   const now = config.now ?? (() => new Date());
 
   return async (request: Request): Promise<Response> => {
@@ -534,6 +550,8 @@ export function createMaterializationControlPlaneHandler(
         ? 'materialization.job.create'
         : url.pathname === ATTRIBUTION_CANDIDATES_PATH
           ? 'materialization.attribution.candidates'
+          : url.pathname === ATTRIBUTION_SUBJECTS_PATH
+            ? 'materialization.attribution.subjects'
           : url.pathname === CLAIM_JOB_PATH
             ? 'materialization.job.claim'
             : url.pathname === RENEW_JOB_PATH
@@ -684,6 +702,35 @@ export function createMaterializationControlPlaneHandler(
           ...(body.cursor === undefined
             ? {}
             : { cursor: requireString(body.cursor, 'cursor', 2_048) }),
+          productId: requireString(body.productId, 'product_id'),
+        });
+        emit('accepted');
+        return noStoreJson(result, 200, traceId);
+      }
+      if (url.pathname === ATTRIBUTION_SUBJECTS_PATH) {
+        requireExactKeys(body, ['attributionIds', 'creatorId', 'productId']);
+        if (!config.broker.listAttributionSubjectMappings) {
+          throw new Error('Materialization attribution reveal is unavailable');
+        }
+        if (
+          !Array.isArray(body.attributionIds) ||
+          body.attributionIds.length < 1 ||
+          body.attributionIds.length > ATTRIBUTION_SUBJECT_PAGE_LIMIT
+        ) {
+          throw new RequestBoundaryError(
+            400,
+            'attribution_ids_invalid',
+            'attribution_ids is invalid'
+          );
+        }
+        // The mappings stay sealed across this hop; the scope check is what
+        // this route contributes, so it is the creator's own product or
+        // nothing.
+        const result = await config.broker.listAttributionSubjectMappings({
+          attributionIds: body.attributionIds.map((value, index) =>
+            requireString(value, `attribution_ids[${index}]`, 512)
+          ),
+          creatorId: requireString(body.creatorId, 'creator_id'),
           productId: requireString(body.productId, 'product_id'),
         });
         emit('accepted');

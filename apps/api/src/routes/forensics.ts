@@ -12,6 +12,7 @@ import {
   CouplingServiceConfigurationError,
   CouplingServiceRequestError,
   type ForensicsScoreResult,
+  revealCouplingSubjects,
   runCouplingAttribution,
 } from '../lib/couplingForensicsService';
 import { rejectCrossSiteRequest } from '../lib/csrf';
@@ -27,6 +28,7 @@ import {
   type PublicApiRateLimitStore,
 } from '../lib/publicApiRateLimit';
 import { RequestBodyError, readRequestBytesWithLimit } from '../lib/requestBody';
+import { decryptForensicsLicenseKey } from '../verification/forensicsLicenseKey';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024;
@@ -46,6 +48,14 @@ const FORENSICS_ATTRIBUTION_MAXIMUM_EVALUATION_WORK = 512 * 512;
  * scan now stops here and reports what it found, which is a real answer.
  */
 const FORENSICS_ATTRIBUTION_SCAN_BUDGET_MS = 90_000;
+/** Matched records only: a trace never de-anonymises the set it scanned. */
+const FORENSICS_REVEAL_LIMIT = 64;
+/**
+ * Ceiling on the reveal, which runs after the scan has already spent its own
+ * budget. A stalled control plane must cost the caller a name, not the whole
+ * result - the same failure the scan budget above exists to prevent.
+ */
+const FORENSICS_REVEAL_BUDGET_MS = 15_000;
 const TRACEPARENT_PATTERN = /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/;
 
 export type ForensicsConfig = {
@@ -62,7 +72,10 @@ export type ForensicsConfig = {
   lookupRateLimitMaxRequests?: number;
   lookupRateLimitStore?: PublicApiRateLimitStore;
   lookupRateLimitWindowMs?: number;
-  materializationControl?: Pick<MaterializationControlClient, 'listAttributionCandidates'>;
+  // Revealing buyers is an enhancement on top of matching, so a control plane
+  // that cannot do it still serves lookups - the match just carries no name.
+  materializationControl?: Pick<MaterializationControlClient, 'listAttributionCandidates'> &
+    Partial<Pick<MaterializationControlClient, 'listAttributionSubjectMappings'>>;
 };
 
 type ForensicsViewer = {
@@ -443,6 +456,204 @@ function buildLookupBuyerMatchId(
     .update('\0')
     .update(match.buyerSubjectPseudonym)
     .digest('hex');
+}
+
+type RevealedBuyerIdentity = {
+  /** Kept for counting distinct buyers; never sent to a client. */
+  buyerId?: string;
+  buyerProviderUserId?: string;
+  buyerProviderUsername?: string;
+  buyerSubjectDiscordUserId?: string;
+  buyerSubjectDisplayName?: string;
+  licenseFingerprint?: string;
+  /** The raw key, for the creator who issued it. */
+  licenseKey?: string;
+  /**
+   * Provider + fingerprint. Kept under the name both clients already read, so
+   * the Discord bot shows the licence without a change of its own.
+   */
+  licenseMasked?: string;
+  provider?: string;
+};
+
+/**
+ * Puts a name and a licence to the buyers behind matched records.
+ *
+ * Three services have to agree for this to produce anything: the control plane
+ * decides whose sealed mappings may be asked about, the materializer is the
+ * only holder of the key that opens them, and Convex resolves the recovered
+ * account into something a creator recognises. The licence key is decrypted
+ * here, at the end, because this process holds that secret and the database
+ * deliberately does not.
+ *
+ * Every failure is swallowed to an empty result. A trace that found the leak
+ * is still worth returning without a name attached, and a creator being told
+ * "no match" because an identity lookup failed would be a lie.
+ */
+/**
+ * Caps how long naming the buyers may take. Whatever has not resolved by then
+ * is dropped, so the match still reaches the caller.
+ */
+async function withRevealBudget(
+  reveal: Promise<Map<string, RevealedBuyerIdentity>>,
+  packageId: string
+): Promise<Map<string, RevealedBuyerIdentity>> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      reveal,
+      new Promise<Map<string, RevealedBuyerIdentity>>((resolve) => {
+        timer = setTimeout(() => {
+          logger.warn('Coupling trace buyer resolution exceeded its budget', { packageId });
+          resolve(new Map());
+        }, FORENSICS_REVEAL_BUDGET_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+async function resolveMatchedBuyerIdentities(input: {
+  attributionIds: string[];
+  config: ForensicsConfig;
+  convex: ReturnType<typeof getConvexClientFromUrl>;
+  durableCandidatesById: ReadonlyMap<string, MaterializationAttributionCandidate>;
+  packageId: string;
+  traceparent?: string;
+  viewerAuthUserId: string;
+}): Promise<Map<string, RevealedBuyerIdentity>> {
+  const resolved = new Map<string, RevealedBuyerIdentity>();
+  const { config } = input;
+  const listSubjectMappings = config.materializationControl?.listAttributionSubjectMappings;
+  if (input.attributionIds.length === 0 || !listSubjectMappings) {
+    return resolved;
+  }
+  const requestedIds = input.attributionIds.slice(0, FORENSICS_REVEAL_LIMIT);
+  try {
+    const mappings = await listSubjectMappings({
+      attributionIds: requestedIds,
+      creatorId: input.viewerAuthUserId,
+      productId: input.packageId,
+      ...(input.traceparent ? { traceparent: input.traceparent } : {}),
+    });
+    if (mappings.length === 0) {
+      return resolved;
+    }
+    // Two checks, because durableCandidatesById holds every candidate that was
+    // scanned, not just the ones that matched: the id must be one we asked
+    // about, and the pseudonym must be the one on that record. Without the
+    // first, a control plane returning extra mappings would get scanned-but-
+    // unmatched buyers unsealed even though they are never returned.
+    const requestedAttributionIds = new Set(requestedIds);
+    const subjects = mappings.filter(
+      (mapping) =>
+        requestedAttributionIds.has(mapping.attributionId) &&
+        input.durableCandidatesById.get(mapping.attributionId)?.buyerSubjectPseudonym ===
+          mapping.buyerSubjectPseudonym
+    );
+    if (subjects.length === 0) {
+      return resolved;
+    }
+    const buyerByAttribution = await revealCouplingSubjects(
+      {
+        creatorId: input.viewerAuthUserId,
+        productId: input.packageId,
+        subjects,
+      },
+      {
+        baseUrl: config.couplingServiceBaseUrl,
+        sharedSecret: config.couplingServiceSharedSecret,
+      }
+    );
+    if (buyerByAttribution.size === 0) {
+      return resolved;
+    }
+    const identityResult = (await input.convex.query(
+      api.couplingForensics.resolveTraceBuyerIdentitiesForAuthUser,
+      {
+        apiSecret: config.convexApiSecret,
+        authUserId: input.viewerAuthUserId,
+        buyerIds: [...new Set(buyerByAttribution.values())],
+        packageId: input.packageId,
+      }
+    )) as {
+      identities: Array<
+        RevealedBuyerIdentity & {
+          buyerId: string;
+          licenseKeyEncrypted?: string;
+          licenseKeyLegacy?: string;
+        }
+      >;
+      packageOwned: boolean;
+    };
+    if (!identityResult.packageOwned) {
+      // The route already checked ownership, so disagreement here means the
+      // two authorization paths have drifted apart.
+      logger.warn('Coupling trace buyer resolution was denied', {
+        packageId: input.packageId,
+      });
+      return resolved;
+    }
+    const identityByBuyer = new Map(
+      identityResult.identities.map((identity) => [identity.buyerId, identity])
+    );
+    for (const [attributionId, buyerId] of buyerByAttribution) {
+      const identity = identityByBuyer.get(buyerId);
+      if (!identity) {
+        continue;
+      }
+      // Newer purchases store the key encrypted; older ones were written in the
+      // clear before that column existed and are used as-is.
+      let licenseKey: string | undefined = identity.licenseKeyLegacy;
+      if (identity.licenseKeyEncrypted) {
+        try {
+          licenseKey = await decryptForensicsLicenseKey(
+            identity.licenseKeyEncrypted,
+            config.encryptionSecret
+          );
+        } catch (error) {
+          // A licence that will not decrypt is a key-rotation problem, not a
+          // reason to withhold the buyer's name.
+          logger.warn('Coupling trace could not decrypt a buyer licence key', {
+            error: error instanceof Error ? error.message : String(error),
+            packageId: input.packageId,
+          });
+        }
+      }
+      resolved.set(attributionId, {
+        buyerId,
+        ...(identity.buyerProviderUserId
+          ? { buyerProviderUserId: identity.buyerProviderUserId }
+          : {}),
+        ...(identity.buyerProviderUsername
+          ? { buyerProviderUsername: identity.buyerProviderUsername }
+          : {}),
+        ...(identity.buyerSubjectDiscordUserId
+          ? { buyerSubjectDiscordUserId: identity.buyerSubjectDiscordUserId }
+          : {}),
+        ...(identity.buyerSubjectDisplayName
+          ? { buyerSubjectDisplayName: identity.buyerSubjectDisplayName }
+          : {}),
+        ...(identity.licenseFingerprint
+          ? {
+              licenseFingerprint: identity.licenseFingerprint,
+              licenseMasked: identity.licenseFingerprint,
+            }
+          : {}),
+        ...(licenseKey ? { licenseKey } : {}),
+        ...(identity.provider ? { provider: identity.provider } : {}),
+      });
+    }
+  } catch (error) {
+    logger.warn('Coupling trace could not resolve buyer identities', {
+      error: error instanceof Error ? error.message : String(error),
+      packageId: input.packageId,
+    });
+  }
+  return resolved;
 }
 
 export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
@@ -961,9 +1172,26 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         )
       );
 
+      // Only the records that actually matched are de-anonymised, never the
+      // candidate set that was scanned. A reveal that fails leaves the match
+      // standing without a name on it: the creator still earned the match.
+      const identities = await withRevealBudget(
+        resolveMatchedBuyerIdentities({
+        attributionIds: [...matchedAttributionIds],
+        config,
+        convex,
+        durableCandidatesById,
+        packageId,
+          ...(traceparent ? { traceparent } : {}),
+          viewerAuthUserId: viewer.authUserId,
+        }),
+        packageId
+      );
+
       const results = scoreResults.map((scoreResult) => {
         const candidate = buildMatchedAttributionCandidate(scoreResult, candidatesById);
         const layerBClassification = classifyLayerB(scoreResult, matchedAttributionIds);
+        const identity = candidate ? identities.get(candidate.attributionId) : undefined;
         return {
           assetPath: scoreResult.assetPath,
           assetType: scoreResult.assetType,
@@ -981,10 +1209,44 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
                   createdAt: candidate.createdAt,
                   runtimeArtifactVersion: durableCandidatesById.get(candidate.attributionId)
                     ?.pluginVersion,
+                  // Listed one by one so the response contract is visible
+                  // here: a new field on RevealedBuyerIdentity does not reach
+                  // the client until someone adds it to this list.
+                  ...(identity?.buyerProviderUserId
+                    ? { buyerProviderUserId: identity.buyerProviderUserId }
+                    : {}),
+                  ...(identity?.buyerProviderUsername
+                    ? { buyerProviderUsername: identity.buyerProviderUsername }
+                    : {}),
+                  ...(identity?.buyerSubjectDiscordUserId
+                    ? { buyerSubjectDiscordUserId: identity.buyerSubjectDiscordUserId }
+                    : {}),
+                  ...(identity?.buyerSubjectDisplayName
+                    ? { buyerSubjectDisplayName: identity.buyerSubjectDisplayName }
+                    : {}),
+                  ...(identity?.licenseFingerprint
+                    ? { licenseFingerprint: identity.licenseFingerprint }
+                    : {}),
+                  ...(identity?.licenseMasked ? { licenseMasked: identity.licenseMasked } : {}),
+                  ...(identity?.licenseKey ? { licenseKey: identity.licenseKey } : {}),
+                  ...(identity?.provider ? { provider: identity.provider } : {}),
                 },
               ]
             : [],
         };
+      });
+      // Counted by buyer id: mixing Discord ids with licence keys made two
+      // key-only buyers look distinct and one buyer with both look single, and
+      // it put a decrypted key on the metric path.
+      const revealedBuyerCount = new Set(
+        [...identities.values()].flatMap((identity) =>
+          identity.buyerId ? [identity.buyerId] : []
+        )
+      ).size;
+      logger.info('Coupling attribution buyers revealed', {
+        matchedAttributions: matchedAttributionIds.size,
+        packageId,
+        revealedBuyers: revealedBuyerCount,
       });
 
       const matchedAttributionCount = results.filter((entry) => entry.matched).length;
