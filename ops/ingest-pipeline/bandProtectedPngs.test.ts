@@ -5,6 +5,7 @@ import path from 'node:path';
 import { deflateSync, inflateSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { encodeChunk, parsePng, unfilterScanlines } from '../storage-core/pngBanding';
+import { createLogicalReleaseRootV4 } from '../storage-core/releasePublication';
 import { bandProtectedPngs } from './ingestPipeline';
 
 const SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -116,5 +117,59 @@ describe('banding protected PNGs at ingest', () => {
     for (const result of results) {
       expect(result.band).toBeUndefined();
     }
+  });
+});
+
+describe('banded files and the release roots', () => {
+  it('leaves a manifest whose recorded roots match its own files', async () => {
+    // The roots are computed from file digests, and banding changes them. If
+    // the roots are taken before banding, the manifest disagrees with itself:
+    // promotion recomputes from files[] and rejects it, and the scheduler
+    // retries a version that can never improve. That is what shipped.
+    const png = makePng(512, 512);
+    const original = await place('albedo.png', png);
+    const [banded] = await bandProtectedPngs([
+      { ...original, classification: 'protected' as const, materializerType: 'png' as const },
+    ]);
+    if (!banded?.band) {
+      throw new Error('the fixture must band');
+    }
+    expect(banded.sha256).not.toBe(original.sha256);
+
+    const files = [
+      {
+        bytes: banded.bytes,
+        chunks: [{ id: '22'.repeat(32), sha256: banded.sha256, size: banded.bytes }],
+        classification: 'protected' as const,
+        materializerType: 'png',
+        normalizedPath: banded.normalizedPath,
+        sha256: banded.sha256,
+      },
+    ];
+    const roots = createLogicalReleaseRootV4({
+      files,
+      packageId: 'com.yucp.example',
+      version: '1.0.0',
+      versionId: 'version-1',
+    });
+    // Recomputing from the same files is what promotion does; it must agree.
+    const recomputed = createLogicalReleaseRootV4({
+      files,
+      packageId: 'com.yucp.example',
+      version: '1.0.0',
+      versionId: 'version-1',
+    });
+    expect(recomputed).toEqual(roots);
+
+    // ...and the pre-banding digests must NOT produce those roots, or this
+    // test would pass even with the ordering bug back in place.
+    const stale = createLogicalReleaseRootV4({
+      files: [{ ...files[0]!, bytes: original.bytes, sha256: original.sha256 }],
+      packageId: 'com.yucp.example',
+      version: '1.0.0',
+      versionId: 'version-1',
+    });
+    expect(stale.releaseRoot).not.toBe(roots.releaseRoot);
+    expect(stale.protectedSourceRoot).not.toBe(roots.protectedSourceRoot);
   });
 });

@@ -614,7 +614,10 @@ async function sha256File(path: string): Promise<string> {
   return hash.digest('hex');
 }
 
-function assertManifestIdentity(manifest: DeliveryManifest, version: PackageVersion): void {
+export function assertManifestIdentity(
+  manifest: DeliveryManifest,
+  version: PackageVersion
+): void {
   if (
     manifest.versionId !== version.id ||
     manifest.packageId !== version.packageId ||
@@ -736,15 +739,19 @@ async function prepareLogicalAssembly(
       });
     })
   );
+  // Banding rewrites protected PNGs, so it has to land before everything that
+  // addresses a file by the digest of its stored bytes: the release roots, the
+  // active-content inventory, and the CAS writes. Computing the roots from the
+  // pre-banding files instead leaves a manifest whose recorded releaseRoot does
+  // not match its own files[], which promotion recomputes and rejects, and the
+  // scheduler then retries forever because nothing about it can improve.
+  const classifiedFiles = await bandProtectedPngs(classified.files, signal);
   const release = createLogicalReleaseRootV4({
-    files: classified.files,
+    files: classifiedFiles,
     packageId: input.version.packageId,
     version: input.version.version,
     versionId: input.version.id,
   });
-  // Banding rewrites protected PNGs, so it has to land before the inventory
-  // and the CAS writes: both address a file by the digest of its stored bytes.
-  const classifiedFiles = await bandProtectedPngs(classified.files, signal);
   const active = createActiveContentInventory(classifiedFiles);
   const creatorDomain = createHash('sha256')
     .update('yucp:creator-domain:v2\0', 'utf8')
