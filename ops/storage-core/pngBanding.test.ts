@@ -1,27 +1,19 @@
-import { createHash } from 'node:crypto';
-import { constants, deflateRawSync, deflateSync, inflateRawSync, inflateSync } from 'node:zlib';
 import { describe, expect, it } from 'bun:test';
+import { createHash } from 'node:crypto';
+import { deflateSync, inflateRawSync, inflateSync } from 'node:zlib';
 import {
   encodeChunk,
   normalizePngForBanding,
+  PngBandError,
   parsePng,
   placeBand,
   planBand,
-  PngBandError,
   unfilterScanlines,
 } from './pngBanding';
 
 const SIG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-const deflate = (bytes: Uint8Array, options: { final: boolean }): Uint8Array =>
-  new Uint8Array(
-    deflateRawSync(Buffer.from(bytes), {
-      finishFlush: options.final ? constants.Z_FINISH : constants.Z_FULL_FLUSH,
-      level: 6,
-    })
-  );
-const inflate = (bytes: Uint8Array): Uint8Array =>
-  new Uint8Array(inflateSync(Buffer.from(bytes)));
+const inflate = (bytes: Uint8Array): Uint8Array => new Uint8Array(inflateSync(Buffer.from(bytes)));
 
 /**
  * The shared lockstep fixture. ca-coupling/src/pngBandSplice.test.ts builds the
@@ -59,12 +51,17 @@ function rasterOf(png: Uint8Array): Uint8Array {
 
 describe('publish-time banding', () => {
   it('re-encodes losslessly: same pixels, same depth, same colour type', async () => {
-    for (const [colorType, bitDepth] of [[2, 8], [2, 16], [6, 8], [6, 16]] as const) {
+    for (const [colorType, bitDepth] of [
+      [2, 8],
+      [2, 16],
+      [6, 8],
+      [6, 16],
+    ] as const) {
       const png = bandingFixture(256, 256, colorType, bitDepth);
       const header = parsePng(png).header;
       const planned = planBand(header, { blocks: 864, minFraction: 0.05 });
       const band = placeBand(header, planned as { rows: number; y0: number }, Uint8Array.from([1]));
-      const banded = await normalizePngForBanding({ band, deflate, inflate, png });
+      const banded = await normalizePngForBanding({ band, level: 6, png });
 
       expect(parsePng(banded.base).header).toEqual(header);
       expect(rasterOf(banded.base)).toEqual(rasterOf(png));
@@ -75,7 +72,7 @@ describe('publish-time banding', () => {
     const png = bandingFixture(256, 256, 6, 8);
     const header = parsePng(png).header;
     const band = { rows: 64, y0: 64 };
-    const banded = await normalizePngForBanding({ band, deflate, inflate, png });
+    const banded = await normalizePngForBanding({ band, level: 6, png });
     const idat = parsePng(banded.base).idat;
 
     expect(banded.bandRange.offset).toBeGreaterThanOrEqual(2);
@@ -97,8 +94,12 @@ describe('publish-time banding', () => {
     const png = bandingFixture(512, 512, 6, 8);
     const header = parsePng(png).header;
     const planned = planBand(header, { blocks: 864, minFraction: 0.05 });
-    const band = placeBand(header, planned as { rows: number; y0: number }, Uint8Array.from([7, 7]));
-    const banded = await normalizePngForBanding({ band, deflate, inflate, png });
+    const band = placeBand(
+      header,
+      planned as { rows: number; y0: number },
+      Uint8Array.from([7, 7])
+    );
+    const banded = await normalizePngForBanding({ band, level: 6, png });
 
     expect({
       baseSha256: createHash('sha256').update(banded.base).digest('hex'),
@@ -110,9 +111,16 @@ describe('publish-time banding', () => {
       suffixFilteredLength: banded.suffixFilteredLength,
       y0: band.y0,
     }).toEqual({
-      baseSha256: '65090cbe4f290990d8a5a8b8fdc65d3adce01d0c8f8cf55b76c26c2ab952b0e0',
+      // These bytes are Bun's streaming deflate at level 6 with 256 KiB
+      // batches. Deflate output is not unique across backends, and Bun's
+      // one-shot and streaming APIs are different backends, so this pin
+      // catches accidental drift of this implementation rather than defining
+      // a cross-compressor invariant. Regenerating it means regenerating
+      // ca-coupling/src/testdata/bandedBase512.ts in the same commit; the
+      // consumption test over that fixture is the real cross-repo lockstep.
+      baseSha256: 'bfd8185923ec444f5337e6ca29ed97e70bf39948bcea306b96aa9cb19c4d92b6',
       length: 3219,
-      offset: 4069,
+      offset: 4072,
       prefixAdler: 576628372,
       rows: 112,
       suffixAdler: 1828093411,
@@ -124,11 +132,21 @@ describe('publish-time banding', () => {
   it('routes what it cannot band away rather than mangling it', async () => {
     const parsed = parsePng(bandingFixture(64, 64, 6, 8));
     for (const mutate of [
-      (h: Uint8Array) => { h[9] = 3; },   // palette
-      (h: Uint8Array) => { h[9] = 0; },   // greyscale
-      (h: Uint8Array) => { h[9] = 4; },   // greyscale + alpha
-      (h: Uint8Array) => { h[12] = 1; },  // interlaced
-      (h: Uint8Array) => { h[8] = 4; },   // sub-byte depth
+      (h: Uint8Array) => {
+        h[9] = 3;
+      }, // palette
+      (h: Uint8Array) => {
+        h[9] = 0;
+      }, // greyscale
+      (h: Uint8Array) => {
+        h[9] = 4;
+      }, // greyscale + alpha
+      (h: Uint8Array) => {
+        h[12] = 1;
+      }, // interlaced
+      (h: Uint8Array) => {
+        h[8] = 4;
+      }, // sub-byte depth
     ]) {
       const ihdr = Uint8Array.from(parsed.raw);
       mutate(ihdr);

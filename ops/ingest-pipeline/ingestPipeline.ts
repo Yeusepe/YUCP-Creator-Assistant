@@ -2,8 +2,6 @@ import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { mkdir, mkdtemp, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import { promisify } from 'node:util';
-import { constants, deflateRaw, inflate as inflateCb } from 'node:zlib';
 import {
   Catalog,
   type PackageVersion,
@@ -38,15 +36,6 @@ import {
   parseDeliveryManifest,
 } from '../storage-core/deliveryManifest';
 import {
-  type BandedPng,
-  type BandPlacement,
-  normalizePngForBanding,
-  parsePng,
-  placeBand,
-  planBand,
-  PngBandError,
-} from '../storage-core/pngBanding';
-import {
   type CasStore,
   deleteCasIndexObject,
   type LocalCasStore,
@@ -59,8 +48,17 @@ import { prepareInstallablePackageTree } from '../storage-core/installablePackag
 import { reconstructLogicalFile, storeLogicalFile } from '../storage-core/logicalFileCas';
 import { normalizePackageArtifact } from '../storage-core/packageNormalizer';
 import {
-  classifiablePath,
+  type BandedPng,
+  type BandPlacement,
+  normalizePngForBanding,
+  PngBandError,
+  parsePng,
+  placeBand,
+  planBand,
+} from '../storage-core/pngBanding';
+import {
   type ClassifiedPackageFile,
+  classifiablePath,
   classifyPackageFiles,
   type ProtectionPolicyId,
   protectionMaterializationPolicy,
@@ -209,37 +207,14 @@ const BAND_MIN_FRACTION = 0.05;
 /**
  * How many images may be banded at once.
  *
- * Deliberately not LOGICAL_FILE_INGEST_CONCURRENCY. Banding holds roughly three
- * full rasters per image at once (the inflated scanlines, the unfiltered
- * pixels, and the three filtered segments), and a 4096x4096 16-bit RGBA raster
- * is 134 MiB, so one image can be ~400 MiB live. At eight in flight that is
- * over 3 GiB and the container is capped near 2: the first real package to band
- * asynchronously peaked at 1,985 MiB and was OOM-killed 98 seconds into its
- * assembly, which quarantined the version.
- *
- * Two is what fits with headroom. It costs wall time on small images, where the
- * bound is far too conservative; the honest fix is a budget over each image's
- * raster bytes rather than a count, which needs a concurrency helper that can
- * weigh its items.
+ * Banding streams rows through zlib now, so per-image memory is two rows plus
+ * the compressed streams, and this bound is about CPU rather than rasters: the
+ * unfilter walk and the adler arithmetic run on the event loop, and the same
+ * loop serves the status endpoint. Two keeps the loop responsive; the raster
+ * arithmetic that used to cap this (796 MB for a 14104x14103 source, which
+ * froze the host) no longer exists.
  */
 const BAND_CONCURRENCY = 2;
-
-// Async, not the *Sync variants: this runs in the same process that serves the
-// status endpoint, and a synchronous deflate over a megapixel raster blocks it
-// outright. The threadpool keeps the loop answering and makes
-// LOGICAL_FILE_INGEST_CONCURRENCY do something.
-const deflateRawAsync = promisify(deflateRaw);
-const inflateAsync = promisify(inflateCb);
-
-/**
- * Wraps bytes as a Buffer without copying them.
- *
- * Buffer.from(uint8array) copies. The segments handed to deflate are views into
- * one inflated raster, so copying each of them put another full raster on the
- * heap per image, which is what pushed the publish host into an OOM kill.
- */
-const asBuffer = (bytes: Uint8Array): Buffer =>
-  Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 
 /**
  * Level 6, measured against the alternatives on the production corpus:
@@ -255,17 +230,6 @@ const asBuffer = (bytes: Uint8Array): Buffer =>
  * rounding error of the source's own size for a seventh of the work.
  */
 const BAND_DEFLATE_LEVEL = 6;
-
-const bandDeflate = async (
-  bytes: Uint8Array,
-  options: { final: boolean }
-): Promise<Uint8Array> =>
-  new Uint8Array(
-    await deflateRawAsync(asBuffer(bytes), {
-      finishFlush: options.final ? constants.Z_FINISH : constants.Z_FULL_FLUSH,
-      level: BAND_DEFLATE_LEVEL,
-    })
-  );
 
 /**
  * Re-encodes protected PNGs so a buyer's coupling can replace one band instead
@@ -329,8 +293,7 @@ export async function bandProtectedPngs<T extends ClassifiedPackageFile>(
         placement = placeBand(header, planned, Buffer.from(file.sha256, 'hex'));
         banded = await normalizePngForBanding({
           band: placement,
-          deflate: bandDeflate,
-          inflate: async (bytes) => new Uint8Array(await inflateAsync(asBuffer(bytes))),
+          level: BAND_DEFLATE_LEVEL,
           png,
         });
       } catch (error) {
@@ -651,10 +614,7 @@ async function sha256File(path: string): Promise<string> {
   return hash.digest('hex');
 }
 
-export function assertManifestIdentity(
-  manifest: DeliveryManifest,
-  version: PackageVersion
-): void {
+export function assertManifestIdentity(manifest: DeliveryManifest, version: PackageVersion): void {
   if (
     manifest.versionId !== version.id ||
     manifest.packageId !== version.packageId ||
@@ -735,9 +695,7 @@ async function prepareLogicalAssembly(
         if (!classifiablePath(file.normalizedPath).endsWith('.png')) {
           return file;
         }
-        const metadata = readPngCouplingMetadata(
-          await readFileHeader(file.path, PNG_HEADER_BYTES)
-        );
+        const metadata = readPngCouplingMetadata(await readFileHeader(file.path, PNG_HEADER_BYTES));
         return metadata
           ? { ...file, pixelHeight: metadata.height, pixelWidth: metadata.width }
           : file;

@@ -34,6 +34,9 @@
  *     PNG filter references the previous row and those rows no longer own it.
  */
 
+import { once } from 'node:events';
+import { constants, createDeflateRaw, createInflate } from 'node:zlib';
+
 const PNG_SIGNATURE = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 // A protected source is already capped upstream; these bound this module's own
@@ -123,11 +126,12 @@ export function adler32(bytes: Uint8Array, seed = 1): number {
 
 function readUint32(bytes: Uint8Array, offset: number): number {
   return (
-    ((bytes[offset] as number) << 24) |
-    ((bytes[offset + 1] as number) << 16) |
-    ((bytes[offset + 2] as number) << 8) |
-    (bytes[offset + 3] as number)
-  ) >>> 0;
+    (((bytes[offset] as number) << 24) |
+      ((bytes[offset + 1] as number) << 16) |
+      ((bytes[offset + 2] as number) << 8) |
+      (bytes[offset + 3] as number)) >>>
+    0
+  );
 }
 
 function writeUint32(value: number): Uint8Array {
@@ -323,11 +327,20 @@ export function unfilterScanlines(header: PngHeader, filtered: Uint8Array): Uint
       const x = filtered[y * stride + 1 + i] as number;
       let value: number;
       switch (filterType) {
-        case 1: value = x + a; break;
-        case 2: value = x + b; break;
-        case 3: value = x + ((a + b) >> 1); break;
-        case 4: value = x + paeth(a, b, c); break;
-        default: value = x;
+        case 1:
+          value = x + a;
+          break;
+        case 2:
+          value = x + b;
+          break;
+        case 3:
+          value = x + ((a + b) >> 1);
+          break;
+        case 4:
+          value = x + paeth(a, b, c);
+          break;
+        default:
+          value = x;
       }
       raw[rowStart + i] = value & 0xff;
     }
@@ -387,63 +400,6 @@ export function retainFilteredRows(
   return out;
 }
 
-/**
- * Unfilters only as far as the rows in `wanted`, keeping two rows live.
- *
- * Only the first row of the band and of the suffix ever need their pixels, so
- * materialising the whole raster to reach them costs an extra full-size buffer
- * for nothing. On a 4096x4096 16-bit source that buffer is ~100 MiB, and two
- * images in flight was enough to OOM the publish host.
- */
-function unfilterRowsAt(
-  header: PngHeader,
-  filtered: Uint8Array,
-  wanted: readonly number[]
-): Map<number, Uint8Array> {
-  const stride = header.rowBytes + 1;
-  const bpp = header.bytesPerPixel;
-  const { rowBytes } = header;
-  const want = new Set(wanted);
-  const last = Math.max(...wanted);
-  if (filtered.byteLength < (last + 1) * stride) {
-    throw new PngBandError('Filtered scanline data is truncated');
-  }
-  const rows = new Map<number, Uint8Array>();
-  let previous = new Uint8Array(rowBytes);
-  let current = new Uint8Array(rowBytes);
-  let havePrevious = false;
-  for (let y = 0; y <= last; y += 1) {
-    const filterType = filtered[y * stride] as number;
-    if (filterType > 4) {
-      throw new PngBandError('Unknown PNG filter type');
-    }
-    const base = y * stride + 1;
-    for (let i = 0; i < rowBytes; i += 1) {
-      const a = i >= bpp ? (current[i - bpp] as number) : 0;
-      const b = havePrevious ? (previous[i] as number) : 0;
-      const c = havePrevious && i >= bpp ? (previous[i - bpp] as number) : 0;
-      const x = filtered[base + i] as number;
-      let value: number;
-      switch (filterType) {
-        case 1: value = x + a; break;
-        case 2: value = x + b; break;
-        case 3: value = x + ((a + b) >> 1); break;
-        case 4: value = x + paeth(a, b, c); break;
-        default: value = x;
-      }
-      current[i] = value & 0xff;
-    }
-    if (want.has(y)) {
-      rows.set(y, Uint8Array.from(current));
-    }
-    const swap = previous;
-    previous = current;
-    current = swap;
-    havePrevious = true;
-  }
-  return rows;
-}
-
 const FILTER_COUNT = 5;
 
 /**
@@ -481,11 +437,20 @@ export function filterScanlinesAdaptive(
         const c = hasPrev && i >= bpp ? (raw[prevStart + i - bpp] as number) : 0;
         let value: number;
         switch (type) {
-          case 1: value = x - a; break;
-          case 2: value = x - b; break;
-          case 3: value = x - ((a + b) >> 1); break;
-          case 4: value = x - paeth(a, b, c); break;
-          default: value = x;
+          case 1:
+            value = x - a;
+            break;
+          case 2:
+            value = x - b;
+            break;
+          case 3:
+            value = x - ((a + b) >> 1);
+            break;
+          case 4:
+            value = x - paeth(a, b, c);
+            break;
+          default:
+            value = x;
         }
         value &= 0xff;
         candidate[i] = value;
@@ -517,7 +482,7 @@ export function planBand(
     return null;
   }
   const needed = Math.ceil(options.blocks / blocksPerRow);
-  const fractional = Math.ceil((Math.floor(header.height / 8) * options.minFraction));
+  const fractional = Math.ceil(Math.floor(header.height / 8) * options.minFraction);
   const rows = Math.max(needed, fractional, 1) * 8;
   if (rows >= header.height) {
     return null;
@@ -542,36 +507,28 @@ export function placeBand(
   return { rows: band.rows, y0: (acc % slots) * 8 };
 }
 
-export type DeflateFn = (
-  bytes: Uint8Array,
-  options: { final: boolean }
-) => Uint8Array;
-
-/**
- * The publish-time deflate, which may be async, and in the ingest host must be.
- *
- * That host serves its status endpoint from the same thread that runs this, and
- * a synchronous zlib call over a megapixel raster blocks it outright: the first
- * real package to band starved the ingest service's status reads from 1ms to
- * unanswerable. Node's async zlib runs on the libuv threadpool, which keeps the
- * loop live and makes the caller's concurrency real rather than nominal.
- *
- * The couple side stays on the sync DeflateFn above: it deflates through the
- * wasm codec while holding the codec lease, where there is nothing to yield to.
- */
-export type PublishDeflateFn = (
-  bytes: Uint8Array,
-  options: { final: boolean }
-) => Promise<Uint8Array> | Uint8Array;
-
 /**
  * Publish-time step: rebuild `png` so its IDAT is prefix|band|suffix, each
  * independently replaceable.
+ *
+ * The rows stream through one deflate that is cut at the two band boundaries
+ * with Z_FULL_FLUSH, so the peak is two rows plus the compressed streams
+ * rather than the raster. Dimensions, not bytes, are the raster cost: a
+ * 14104x14103 source is 1.1 MB of file and 796 MB of raster, and the raster
+ * version of this function froze the publish host on exactly that shape. The
+ * output is byte-identical to deflating the three segments independently,
+ * because a full flush resets the dictionary and byte-aligns, which is also
+ * how a fresh deflate of the same bytes starts.
+ *
+ * The source's own filters are kept everywhere they are still valid, which is
+ * everywhere except the first row of the band and of the suffix; re-filtering
+ * a whole image to 0 measured 29% larger on the production corpus. Every row
+ * is still unfiltered in passing, two rows live, so those boundary rows have
+ * their pixels when the stream reaches them.
  */
 export async function normalizePngForBanding(input: {
   band: BandPlacement;
-  deflate: PublishDeflateFn;
-  inflate: (bytes: Uint8Array) => Promise<Uint8Array> | Uint8Array;
+  level?: number;
   png: Uint8Array;
 }): Promise<BandedPng> {
   const parsed = parsePng(input.png);
@@ -586,48 +543,180 @@ export async function normalizePngForBanding(input: {
   ) {
     throw new PngBandError('Band placement is out of range');
   }
-  const filtered = await input.inflate(parsed.idat);
-  const suffixRows = header.height - band.y0 - band.rows;
   const stride = header.rowBytes + 1;
-  // The source's own filters are kept everywhere they are still valid, which is
-  // everywhere except the first row of the band and of the suffix. Re-filtering
-  // the whole image to 0 instead measured 29% larger on the production corpus,
-  // and that inflation would be paid on every delivery of every copy.
-  //
-  // Those two rows are rewritten inside `filtered`, so the three segments are
-  // views rather than copies. Slicing them instead held two more near-full-size
-  // buffers, which is what exhausted the publish host's memory.
-  const boundaries = suffixRows > 0 ? [band.y0, band.y0 + band.rows] : [band.y0];
-  const boundaryRows = unfilterRowsAt(header, filtered, boundaries);
-  for (const y of boundaries) {
-    filtered[y * stride] = 0;
-    filtered.set(boundaryRows.get(y) as Uint8Array, y * stride + 1);
+  const bpp = header.bytesPerPixel;
+  const { rowBytes } = header;
+  const suffixRows = header.height - band.y0 - band.rows;
+  const boundaries = new Set(suffixRows > 0 ? [band.y0, band.y0 + band.rows] : [band.y0]);
+
+  const deflater = createDeflateRaw({ level: input.level ?? 6 });
+  const segments: [Uint8Array[], Uint8Array[], Uint8Array[]] = [[], [], []];
+  let segmentIndex = 0;
+  deflater.on('data', (chunk: Buffer) => {
+    segments[segmentIndex as 0 | 1 | 2].push(new Uint8Array(chunk));
+  });
+  const writeRaw = async (bytes: Uint8Array): Promise<void> => {
+    if (!deflater.write(bytes)) {
+      await once(deflater, 'drain');
+    }
+  };
+  // Rows are batched before they reach zlib. Bun routes one-shot and streaming
+  // deflate through different backends, and its streaming one emits measurably
+  // larger output when fed row-sized writes; at 64 KiB and above the two are
+  // byte-identical, so batching is what keeps this function's output equal to
+  // the one-shot implementation it replaced, and to the pinned golden vector.
+  const batch = new Uint8Array(1 << 18);
+  let batchFill = 0;
+  const flushBatch = async (): Promise<void> => {
+    if (batchFill > 0) {
+      await writeRaw(batch.slice(0, batchFill));
+      batchFill = 0;
+    }
+  };
+  const writeFiltered = async (bytes: Uint8Array): Promise<void> => {
+    if (batchFill + bytes.byteLength > batch.byteLength) {
+      await flushBatch();
+    }
+    if (bytes.byteLength >= batch.byteLength) {
+      await writeRaw(bytes.slice());
+      return;
+    }
+    batch.set(bytes, batchFill);
+    batchFill += bytes.byteLength;
+  };
+  const cutSegment = async (): Promise<void> => {
+    await flushBatch();
+    await new Promise<void>((resolve) => {
+      deflater.flush(constants.Z_FULL_FLUSH, () => resolve());
+    });
+    segmentIndex += 1;
+  };
+
+  // The inflater is fed with backpressure while rows are consumed below, so
+  // neither the compressed input nor the pixel stream is ever whole in memory.
+  const inflater = createInflate();
+  const feed = (async () => {
+    const step = 1 << 16;
+    for (let offset = 0; offset < parsed.idat.byteLength; offset += step) {
+      const chunk = parsed.idat.subarray(offset, Math.min(offset + step, parsed.idat.byteLength));
+      if (!inflater.write(chunk)) {
+        await once(inflater, 'drain');
+      }
+    }
+    inflater.end();
+  })();
+
+  // Segment-local adlers seed the index fields; the running chain becomes the
+  // stream trailer. Both accumulate row by row.
+  let segAdler = 1;
+  let totalAdler = 1;
+  let prefixAdler = 1;
+  let suffixFilteredLength = 0;
+  let previous = new Uint8Array(rowBytes);
+  let current = new Uint8Array(rowBytes);
+  let havePrevious = false;
+  let y = 0;
+
+  const processRow = async (row: Uint8Array): Promise<void> => {
+    const filterType = row[0] as number;
+    if (filterType > 4) {
+      throw new PngBandError('Unknown PNG filter type');
+    }
+    for (let i = 0; i < rowBytes; i += 1) {
+      const a = i >= bpp ? (current[i - bpp] as number) : 0;
+      const b = havePrevious ? (previous[i] as number) : 0;
+      const c = havePrevious && i >= bpp ? (previous[i - bpp] as number) : 0;
+      const x = row[1 + i] as number;
+      let value: number;
+      switch (filterType) {
+        case 1:
+          value = x + a;
+          break;
+        case 2:
+          value = x + b;
+          break;
+        case 3:
+          value = x + ((a + b) >> 1);
+          break;
+        case 4:
+          value = x + paeth(a, b, c);
+          break;
+        default:
+          value = x;
+      }
+      current[i] = value & 0xff;
+    }
+    let out = row;
+    if (boundaries.has(y)) {
+      if (segmentIndex === 0) {
+        prefixAdler = segAdler;
+      }
+      await cutSegment();
+      segAdler = 1;
+      // The first row of a segment loses its reference row, so it is rewritten
+      // to filter 0 with its absolute bytes.
+      out = new Uint8Array(stride);
+      out.set(current, 1);
+    }
+    segAdler = adler32(out, segAdler);
+    totalAdler = adler32(out, totalAdler);
+    if (segmentIndex === 2) {
+      suffixFilteredLength += out.byteLength;
+    }
+    await writeFiltered(out);
+    const swap = previous;
+    previous = current;
+    current = swap;
+    havePrevious = true;
+    y += 1;
+  };
+
+  let buffered = new Uint8Array(0);
+  for await (const piece of inflater) {
+    let chunk: Uint8Array;
+    if (buffered.byteLength > 0) {
+      chunk = new Uint8Array(buffered.byteLength + (piece as Buffer).byteLength);
+      chunk.set(buffered, 0);
+      chunk.set(new Uint8Array(piece as Buffer), buffered.byteLength);
+    } else {
+      chunk = new Uint8Array(piece as Buffer);
+    }
+    let offset = 0;
+    while (chunk.byteLength - offset >= stride && y < header.height) {
+      await processRow(chunk.subarray(offset, offset + stride));
+      offset += stride;
+    }
+    buffered = chunk.slice(offset);
   }
-  const prefixFiltered = filtered.subarray(0, band.y0 * stride);
-  const bandFiltered = filtered.subarray(
-    band.y0 * stride,
-    (band.y0 + band.rows) * stride
-  );
-  const suffixFiltered = filtered.subarray((band.y0 + band.rows) * stride);
+  await feed;
+  if (y !== header.height || buffered.byteLength !== 0) {
+    throw new PngBandError('Filtered scanline data is truncated');
+  }
+  await flushBatch();
+  if (suffixRows === 0) {
+    // The band is the last segment with rows; close it at a flush so its
+    // compressed bytes stay independently replaceable, exactly as when a
+    // suffix follows.
+    if (segmentIndex === 0) {
+      prefixAdler = segAdler;
+    }
+    await cutSegment();
+  }
+  const ended = once(deflater, 'end');
+  deflater.end();
+  await ended;
+  const suffixAdler = suffixRows > 0 ? segAdler : 1;
 
-  // Independent of each other, so they overlap on the threadpool.
-  const [prefixSegment, bandSegment, suffixSegment] = await Promise.all([
-    input.deflate(prefixFiltered, { final: false }),
-    input.deflate(bandFiltered, { final: false }),
-    input.deflate(suffixFiltered, { final: true }),
-  ]);
-
-  const prefixAdler = adler32(prefixFiltered);
-  const withBand = adler32(bandFiltered, prefixAdler);
+  const prefixLength = segments[0].reduce((total, part) => total + part.byteLength, 0);
+  const bandLength = segments[1].reduce((total, part) => total + part.byteLength, 0);
   // 0x78 0x9c: deflate, 32 KiB window, default level. The window size must
   // cover the largest back-reference any segment can make.
-  const zlibHeader = Uint8Array.from([0x78, 0x9c]);
   const idatParts = [
-    zlibHeader,
-    prefixSegment,
-    bandSegment,
-    suffixSegment,
-    writeUint32(adler32(suffixFiltered, withBand)),
+    Uint8Array.from([0x78, 0x9c]),
+    ...segments[0],
+    ...segments[1],
+    ...segments[2],
+    writeUint32(totalAdler),
   ];
   let idatLength = 0;
   for (const part of idatParts) {
@@ -655,10 +744,10 @@ export async function normalizePngForBanding(input: {
 
   return {
     band,
-    bandRange: { length: bandSegment.byteLength, offset: 2 + prefixSegment.byteLength },
+    bandRange: { length: bandLength, offset: 2 + prefixLength },
     base,
     prefixAdler,
-    suffixAdler: adler32(suffixFiltered),
-    suffixFilteredLength: suffixFiltered.byteLength,
+    suffixAdler,
+    suffixFilteredLength,
   };
 }
