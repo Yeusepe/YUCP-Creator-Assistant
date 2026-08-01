@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, describe, expect, it, mock, setSystemTime } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 import {
   type CouplingAttributionCandidate,
@@ -35,6 +35,7 @@ const candidates: CouplingAttributionCandidate[] = [primaryCandidate];
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  setSystemTime();
 });
 
 describe('runCouplingAttribution', () => {
@@ -104,7 +105,7 @@ describe('runCouplingAttribution', () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const result = await runCouplingAttribution(
+    const { complete, results: result } = await runCouplingAttribution(
       [
         {
           assetPath: 'Assets/Character/body.png',
@@ -116,6 +117,7 @@ describe('runCouplingAttribution', () => {
       config
     );
 
+    expect(complete).toBe(true);
     expect(requestUrl).toBe('https://coupling.internal/v2/internal/coupling/attribution/evaluate');
     expect(JSON.parse(String(requestInit?.body))).toMatchObject({
       candidates,
@@ -164,7 +166,7 @@ describe('runCouplingAttribution', () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const result = await runCouplingAttribution(
+    const { results: result } = await runCouplingAttribution(
       [
         {
           assetPath: 'Case/Jammer_Albedo.png',
@@ -219,7 +221,7 @@ describe('runCouplingAttribution', () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const result = await runCouplingAttribution(
+    const { results: result } = await runCouplingAttribution(
       [
         {
           assetPath: relocatedAssetPath,
@@ -323,7 +325,7 @@ describe('runCouplingAttribution', () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const result = await runCouplingAttribution(
+    const { evaluationsPerformed, results: result } = await runCouplingAttribution(
       [
         {
           assetPath: 'Assets/Character/body.png',
@@ -342,8 +344,12 @@ describe('runCouplingAttribution', () => {
         },
       ],
       [primaryCandidate, secondCandidate],
-      { ...config, requestMaxBytes: 50_000 }
+      // The serialized asset is this test file itself, so the cap needs room
+      // for the file to grow while still forcing one asset per request.
+      { ...config, requestMaxBytes: 200_000 }
     );
+
+    expect(evaluationsPerformed).toBe(6);
 
     expect(requestBodies).toHaveLength(3);
     expect(requestBodies.map((body) => body.assets.map((asset) => asset.assetPath))).toEqual([
@@ -358,7 +364,7 @@ describe('runCouplingAttribution', () => {
       ['attribution-2', 'attribution-1'],
       ['attribution-1', 'attribution-2'],
     ]);
-    expect(requestBodies.every((body) => Buffer.byteLength(JSON.stringify(body)) <= 50_000)).toBe(
+    expect(requestBodies.every((body) => Buffer.byteLength(JSON.stringify(body)) <= 200_000)).toBe(
       true
     );
     expect(result).toEqual([
@@ -423,7 +429,7 @@ describe('runCouplingAttribution', () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const result = await runCouplingAttribution(
+    const { results: result } = await runCouplingAttribution(
       [
         {
           assetPath: 'Assets/Character/body.png',
@@ -958,6 +964,181 @@ describe('runCouplingAttribution', () => {
         ),
       ])
     ).rejects.toThrow('Coupling attribution timed out');
+  });
+
+  it('runs batches concurrently but never more than the configured pool', async () => {
+    const manyCandidates = Array.from({ length: 260 }, (_, index) => ({
+      ...primaryCandidate,
+      attributionId: `attribution-${index.toString().padStart(3, '0')}`,
+      jobId: `job-${index.toString().padStart(3, '0')}`,
+    }));
+    let inFlight = 0;
+    let peakInFlight = 0;
+    const fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      inFlight += 1;
+      peakInFlight = Math.max(peakInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      inFlight -= 1;
+      const body = JSON.parse(String(init?.body)) as {
+        assets: Array<{ assetPath: string; assetType: string }>;
+      };
+      return Response.json({
+        results: body.assets.map((asset) => ({
+          assetPath: asset.assetPath,
+          assetType: asset.assetType,
+          matched: false,
+        })),
+        schemaVersion: 2,
+      });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const outcome = await runCouplingAttribution(
+      [
+        {
+          assetPath: 'Assets/Character/body.png',
+          assetType: 'png',
+          filePath: assetFixturePath,
+        },
+      ],
+      manyCandidates,
+      config
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(peakInFlight).toBe(3);
+    expect(outcome.complete).toBe(true);
+    expect(outcome.evaluationsPerformed).toBe(260);
+  });
+
+  it('starts no work when the deadline has already passed', async () => {
+    const fetchMock = mock(async () => {
+      throw new Error('Attribution must not start work past the deadline');
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const outcome = await runCouplingAttribution(
+      [
+        {
+          assetPath: 'Assets/Character/body.png',
+          assetType: 'png',
+          filePath: assetFixturePath,
+        },
+      ],
+      candidates,
+      { ...config, deadlineAtMs: Date.now() - 1 }
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(outcome).toEqual({
+      complete: false,
+      evaluationsPerformed: 0,
+      results: [
+        {
+          assetPath: 'Assets/Character/body.png',
+          assetType: 'png',
+          decoderKind: 'png',
+          preclassification: 'no-signal',
+        },
+      ],
+    });
+  });
+
+  it('keeps completed batches and stops when the deadline arrives mid-scan', async () => {
+    const manyCandidates = Array.from({ length: 260 }, (_, index) => ({
+      ...primaryCandidate,
+      attributionId: `attribution-${index.toString().padStart(3, '0')}`,
+      jobId: `job-${index.toString().padStart(3, '0')}`,
+    }));
+    const startedAt = Date.now();
+    setSystemTime(new Date(startedAt));
+    let fetchCalls = 0;
+    const fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      // The first wave of three batches consumes the whole budget: the workers
+      // must keep those scores and decline to start the remaining batches. The
+      // clock only advances once the whole wave is in flight so all three
+      // start, and the real timer lets the wave park before any resolves.
+      fetchCalls += 1;
+      if (fetchCalls === 3) {
+        setSystemTime(new Date(startedAt + 120_000));
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const body = JSON.parse(String(init?.body)) as {
+        assets: Array<{ assetPath: string; assetType: string }>;
+      };
+      return Response.json({
+        results: body.assets.map((asset) => ({
+          assetPath: asset.assetPath,
+          assetType: asset.assetType,
+          matched: false,
+        })),
+        schemaVersion: 2,
+      });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const outcome = await runCouplingAttribution(
+      [
+        {
+          assetPath: 'Assets/Character/body.png',
+          assetType: 'png',
+          filePath: assetFixturePath,
+        },
+      ],
+      manyCandidates,
+      { ...config, deadlineAtMs: startedAt + 90_000 }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(outcome.complete).toBe(false);
+    expect(outcome.evaluationsPerformed).toBe(192);
+    expect(outcome.results).toEqual([
+      {
+        assetPath: 'Assets/Character/body.png',
+        assetType: 'png',
+        decoderKind: 'png',
+        preclassification: 'no-signal',
+      },
+    ]);
+  });
+
+  it('treats a timeout at the deadline as a stop instead of a failure', async () => {
+    const startedAt = Date.now();
+    setSystemTime(new Date(startedAt));
+    const fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      const signal = init?.signal;
+      return await new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => {
+          setSystemTime(new Date(startedAt + 120_000));
+          reject(new Error('fetch aborted'));
+        });
+      });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const outcome = await runCouplingAttribution(
+      [
+        {
+          assetPath: 'Assets/Character/body.png',
+          assetType: 'png',
+          filePath: assetFixturePath,
+        },
+      ],
+      candidates,
+      { ...config, attributionTimeoutMs: 20, deadlineAtMs: startedAt + 90_000 }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(outcome.complete).toBe(false);
+    expect(outcome.evaluationsPerformed).toBe(0);
+    expect(outcome.results).toEqual([
+      {
+        assetPath: 'Assets/Character/body.png',
+        assetType: 'png',
+        decoderKind: 'png',
+        preclassification: 'no-signal',
+      },
+    ]);
   });
 
   it('keeps the attribution timeout active while reading the response body', async () => {

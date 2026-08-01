@@ -37,6 +37,15 @@ const FORENSICS_LOOKUP_RATE_LIMIT_WINDOW_MS = 60_000;
 const FORENSICS_ATTRIBUTION_PAGE_SIZE = 256;
 const FORENSICS_ATTRIBUTION_MAXIMUM_CANDIDATE_WORK = 4_096;
 const FORENSICS_ATTRIBUTION_MAXIMUM_EVALUATION_WORK = 512 * 512;
+/**
+ * Wall-clock budget for the candidate scan.
+ *
+ * Without one the scan runs until an upstream proxy gives up, and every batch
+ * of matching work already done is thrown away with it: a flat-colour upload
+ * spent 141 s across twelve successful batches and returned a bare 504. The
+ * scan now stops here and reports what it found, which is a real answer.
+ */
+const FORENSICS_ATTRIBUTION_SCAN_BUDGET_MS = 90_000;
 const TRACEPARENT_PATTERN = /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/;
 
 export type ForensicsConfig = {
@@ -691,7 +700,40 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         );
       };
 
+      const scanStartedAt = Date.now();
+      let scanPageIndex = 0;
+      let scanDeadlineReached = false;
+      let evaluationsPerformed = 0;
+      // A record of what each page actually did, so the dashboard can show the
+      // scan as it happened rather than a spinner followed by a verdict.
+      const scanPages: Array<{
+        buyersCompared: number;
+        elapsedMs: number;
+        page: number;
+        resolved: number;
+        unresolvedAfter: number;
+      }> = [];
+      logger.info('Coupling attribution scan started', {
+        assetCount: extraction.assets.length,
+        packageId,
+        uploadSha256,
+      });
       for (;;) {
+        if (Date.now() - scanStartedAt >= FORENSICS_ATTRIBUTION_SCAN_BUDGET_MS) {
+          // Every batch already scored is kept: the caller gets the matches
+          // found so far plus an explicit incomplete flag, rather than a 504
+          // that discards minutes of successful work.
+          scanDeadlineReached = true;
+          logger.warn('Coupling attribution scan budget reached', {
+            candidateEvaluationCount,
+            elapsedMs: Date.now() - scanStartedAt,
+            packageId,
+            pagesScanned: scanPageIndex,
+            requestedCandidateCount,
+            unresolvedAssetCount: unresolvedAssets.length,
+          });
+          break;
+        }
         const remainingCandidateWork = maximumAttributionCandidateWork - requestedCandidateCount;
         const remainingEvaluationWork = maximumAttributionEvaluationWork - candidateEvaluationCount;
         const requestedPageLimit = Math.min(
@@ -742,25 +784,61 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         }
 
         if (candidateResult.candidates.length > 0 && unresolvedAssets.length > 0) {
-          const pageScoreResults = await runCouplingAttribution(
+          const pageOutcome = await runCouplingAttribution(
             unresolvedAssets,
             candidateResult.candidates.map(({ createdAt: _createdAt, ...candidate }) => candidate),
             {
               baseUrl: config.couplingServiceBaseUrl,
+              deadlineAtMs: scanStartedAt + FORENSICS_ATTRIBUTION_SCAN_BUDGET_MS,
               sharedSecret: config.couplingServiceSharedSecret,
             }
           );
-          for (const scoreResult of pageScoreResults) {
+          // The service stops starting batches once the deadline is close, so
+          // an incomplete page means the scan as a whole is incomplete.
+          if (!pageOutcome.complete) {
+            scanDeadlineReached = true;
+          }
+          evaluationsPerformed += pageOutcome.evaluationsPerformed;
+          for (const scoreResult of pageOutcome.results) {
             scoreResultsByPath.set(
               scoreResult.assetPath,
               mergeScoreResult(scoreResultsByPath.get(scoreResult.assetPath), scoreResult)
             );
           }
+          const beforeUnresolved = unresolvedAssets.length;
+          // Only a decoded asset leaves the work set. 'no-signal' means this
+          // page's candidates did not match, not that the asset carries no
+          // mark, so dropping it here would stop the scan before a buyer on a
+          // later page could ever be found.
           unresolvedAssets = unresolvedAssets.filter(
             (asset) => scoreResultsByPath.get(asset.assetPath)?.preclassification !== 'decoded'
           );
+          scanPageIndex += 1;
+          const pageElapsedMs = Date.now() - scanStartedAt;
+          const resolvedInPage = beforeUnresolved - unresolvedAssets.length;
+          scanPages.push({
+            buyersCompared: candidateResult.candidates.length,
+            elapsedMs: pageElapsedMs,
+            page: scanPageIndex,
+            resolved: resolvedInPage,
+            unresolvedAfter: unresolvedAssets.length,
+          });
+          logger.info('Coupling attribution page scored', {
+            candidatesInPage: candidateResult.candidates.length,
+            elapsedMs: pageElapsedMs,
+            packageId,
+            pageIndex: scanPageIndex,
+            resolvedInPage,
+            unresolvedAssetCount: unresolvedAssets.length,
+          });
         }
 
+        if (scanDeadlineReached) {
+          // Without this break the loop keeps paging candidates the service
+          // will refuse, and can spuriously trip the 409 work limit instead of
+          // returning the partial verdict.
+          break;
+        }
         if (unresolvedAssets.length === 0 || !candidateResult.truncated) {
           break;
         }
@@ -774,6 +852,24 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         }
         cursor = candidateResult.nextCursor;
       }
+      const scanDurationMs = Date.now() - scanStartedAt;
+      const scanSummary = {
+        // The evaluations the service actually performed, not the charged
+        // estimate: deadline stops and early decode both leave the estimate
+        // higher than the work done.
+        candidateEvaluationCount: evaluationsPerformed,
+        complete: !scanDeadlineReached,
+        durationMs: scanDurationMs,
+        pages: scanPages,
+        pagesScanned: scanPageIndex,
+        requestedCandidateCount,
+      };
+      logger.info('Coupling attribution scan finished', {
+        ...scanSummary,
+        assetCount: extraction.assets.length,
+        packageId,
+        uploadSha256,
+      });
 
       if (durableCandidatesById.size === 0) {
         const lookupStatus: ForensicsLookupStatus = 'no_signal_found';
@@ -795,6 +891,7 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
           decodedAssetCount: 0,
           results: [],
           investigationReport: buildInvestigationReport([], extraction.assets.length),
+          scan: scanSummary,
         });
       }
 
@@ -854,6 +951,7 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
           decodedAssetCount: 0,
           results,
           investigationReport: buildInvestigationReport(results, extraction.assets.length),
+          scan: scanSummary,
         });
       }
 
@@ -911,6 +1009,7 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         decodedAssetCount: decodedResults.length,
         results,
         investigationReport: buildInvestigationReport(results, extraction.assets.length),
+        scan: scanSummary,
       });
     } catch (error) {
       if (auditContext) {

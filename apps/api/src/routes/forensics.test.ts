@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, mock, setSystemTime, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
 import type { Auth } from '../auth';
 
@@ -180,6 +180,7 @@ describe('forensics routes', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    setSystemTime();
   });
 
   test('attributes a leaked asset through durable materialization records', async () => {
@@ -469,6 +470,72 @@ describe('forensics routes', () => {
       expect.objectContaining({
         requestedCandidateCount: 512,
         status: 'attributed',
+      })
+    );
+  });
+
+  test('returns the partial verdict when the scan time budget runs out', async () => {
+    installAuthorization();
+    const startedAt = Date.now();
+    setSystemTime(new Date(startedAt));
+    const pageCandidates = Array.from({ length: 256 }, (_, index) => ({
+      ...candidate,
+      attributionId: `attribution-slow-${index}`,
+      jobId: `job-slow-${index}`,
+    }));
+    const listAttributionCandidates = mock(async () => ({
+      candidateLimit: 256,
+      candidates: pageCandidates,
+      nextCursor: 'cursor-next',
+      truncated: true,
+    }));
+    const routes = createForensicsRoutes(auth, {
+      apiBaseUrl: 'http://localhost:3001',
+      couplingServiceBaseUrl: 'https://coupling.internal',
+      couplingServiceSharedSecret: TEST_COUPLING_BEARER,
+      convexApiSecret: TEST_CONVEX_API_TOKEN,
+      convexUrl: 'http://convex.invalid',
+      encryptionSecret: TEST_ENCRYPTION_KEY,
+      frontendBaseUrl: 'http://localhost:3000',
+      materializationControl: { listAttributionCandidates },
+    });
+    globalThis.fetch = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      // The first batch alone consumes the whole scan budget, as when every
+      // 64-candidate evaluation takes its full share of a saturated container.
+      setSystemTime(new Date(startedAt + 120_000));
+      const body = JSON.parse(String(init?.body)) as {
+        assets: Array<{ assetPath: string; assetType: string }>;
+      };
+      return Response.json({
+        results: body.assets.map((asset) => ({
+          assetPath: asset.assetPath,
+          assetType: asset.assetType,
+          matched: false,
+        })),
+        schemaVersion: 2,
+      });
+    }) as unknown as typeof fetch;
+
+    const response = await routes.lookup(lookupRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      lookupStatus: 'no_signal_found',
+      scan: {
+        candidateEvaluationCount: 64,
+        complete: false,
+        pagesScanned: 1,
+        requestedCandidateCount: 256,
+      },
+    });
+    // The deadline must end the scan after the page in flight: more paging
+    // would spin against a service that refuses to start batches, and can
+    // spuriously trip the 409 candidate work limit.
+    expect(listAttributionCandidates).toHaveBeenCalledTimes(1);
+    expect(mutationMock).toHaveBeenCalledWith(
+      apiMock.couplingForensics.recordLookupAudit,
+      expect.objectContaining({
+        status: 'no_signal_found',
       })
     );
   });

@@ -8,6 +8,10 @@ export type CouplingForensicsServiceConfig = {
   sharedSecret: string;
   requestTimeoutMs?: number;
   attributionTimeoutMs?: number;
+  /** Epoch ms after which no further attribution batches are started; the scan
+   * returns what it has with `complete: false` instead of failing. */
+  deadlineAtMs?: number;
+  maxConcurrentRequests?: number;
   requestMaxBytes?: number;
   responseMaxBytes?: number;
 };
@@ -23,9 +27,26 @@ export type ForensicsScoreResult = {
   preclassification: ForensicPreclassification;
 };
 
-const ATTRIBUTION_REQUEST_TIMEOUT_MS = 15_000;
+export type CouplingAttributionOutcome = {
+  /** False when the deadline stopped the scan before every batch ran. */
+  complete: boolean;
+  /** Candidate evaluations actually performed (asset x candidate pairs). */
+  evaluationsPerformed: number;
+  results: ForensicsScoreResult[];
+};
+
+// Each evaluate request boots a fresh sandbox in the materializer container and
+// re-decodes the asset once per candidate key; healthy 64-candidate batches
+// measure 8.6-12.5s in production, so 15s tripped on ordinary variance.
+const ATTRIBUTION_REQUEST_TIMEOUT_MS = 30_000;
 const ATTRIBUTION_REQUEST_MAX_BYTES = 24 * 1024 * 1024;
 const ATTRIBUTION_MAX_CANDIDATE_EVALUATIONS_PER_REQUEST = 64;
+// The materializer runs one 512 MiB sandbox per in-flight request on a
+// standard-4 instance; three concurrent batches fit with headroom.
+const ATTRIBUTION_MAX_CONCURRENT_REQUESTS = 3;
+// Below this remaining budget a batch cannot finish, so the scan stops instead
+// of starting work the deadline would cut off mid-flight.
+export const ATTRIBUTION_DEADLINE_STOP_FLOOR_MS = 5_000;
 const COUPLING_SERVICE_RESPONSE_MAX_BYTES = 1024 * 1024;
 const METADATA_SERVICE_HOSTS = new Set([
   '169.254.169.254',
@@ -434,6 +455,17 @@ function resolveAttributionMaximumCandidateEvaluations(
   return maximum;
 }
 
+function resolveAttributionConcurrency(config: CouplingForensicsServiceConfig): number {
+  const configured = config.maxConcurrentRequests;
+  if (configured === undefined) {
+    return ATTRIBUTION_MAX_CONCURRENT_REQUESTS;
+  }
+  if (!Number.isSafeInteger(configured) || configured < 1 || configured > 8) {
+    throw new CouplingServiceConfigurationError('Coupling attribution concurrency is invalid');
+  }
+  return configured;
+}
+
 function mergeAttributionScore(
   previous: ForensicsScoreResult | undefined,
   next: ForensicsScoreResult
@@ -535,17 +567,21 @@ export async function runCouplingAttribution(
   assets: ExtractedForensicsAsset[],
   candidates: CouplingAttributionCandidate[],
   config: CouplingForensicsServiceConfig
-): Promise<ForensicsScoreResult[]> {
+): Promise<CouplingAttributionOutcome> {
   if (assets.length === 0) {
-    return [];
+    return { complete: true, evaluationsPerformed: 0, results: [] };
   }
   if (candidates.length === 0) {
-    return assets.map((asset) => ({
-      assetPath: asset.assetPath,
-      assetType: asset.assetType,
-      decoderKind: asset.assetType,
-      preclassification: 'no-signal',
-    }));
+    return {
+      complete: true,
+      evaluationsPerformed: 0,
+      results: assets.map((asset) => ({
+        assetPath: asset.assetPath,
+        assetType: asset.assetType,
+        decoderKind: asset.assetType,
+        preclassification: 'no-signal',
+      })),
+    };
   }
   buildAssetMapByPath(assets, 'attribution input');
   const candidatesByAssetType = buildCandidatePoolsByAssetType(candidates);
@@ -557,10 +593,17 @@ export async function runCouplingAttribution(
 
   const requestMaxBytes = resolveCouplingRequestMaxBytes(config);
   const maximumCandidateEvaluations = resolveAttributionMaximumCandidateEvaluations(config);
+  const concurrency = resolveAttributionConcurrency(config);
+  const deadlineAtMs = config.deadlineAtMs;
+  const remainingBudgetMs = (): number | undefined =>
+    deadlineAtMs === undefined ? undefined : deadlineAtMs - Date.now();
   const resultsByPath = new Map<string, ForensicsScoreResult>();
+  let evaluationsPerformed = 0;
+  let deadlineStopped = false;
 
   const runBatch = async (input: {
     asset: ExtractedForensicsAsset;
+    budgetMs: number | undefined;
     candidates: CouplingAttributionCandidate[];
     serializedAsset: SerializedAttributionAsset;
   }): Promise<ForensicsScoreResult> => {
@@ -572,6 +615,9 @@ export async function runCouplingAttribution(
       );
     }
 
+    const baseTimeoutMs = resolveCouplingRequestTimeoutMs(
+      config.attributionTimeoutMs ?? config.requestTimeoutMs
+    );
     let response: Response;
     let responseText: string;
     try {
@@ -590,7 +636,9 @@ export async function runCouplingAttribution(
         },
         config,
         'Coupling attribution timed out',
-        config.attributionTimeoutMs ?? config.requestTimeoutMs
+        input.budgetMs === undefined
+          ? baseTimeoutMs
+          : Math.max(1, Math.min(baseTimeoutMs, input.budgetMs))
       ));
     } catch (error) {
       if (
@@ -641,6 +689,7 @@ export async function runCouplingAttribution(
       contentBase64: Buffer.from(await readFile(asset.filePath)).toString('base64'),
     };
     const prioritizedCandidates = prioritizeCandidatesForAssets([asset], compatibleCandidates);
+    const batches: CouplingAttributionCandidate[][] = [];
     let offset = 0;
     while (offset < prioritizedCandidates.length) {
       const candidateBatch = prioritizedCandidates.slice(
@@ -661,28 +710,80 @@ export async function runCouplingAttribution(
         );
       }
       offset += candidateBatch.length;
-      const result = await runBatch({
-        asset,
-        candidates: candidateBatch,
-        serializedAsset,
-      });
-      resultsByPath.set(
-        asset.assetPath,
-        mergeAttributionScore(resultsByPath.get(asset.assetPath), result)
-      );
-      if (result.preclassification === 'decoded') {
-        break;
+      batches.push(candidateBatch);
+    }
+
+    let nextBatchIndex = 0;
+    let decoded = false;
+    const drainBatches = async (): Promise<void> => {
+      for (;;) {
+        if (decoded) {
+          return;
+        }
+        const budgetMs = remainingBudgetMs();
+        if (budgetMs !== undefined && budgetMs < ATTRIBUTION_DEADLINE_STOP_FLOOR_MS) {
+          deadlineStopped = true;
+          return;
+        }
+        const batchIndex = nextBatchIndex;
+        if (batchIndex >= batches.length) {
+          return;
+        }
+        nextBatchIndex += 1;
+        const candidateBatch = batches[batchIndex] as CouplingAttributionCandidate[];
+        let result: ForensicsScoreResult;
+        try {
+          result = await runBatch({
+            asset,
+            budgetMs,
+            candidates: candidateBatch,
+            serializedAsset,
+          });
+        } catch (error) {
+          const budgetAfter = remainingBudgetMs();
+          if (
+            budgetAfter !== undefined &&
+            budgetAfter <= 0 &&
+            error instanceof CouplingServiceRequestError &&
+            error.status === 504
+          ) {
+            // The deadline cut this batch off, not the service failing: keep
+            // the partial scan instead of discarding the work already done.
+            deadlineStopped = true;
+            return;
+          }
+          throw error;
+        }
+        evaluationsPerformed += candidateBatch.length;
+        resultsByPath.set(
+          asset.assetPath,
+          mergeAttributionScore(resultsByPath.get(asset.assetPath), result)
+        );
+        if (result.preclassification === 'decoded') {
+          decoded = true;
+          return;
+        }
       }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, batches.length) }, () => drainBatches())
+    );
+    if (deadlineStopped) {
+      break;
     }
   }
 
-  return assets.map(
-    (asset) =>
-      resultsByPath.get(asset.assetPath) ?? {
-        assetPath: asset.assetPath,
-        assetType: asset.assetType,
-        decoderKind: asset.assetType,
-        preclassification: 'no-signal',
-      }
-  );
+  return {
+    complete: !deadlineStopped,
+    evaluationsPerformed,
+    results: assets.map(
+      (asset) =>
+        resultsByPath.get(asset.assetPath) ?? {
+          assetPath: asset.assetPath,
+          assetType: asset.assetType,
+          decoderKind: asset.assetType,
+          preclassification: 'no-signal',
+        }
+    ),
+  };
 }
