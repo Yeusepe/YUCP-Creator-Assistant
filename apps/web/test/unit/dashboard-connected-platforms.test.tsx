@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { PropsWithChildren } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@tanstack/react-router', () => {
   return {
@@ -170,6 +170,11 @@ describe('dashboard connected platforms', () => {
     ]);
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+    cleanup();
+  });
+
   it('loads linked platform accounts from the dashboard API even when Convex reactive queries are unavailable', async () => {
     const Component = DashboardIndexRoute.options.component;
     if (!Component) {
@@ -211,14 +216,13 @@ describe('dashboard connected platforms', () => {
       throw new Error('Disconnect button was not rendered for the creator storefront row');
     }
 
-    fireEvent.click(disconnectButton);
-
-    const confirmButton = document.getElementById('jinxxy-confirm-btn');
-    if (!(confirmButton instanceof HTMLButtonElement)) {
-      throw new Error('Disconnect confirmation button was not rendered');
-    }
-
-    fireEvent.click(confirmButton);
+    expect(disconnectButton).toHaveAttribute('aria-label', 'Hold to disconnect Jinxxy');
+    vi.useFakeTimers();
+    fireEvent.pointerDown(disconnectButton, { button: 0, isPrimary: true });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1200);
+    });
+    vi.useRealTimers();
 
     await waitFor(() =>
       expect(

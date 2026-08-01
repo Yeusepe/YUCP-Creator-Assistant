@@ -34,6 +34,7 @@ import type { Upload as TusUpload } from 'tus-js-client';
 import { ApiError } from '@/api/client';
 import { AccountInlineError } from '@/components/account/AccountPage';
 import { PackageRegistryWorkspaceSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { DestructiveActionButton } from '@/components/ui/DestructiveActionButton';
 import { Icon } from '@/components/ui/Icon';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
@@ -900,8 +901,6 @@ function ProductDetailsSheet({
     priority: number;
   } | null>(null);
   const [confirmArchiveEditionId, setConfirmArchiveEditionId] = useState<string | null>(null);
-  const [confirmCancelVersionId, setConfirmCancelVersionId] = useState<string | null>(null);
-  const [confirmDeleteVersionId, setConfirmDeleteVersionId] = useState<string | null>(null);
   const [selectedHistoryEditionId, setSelectedHistoryEditionId] = useState('standard');
   const [isBootstrapDownloadOpen, setIsBootstrapDownloadOpen] = useState(false);
   const [bootstrapDownloadMode, setBootstrapDownloadMode] = useState<'latest' | 'specific'>(
@@ -1220,7 +1219,6 @@ function ProductDetailsSheet({
         }),
         queryClient.invalidateQueries({ queryKey: creatorProductsQueryKey }),
       ]);
-      setConfirmCancelVersionId(null);
       toast.success('Release canceled', {
         description: 'Preparation stops shortly. You can delete this release once it settles.',
       });
@@ -1265,7 +1263,6 @@ function ProductDetailsSheet({
         }),
         queryClient.invalidateQueries({ queryKey: creatorProductsQueryKey }),
       ]);
-      setConfirmDeleteVersionId(null);
       toast.success('Release deleted', {
         description: 'Files that another release needs remain available.',
       });
@@ -1472,7 +1469,6 @@ function ProductDetailsSheet({
   function handleOpenChange(nextIsOpen: boolean): void {
     if (!nextIsOpen) {
       setConfirmArchiveEditionId(null);
-      setConfirmDeleteVersionId(null);
       setSelectedHistoryEditionId('standard');
       setConfirmUnlinkStorefrontId(null);
       setEditionEditor(null);
@@ -2288,7 +2284,6 @@ function ProductDetailsSheet({
                           onChange={(key) => {
                             const nextEditionId = String(key ?? '');
                             if (nextEditionId) {
-                              setConfirmDeleteVersionId(null);
                               setSelectedHistoryEditionId(nextEditionId);
                             }
                           }}
@@ -2338,10 +2333,6 @@ function ProductDetailsSheet({
                           </div>
                         ) : packageVersions.length ? (
                           packageVersions.map((packageVersion) => {
-                            const isConfirming =
-                              confirmDeleteVersionId === packageVersion.versionId;
-                            const isConfirmingCancel =
-                              confirmCancelVersionId === packageVersion.versionId;
                             const isRunning = isRunningReleaseState(packageVersion.state);
                             const isDeleting =
                               deleteVersionMutation.isPending &&
@@ -2384,103 +2375,50 @@ function ProductDetailsSheet({
                                       }).format(new Date(packageVersion.createdAt))}
                                     </p>
                                   </div>
-                                  {isConfirming || isConfirmingCancel ? null : isRunning ? (
-                                    <YucpButton
-                                      yucp="ghost"
+                                  {isRunning ? (
+                                    <DestructiveActionButton
                                       size="sm"
-                                      isDisabled={cancelVersionMutation.isPending}
-                                      onPress={() =>
-                                        setConfirmCancelVersionId(packageVersion.versionId)
+                                      isDisabled={cancelVersionMutation.isPending && !isCanceling}
+                                      isPending={isCanceling}
+                                      pendingLabel="Canceling release..."
+                                      onConfirm={() =>
+                                        cancelVersionMutation.mutate({
+                                          editionId: selectedHistoryEditionId,
+                                          versionId: packageVersion.versionId,
+                                        })
                                       }
-                                      aria-label={`Cancel release ${packageVersion.version}`}
+                                      aria-label={
+                                        isCanceling
+                                          ? 'Canceling release...'
+                                          : `Hold to cancel release ${packageVersion.version}`
+                                      }
                                     >
                                       <Icon name="close" className="size-4" />
                                       Cancel
-                                    </YucpButton>
+                                    </DestructiveActionButton>
                                   ) : (
-                                    <YucpButton
-                                      yucp="ghost"
+                                    <DestructiveActionButton
                                       size="sm"
-                                      isDisabled={deleteVersionMutation.isPending}
-                                      onPress={() =>
-                                        setConfirmDeleteVersionId(packageVersion.versionId)
+                                      isDisabled={deleteVersionMutation.isPending && !isDeleting}
+                                      isPending={isDeleting}
+                                      pendingLabel="Deleting release..."
+                                      onConfirm={() =>
+                                        deleteVersionMutation.mutate({
+                                          editionId: selectedHistoryEditionId,
+                                          versionId: packageVersion.versionId,
+                                        })
                                       }
-                                      aria-label={`Delete release ${packageVersion.version}`}
+                                      aria-label={
+                                        isDeleting
+                                          ? 'Deleting release...'
+                                          : `Hold to delete release ${packageVersion.version}`
+                                      }
                                     >
                                       <Icon name="trash" className="size-4" />
                                       Delete
-                                    </YucpButton>
+                                    </DestructiveActionButton>
                                   )}
                                 </div>
-                                {isConfirmingCancel ? (
-                                  <div className="pm-inline-note space-y-3 rounded-xl p-3">
-                                    <p className="text-foreground text-sm font-semibold">
-                                      Stop preparing release {packageVersion.version}?
-                                    </p>
-                                    <p className="pm-subtle-copy text-sm leading-6">
-                                      Preparation stops within about a minute and this release is
-                                      marked canceled, not failed. Buyers never saw it, and you can
-                                      delete it or upload the version again afterwards.
-                                    </p>
-                                    <div className="flex flex-wrap justify-end gap-2">
-                                      <Button
-                                        size="sm"
-                                        variant="secondary"
-                                        isDisabled={isCanceling}
-                                        onPress={() => setConfirmCancelVersionId(null)}
-                                      >
-                                        Keep preparing
-                                      </Button>
-                                      <YucpButton
-                                        yucp="danger"
-                                        size="sm"
-                                        isLoading={isCanceling}
-                                        onPress={() =>
-                                          cancelVersionMutation.mutate({
-                                            editionId: selectedHistoryEditionId,
-                                            versionId: packageVersion.versionId,
-                                          })
-                                        }
-                                      >
-                                        {isCanceling ? 'Canceling...' : 'Cancel release'}
-                                      </YucpButton>
-                                    </div>
-                                  </div>
-                                ) : null}
-                                {isConfirming ? (
-                                  <div className="pm-inline-note space-y-3 rounded-xl p-3">
-                                    <p className="text-foreground text-sm font-semibold">
-                                      Delete release {packageVersion.version}?
-                                    </p>
-                                    <p className="pm-subtle-copy text-sm leading-6">
-                                      Buyers cannot install this release after deletion. Other
-                                      releases keep every file they still need.
-                                    </p>
-                                    <div className="flex flex-wrap justify-end gap-2">
-                                      <Button
-                                        size="sm"
-                                        variant="secondary"
-                                        isDisabled={isDeleting}
-                                        onPress={() => setConfirmDeleteVersionId(null)}
-                                      >
-                                        Keep release
-                                      </Button>
-                                      <YucpButton
-                                        yucp="danger"
-                                        size="sm"
-                                        isLoading={isDeleting}
-                                        onPress={() =>
-                                          deleteVersionMutation.mutate({
-                                            editionId: selectedHistoryEditionId,
-                                            versionId: packageVersion.versionId,
-                                          })
-                                        }
-                                      >
-                                        {isDeleting ? 'Deleting release...' : 'Delete release'}
-                                      </YucpButton>
-                                    </div>
-                                  </div>
-                                ) : null}
                               </div>
                             );
                           })

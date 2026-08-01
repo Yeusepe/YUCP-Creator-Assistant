@@ -705,29 +705,6 @@
   color: rgba(255, 255, 255, 0.5);
   margin-bottom: 6px;
 }
-.payhip-setup .remove-product-btn {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 24px;
-  height: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 7px;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.2);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s;
-  padding: 0;
-}
-.payhip-setup .remove-product-btn:hover {
-  border-color: #ef4444;
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.08);
-}
-
 /* ─── Instruction cards ─────────────────────────────── */
 .payhip-setup .inst-card {
   background: rgba(255, 255, 255, 0.025);

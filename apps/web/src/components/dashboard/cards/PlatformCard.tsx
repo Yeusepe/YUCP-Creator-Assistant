@@ -1,3 +1,4 @@
+import { DestructiveActionButton } from '@/components/ui/DestructiveActionButton';
 import { YucpButton } from '@/components/ui/YucpButton';
 
 export interface PlatformCardProps {
@@ -57,14 +58,15 @@ export function PlatformCard({
         {isAlwaysActive ? (
           <span className="platform-row-badge">Always active</span>
         ) : isConnected ? (
-          <YucpButton
-            yucp="danger"
-            isLoading={isDisconnecting}
-            onPress={onDisconnect}
+          <DestructiveActionButton
+            isPending={isDisconnecting}
+            pendingLabel="Disconnecting..."
+            onConfirm={onDisconnect}
+            aria-label={isDisconnecting ? 'Disconnecting...' : `Hold to disconnect ${label}`}
             className="platform-row-btn disconnect"
           >
-            {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
-          </YucpButton>
+            Disconnect
+          </DestructiveActionButton>
         ) : (
           <YucpButton yucp="primary" onPress={onConnect} className="platform-row-btn">
             Connect

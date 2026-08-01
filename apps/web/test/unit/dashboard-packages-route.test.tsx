@@ -380,7 +380,10 @@ describe('dashboard packages route', () => {
     apiPutMock.mockResolvedValue({ editionId: 'supporter', saved: true });
   });
 
-  afterEach(() => cleanup());
+  afterEach(() => {
+    vi.useRealTimers();
+    cleanup();
+  });
 
   it('restores product lanes from the current packageRegistry list contract', async () => {
     const Component = DashboardPackagesRoute.options.component;
@@ -1795,12 +1798,68 @@ describe('dashboard packages route', () => {
     expect(await screen.findByText('Summer launch / Wave A')).toBeInTheDocument();
     expect(screen.getByText('Ready')).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Delete release Summer launch / Wave A' })
+      screen.getByRole('button', { name: 'Hold to delete release Summer launch / Wave A' })
     ).toBeInTheDocument();
     expect(apiGetMock).toHaveBeenCalledWith('/api/creator/packages/catalog_product_1');
     expect(apiGetMock).toHaveBeenCalledWith(standardVersionPath, {
       params: { limit: '50' },
     });
+  });
+
+  it('requires one hold-confirm button to cancel a running release', async () => {
+    apiGetMock.mockImplementation((path: string) => {
+      if (path === '/api/creator/packages') {
+        return Promise.resolve({ data: [product], hasMore: false, nextCursor: null });
+      }
+      if (path === '/api/creator/packages/catalog_product_1') {
+        return Promise.resolve(product);
+      }
+      if (path === standardVersionPath) {
+        return Promise.resolve({
+          data: [{ ...exactLabelVersion, state: 'preparing' }],
+          hasMore: false,
+          nextCursor: null,
+        });
+      }
+      if (path === '/api/creator/packages/by-package/com.creator.avatar-bundle/vcc-link') {
+        return Promise.resolve({
+          status: 'inactive',
+          bootstrapDownloadUrl:
+            '/api/creator/packages/by-package/com.creator.avatar-bundle/bootstrap',
+        });
+      }
+      return Promise.reject(new Error(`Unexpected GET ${path}`));
+    });
+    apiPostMock.mockResolvedValue({
+      canceledFrom: 'preparing',
+      state: 'canceled',
+      versionId: 'version-summer-launch',
+    });
+    const Component = DashboardPackagesRoute.options.component;
+    if (!Component) throw new Error('Dashboard packages component is missing');
+
+    render(<Component />, { wrapper: createWrapper() });
+    fireEvent.click(await screen.findByRole('button', { name: 'Open details for Avatar Bundle' }));
+
+    const cancelButton = await screen.findByRole('button', {
+      name: 'Hold to cancel release Summer launch / Wave A',
+    });
+    expect(
+      screen.queryByText('Stop preparing release Summer launch / Wave A?')
+    ).not.toBeInTheDocument();
+
+    vi.useFakeTimers();
+    fireEvent.pointerDown(cancelButton, { button: 0, isPrimary: true });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1200);
+    });
+    vi.useRealTimers();
+
+    await waitFor(() =>
+      expect(apiPostMock).toHaveBeenCalledWith(
+        `${standardVersionPath}/version-summer-launch/cancel`
+      )
+    );
   });
 
   it('loads exact release labels for active and archived editions from scoped history pages', async () => {
@@ -2107,11 +2166,19 @@ describe('dashboard packages route', () => {
     render(<Component />, { wrapper: createWrapper() });
     fireEvent.click(await screen.findByRole('button', { name: 'Open details for Avatar Bundle' }));
     expect(await screen.findByText('Summer launch / Wave A')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Delete release Summer launch / Wave A' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Delete release' }));
+    vi.useFakeTimers();
+    fireEvent.pointerDown(
+      screen.getByRole('button', { name: 'Hold to delete release Summer launch / Wave A' }),
+      { button: 0, isPrimary: true }
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1200);
+    });
+    vi.useRealTimers();
 
-    expect(await screen.findByRole('button', { name: 'Deleting release...' })).toBeDisabled();
-    expect(apiDeleteMock).toHaveBeenCalledWith(`${standardVersionPath}/version-summer-launch`);
+    await waitFor(() =>
+      expect(apiDeleteMock).toHaveBeenCalledWith(`${standardVersionPath}/version-summer-launch`)
+    );
     resolveDelete?.({
       deletedAt: '2026-07-26T13:00:00.000Z',
       state: 'DELETED',

@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
 import { PlatformCard } from '@/components/dashboard/cards/PlatformCard';
-import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
 import { DashboardSkeletonSwap } from '@/components/dashboard/DashboardSkeletonSwap';
 import { DashboardListSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { DashboardPanelErrorState } from '@/components/dashboard/PanelErrorState';
@@ -28,7 +27,6 @@ export function ConnectedPlatformsPanel({ onCountsChange }: ConnectedPlatformsPa
   const { canRunPanelQueries, markSessionExpired, status } = useDashboardSession();
   const queryClient = useQueryClient();
 
-  const [pendingDisconnect, setPendingDisconnect] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
 
   const providersQuery = useQuery(
@@ -51,7 +49,6 @@ export function ConnectedPlatformsPanel({ onCountsChange }: ConnectedPlatformsPa
     mutationFn: (connectionId: string) =>
       disconnectDashboardConnection(connectionId, activeTenantId),
     onSuccess: async () => {
-      setPendingDisconnect(null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['dashboard-user-connections', activeTenantId] }),
         queryClient.invalidateQueries({ queryKey: ['dashboard-connection-status'] }),
@@ -212,46 +209,12 @@ export function ConnectedPlatformsPanel({ onCountsChange }: ConnectedPlatformsPa
                       window.location.assign(href);
                     }
                   }}
-                  onDisconnect={() => setPendingDisconnect(provider.key)}
+                  onDisconnect={() => {
+                    if (account) {
+                      disconnectMutation.mutate(account.id);
+                    }
+                  }}
                 />
-
-                <DashboardBodyPortal>
-                  <div
-                    className={`inline-confirm${pendingDisconnect === provider.key ? ' open' : ''}`}
-                    id={`${provider.key}-disconnect-confirm`}
-                  >
-                    <div>
-                      <div className="inline-confirm-body">
-                        <span className="inline-confirm-label">
-                          Disconnect <strong>{provider.label ?? provider.key}</strong>? This removes
-                          all syncing.
-                        </span>
-                        <div className="inline-confirm-btns">
-                          <button
-                            className="inline-cancel-btn"
-                            type="button"
-                            onClick={() => setPendingDisconnect(null)}
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            className="inline-danger-btn"
-                            id={`${provider.key}-confirm-btn`}
-                            type="button"
-                            disabled={isThisDisconnecting}
-                            onClick={() => {
-                              if (account) {
-                                disconnectMutation.mutate(account.id);
-                              }
-                            }}
-                          >
-                            {isThisDisconnecting ? 'Disconnecting...' : 'Disconnect'}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </DashboardBodyPortal>
               </li>
             );
           })}

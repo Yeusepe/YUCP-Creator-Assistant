@@ -3,9 +3,10 @@ import confetti from 'canvas-confetti';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, apiClient } from '@/api/client';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { DestructiveActionButton } from '@/components/ui/DestructiveActionButton';
+import { Icon } from '@/components/ui/Icon';
 import { buildSetupAuthQuery, withSetupAuthUserId } from '@/lib/setupAuth';
 import '@/styles/payhip-setup.css';
-import { Icon } from '@/components/ui/Icon';
 
 export const Route = createLazyFileRoute('/setup/payhip')({
   component: PayhipSetupPage,
@@ -920,14 +921,15 @@ function PayhipSetupPage() {
                     <div className="space-y-3">
                       {products.map((product) => (
                         <div key={product.id} className="product-card product-row">
-                          <button
-                            type="button"
-                            className="remove-product-btn"
-                            title="Remove"
-                            onClick={() => removeProduct(product.id)}
+                          <DestructiveActionButton
+                            size="sm"
+                            className="self-end"
+                            aria-label="Hold to remove product"
+                            onConfirm={() => removeProduct(product.id)}
                           >
-                            <Icon name="close" size={12} />
-                          </button>
+                            <Icon name="close" size={14} aria-hidden="true" />
+                            Remove
+                          </DestructiveActionButton>
                           <div className="product-card-fields">
                             <div>
                               <label

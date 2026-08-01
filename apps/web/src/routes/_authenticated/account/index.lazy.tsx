@@ -302,9 +302,9 @@ function AccountProfile() {
 
         <div className="account-inline-actions">
           {isCreator ? (
-            <Link to="/dashboard" className="account-btn account-btn--primary">
+            <YucpButton yucp="primary" onPress={() => void navigate({ to: '/dashboard' })}>
               Open creator dashboard
-            </Link>
+            </YucpButton>
           ) : (
             <YucpButton
               yucp="primary"
@@ -336,9 +336,9 @@ function AccountProfile() {
             </YucpButton>
           )}
           {isCreator ? (
-            <Link to="/account/billing" className="account-btn account-btn--secondary">
+            <YucpButton yucp="secondary" onPress={() => void navigate({ to: '/account/billing' })}>
               Manage billing
-            </Link>
+            </YucpButton>
           ) : null}
         </div>
       </AccountSectionCard>

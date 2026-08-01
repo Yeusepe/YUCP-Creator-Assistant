@@ -1,4 +1,4 @@
-import { Button, type ButtonRootProps } from '@heroui/react';
+import { Button, type ButtonRootProps, Spinner } from '@heroui/react';
 import type { ReactNode } from 'react';
 
 export type YucpButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost' | 'discord';
@@ -19,21 +19,13 @@ export interface YucpButtonProps
 const VARIANT_MAP: Record<YucpButtonVariant, NonNullable<ButtonRootProps['variant']>> = {
   primary: 'primary',
   secondary: 'secondary',
-  danger: 'danger',
+  danger: 'danger-soft',
   ghost: 'ghost',
   discord: 'primary',
 };
 
-const LEGACY_CLASS_MAP: Record<YucpButtonVariant, string> = {
-  primary: 'btn-primary',
-  secondary: 'btn-ghost',
-  danger: 'btn-danger',
-  ghost: 'btn-ghost',
+const SPECIAL_CLASS_MAP: Partial<Record<YucpButtonVariant, string>> = {
   discord: 'btn-discord',
-};
-
-const THEME_CLASS_MAP: Partial<Record<YucpButtonVariant, string>> = {
-  primary: 'yucp-button--primary',
 };
 
 export function YucpButton({
@@ -47,28 +39,23 @@ export function YucpButton({
   ...props
 }: YucpButtonProps) {
   const variant = VARIANT_MAP[yucp];
-  const legacyClass = LEGACY_CLASS_MAP[yucp];
-  const themeClass = THEME_CLASS_MAP[yucp] ?? '';
-  const radiusClass = pill ? 'rounded-full' : 'rounded-[10px]';
+  const specialClass = SPECIAL_CLASS_MAP[yucp] ?? '';
+  const radiusClass = pill ? 'rounded-full' : '';
   const content: ReactNode = isLoading ? (
     <>
-      <span className="btn-loading-spinner" aria-hidden="true" />
+      <Spinner color="current" size="sm" aria-hidden="true" />
       {children}
     </>
   ) : (
     children
   );
 
-  const loadingClass = isLoading ? 'btn-loading' : '';
-
   return (
     <Button
       variant={variant}
       isDisabled={isDisabled || isLoading}
       isPending={isLoading}
-      className={[legacyClass, themeClass, radiusClass, loadingClass, className]
-        .filter(Boolean)
-        .join(' ')}
+      className={[specialClass, radiusClass, className].filter(Boolean).join(' ')}
       onPress={onPress ? () => onPress() : undefined}
       {...props}
     >

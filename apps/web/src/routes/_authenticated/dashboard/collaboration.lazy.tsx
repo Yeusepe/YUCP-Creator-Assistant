@@ -1,7 +1,6 @@
-import { Button } from '@heroui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createLazyFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
 import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
 import { DashboardSkeletonSwap } from '@/components/dashboard/DashboardSkeletonSwap';
@@ -9,6 +8,7 @@ import {
   DashboardActionRowSkeleton,
   DashboardListSkeleton,
 } from '@/components/dashboard/DashboardSkeletons';
+import { DestructiveActionButton } from '@/components/ui/DestructiveActionButton';
 import { Icon } from '@/components/ui/Icon';
 import { Select } from '@/components/ui/Select';
 import { YucpButton } from '@/components/ui/YucpButton';
@@ -49,134 +49,6 @@ function DashboardCollaborationPending() {
         <DashboardListSkeleton rows={1} showAction={false} />
       </div>
     </div>
-  );
-}
-
-const HOLD_TO_REMOVE_MS = 900;
-
-function HoldToRemoveButton({
-  label,
-  isPending,
-  onComplete,
-}: {
-  label: string;
-  isPending: boolean;
-  onComplete: () => void;
-}) {
-  const [holding, setHolding] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const holdStartRef = useRef<number | null>(null);
-  const holdIntervalRef = useRef<number | null>(null);
-  const holdTimeoutRef = useRef<number | null>(null);
-
-  const clearHold = useCallback((resetProgress = true) => {
-    if (holdIntervalRef.current !== null) {
-      window.clearInterval(holdIntervalRef.current);
-      holdIntervalRef.current = null;
-    }
-    if (holdTimeoutRef.current !== null) {
-      window.clearTimeout(holdTimeoutRef.current);
-      holdTimeoutRef.current = null;
-    }
-    holdStartRef.current = null;
-    setHolding(false);
-    if (resetProgress) {
-      setProgress(0);
-    }
-  }, []);
-
-  useEffect(() => () => clearHold(), [clearHold]);
-
-  useEffect(() => {
-    if (isPending) {
-      clearHold(false);
-      setProgress(100);
-      return;
-    }
-
-    if (!holding && progress === 100) {
-      const resetId = window.setTimeout(() => setProgress(0), 180);
-      return () => window.clearTimeout(resetId);
-    }
-  }, [clearHold, holding, isPending, progress]);
-
-  const beginHold = useCallback(() => {
-    if (isPending || holdTimeoutRef.current !== null) {
-      return;
-    }
-
-    const startedAt = Date.now();
-    holdStartRef.current = startedAt;
-    setHolding(true);
-    setProgress(0);
-    holdIntervalRef.current = window.setInterval(() => {
-      if (holdStartRef.current === null) {
-        return;
-      }
-      const nextProgress = Math.min(
-        ((Date.now() - holdStartRef.current) / HOLD_TO_REMOVE_MS) * 100,
-        100
-      );
-      setProgress(nextProgress);
-    }, 16);
-    holdTimeoutRef.current = window.setTimeout(() => {
-      clearHold(false);
-      setProgress(100);
-      onComplete();
-    }, HOLD_TO_REMOVE_MS);
-  }, [clearHold, isPending, onComplete]);
-
-  const cancelHold = useCallback(() => {
-    if (holdStartRef.current === null) {
-      return;
-    }
-    clearHold();
-  }, [clearHold]);
-
-  return (
-    <Button
-      type="button"
-      size="sm"
-      variant="danger-soft"
-      isDisabled={isPending}
-      aria-label={`Hold to remove ${label}`}
-      className={`relative min-w-32 justify-center overflow-hidden rounded-xl border border-danger/20 px-3 text-xs font-semibold shadow-none transition-all duration-200 motion-reduce:transition-none${holding ? ' scale-[1.02] border-danger/40' : ''}`}
-      onPointerDown={beginHold}
-      onPointerUp={cancelHold}
-      onPointerLeave={cancelHold}
-      onPointerCancel={cancelHold}
-      onKeyDown={(event) => {
-        if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) {
-          event.preventDefault();
-          beginHold();
-        }
-      }}
-      onKeyUp={(event) => {
-        if (event.key === ' ' || event.key === 'Enter') {
-          event.preventDefault();
-          cancelHold();
-        }
-      }}
-    >
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 origin-left rounded-[inherit] bg-danger transition-all duration-75 ease-linear motion-reduce:transition-none"
-        style={{
-          opacity: progress > 0 || isPending ? 0.88 : 0,
-          transform: `scaleX(${Math.max(progress, isPending ? 100 : 0) / 100})`,
-        }}
-      />
-      <span
-        className={`relative z-10 inline-flex items-center gap-1.5${holding || isPending ? ' text-danger-foreground' : ''}`}
-      >
-        {isPending ? (
-          <span className="btn-loading-spinner" aria-hidden="true" />
-        ) : (
-          <Icon name="trash" size={14} aria-hidden="true" />
-        )}
-        <span>{isPending ? 'Leaving...' : holding ? 'Keep holding...' : 'Hold to leave'}</span>
-      </span>
-    </Button>
   );
 }
 
@@ -503,24 +375,22 @@ function MyCollaboratorsSection({
                     {formatRelativeDate(invite.expiresAt)}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  className={`collab-remove-btn${revokeInviteMutation.isPending && revokeInviteMutation.variables === invite.id ? ' btn-loading' : ''}`}
-                  disabled={
+                <DestructiveActionButton
+                  size="sm"
+                  isPending={
                     revokeInviteMutation.isPending && revokeInviteMutation.variables === invite.id
                   }
-                  onClick={() => revokeInviteMutation.mutate(invite.id)}
+                  pendingLabel="Revoking..."
+                  aria-label={
+                    revokeInviteMutation.isPending && revokeInviteMutation.variables === invite.id
+                      ? 'Revoking...'
+                      : `Hold to revoke ${providerMap.get(invite.providerKey) ?? invite.providerKey} invite`
+                  }
+                  onConfirm={() => revokeInviteMutation.mutate(invite.id)}
                 >
-                  {revokeInviteMutation.isPending &&
-                  revokeInviteMutation.variables === invite.id ? (
-                    <>
-                      <span className="btn-loading-spinner" aria-hidden="true" />
-                      Revoking...
-                    </>
-                  ) : (
-                    'Revoke'
-                  )}
-                </button>
+                  <Icon name="trash" size={14} aria-hidden="true" />
+                  Revoke
+                </DestructiveActionButton>
               </div>
             ))}
           </div>
@@ -554,34 +424,24 @@ function MyCollaboratorsSection({
                   {connection.webhookConfigured ? 'Webhook ready' : 'Webhook pending'}
                 </div>
               </div>
-              <button
-                type="button"
-                className={`collab-remove-btn${removeConnectionMutation.isPending && removeConnectionMutation.variables === connection.id ? ' btn-loading' : ''}`}
-                disabled={
+              <DestructiveActionButton
+                size="sm"
+                isPending={
                   removeConnectionMutation.isPending &&
                   removeConnectionMutation.variables === connection.id
                 }
-                onClick={() => {
-                  if (
-                    !window.confirm(
-                      `Remove ${connection.collaboratorDisplayName ?? connection.source} from your collaboration list?`
-                    )
-                  ) {
-                    return;
-                  }
-                  removeConnectionMutation.mutate(connection.id);
-                }}
+                pendingLabel="Removing..."
+                aria-label={
+                  removeConnectionMutation.isPending &&
+                  removeConnectionMutation.variables === connection.id
+                    ? 'Removing...'
+                    : `Hold to remove ${connection.collaboratorDisplayName ?? connection.source}`
+                }
+                onConfirm={() => removeConnectionMutation.mutate(connection.id)}
               >
-                {removeConnectionMutation.isPending &&
-                removeConnectionMutation.variables === connection.id ? (
-                  <>
-                    <span className="btn-loading-spinner" aria-hidden="true" />
-                    Removing...
-                  </>
-                ) : (
-                  'Remove'
-                )}
-              </button>
+                <Icon name="trash" size={14} aria-hidden="true" />
+                Remove
+              </DestructiveActionButton>
             </div>
           ))}
         </div>
@@ -704,13 +564,22 @@ function StoresICollaborateWithSection({
                 </div>
               </div>
               <div className="ml-3 flex shrink-0 items-center">
-                <HoldToRemoveButton
-                  label={store.ownerDisplayName ?? 'Creator Store'}
+                <DestructiveActionButton
+                  size="sm"
                   isPending={
                     removeStoreMutation.isPending && removeStoreMutation.variables === store.id
                   }
-                  onComplete={() => removeStoreMutation.mutate(store.id)}
-                />
+                  pendingLabel="Leaving..."
+                  aria-label={
+                    removeStoreMutation.isPending && removeStoreMutation.variables === store.id
+                      ? 'Leaving...'
+                      : `Hold to leave ${store.ownerDisplayName ?? 'Creator Store'}`
+                  }
+                  onConfirm={() => removeStoreMutation.mutate(store.id)}
+                >
+                  <Icon name="trash" size={14} aria-hidden="true" />
+                  Leave
+                </DestructiveActionButton>
               </div>
             </div>
           ))}

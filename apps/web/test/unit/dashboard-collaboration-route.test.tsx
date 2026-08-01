@@ -104,11 +104,11 @@ describe('dashboard collaboration route', () => {
     await waitFor(() => expect(screen.getByText('Creator Store')).toBeInTheDocument());
 
     vi.useFakeTimers();
-    const button = screen.getByRole('button', { name: /hold to remove creator store/i });
-    fireEvent.pointerDown(button);
+    const button = screen.getByRole('button', { name: /hold to leave creator store/i });
+    fireEvent.pointerDown(button, { button: 0, isPrimary: true });
     await vi.advanceTimersByTimeAsync(400);
     fireEvent.pointerUp(button);
-    await vi.advanceTimersByTimeAsync(700);
+    await vi.advanceTimersByTimeAsync(1000);
 
     expect(dashboardApi.removeCollabConnectionAsCollaborator).not.toHaveBeenCalled();
   });
@@ -138,9 +138,9 @@ describe('dashboard collaboration route', () => {
     await waitFor(() => expect(screen.getByText('Creator Store')).toBeInTheDocument());
 
     vi.useFakeTimers();
-    const button = screen.getByRole('button', { name: /hold to remove creator store/i });
-    fireEvent.pointerDown(button);
-    await vi.advanceTimersByTimeAsync(950);
+    const button = screen.getByRole('button', { name: /hold to leave creator store/i });
+    fireEvent.pointerDown(button, { button: 0, isPrimary: true });
+    await vi.advanceTimersByTimeAsync(1200);
     await Promise.resolve();
 
     expect(dashboardApi.removeCollabConnectionAsCollaborator).toHaveBeenCalledWith(

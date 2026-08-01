@@ -941,41 +941,6 @@ img.collab-avatar {
 
 /* Inline confirm row for destructive actions (disconnect, revoke, remove) -> Modal */
 
-.inline-confirm {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-modal);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.65);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
-  opacity: 0;
-  visibility: hidden;
-  transition:
-    opacity 0.25s,
-    visibility 0.25s;
-}
-
-.inline-confirm.open {
-  opacity: 1;
-  visibility: visible;
-}
-
-.inline-confirm > div {
-  width: 100%;
-  max-width: 420px;
-  margin: 0 20px;
-  transform: translateY(10px);
-  transition: transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-
-.inline-confirm.open > div {
-  transform: translateY(0);
-}
-
-.inline-confirm-body,
 .oauth-regen-body,
 .oauth-delete-body {
   display: flex;
@@ -989,93 +954,6 @@ img.collab-avatar {
   backdrop-filter: blur(24px);
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
   text-align: center;
-}
-
-.inline-confirm-label {
-  font-size: 14px;
-  color: #e2e8f0;
-  line-height: 1.5;
-}
-
-.inline-confirm-label strong {
-  color: #ffffff;
-  font-weight: 700;
-}
-
-.inline-confirm-btns {
-  display: flex;
-  gap: 12px;
-  width: 100%;
-  margin-top: 8px;
-}
-
-.inline-cancel-btn {
-  font-size: 13px;
-  font-weight: 700;
-  padding: 10px 16px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.05);
-  color: #94a3b8;
-  cursor: pointer;
-  transition: all 0.15s;
-  font-family: var(--font-display), sans-serif;
-  flex: 1;
-}
-
-.inline-cancel-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.2);
-  color: #fff;
-}
-
-.inline-danger-btn {
-  font-size: 13px;
-  font-weight: 700;
-  padding: 10px 16px;
-  border-radius: 10px;
-  border: 1px solid rgba(248, 113, 113, 0.4);
-  background: rgba(239, 68, 68, 0.15);
-  color: #f87171;
-  cursor: pointer;
-  transition: all 0.15s;
-  font-family: var(--font-display), sans-serif;
-  flex: 1;
-}
-
-.inline-danger-btn:hover {
-  background: rgba(239, 68, 68, 0.25);
-  border-color: #fca5a5;
-  color: #fca5a5;
-}
-
-.inline-danger-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.inline-confirm-btn {
-  font-size: 13px;
-  font-weight: 700;
-  padding: 10px 16px;
-  border-radius: 10px;
-  background: #e0f2fe;
-  color: #0284c7;
-  border: 1px solid #bae6fd;
-  cursor: pointer;
-  transition: all 0.15s;
-  font-family: var(--font-display), sans-serif;
-}
-
-.inline-confirm-btn:hover {
-  background: #bae6fd;
-  border-color: #7dd3fc;
-  color: #0369a1;
-}
-
-.inline-confirm-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 
 /* Reveal card €” shown inline after creating a key/app */

@@ -121,10 +121,13 @@ describe('account UI contracts', () => {
     expect(accountIndexRouteSource).not.toContain("'Your Account'");
     expect(accountIndexRouteSource).toContain('enabled: isCreator');
     expect(accountIndexRouteSource).toContain(
-      '<Link to="/dashboard" className="account-btn account-btn--primary">'
+      '<YucpButton yucp="primary" onPress={() => void navigate({ to: \'/dashboard\' })}>'
+    );
+    expect(accountIndexRouteSource).toContain(
+      '<YucpButton yucp="secondary" onPress={() => void navigate({ to: \'/account/billing\' })}>'
     );
     expect(accountIndexRouteSource).not.toContain(
-      '<a href="/dashboard" className="account-btn account-btn--primary">'
+      '<Link to="/dashboard" className="account-btn account-btn--primary">'
     );
     expect(accountIndexRouteSource).not.toContain('key={label}');
   });
