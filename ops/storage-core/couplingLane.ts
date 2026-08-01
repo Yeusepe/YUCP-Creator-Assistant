@@ -80,6 +80,88 @@ export function resolveCouplingLane(
   }
 }
 
+// resolveCouplingLane above answers "does this ONE file fit the isolate's
+// memory?". That is not the same question as "should this JOB run in the
+// isolate at all", and conflating the two is what made a 124-file release take
+// four minutes: every file individually fit, so the dispatcher marked the whole
+// job worker-lane and skipped container allocation, and 124 files' worth of
+// codec then serialised on one single-threaded isolate.
+//
+// A Worker request cannot parallelise CPU work — no threads, and Cloudflare
+// documents its isolate-spreading heuristics as imprecise — so the worker lane
+// costs the SUM of every file, while the container lane has real cores.
+//
+// Measured on the production corpus (Druffle Avatar 1.0, 787 megapixels across
+// 124 protected files): the wasm codec costs ~224 ms per megapixel in a Worker
+// isolate, and codec cost tracks pixels, not bytes (r = 0.95 against pixel
+// count, 0.68 against source bytes). So the job budget is denominated in
+// megapixels.
+//
+// 96 megapixels is ~21 s of estimated codec: comfortably inside the 300 s
+// per-invocation CPU ceiling, and small enough that the no-container fast path
+// stays genuinely fast. Anything larger belongs on the container lane, whose
+// cold start (1-3 s typical) is repaid many times over by real parallelism.
+export const COUPLING_WORKER_JOB_MAX_MEGAPIXELS = 96;
+// A long tail of tiny files still costs per-file overhead (key derivation, a
+// cache probe, an R2 write) that no pixel budget captures.
+export const COUPLING_WORKER_JOB_MAX_FILES = 48;
+// FBX coupling is negligible next to PNG (13 files measured at 0.4 s total),
+// so it contributes to the file count but not to the pixel budget.
+export const COUPLING_WORKER_MEGAPIXELS_PER_MS = 1 / 224;
+
+export type CouplingJobFile = {
+  couplingLane?: CouplingLane | undefined;
+  pixelHeight?: number | undefined;
+  pixelWidth?: number | undefined;
+};
+
+export type CouplingJobLaneLimits = {
+  maxFiles: number;
+  maxMegapixels: number;
+};
+
+const DEFAULT_JOB_LIMITS: CouplingJobLaneLimits = {
+  maxFiles: COUPLING_WORKER_JOB_MAX_FILES,
+  maxMegapixels: COUPLING_WORKER_JOB_MAX_MEGAPIXELS,
+};
+
+/**
+ * Decides whether a whole job may take the in-isolate worker lane.
+ *
+ * Every file must individually fit the isolate AND the job's aggregate codec
+ * cost must stay inside the budget. Returns 'container' for an empty list: a
+ * job with no protected files has nothing to couple in-isolate, and defaulting
+ * to the lane with more headroom is the safe direction to be wrong in.
+ */
+export function resolveJobCouplingLane(
+  files: readonly CouplingJobFile[],
+  limits: CouplingJobLaneLimits = DEFAULT_JOB_LIMITS
+): CouplingLane {
+  if (files.length < 1 || files.length > limits.maxFiles) {
+    return 'container';
+  }
+  if (files.some((file) => file.couplingLane !== 'worker')) {
+    return 'container';
+  }
+  let megapixels = 0;
+  for (const file of files) {
+    // Packages published before dimensions were persisted have no pixel counts
+    // to charge. The file-count bound above is the only thing holding those, so
+    // this deliberately under-counts rather than guessing: a legacy package of
+    // very large images can still take the worker lane. That is no worse than
+    // the behaviour this replaces, and the backfill in couplingLaneBackfill.ts
+    // is what closes it.
+    if (file.pixelWidth === undefined || file.pixelHeight === undefined) {
+      continue;
+    }
+    megapixels += (file.pixelWidth * file.pixelHeight) / 1_000_000;
+    if (megapixels > limits.maxMegapixels) {
+      return 'container';
+    }
+  }
+  return 'worker';
+}
+
 export type ZipCouplingMetadata = {
   entries: number;
   totalBytes: number;

@@ -7,7 +7,10 @@ import {
   COUPLING_WORKER_MAX_ZIP_TOTAL_BYTES,
   readPngCouplingMetadata,
   readZipCouplingMetadata,
+  COUPLING_WORKER_JOB_MAX_FILES,
+  COUPLING_WORKER_JOB_MAX_MEGAPIXELS,
   resolveCouplingLane,
+  resolveJobCouplingLane,
 } from './couplingLane';
 
 function pngHeader(
@@ -149,5 +152,73 @@ describe('unknown materializer types', () => {
     for (const materializerType of ['', 'gltf', 'unitypackage', 'exe']) {
       expect(resolveCouplingLane({ bytes: 1, materializerType })).toBe('container');
     }
+  });
+});
+
+describe('job coupling lane', () => {
+  const workerPng = (megapixels: number) => ({
+    couplingLane: 'worker' as const,
+    pixelHeight: 1_000,
+    pixelWidth: megapixels * 1_000,
+  });
+
+  it('keeps a small package on the worker lane', () => {
+    expect(resolveJobCouplingLane([workerPng(1), workerPng(2)])).toBe('worker');
+  });
+
+  it('routes the release that regressed: many individually-small files', () => {
+    // Every file fits the isolate on its own, which is exactly why the old
+    // per-file `every(...)` check sent this to the worker lane and it then
+    // serialised for minutes. 111 files is over the count bound.
+    const files = Array.from({ length: 111 }, () => workerPng(1));
+    expect(files.every((file) => file.couplingLane === 'worker')).toBe(true);
+    expect(resolveJobCouplingLane(files)).toBe('container');
+  });
+
+  it('routes a few enormous images to the container on the pixel bound', () => {
+    // Under the file-count bound, so only the aggregate pixel budget can catch
+    // it: four 8192x8192 textures are 268 megapixels of codec work.
+    const files = Array.from({ length: 4 }, () => ({
+      couplingLane: 'worker' as const,
+      pixelHeight: 8_192,
+      pixelWidth: 8_192,
+    }));
+    expect(files.length).toBeLessThan(COUPLING_WORKER_JOB_MAX_FILES);
+    expect(resolveJobCouplingLane(files)).toBe('container');
+  });
+
+  it('still holds back a job containing any container-lane file', () => {
+    expect(
+      resolveJobCouplingLane([workerPng(1), { couplingLane: 'container' }])
+    ).toBe('container');
+  });
+
+  it('treats an unstamped file as container', () => {
+    expect(resolveJobCouplingLane([workerPng(1), {}])).toBe('container');
+  });
+
+  it('routes an empty protected-file list to the container', () => {
+    expect(resolveJobCouplingLane([])).toBe('container');
+  });
+
+  it('admits a job sitting exactly on both bounds', () => {
+    const perFile = COUPLING_WORKER_JOB_MAX_MEGAPIXELS / COUPLING_WORKER_JOB_MAX_FILES;
+    const files = Array.from({ length: COUPLING_WORKER_JOB_MAX_FILES }, () => ({
+      couplingLane: 'worker' as const,
+      pixelHeight: 1_000,
+      pixelWidth: perFile * 1_000,
+    }));
+    expect(resolveJobCouplingLane(files)).toBe('worker');
+  });
+
+  it('counts legacy files without dimensions against the file bound only', () => {
+    // Packages published before dimensions were persisted cannot be costed by
+    // pixels; the count bound is the only thing holding them.
+    const legacy = Array.from({ length: 8 }, () => ({ couplingLane: 'worker' as const }));
+    expect(resolveJobCouplingLane(legacy)).toBe('worker');
+    const tooMany = Array.from({ length: COUPLING_WORKER_JOB_MAX_FILES + 1 }, () => ({
+      couplingLane: 'worker' as const,
+    }));
+    expect(resolveJobCouplingLane(tooMany)).toBe('container');
   });
 });

@@ -58,6 +58,10 @@ describe('protected materialization publication', () => {
         couplingLane: 'worker',
         materializerType: 'png',
         normalizedPath: 'Assets/Textures/tiny.png',
+        // Dimensions ride along so dispatch can bound the job's aggregate
+        // codec cost, not just each file's memory fit.
+        pixelHeight: 64,
+        pixelWidth: 64,
         required: false,
         sourceSha256: '22'.repeat(32),
       },

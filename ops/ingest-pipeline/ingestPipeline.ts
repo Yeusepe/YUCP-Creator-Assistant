@@ -145,6 +145,13 @@ export function protectedMaterializationFiles(input: {
         ...(file.couplingLane ? { couplingLane: file.couplingLane } : {}),
         materializerType: file.materializerType,
         normalizedPath: file.normalizedPath,
+        // Dimensions ride along for the same reason: the per-file lane only
+        // proves one image fits the isolate's memory, while dispatch has to
+        // bound the whole job's codec cost, and that cost tracks pixels rather
+        // than bytes. Without these, resolveJobCouplingLane can only fall back
+        // to the file-count bound.
+        ...(file.pixelHeight !== undefined ? { pixelHeight: file.pixelHeight } : {}),
+        ...(file.pixelWidth !== undefined ? { pixelWidth: file.pixelWidth } : {}),
         required: false,
         sourceSha256: file.sha256,
       };

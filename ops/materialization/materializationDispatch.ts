@@ -1,11 +1,17 @@
+import {
+  resolveJobCouplingLane,
+  type CouplingJobFile,
+} from '../storage-core/couplingLane';
+
 const DISPATCH_CLOCK_SKEW_SECONDS = 5 * 60;
 const DISPATCH_BATCH_LIMIT = 100;
 const HEX_SHA256 = /^[0-9a-f]{64}$/;
 
 export type MaterializationDispatchEntry = {
   cacheAffinityKey: string;
-  // Present when every protected file of the source version is stamped for the
-  // worker coupling lane; the materializer then couples in-isolate without a container.
+  // Present when the source version's protected files are all worker-lane AND
+  // their aggregate codec cost fits the in-isolate budget; the materializer
+  // then couples in-isolate without a container.
   couplingMode?: 'worker';
   jobId: string;
   lane: 'large' | 'maintenance';
@@ -184,7 +190,7 @@ export class PostgresMaterializationDispatchOutboxRepository
       const laneRows = await transaction<
         Array<{
           jobId: string;
-          protectedFiles: Array<{ couplingLane?: string }> | null;
+          protectedFiles: CouplingJobFile[] | null;
         }>
       >`
         SELECT
@@ -194,13 +200,17 @@ export class PostgresMaterializationDispatchOutboxRepository
         JOIN package_versions v ON v.id = j.source_version_id
         WHERE j.id IN ${transaction(rows.map((row) => row.jobId))}
       `;
+      // Every file being individually worker-safe does NOT make the job
+      // worker-safe: the worker lane has no CPU parallelism, so it costs the
+      // sum of every file, and a package of many small images used to skip
+      // container allocation and then serialise for minutes on one isolate.
+      // resolveJobCouplingLane adds the aggregate bound that check was missing.
       const workerLaneJobs = new Set(
         laneRows
           .filter(
             (row) =>
               Array.isArray(row.protectedFiles) &&
-              row.protectedFiles.length > 0 &&
-              row.protectedFiles.every((file) => file.couplingLane === 'worker')
+              resolveJobCouplingLane(row.protectedFiles) === 'worker'
           )
           .map((row) => row.jobId)
       );
