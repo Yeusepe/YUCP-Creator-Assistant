@@ -54,7 +54,7 @@ describe('YUCP bootstrap Unity package', () => {
     const runtime = await loadYucpBootstrapUnityPackageRuntime();
 
     expect(createHash('sha256').update(runtime.installerRuntime).digest('hex')).toBe(
-      '00f97db0d17f8fee619d9f626ea67399418db034abe012767934dee8b3bcc544'
+      '33ad1487265effb7d8c7af3ccb49e2c03b69263be7aa510d6369a1d50a87c855'
     );
     expect(new TextDecoder().decode(runtime.installerRuntimeMeta)).toContain(
       'guid: c0128f63522b4b0696235b4e328db9d2'
