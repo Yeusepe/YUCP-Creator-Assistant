@@ -279,6 +279,84 @@ describe('trace buyer identity resolution', () => {
     ]);
   });
 
+  test('prefers the entitlement that recorded a licence over a licence-less sibling', async () => {
+    const t = makeTestConvex();
+    await seedTraceablePackage(t, {
+      authUserId: 'creator-1',
+      packageId: 'com.yucp.songthing',
+    });
+    const licenseSubject = '12'.repeat(32);
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      const catalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: 'creator-1',
+        createdAt: now,
+        productId: 'song-thing',
+        provider: 'gumroad',
+        providerProductRef: 'gum-song-thing',
+        status: 'active',
+        supportsAutoDiscovery: false,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_catalog_bindings', {
+        catalogProductId,
+        createdAt: now,
+        creatorAuthUserId: 'creator-1',
+        packageId: 'com.yucp.songthing',
+        status: 'active',
+        updatedAt: now,
+      });
+      const subjectId = await ctx.db.insert('subjects', {
+        authUserId: 'buyer-1',
+        createdAt: now,
+        primaryDiscordUserId: 'discord-buyer-1',
+        status: 'active',
+        updatedAt: now,
+      });
+      // Verified before licence capture existed: active, but nothing to show.
+      await ctx.db.insert('entitlements', {
+        authUserId: 'creator-1',
+        catalogProductId,
+        grantedAt: now - 1000,
+        productId: 'song-thing',
+        sourceProvider: 'gumroad',
+        sourceReference: 'gumroad:old-order',
+        status: 'active',
+        subjectId,
+        updatedAt: now - 1000,
+      });
+      await ctx.db.insert('entitlements', {
+        authUserId: 'creator-1',
+        catalogProductId,
+        grantedAt: now,
+        licenseSubject,
+        productId: 'song-thing',
+        sourceProvider: 'gumroad',
+        sourceReference: 'gumroad:new-order',
+        status: 'active',
+        subjectId,
+        updatedAt: now,
+      });
+    });
+
+    const result = await t.query(
+      api.couplingForensics.resolveTraceBuyerIdentitiesForAuthUser,
+      {
+        apiSecret: 'test-secret',
+        authUserId: 'creator-1',
+        buyerIds: ['buyer-1'],
+        packageId: 'com.yucp.songthing',
+      }
+    );
+
+    expect(result.identities).toHaveLength(1);
+    expect(result.identities[0]).toMatchObject({
+      hasEntitlement: true,
+      hasLicenseSubject: true,
+      licenseFingerprint: licenseSubject.slice(0, 10),
+    });
+  });
+
   test('recovers the licence fingerprint for a manual redemption without licenseSubject', async () => {
     const t = makeTestConvex();
     await seedTraceablePackage(t, {

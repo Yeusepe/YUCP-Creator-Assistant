@@ -376,11 +376,15 @@ export const resolveTraceBuyerIdentitiesForAuthUser = query({
         )
       );
       const packageEntitlements = entitlementsBySubject.flat().filter(entitlementMatchesPackage);
-      // A revoked or refunded purchase is still the answer to "who bought this
-      // file", so a terminal entitlement only loses to an active one.
+      // A buyer who bought through more than one store can hold several
+      // matching entitlements, and not all of them recorded a licence. Prefer
+      // the one that can actually name a licence; within that, active beats
+      // terminal - a revoked or refunded purchase is still the answer to "who
+      // bought this file".
+      const pickOrder = (candidate: Doc<'entitlements'>): number =>
+        (candidate.licenseSubject ? 0 : 2) + (candidate.status === 'active' ? 0 : 1);
       const entitlement =
-        packageEntitlements.find((candidate) => candidate.status === 'active') ??
-        packageEntitlements[0] ??
+        packageEntitlements.slice().sort((left, right) => pickOrder(left) - pickOrder(right))[0] ??
         null;
       let licenseSubject = entitlement?.licenseSubject;
       let licenseProviderFallback: string | undefined;
