@@ -468,10 +468,22 @@ export function filterScanlinesAdaptive(
 }
 
 /**
+ * Largest RGBA raster a planned band may expand to at couple time.
+ *
+ * The couple side holds the band's raster several times over inside a 128 MiB
+ * isolate, and it refuses bands past its own bound by falling back to a
+ * slower strip re-encode. The plan stays under that bound so the fast splice
+ * path survives any dimensions: the 5% fraction floor alone gave a
+ * 14104x14103 source a 712-row band, a 40 MB raster from a 1.1 MB file.
+ */
+const PLAN_BAND_MAX_RASTER_BYTES = 8 * 1024 * 1024;
+
+/**
  * Smallest band, in whole 8-row block rows, that can hold `blocks` watermark
  * blocks, widened to at least `minFraction` of the image so a saturated region
- * still has candidates. Returns null when the band would be the whole image,
- * which means banding buys nothing and the caller should couple it whole.
+ * still has candidates, and capped so its raster fits the couple-time
+ * isolate. Returns null when the band would be the whole image, which means
+ * banding buys nothing and the caller should couple it whole.
  */
 export function planBand(
   header: PngHeader,
@@ -483,8 +495,9 @@ export function planBand(
   }
   const needed = Math.ceil(options.blocks / blocksPerRow);
   const fractional = Math.ceil(Math.floor(header.height / 8) * options.minFraction);
-  const rows = Math.max(needed, fractional, 1) * 8;
-  if (rows >= header.height) {
+  const budget = Math.floor(PLAN_BAND_MAX_RASTER_BYTES / (header.width * 4) / 8);
+  const rows = Math.max(needed, Math.min(fractional, budget), 1) * 8;
+  if (rows >= header.height || rows * header.width * 4 > PLAN_BAND_MAX_RASTER_BYTES) {
     return null;
   }
   return { rows, y0: 0 };

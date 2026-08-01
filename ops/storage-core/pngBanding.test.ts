@@ -20,7 +20,7 @@ const inflate = (bytes: Uint8Array): Uint8Array => new Uint8Array(inflateSync(Bu
  * same image with the same function and asserts the same numbers below; if
  * either repo's copy of the band format drifts, both suites go red together.
  */
-export function bandingFixture(width: number, height: number, colorType: number, bitDepth: number) {
+function bandingFixture(width: number, height: number, colorType: number, bitDepth: number) {
   const channels = colorType === 2 ? 3 : 4;
   const sample = bitDepth === 16 ? 2 : 1;
   const rowBytes = width * channels * sample;

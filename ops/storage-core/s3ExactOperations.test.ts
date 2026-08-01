@@ -286,7 +286,11 @@ describe('signed request retries', () => {
         throw Object.assign(new Error('The operation timed out.'), { name: 'TimeoutError' });
       }
       return new Response(null, {
-        headers: { etag: `"${createHash('md5').update(Uint8Array.from([7, 7, 7])).digest('hex')}"` },
+        headers: {
+          etag: `"${createHash('md5')
+            .update(Uint8Array.from([7, 7, 7]))
+            .digest('hex')}"`,
+        },
       });
     }) as unknown as typeof fetch;
 
@@ -298,7 +302,11 @@ describe('signed request retries', () => {
     });
 
     expect(calls).toBe(2);
-    expect(result.versionId).toBe(createHash('md5').update(Uint8Array.from([7, 7, 7])).digest('hex'));
+    expect(result.versionId).toBe(
+      createHash('md5')
+        .update(Uint8Array.from([7, 7, 7]))
+        .digest('hex')
+    );
   });
 
   it('retries a throttled response and gives up with its status', async () => {
@@ -327,7 +335,11 @@ describe('signed request retries', () => {
         return new Response(null, { headers: { 'retry-after': '0' }, status: 503 });
       }
       return new Response(null, {
-        headers: { etag: `"${createHash('md5').update(Uint8Array.from([1])).digest('hex')}"` },
+        headers: {
+          etag: `"${createHash('md5')
+            .update(Uint8Array.from([1]))
+            .digest('hex')}"`,
+        },
       });
     }) as unknown as typeof fetch;
 
@@ -339,7 +351,11 @@ describe('signed request retries', () => {
     });
 
     expect(calls).toBe(5);
-    expect(result.versionId).toBe(createHash('md5').update(Uint8Array.from([1])).digest('hex'));
+    expect(result.versionId).toBe(
+      createHash('md5')
+        .update(Uint8Array.from([1]))
+        .digest('hex')
+    );
   });
 
   it('does not retry a client error', async () => {

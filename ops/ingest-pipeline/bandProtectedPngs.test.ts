@@ -1,17 +1,16 @@
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { deflateSync, inflateSync } from 'node:zlib';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { encodeChunk, parsePng, unfilterScanlines } from '../storage-core/pngBanding';
 import { createLogicalReleaseRootV4 } from '../storage-core/releasePublication';
 import { bandProtectedPngs } from './ingestPipeline';
 
 const SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
-const inflate = (bytes: Uint8Array): Uint8Array =>
-  new Uint8Array(inflateSync(Buffer.from(bytes)));
+const inflate = (bytes: Uint8Array): Uint8Array => new Uint8Array(inflateSync(Buffer.from(bytes)));
 
 function makePng(width: number, height: number, colorType = 6, bitDepth = 8): Uint8Array {
   const channels = colorType === 2 ? 3 : 4;
@@ -163,8 +162,12 @@ describe('banded files and the release roots', () => {
 
     // ...and the pre-banding digests must NOT produce those roots, or this
     // test would pass even with the ordering bug back in place.
+    const [file] = files;
+    if (!file) {
+      throw new Error('the fixture must produce a manifest file');
+    }
     const stale = createLogicalReleaseRootV4({
-      files: [{ ...files[0]!, bytes: original.bytes, sha256: original.sha256 }],
+      files: [{ ...file, bytes: original.bytes, sha256: original.sha256 }],
       packageId: 'com.yucp.example',
       version: '1.0.0',
       versionId: 'version-1',

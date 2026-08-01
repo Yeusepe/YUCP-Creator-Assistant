@@ -319,10 +319,7 @@ export type S3ExactObjectHead = S3ExactObjectVersion & {
 function normalizeS3Etag(etag: string | null | undefined): string | null {
   // A weak validator (W/"...") keeps the stored value; Cloudflare's edge adds the
   // prefix when it transforms a response.
-  const value = etag
-    ?.trim()
-    .replace(/^W\//i, '')
-    .replace(/^"|"$/g, '');
+  const value = etag?.trim().replace(/^W\//i, '').replace(/^"|"$/g, '');
   return value ? value : null;
 }
 

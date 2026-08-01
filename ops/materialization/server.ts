@@ -547,11 +547,7 @@ export function createMaterializationControlPlaneHandler(
                     : url.pathname === COMPLETE_PATH
                       ? 'materialization.rendition.complete'
                       : 'materialization.capability.consume';
-    const emit = (
-      status: 'accepted' | 'rejected',
-      errorCode?: string,
-      failureReason?: string
-    ) => {
+    const emit = (status: 'accepted' | 'rejected', errorCode?: string, failureReason?: string) => {
       config.onEvent?.({
         durationMs: performance.now() - startedAt,
         ...(errorCode ? { errorCode } : {}),

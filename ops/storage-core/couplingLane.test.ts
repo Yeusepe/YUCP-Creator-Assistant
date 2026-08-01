@@ -173,9 +173,7 @@ describe('job coupling lane', () => {
   });
 
   it('still holds back a job containing any container-lane file', () => {
-    expect(
-      resolveJobCouplingLane([workerPng(1), { couplingLane: 'container' }])
-    ).toBe('container');
+    expect(resolveJobCouplingLane([workerPng(1), { couplingLane: 'container' }])).toBe('container');
   });
 
   it('treats an unstamped file as container', () => {

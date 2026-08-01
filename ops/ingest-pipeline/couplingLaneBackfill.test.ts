@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 import type { ProtectedPackageFile } from '../catalog';
 import {
-  backfillCouplingLanes,
   type BackfillManifestFile,
+  backfillCouplingLanes,
   isPureWorkerLane,
 } from './couplingLaneBackfill';
 
@@ -99,9 +99,9 @@ describe('backfillCouplingLanes', () => {
     });
 
     expect(reads).toBe(0);
-    expect(result.protectedFiles.map((file) => (file as { couplingLane?: string }).couplingLane)).toEqual(
-      ['worker', 'container', 'container']
-    );
+    expect(
+      result.protectedFiles.map((file) => (file as { couplingLane?: string }).couplingLane)
+    ).toEqual(['worker', 'container', 'container']);
   });
 
   it('never overwrites a lane that ingest already stamped', async () => {
@@ -163,9 +163,9 @@ describe('backfillCouplingLanes', () => {
     expect(result.protectedFiles.map((f) => f.normalizedPath)).toEqual(
       files.map((f) => f.normalizedPath)
     );
-    expect(
-      result.protectedFiles.map((f) => (f as { couplingLane?: string }).couplingLane)
-    ).toEqual(files.map((_, index) => (index % 2 === 0 ? 'worker' : 'container')));
+    expect(result.protectedFiles.map((f) => (f as { couplingLane?: string }).couplingLane)).toEqual(
+      files.map((_, index) => (index % 2 === 0 ? 'worker' : 'container'))
+    );
   });
 });
 

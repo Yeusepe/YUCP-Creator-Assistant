@@ -1,7 +1,4 @@
-import {
-  resolveJobCouplingLane,
-  type CouplingJobFile,
-} from '../storage-core/couplingLane';
+import { type CouplingJobFile, resolveJobCouplingLane } from '../storage-core/couplingLane';
 
 const DISPATCH_CLOCK_SKEW_SECONDS = 5 * 60;
 const DISPATCH_BATCH_LIMIT = 100;
