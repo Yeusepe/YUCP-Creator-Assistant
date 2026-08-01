@@ -56,6 +56,66 @@ export function sanitizeApiRequestUrl(value: string | URL): URL {
   return url;
 }
 
+// Routes emit SCREAMING_SNAKE codes; provider-facing routes emit lowercase
+// snake ones (invalid_proof, provider_link_expired). Both are ours, and
+// rejecting the second silently stripped error.code from every 422.
+const ERROR_CODE_PATTERN = /^[A-Za-z][A-Za-z0-9_]{2,63}$/;
+// An error body is small JSON. A response that claims otherwise, or that never
+// terminates, must not be allowed to buffer into the tracing path.
+const MAXIMUM_ERROR_BODY_BYTES = 16 * 1024;
+const ERROR_BODY_READ_TIMEOUT_MS = 250;
+
+// Error responses carry a stable `errorCode` in their body, but the span only ever recorded the
+// status. That made every 4xx indistinguishable in tracing: an expired authorization and a stale
+// content approval are both "403". Lift the code onto the span so failures are queryable by cause.
+// The clone is read through a bounded, deadlined reader: an oversized or
+// non-terminating body would otherwise hold the request open and grow the tee
+// buffer without limit, turning observability into a denial of service.
+export async function readResponseErrorCode(response: Response): Promise<string | undefined> {
+  if (!response.headers.get('content-type')?.includes('application/json')) {
+    return undefined;
+  }
+  const declared = response.headers.get('content-length');
+  if (declared && Number(declared) > MAXIMUM_ERROR_BODY_BYTES) {
+    return undefined;
+  }
+  const clone = response.clone();
+  const reader = clone.body?.getReader();
+  if (!reader) {
+    return undefined;
+  }
+  const deadline = setTimeout(() => {
+    void reader.cancel().catch(() => undefined);
+  }, ERROR_BODY_READ_TIMEOUT_MS);
+  try {
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      if (!value) {
+        continue;
+      }
+      total += value.byteLength;
+      if (total > MAXIMUM_ERROR_BODY_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        return undefined;
+      }
+      chunks.push(value);
+    }
+    const body: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    const code = (body as { errorCode?: unknown } | null)?.errorCode;
+    return typeof code === 'string' && ERROR_CODE_PATTERN.test(code) ? code : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(deadline);
+    reader.releaseLock();
+  }
+}
+
 export function initApiObservability(env: NodeJS.ProcessEnv = process.env) {
   if (detectServerObservabilityRuntime() === 'bun-manual') {
     const resolved = initBunServerObservability({
@@ -179,6 +239,13 @@ export async function withApiRequestSpan<T>(
           if (result instanceof Response) {
             span.setAttribute('http.response.status_code', result.status);
             span.setAttribute('app.operation.outcome', classifyHttpOperationOutcome(result.status));
+            const errorCode =
+              result.status >= 400 ? await readResponseErrorCode(result) : undefined;
+            if (errorCode) {
+              // Deliberately not a span error status: a 4xx is the caller's fault, and flipping
+              // status would drown real faults in routine 401s. The attribute keeps it queryable.
+              annotateApiSpan({ 'error.code': errorCode });
+            }
             if (result.status >= 500) {
               recordActiveException(
                 Object.assign(
@@ -187,6 +254,7 @@ export async function withApiRequestSpan<T>(
                 ),
                 {
                   'event.name': 'http.server.error',
+                  ...(errorCode ? { 'error.code': errorCode } : {}),
                   'http.response.status_code': result.status,
                   'http.route': url.pathname,
                 }
