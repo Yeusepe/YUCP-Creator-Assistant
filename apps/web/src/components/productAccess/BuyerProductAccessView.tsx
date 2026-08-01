@@ -1,6 +1,7 @@
 import { Stepper } from '@heroui-pro/react/stepper';
 import { useMutation } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
+import { getSafeLoopbackRedirectTarget } from '@yucp/shared/authRedirects';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { CloudBackground } from '@/components/three/CloudBackground';
@@ -23,6 +24,7 @@ interface BuyerProductAccessViewProps {
     from?: 'signin';
     grant?: string;
     intent_id?: string;
+    return_to?: string;
   };
 }
 
@@ -50,6 +52,10 @@ export function BuyerProductAccessView({ access, search }: BuyerProductAccessVie
   const { isAuthenticated, isPending: isAuthPending, signIn } = usePublicAuth();
   const [isManualSetupOpen, setIsManualSetupOpen] = useState(false);
   const [copyingValue, setCopyingValue] = useState<'add-repo' | 'index' | null>(null);
+  // The importer opens this page with its own loopback listener attached. Verification then
+  // ends on the broker's page, which is what lets it raise the Unity window, so the buyer is
+  // never sent on to VCC setup that the importer does not need.
+  const brokerReturnUrl = getSafeLoopbackRedirectTarget(search.return_to);
 
   useEffect(() => {
     if (search.grant || search.intent_id) clearProductAccessGrantFromUrl();
@@ -62,7 +68,7 @@ export function BuyerProductAccessView({ access, search }: BuyerProductAccessVie
         return null;
       }
       return await createBuyerProductAccessVerificationIntent(product.catalogProductId, {
-        returnTo: buildProductAccessReturnPath(),
+        returnTo: brokerReturnUrl ?? buildProductAccessReturnPath(),
       });
     },
     onSuccess: (intent) => {
@@ -176,7 +182,9 @@ export function BuyerProductAccessView({ access, search }: BuyerProductAccessVie
           <Stepper.Step>
             <Stepper.Indicator />
             <Stepper.Content>
-              <Stepper.Title>{returnsToUnity ? 'Back to Unity' : 'Add to VCC'}</Stepper.Title>
+              <Stepper.Title>
+                {returnsToUnity || brokerReturnUrl ? 'Back to Unity' : 'Add to VCC'}
+              </Stepper.Title>
             </Stepper.Content>
             <Stepper.Separator />
           </Stepper.Step>

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'bun:test';
-import { getSafeRelativeRedirectTarget, normalizeAuthRedirectTarget } from '../src/authRedirects';
+import {
+  getSafeLoopbackRedirectTarget,
+  getSafeRelativeRedirectTarget,
+  normalizeAuthRedirectTarget,
+} from '../src/authRedirects';
 
 describe('auth redirect targets', () => {
   it('rejects open redirects', () => {

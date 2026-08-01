@@ -22,6 +22,33 @@ function resolvesToAuthRedirectOrigin(value: string): boolean {
   }
 }
 
+const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+/**
+ * A native client's own loopback callback, the only absolute redirect target we accept.
+ * The package broker opens a browser page and listens on 127.0.0.1 for the buyer to come
+ * back, the same shape its OAuth callback already uses. Loopback is not an open-redirect
+ * vector: the browser can only reach a listener on the buyer's own machine.
+ */
+export function getSafeLoopbackRedirectTarget(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'http:' || !LOOPBACK_HOSTNAMES.has(url.hostname)) {
+    return null;
+  }
+  if (url.username || url.password) {
+    return null;
+  }
+  return url.toString();
+}
+
 // Source: https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html
 export function getSafeRelativeRedirectTarget(value: string | null | undefined): string | null {
   if (!value) {

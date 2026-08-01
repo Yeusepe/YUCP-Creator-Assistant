@@ -1049,6 +1049,120 @@ describe('connect user product access routes', () => {
     ]);
   });
 
+  it('returns the buyer to the importer loopback callback instead of this origin', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        return {
+          _id: 'catalog_123',
+          catalogProductId: 'catalog_123',
+          creatorAuthUserId: 'creator-auth-user',
+          productId: 'product_123',
+          provider: 'gumroad',
+          providerProductRef: 'gumroad-ref',
+          displayName: 'Avatar Bundle',
+          status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'catalog_123',
+              productId: 'product_123',
+              provider: 'gumroad',
+              providerProductRef: 'gumroad-ref',
+            },
+          ],
+        };
+      }
+
+      throw new Error(`Unexpected query reference: ${String(reference)}`);
+    });
+    convexMutationMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference !== apiMock.verificationIntents.createVerificationIntent) {
+        throw new Error(`Unexpected mutation reference: ${String(reference)}`);
+      }
+
+      expect(args).toMatchObject({
+        returnUrl: 'http://127.0.0.1:52341/verified',
+        idempotencyKey:
+          'buyer-access:catalog_123:http%3A%2F%2F127.0.0.1%3A52341%2Fverified:hashed-code-challenge',
+      });
+      return { intentId: 'intent_789' };
+    });
+    convexActionMock.mockImplementation(async () => ({ id: 'intent_789' }));
+
+    const routes = createRoutes();
+    const response = await routes.postBuyerProductAccessVerificationIntent(
+      new Request('http://localhost:3001/api/connect/user/product-access/catalog_123', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ returnTo: 'http://127.0.0.1:52341/verified' }),
+      }),
+      'catalog_123'
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  it('keeps a non-loopback absolute return target off the verification intent', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        return {
+          _id: 'catalog_123',
+          catalogProductId: 'catalog_123',
+          creatorAuthUserId: 'creator-auth-user',
+          productId: 'product_123',
+          provider: 'gumroad',
+          providerProductRef: 'gumroad-ref',
+          displayName: 'Avatar Bundle',
+          status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'catalog_123',
+              productId: 'product_123',
+              provider: 'gumroad',
+              providerProductRef: 'gumroad-ref',
+            },
+          ],
+        };
+      }
+
+      throw new Error(`Unexpected query reference: ${String(reference)}`);
+    });
+    const returnUrls: unknown[] = [];
+    convexMutationMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference !== apiMock.verificationIntents.createVerificationIntent) {
+        throw new Error(`Unexpected mutation reference: ${String(reference)}`);
+      }
+
+      returnUrls.push((args as { returnUrl: string }).returnUrl);
+      return { intentId: 'intent_789' };
+    });
+    convexActionMock.mockImplementation(async () => ({ id: 'intent_789' }));
+
+    const routes = createRoutes();
+    for (const returnTo of [
+      'http://evil.example/phishing',
+      'https://127.0.0.1/phishing',
+      'http://127.0.0.1.evil.example/phishing',
+      'http://user:pass@127.0.0.1:52341/verified',
+    ]) {
+      const response = await routes.postBuyerProductAccessVerificationIntent(
+        new Request('http://localhost:3001/api/connect/user/product-access/catalog_123', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ returnTo }),
+        }),
+        'catalog_123'
+      );
+      expect(response.status).toBe(200);
+    }
+
+    expect(returnUrls).toEqual([
+      'http://localhost:3000/dashboard',
+      'http://localhost:3000/dashboard',
+      'http://localhost:3000/dashboard',
+      'http://localhost:3000/dashboard',
+    ]);
+  });
+
   it('rejects oversized buyer verification intent bodies before reading product access state', async () => {
     const routes = createRoutes();
     const response = await routes.postBuyerProductAccessVerificationIntent(

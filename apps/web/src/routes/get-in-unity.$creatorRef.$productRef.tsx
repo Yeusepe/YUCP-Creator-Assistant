@@ -12,6 +12,7 @@ export const Route = createFileRoute('/get-in-unity/$creatorRef/$productRef')({
     grant: typeof search.grant === 'string' ? search.grant : undefined,
     from: search.from === 'signin' ? ('signin' as const) : undefined,
     intent_id: typeof search.intent_id === 'string' ? search.intent_id : undefined,
+    return_to: typeof search.return_to === 'string' ? search.return_to : undefined,
   }),
   head: () => ({
     meta: [{ title: 'Get in Unity | YUCP' }],

@@ -3,7 +3,7 @@ import {
   providerLabel,
   resolveCatalogProductUrl,
 } from '@yucp/providers/providerMetadata';
-import { getSafeRelativeRedirectTarget } from '@yucp/shared';
+import { getSafeLoopbackRedirectTarget, getSafeRelativeRedirectTarget } from '@yucp/shared';
 import { sha256Base64Url } from '@yucp/shared/crypto';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
@@ -140,10 +140,10 @@ function resolveBuyerAccessMachineFingerprint(request: Request): {
 
 function buildBuyerAccessIdempotencyKey(
   catalogProductId: string,
-  returnPath: string,
+  returnTarget: string,
   codeChallenge: string
 ): string {
-  return `buyer-access:${catalogProductId}:${encodeURIComponent(returnPath)}:${codeChallenge}`;
+  return `buyer-access:${catalogProductId}:${encodeURIComponent(returnTarget)}:${codeChallenge}`;
 }
 
 export function createConnectUserProductAccessRoutes({
@@ -408,11 +408,14 @@ export function createConnectUserProductAccessRoutes({
       if (!product) {
         return Response.json({ error: 'Product access page not found' }, { status: 404 });
       }
-      const safeReturnPath =
-        getSafeRelativeRedirectTarget(
-          typeof body.returnTo === 'string' ? body.returnTo : undefined
-        ) ?? '/dashboard';
-      const returnUrl = `${config.frontendBaseUrl.replace(/\/$/, '')}${safeReturnPath}`;
+      const requestedReturnTo = typeof body.returnTo === 'string' ? body.returnTo : undefined;
+      // The importer opens this page and waits on its own loopback listener, so it hands us
+      // that callback and the buyer ends on the broker's page instead of back here. Anything
+      // else stays a relative path on our own origin.
+      const brokerReturnUrl = getSafeLoopbackRedirectTarget(requestedReturnTo);
+      const safeReturnPath = getSafeRelativeRedirectTarget(requestedReturnTo) ?? '/dashboard';
+      const returnUrl =
+        brokerReturnUrl ?? `${config.frontendBaseUrl.replace(/\/$/, '')}${safeReturnPath}`;
       const buyerAccessFingerprint = resolveBuyerAccessMachineFingerprint(request);
       const packageId = product.packageId ?? product.productId;
       const packageName = product.displayName ?? product.productId;
@@ -438,7 +441,7 @@ export function createConnectUserProductAccessRoutes({
         returnUrl,
         idempotencyKey: buildBuyerAccessIdempotencyKey(
           String(product.catalogProductId),
-          safeReturnPath,
+          brokerReturnUrl ?? safeReturnPath,
           codeChallenge
         ),
         requirements,
