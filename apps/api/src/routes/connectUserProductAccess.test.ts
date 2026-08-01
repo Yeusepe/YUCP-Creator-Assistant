@@ -12,7 +12,6 @@ const convexActionMock = mock(
 );
 const loggerErrorMock = mock(() => undefined);
 const providerMetadataActual = await import('@yucp/providers/providerMetadata');
-const sharedActual = await import('@yucp/shared');
 const verificationConfigActual = await import('../verification/verificationConfig');
 
 const apiMock = {
@@ -142,11 +141,11 @@ mock.module('../verification/verificationConfig', () => ({
       : verificationConfigActual.getVerificationConfig(provider),
 }));
 
-mock.module('@yucp/shared', () => ({
-  ...sharedActual,
-  getSafeRelativeRedirectTarget: (value?: string) =>
-    typeof value === 'string' && value.startsWith('/') ? value : null,
-}));
+// @yucp/shared is deliberately NOT mocked. mock.module is process-global in Bun, so stubbing
+// getSafeRelativeRedirectTarget here also replaced it inside the shared package's own
+// open-redirect test whenever this file ran first: that suite then asserted against a
+// `startsWith('/')` stub, which accepts `//evil.example/steal`. The real function is pure, so
+// there is nothing to gain by shadowing it and a security regression to miss by doing so.
 
 mock.module('@yucp/shared/crypto', () => ({
   sha256Base64Url: async () => 'hashed-code-challenge',
