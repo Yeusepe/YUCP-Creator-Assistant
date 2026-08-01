@@ -450,15 +450,32 @@ export type DeflateFn = (
 ) => Uint8Array;
 
 /**
+ * The publish-time deflate, which may be async, and in the ingest host must be.
+ *
+ * That host serves its status endpoint from the same thread that runs this, and
+ * a synchronous zlib call over a megapixel raster blocks it outright: the first
+ * real package to band starved the ingest service's status reads from 1ms to
+ * unanswerable. Node's async zlib runs on the libuv threadpool, which keeps the
+ * loop live and makes the caller's concurrency real rather than nominal.
+ *
+ * The couple side stays on the sync DeflateFn above: it deflates through the
+ * wasm codec while holding the codec lease, where there is nothing to yield to.
+ */
+export type PublishDeflateFn = (
+  bytes: Uint8Array,
+  options: { final: boolean; throwaway?: boolean }
+) => Promise<Uint8Array> | Uint8Array;
+
+/**
  * Publish-time step: rebuild `png` so its IDAT is prefix|band|suffix, each
  * independently replaceable.
  */
-export function normalizePngForBanding(input: {
+export async function normalizePngForBanding(input: {
   band: BandPlacement;
-  deflate: DeflateFn;
-  inflate: (bytes: Uint8Array) => Uint8Array;
+  deflate: PublishDeflateFn;
+  inflate: (bytes: Uint8Array) => Promise<Uint8Array> | Uint8Array;
   png: Uint8Array;
-}): BandedPng {
+}): Promise<BandedPng> {
   const parsed = parsePng(input.png);
   const { header } = parsed;
   const { band } = input;
@@ -471,7 +488,7 @@ export function normalizePngForBanding(input: {
   ) {
     throw new PngBandError('Band placement is out of range');
   }
-  const filtered = input.inflate(parsed.idat);
+  const filtered = await input.inflate(parsed.idat);
   const raw = unfilterScanlines(header, filtered);
   const suffixRows = header.height - band.y0 - band.rows;
   // The source's own filters are kept everywhere they are still valid, which is
@@ -488,9 +505,14 @@ export function normalizePngForBanding(input: {
     suffixRows
   );
 
-  const prefixSegment = input.deflate(prefixFiltered, { final: false });
-  const bandSegment = input.deflate(bandFiltered, { final: false });
-  const suffixSegment = input.deflate(suffixFiltered, { final: true });
+  // Independent of each other, so they overlap on the threadpool.
+  // The band is thrown away by the first buyer to couple this file, so it is
+  // not worth compressing hard here; the prefix and suffix ship forever.
+  const [prefixSegment, bandSegment, suffixSegment] = await Promise.all([
+    input.deflate(prefixFiltered, { final: false }),
+    input.deflate(bandFiltered, { final: false, throwaway: true }),
+    input.deflate(suffixFiltered, { final: true }),
+  ]);
 
   const prefixAdler = adler32(prefixFiltered);
   const withBand = adler32(bandFiltered, prefixAdler);

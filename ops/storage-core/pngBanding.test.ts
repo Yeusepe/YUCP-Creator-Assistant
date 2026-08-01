@@ -58,24 +58,24 @@ function rasterOf(png: Uint8Array): Uint8Array {
 }
 
 describe('publish-time banding', () => {
-  it('re-encodes losslessly: same pixels, same depth, same colour type', () => {
+  it('re-encodes losslessly: same pixels, same depth, same colour type', async () => {
     for (const [colorType, bitDepth] of [[2, 8], [2, 16], [6, 8], [6, 16]] as const) {
       const png = bandingFixture(256, 256, colorType, bitDepth);
       const header = parsePng(png).header;
       const planned = planBand(header, { blocks: 864, minFraction: 0.05 });
       const band = placeBand(header, planned as { rows: number; y0: number }, Uint8Array.from([1]));
-      const banded = normalizePngForBanding({ band, deflate, inflate, png });
+      const banded = await normalizePngForBanding({ band, deflate, inflate, png });
 
       expect(parsePng(banded.base).header).toEqual(header);
       expect(rasterOf(banded.base)).toEqual(rasterOf(png));
     }
   });
 
-  it('leaves the band segment addressable inside the rebuilt IDAT', () => {
+  it('leaves the band segment addressable inside the rebuilt IDAT', async () => {
     const png = bandingFixture(256, 256, 6, 8);
     const header = parsePng(png).header;
     const band = { rows: 64, y0: 64 };
-    const banded = normalizePngForBanding({ band, deflate, inflate, png });
+    const banded = await normalizePngForBanding({ band, deflate, inflate, png });
     const idat = parsePng(banded.base).idat;
 
     expect(banded.bandRange.offset).toBeGreaterThanOrEqual(2);
@@ -91,14 +91,14 @@ describe('publish-time banding', () => {
     expect(bandFiltered.byteLength).toBe((header.rowBytes + 1) * band.rows);
   });
 
-  it('pins the index the materializer reads (lockstep with ca-coupling)', () => {
+  it('pins the index the materializer reads (lockstep with ca-coupling)', async () => {
     // Numbers mirrored in ca-coupling/src/pngBandSplice.test.ts. Changing the
     // band format means changing both, deliberately, in the same commit.
     const png = bandingFixture(512, 512, 6, 8);
     const header = parsePng(png).header;
     const planned = planBand(header, { blocks: 864, minFraction: 0.05 });
     const band = placeBand(header, planned as { rows: number; y0: number }, Uint8Array.from([7, 7]));
-    const banded = normalizePngForBanding({ band, deflate, inflate, png });
+    const banded = await normalizePngForBanding({ band, deflate, inflate, png });
 
     expect({
       baseSha256: createHash('sha256').update(banded.base).digest('hex'),
@@ -121,7 +121,7 @@ describe('publish-time banding', () => {
     });
   });
 
-  it('routes what it cannot band away rather than mangling it', () => {
+  it('routes what it cannot band away rather than mangling it', async () => {
     const parsed = parsePng(bandingFixture(64, 64, 6, 8));
     for (const mutate of [
       (h: Uint8Array) => { h[9] = 3; },   // palette
@@ -142,7 +142,7 @@ describe('publish-time banding', () => {
     }
   });
 
-  it('declines to band an image the band would swallow whole', () => {
+  it('declines to band an image the band would swallow whole', async () => {
     // 864 blocks need 108 block rows at 8 blocks across: taller than the image.
     const header = parsePng(bandingFixture(64, 64, 6, 8)).header;
     expect(planBand(header, { blocks: 864, minFraction: 0.05 })).toBeNull();

@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { mkdir, mkdtemp, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import { constants, deflateRawSync, inflateSync } from 'node:zlib';
+import { promisify } from 'node:util';
+import { constants, deflateRaw, inflate as inflateCb } from 'node:zlib';
 import {
   Catalog,
   type PackageVersion,
@@ -205,11 +206,30 @@ async function readFileTail(path: string, length: number): Promise<Uint8Array> {
 const BAND_BLOCKS = 864;
 const BAND_MIN_FRACTION = 0.05;
 
-const bandDeflate = (bytes: Uint8Array, options: { final: boolean }): Uint8Array =>
+// Async, not the *Sync variants: this runs in the same process that serves the
+// status endpoint, and a synchronous deflate over a megapixel raster blocks it
+// outright. The threadpool keeps the loop answering and makes
+// LOGICAL_FILE_INGEST_CONCURRENCY do something.
+const deflateRawAsync = promisify(deflateRaw);
+const inflateAsync = promisify(inflateCb);
+
+/**
+ * Level 9 on the prefix and suffix, level 1 on the band.
+ *
+ * The prefix and suffix ship in every copy forever, so their bytes are worth
+ * real CPU: level 9 made the base 5.2% smaller than the source where level 6
+ * managed 3.1%. The band is replaced by every buyer before anyone downloads it,
+ * so compressing it well at publish buys nothing and costs the most CPU of the
+ * three, being the only one that is not mostly-flush-terminated.
+ */
+const bandDeflate = async (
+  bytes: Uint8Array,
+  options: { final: boolean; throwaway?: boolean }
+): Promise<Uint8Array> =>
   new Uint8Array(
-    deflateRawSync(Buffer.from(bytes), {
+    await deflateRawAsync(Buffer.from(bytes), {
       finishFlush: options.final ? constants.Z_FINISH : constants.Z_FULL_FLUSH,
-      level: 9,
+      level: options.throwaway ? 1 : 9,
     })
   );
 
@@ -235,39 +255,66 @@ export async function bandProtectedPngs<T extends ClassifiedPackageFile>(
   files: readonly T[],
   signal?: AbortSignal
 ): Promise<Array<T & { band?: DeliveryManifestBand }>> {
-  return mapBoundedOrdered(
+  const passStartedAt = Date.now();
+  const results: Array<T & { band?: DeliveryManifestBand }> = await mapBoundedOrdered(
     files,
     async (file) => {
       signal?.throwIfAborted();
       if (file.classification !== 'protected' || file.materializerType !== 'png') {
         return file;
       }
+      const startedAt = Date.now();
       const png = new Uint8Array(await readFile(file.path));
       let banded: BandedPng;
       let placement: BandPlacement;
+      let pixels = { height: 0, width: 0 };
+      const skip = (reason: string): T => {
+        console.log(
+          JSON.stringify({
+            bytes: file.bytes,
+            event: 'ingest_pipeline.band_skipped',
+            ms: Date.now() - startedAt,
+            reason,
+          })
+        );
+        return file;
+      };
       try {
         const { header } = parsePng(png);
+        pixels = { height: header.height, width: header.width };
         const planned = planBand(header, {
           blocks: BAND_BLOCKS,
           minFraction: BAND_MIN_FRACTION,
         });
         if (!planned) {
-          return file;
+          return skip('band would cover the whole image');
         }
         placement = placeBand(header, planned, Buffer.from(file.sha256, 'hex'));
-        banded = normalizePngForBanding({
+        banded = await normalizePngForBanding({
           band: placement,
           deflate: bandDeflate,
-          inflate: (bytes) => new Uint8Array(inflateSync(Buffer.from(bytes))),
+          inflate: async (bytes) => new Uint8Array(await inflateAsync(Buffer.from(bytes))),
           png,
         });
       } catch (error) {
         if (error instanceof PngBandError) {
-          return file;
+          return skip(error.message);
         }
         throw error;
       }
       await writeFile(file.path, banded.base);
+      console.log(
+        JSON.stringify({
+          bandRows: placement.rows,
+          bandY0: placement.y0,
+          bytesAfter: banded.base.byteLength,
+          bytesBefore: file.bytes,
+          event: 'ingest_pipeline.banded',
+          ms: Date.now() - startedAt,
+          pixelHeight: pixels.height,
+          pixelWidth: pixels.width,
+        })
+      );
       return {
         ...file,
         band: {
@@ -285,6 +332,20 @@ export async function bandProtectedPngs<T extends ClassifiedPackageFile>(
     },
     LOGICAL_FILE_INGEST_CONCURRENCY
   );
+  const banded = results.filter((file) => file.band).length;
+  const eligible = files.filter(
+    (file) => file.classification === 'protected' && file.materializerType === 'png'
+  ).length;
+  console.log(
+    JSON.stringify({
+      banded,
+      event: 'ingest_pipeline.banding_completed',
+      ms: Date.now() - passStartedAt,
+      skipped: eligible - banded,
+      threadpool: process.env.UV_THREADPOOL_SIZE ?? 'default(4)',
+    })
+  );
+  return results;
 }
 
 export async function resolveProtectedFileCoupling(
