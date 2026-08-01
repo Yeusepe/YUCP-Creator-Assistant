@@ -10,11 +10,12 @@ import {
   Table,
   useFilter,
 } from '@heroui/react';
+import { DropZone } from '@heroui-pro/react/drop-zone';
 import { Stepper } from '@heroui-pro/react/stepper';
 import { Timeline } from '@heroui-pro/react/timeline';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { DialogContext, Heading } from 'react-aria-components';
 import { ApiError } from '@/api/client';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
@@ -417,9 +418,6 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [lookupResult, setLookupResult] = useState<CouplingForensicsLookupResponse | null>(null);
   const [scanStartedAt, setScanStartedAt] = useState<number | null>(null);
-  const [isDragOver, setIsDragOver] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const dragCounterRef = useRef(0);
 
   const handleFilePick = (file: File | null): boolean => {
     if (lookupMutation.isPending) return false;
@@ -442,23 +440,10 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
     return true;
   };
 
-  const handleDragEnter = (e: React.DragEvent) => {
-    e.preventDefault();
-    dragCounterRef.current++;
-    if (dragCounterRef.current === 1) setIsDragOver(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    dragCounterRef.current--;
-    if (dragCounterRef.current === 0) setIsDragOver(false);
-  };
-
+  // DropZone.Area owns the drag affordance and its own hover state; this only
+  // has to pull the file out of the drop event.
   const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    dragCounterRef.current = 0;
-    setIsDragOver(false);
-    const file = e.dataTransfer.files[0] ?? null;
+    const file = e.dataTransfer?.files?.[0] ?? null;
     if (file) handleFilePick(file);
   };
 
@@ -724,14 +709,6 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                 }}
               >
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="bg-accent text-accent-foreground flex size-5 items-center justify-center rounded-full text-xs font-semibold">
-                      1
-                    </span>
-                    <span className="text-foreground text-sm font-medium">
-                      Which product is this file from?
-                    </span>
-                  </div>
                   <Autocomplete
                     className="pm-package-picker w-full max-w-md"
                     placeholder="Choose a product"
@@ -747,7 +724,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                       setLookupResult(null);
                     }}
                   >
-                    <Label className="sr-only">Product to scan</Label>
+                    <Label className="text-foreground text-sm font-medium">Product</Label>
                     <Autocomplete.Trigger>
                       <Autocomplete.Value />
                       <Autocomplete.ClearButton />
@@ -800,92 +777,48 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                 </div>
 
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="bg-accent text-accent-foreground flex size-5 items-center justify-center rounded-full text-xs font-semibold">
-                      2
-                    </span>
-                    <span className="text-foreground text-sm font-medium">
-                      Upload the suspicious file
-                    </span>
-                  </div>
-                  {selectedFile ? (
-                    <div className="fx-pane flex items-center gap-3 p-4">
-                      <span className="fx-icon-chip text-foreground/60 flex size-10 shrink-0 items-center justify-center rounded-xl">
-                        <Icon name="auditLog" size={18} />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-foreground truncate text-sm font-medium">
-                          {selectedFile.name}
-                        </p>
-                        <p className="text-foreground/60 text-xs tabular-nums">
-                          {formatFileSize(selectedFile.size)}
-                        </p>
-                      </div>
-                      <Button
-                        isIconOnly
-                        size="sm"
-                        variant="ghost"
-                        aria-label="Remove file"
-                        isDisabled={lookupMutation.isPending}
-                        onPress={() => {
-                          if (lookupMutation.isPending) return;
-                          handleFilePick(null);
-                          if (fileInputRef.current) fileInputRef.current.value = '';
-                        }}
-                      >
-                        <Icon name="close" size={14} />
-                      </Button>
-                      <input
-                        ref={fileInputRef}
-                        id="forensics-file"
-                        type="file"
-                        accept=".unitypackage,.zip"
-                        disabled={lookupMutation.isPending}
-                        className="hidden"
-                        onChange={(e) => {
-                          if (lookupMutation.isPending) return;
-                          if (!handleFilePick(e.target.files?.[0] ?? null)) {
-                            e.currentTarget.value = '';
-                          }
-                        }}
-                      />
-                    </div>
-                  ) : (
-                    <label
-                      htmlFor="forensics-file"
-                      onDragEnter={handleDragEnter}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDragLeave={handleDragLeave}
-                      onDrop={handleDrop}
-                      className={`fx-dropzone flex cursor-[var(--cursor-interactive)] flex-col items-center justify-center gap-2 p-8 text-center ${
-                        isDragOver ? 'is-dragover' : ''
-                      } ${lookupMutation.isPending ? 'pointer-events-none opacity-60' : ''}`}
-                    >
-                      <input
-                        ref={fileInputRef}
-                        id="forensics-file"
-                        type="file"
-                        accept=".unitypackage,.zip"
-                        className="sr-only"
-                        disabled={lookupMutation.isPending}
-                        onChange={(e) => {
-                          if (lookupMutation.isPending) return;
-                          if (!handleFilePick(e.target.files?.[0] ?? null)) {
-                            e.currentTarget.value = '';
-                          }
-                        }}
-                      />
-                      <span className="fx-icon-chip text-foreground/60 flex size-11 items-center justify-center rounded-full">
-                        <Icon name="upload" size={20} />
-                      </span>
-                      <p className="text-foreground text-sm font-medium">
-                        {isDragOver ? 'Drop to upload' : 'Click to upload or drag & drop'}
-                      </p>
-                      <p className="text-foreground/60 text-xs">
-                        .unitypackage or .zip · max 100 MB
-                      </p>
-                    </label>
-                  )}
+                  <p className="text-foreground text-sm font-medium" id="forensics-upload-label">
+                    Suspicious file
+                  </p>
+                  <DropZone className="w-full">
+                    {selectedFile ? null : (
+                      <DropZone.Area onDrop={handleDrop as never}>
+                        <DropZone.Icon>
+                          <Icon name="upload" className="text-accent size-8" />
+                        </DropZone.Icon>
+                        <DropZone.Label>Drop the file here</DropZone.Label>
+                        <DropZone.Description>
+                          .unitypackage or .zip, up to 100 MB.
+                        </DropZone.Description>
+                        <DropZone.Trigger isDisabled={lookupMutation.isPending}>
+                          Choose file
+                        </DropZone.Trigger>
+                      </DropZone.Area>
+                    )}
+                    <DropZone.Input
+                      accept=".unitypackage,.zip"
+                      aria-labelledby="forensics-upload-label"
+                      onSelect={(files) => handleFilePick(files.item(0))}
+                    />
+                    {selectedFile ? (
+                      <DropZone.FileList>
+                        <DropZone.FileItem status="complete">
+                          <DropZone.FileFormatIcon format="zip" />
+                          <DropZone.FileInfo>
+                            <DropZone.FileName>{selectedFile.name}</DropZone.FileName>
+                            <DropZone.FileMeta>
+                              {formatFileSize(selectedFile.size)} · Ready to scan
+                            </DropZone.FileMeta>
+                          </DropZone.FileInfo>
+                          <DropZone.FileRemoveTrigger
+                            aria-label={`Remove ${selectedFile.name}`}
+                            isDisabled={lookupMutation.isPending}
+                            onPress={() => handleFilePick(null)}
+                          />
+                        </DropZone.FileItem>
+                      </DropZone.FileList>
+                    ) : null}
+                  </DropZone>
                 </div>
 
                 <div className="flex justify-end">
