@@ -1,3 +1,4 @@
+import { sha256Hex } from '@yucp/shared/crypto';
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Doc } from './_generated/dataModel';
@@ -381,7 +382,29 @@ export const resolveTraceBuyerIdentitiesForAuthUser = query({
         packageEntitlements.find((candidate) => candidate.status === 'active') ??
         packageEntitlements[0] ??
         null;
-      const licenseSubject = entitlement?.licenseSubject;
+      let licenseSubject = entitlement?.licenseSubject;
+      let licenseProviderFallback: string | undefined;
+      if (entitlement && !licenseSubject && entitlement.sourceProvider === 'manual') {
+        // Manual redemptions stamped no licenseSubject before
+        // completeManualLicenseIntent started writing one, and the raw key is
+        // never stored - only its hash on the creator's issued licence. The
+        // redemption reference is the hash of that licence's id, so walk the
+        // creator's issued keys for the product to recover the fingerprint.
+        const manualLicenses = await ctx.db
+          .query('manual_licenses')
+          .withIndex('by_auth_user_product', (q) =>
+            q.eq('authUserId', args.authUserId).eq('productId', entitlement.productId)
+          )
+          .collect();
+        for (const manualLicense of manualLicenses) {
+          const reference = `manual:${await sha256Hex(String(manualLicense._id))}`;
+          if (reference === entitlement.sourceReference) {
+            licenseSubject = manualLicense.licenseKeyHash;
+            licenseProviderFallback = 'manual';
+            break;
+          }
+        }
+      }
       // licenseVerification writes this link under the BUYER's account
       // (upsertLicenseSubjectLink receives buyerAuthUserId), so keying it by
       // the creator finds nothing and silently drops the licence.
@@ -419,13 +442,20 @@ export const resolveTraceBuyerIdentitiesForAuthUser = query({
           : {}),
         ...(subject.displayName ? { buyerSubjectDisplayName: subject.displayName } : {}),
         ...(licenseSubject
-          ? { licenseFingerprint: buildLicenseFingerprint(link?.provider, licenseSubject) }
+          ? {
+              licenseFingerprint: buildLicenseFingerprint(
+                link?.provider ?? licenseProviderFallback,
+                licenseSubject
+              ),
+            }
           : {}),
         ...(link?.licenseKeyEncrypted ? { licenseKeyEncrypted: link.licenseKeyEncrypted } : {}),
         ...(!link?.licenseKeyEncrypted && link?.licenseKey
           ? { licenseKeyLegacy: link.licenseKey }
           : {}),
-        ...(link?.provider ? { provider: link.provider } : {}),
+        ...(link?.provider ?? licenseProviderFallback
+          ? { provider: link?.provider ?? licenseProviderFallback }
+          : {}),
       };
       })
     );

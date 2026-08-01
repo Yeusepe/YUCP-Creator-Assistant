@@ -688,6 +688,10 @@ export const completeManualLicenseIntent = internalMutation({
       catalogProductId: args.catalogProductId,
       sourceProvider: 'manual',
       sourceReference,
+      // The licence hash doubles as the canonical licenseSubject, the same
+      // digest scheme provider keys use. Without it a coupling trace can find
+      // this entitlement but has no licence to show for it.
+      licenseSubject: manualLicense.licenseKeyHash,
       policySnapshotVersion: 1,
       grantedAt: now,
       now,

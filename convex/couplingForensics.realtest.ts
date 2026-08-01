@@ -1,3 +1,4 @@
+import { sha256Hex } from '@yucp/shared/crypto';
 import { beforeEach, describe, expect, test } from 'vitest';
 import { api } from './_generated/api';
 import { buildCreatorProfileWorkspaceKey } from './lib/certificateBillingConfig';
@@ -273,6 +274,91 @@ describe('trace buyer identity resolution', () => {
         licenseFingerprint: `gumroad · ${licenseSubject.slice(0, 10)}`,
         licenseKeyEncrypted: 'encrypted-license-key',
         provider: 'gumroad',
+        subjectsMatched: 1,
+      },
+    ]);
+  });
+
+  test('recovers the licence fingerprint for a manual redemption without licenseSubject', async () => {
+    const t = makeTestConvex();
+    await seedTraceablePackage(t, {
+      authUserId: 'creator-1',
+      packageId: 'com.yucp.songthing',
+    });
+    const licenseKeyHash = 'ef'.repeat(32);
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      const catalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: 'creator-1',
+        createdAt: now,
+        productId: 'song-thing',
+        provider: 'gumroad',
+        providerProductRef: 'gum-song-thing',
+        status: 'active',
+        supportsAutoDiscovery: false,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_catalog_bindings', {
+        catalogProductId,
+        createdAt: now,
+        creatorAuthUserId: 'creator-1',
+        packageId: 'com.yucp.songthing',
+        status: 'active',
+        updatedAt: now,
+      });
+      const subjectId = await ctx.db.insert('subjects', {
+        authUserId: 'buyer-1',
+        createdAt: now,
+        displayName: 'shapes',
+        primaryDiscordUserId: 'discord-buyer-1',
+        status: 'active',
+        updatedAt: now,
+      });
+      const manualLicenseId = await ctx.db.insert('manual_licenses', {
+        authUserId: 'creator-1',
+        createdAt: now,
+        currentUses: 1,
+        licenseKeyHash,
+        productId: 'song-thing',
+        status: 'active',
+        updatedAt: now,
+      });
+      // Granted by completeManualLicenseIntent before it stamped
+      // licenseSubject: only the redemption reference ties it to the licence.
+      await ctx.db.insert('entitlements', {
+        authUserId: 'creator-1',
+        catalogProductId,
+        grantedAt: now,
+        productId: 'song-thing',
+        sourceProvider: 'manual',
+        sourceReference: `manual:${await sha256Hex(String(manualLicenseId))}`,
+        status: 'active',
+        subjectId,
+        updatedAt: now,
+      });
+    });
+
+    const result = await t.query(
+      api.couplingForensics.resolveTraceBuyerIdentitiesForAuthUser,
+      {
+        apiSecret: 'test-secret',
+        authUserId: 'creator-1',
+        buyerIds: ['buyer-1'],
+        packageId: 'com.yucp.songthing',
+      }
+    );
+
+    expect(result.packageOwned).toBe(true);
+    expect(result.identities).toEqual([
+      {
+        buyerId: 'buyer-1',
+        buyerSubjectDiscordUserId: 'discord-buyer-1',
+        buyerSubjectDisplayName: 'shapes',
+        hasEntitlement: true,
+        hasLicenseLink: false,
+        hasLicenseSubject: true,
+        licenseFingerprint: `manual · ${licenseKeyHash.slice(0, 10)}`,
+        provider: 'manual',
         subjectsMatched: 1,
       },
     ]);
