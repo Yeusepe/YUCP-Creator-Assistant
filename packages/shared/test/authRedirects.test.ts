@@ -19,6 +19,34 @@ describe('auth redirect targets', () => {
     expect(getSafeRelativeRedirectTarget('/dashboard?x=1')).toBe('/dashboard?x=1');
   });
 
+  it('accepts a native client loopback callback', () => {
+    expect(getSafeLoopbackRedirectTarget('http://127.0.0.1:52341/verified')).toBe(
+      'http://127.0.0.1:52341/verified'
+    );
+    expect(getSafeLoopbackRedirectTarget('http://localhost:52341/verified')).toBe(
+      'http://localhost:52341/verified'
+    );
+  });
+
+  it('accepts nothing but loopback as an absolute redirect target', () => {
+    for (const value of [
+      undefined,
+      null,
+      '',
+      '/dashboard',
+      'http://evil.example/steal',
+      // A host that only starts with the loopback address is a different machine.
+      'http://127.0.0.1.evil.example/steal',
+      // TLS to a local listener is not what the broker serves, so it is not our callback.
+      'https://127.0.0.1/steal',
+      'http://user:pass@127.0.0.1:52341/verified',
+      'vcc://vpm/addRepo?url=https://evil.example/index.json',
+      'javascript:alert(1)',
+    ]) {
+      expect(getSafeLoopbackRedirectTarget(value)).toBeNull();
+    }
+  });
+
   it('keeps dashboard auth independent from guild selection', () => {
     expect(normalizeAuthRedirectTarget('/dashboard?guild_id=123&tenant_id=abc')).toBe('/dashboard');
     expect(normalizeAuthRedirectTarget('/dashboard/integrations?guild_id=123')).toBe(

@@ -167,6 +167,71 @@ describe('get in unity route', () => {
     expect(screen.getByRole('button', { name: 'Starting verification...' })).toBeDisabled();
   });
 
+  it('hands verification back to the importer loopback callback instead of VCC setup', async () => {
+    routeSearchMock.mockReturnValue({
+      grant: undefined,
+      intent_id: undefined,
+      return_to: 'http://127.0.0.1:52341/verified',
+    });
+    vi.mocked(usePublicAuth).mockReturnValue({
+      authUserId: 'buyer_1',
+      isAuthenticated: true,
+      isPending: false,
+      signIn: signInMock,
+      signOut: vi.fn(),
+    });
+    apiPostMock.mockImplementation(() => new Promise(() => {}));
+    const Component = GetInUnityRoute.options.component;
+    if (!Component) throw new Error('Get in Unity component is missing');
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    expect(screen.getByText('Back to Unity')).toBeInTheDocument();
+    expect(screen.queryByText('Add to VCC')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Verify purchase' }));
+
+    await waitFor(() =>
+      expect(apiPostMock).toHaveBeenCalledWith(
+        '/api/connect/user/product-access/catalog_product_1',
+        {
+          returnTo: 'http://127.0.0.1:52341/verified',
+        }
+      )
+    );
+  });
+
+  it('ignores a non-loopback return target and keeps the store-page ending', async () => {
+    routeSearchMock.mockReturnValue({
+      grant: undefined,
+      intent_id: undefined,
+      return_to: 'https://evil.example/phishing',
+    });
+    vi.mocked(usePublicAuth).mockReturnValue({
+      authUserId: 'buyer_1',
+      isAuthenticated: true,
+      isPending: false,
+      signIn: signInMock,
+      signOut: vi.fn(),
+    });
+    apiPostMock.mockImplementation(() => new Promise(() => {}));
+    const Component = GetInUnityRoute.options.component;
+    if (!Component) throw new Error('Get in Unity component is missing');
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    expect(screen.getByText('Add to VCC')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Verify purchase' }));
+
+    await waitFor(() =>
+      expect(apiPostMock).toHaveBeenCalledWith(
+        '/api/connect/user/product-access/catalog_product_1',
+        expect.objectContaining({ returnTo: expect.stringContaining('/get-in-unity/') })
+      )
+    );
+  });
+
   it('uses the durable creator-managed repository for an entitled buyer', async () => {
     loaderDataMock.mockReturnValue({
       ...productAccess,
