@@ -8,7 +8,15 @@ const FORENSICS_ARCHIVE_MAX_BYTES = 100 * 1024 * 1024;
 const FORENSICS_MULTIPART_OVERHEAD_BYTES = 1024 * 1024;
 const FORENSICS_PROXY_REQUEST_BODY_MAX_BYTES =
   FORENSICS_ARCHIVE_MAX_BYTES + FORENSICS_MULTIPART_OVERHEAD_BYTES;
-const FORENSICS_PROXY_UPSTREAM_TIMEOUT_MS = 120_000;
+/**
+ * A trace scans every buyer of a package one batch at a time, so its cost grows
+ * with the catalogue rather than with the upload. This must stay above the
+ * API's own scan budget plus its reveal budget, or the proxy cuts the request
+ * off before the scan can report the partial verdict it was designed to give:
+ * an earlier 120 s ceiling turned a 141 s scan into a bare 504 and discarded
+ * twelve batches of completed work.
+ */
+const FORENSICS_PROXY_UPSTREAM_TIMEOUT_MS = 420_000;
 
 class ApiProxyRequestBodyTooLargeError extends Error {
   constructor(readonly limitBytes: number) {

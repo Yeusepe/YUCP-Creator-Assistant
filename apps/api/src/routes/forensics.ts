@@ -46,8 +46,15 @@ const FORENSICS_ATTRIBUTION_MAXIMUM_EVALUATION_WORK = 512 * 512;
  * of matching work already done is thrown away with it: a flat-colour upload
  * spent 141 s across twelve successful batches and returned a bare 504. The
  * scan now stops here and reports what it found, which is a real answer.
+ *
+ * Sized from measured throughput rather than a round number. A sixteen-asset
+ * package scores about thirteen candidate evaluations a second, so a single
+ * 256-buyer page costs roughly 16 x 256 / 13 = 315 s; at 90 s it stopped a
+ * quarter of the way in and reported nothing found, which reads like an
+ * acquittal but is only a clock. This budget buys that first page outright.
+ * The web proxy in front of it must stay above this plus the reveal budget.
  */
-const FORENSICS_ATTRIBUTION_SCAN_BUDGET_MS = 90_000;
+export const FORENSICS_ATTRIBUTION_SCAN_BUDGET_MS = 300_000;
 /** Matched records only: a trace never de-anonymises the set it scanned. */
 const FORENSICS_REVEAL_LIMIT = 64;
 /**

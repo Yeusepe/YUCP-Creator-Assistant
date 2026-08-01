@@ -47,7 +47,7 @@ mock.module('../lib/couplingForensicsArchives', () => ({
   extractCouplingForensicsArchive: extractCouplingForensicsArchiveMock,
 }));
 
-const { createForensicsRoutes } = await import('./forensics');
+const { createForensicsRoutes, FORENSICS_ATTRIBUTION_SCAN_BUDGET_MS } = await import('./forensics');
 const { InMemoryPublicApiRateLimitStore } = await import('../lib/publicApiRateLimit');
 
 const TEST_COUPLING_BEARER = 'unit-test-coupling-bearer';
@@ -503,7 +503,9 @@ describe('forensics routes', () => {
     globalThis.fetch = mock(async (_input: string | URL | Request, init?: RequestInit) => {
       // The first batch alone consumes the whole scan budget, as when every
       // 64-candidate evaluation takes its full share of a saturated container.
-      setSystemTime(new Date(startedAt + 120_000));
+      // Derived from the budget so raising it cannot silently stop exercising
+      // the deadline path.
+      setSystemTime(new Date(startedAt + FORENSICS_ATTRIBUTION_SCAN_BUDGET_MS + 30_000));
       const body = JSON.parse(String(init?.body)) as {
         assets: Array<{ assetPath: string; assetType: string }>;
       };
