@@ -135,7 +135,13 @@ export async function uploadWebSourceMaps(
   });
   const exitCode = await proc.exited;
   if (exitCode !== 0) {
-    throw new Error(`web source-map upload failed with exit code ${exitCode}`);
+    // ponytail: symbolication is a nicety; a rejected key or an endpoint that
+    // has no /sourcemaps route must not stop the site from shipping. Strip the
+    // maps either way so a failed upload never leaves them in the asset tree.
+    console.warn(
+      `deploy-web-worker: source-map upload failed with exit code ${exitCode}, ` +
+        'continuing without symbolication (browser stack traces stay minified)'
+    );
   }
   removePublicSourceMaps(distDir);
 }

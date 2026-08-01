@@ -11,7 +11,7 @@ Set these server-side values in Infisical or the deployment secret store:
 - `HYPERDX_API_URL`: HyperDX OTLP base URL when using a self-hosted or non-default endpoint.
 - `CONVEX_LOG_STREAM_SECRET`: shared secret for the secured Convex log-stream webhook.
 
-The web deployment runs `@hyperdx/cli upload-sourcemaps` with the build release ID and fails when the upload fails. Without `HYPERDX_SERVICE_KEY` the upload is skipped and browser stack traces stay minified. Hidden production source maps are generated under `apps/web/dist` and are stripped before deploy either way, so they are never served as public assets.
+The web deployment runs `@hyperdx/cli upload-sourcemaps` with the build release ID. The upload is best-effort: a missing `HYPERDX_SERVICE_KEY`, a key the endpoint rejects, or an endpoint without a sourcemap route leaves browser stack traces minified instead of failing the deploy. Hidden production source maps are generated under `apps/web/dist` and are stripped before deploy either way, so they are never served as public assets.
 
 ## Cloudflare destinations
 
