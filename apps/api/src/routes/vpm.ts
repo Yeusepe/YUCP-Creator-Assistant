@@ -4,6 +4,7 @@ import {
   parseTraceparent,
   timingSafeStringEqual,
   YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION,
+  yucpBootstrapRequirementsPayload,
 } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
@@ -565,6 +566,15 @@ export function createVpmRoutes({
     };
   }
 
+  function bootstrapRequirementsDigest(
+    vpmDependencies: Record<string, string> | undefined,
+    vpmRepositories: Record<string, string> | undefined
+  ): string {
+    return createHash('sha256')
+      .update(yucpBootstrapRequirementsPayload({ vpmDependencies, vpmRepositories }))
+      .digest('hex');
+  }
+
   async function publishReservedAlias(input: {
     artifactBaseUrl: string;
     packageId: string;
@@ -597,6 +607,10 @@ export function createVpmRoutes({
                   version: input.reservation.packageVersion,
                   versionId: input.reservation.versionId,
                   releaseRoot: input.reservation.releaseRoot,
+                  requirementsDigest: bootstrapRequirementsDigest(
+                    input.vpmDependencies,
+                    input.vpmRepositories
+                  ),
                 },
               })
             : undefined
@@ -1601,6 +1615,10 @@ export function createVpmRoutes({
               releaseRoot: target.releaseRoot,
             }
           : {}),
+        requirementsDigest: bootstrapRequirementsDigest(
+          target.vpmDependencies,
+          target.vpmRepositories
+        ),
       },
     });
     const bootstrap = buildYucpAliasVpmPackage({

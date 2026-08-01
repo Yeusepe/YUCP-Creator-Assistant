@@ -53,10 +53,40 @@ export type YucpBootstrapIntent = {
   version?: string;
   versionId?: string;
   releaseRoot?: string;
+  /**
+   * SHA-256 over the VPM requirements the release ships with. Anything that
+   * edits the bootstrap's dependency or repository list breaks the signature.
+   */
+  requirementsDigest?: string;
   signature: string;
 };
 
 export type UnsignedYucpBootstrapIntent = Omit<YucpBootstrapIntent, 'signature'>;
+
+/**
+ * The exact bytes both the publisher and the installer hash, so a bootstrap
+ * whose requirements were edited no longer matches the signature it carries.
+ * Keys are sorted and the shape is fixed; the C# installer mirrors this.
+ */
+export function yucpBootstrapRequirementsPayload(input: {
+  vpmDependencies?: Readonly<Record<string, string>>;
+  vpmRepositories?: Readonly<Record<string, string>>;
+}): Uint8Array {
+  const sorted = (value: Readonly<Record<string, string>> | undefined) =>
+    Object.fromEntries(
+      Object.entries(value ?? {})
+        .map(([name, entry]) => [name.trim(), entry.trim()] as const)
+        .filter(([name, entry]) => name.length > 0 && entry.length > 0)
+        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    );
+  return new TextEncoder().encode(
+    JSON.stringify({
+      purpose: 'yucp-bootstrap-requirements-v1',
+      vpmDependencies: sorted(input.vpmDependencies),
+      vpmRepositories: sorted(input.vpmRepositories),
+    })
+  );
+}
 
 export function yucpBootstrapIntentSigningPayload(input: {
   aliasId: string;
@@ -80,6 +110,9 @@ export function yucpBootstrapIntentSigningPayload(input: {
       ...(normalizedIntent.version ? { version: normalizedIntent.version } : {}),
       ...(normalizedIntent.versionId ? { versionId: normalizedIntent.versionId } : {}),
       ...(normalizedIntent.releaseRoot ? { releaseRoot: normalizedIntent.releaseRoot } : {}),
+      ...(normalizedIntent.requirementsDigest
+        ? { requirementsDigest: normalizedIntent.requirementsDigest }
+        : {}),
     })
   );
 }
@@ -175,6 +208,16 @@ function normalizeBootstrapIntent(value: unknown): YucpBootstrapIntent {
     editionId,
     signature,
   };
+  if (value.requirementsDigest !== undefined) {
+    const requirementsDigest = trimRequiredString(
+      value.requirementsDigest,
+      `${fieldName}.requirementsDigest`
+    ).toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(requirementsDigest)) {
+      throw new Error(`${fieldName}.requirementsDigest must be a SHA-256 hex digest`);
+    }
+    normalized.requirementsDigest = requirementsDigest;
+  }
   if (mode === 'latest') {
     if (
       value.version !== undefined ||

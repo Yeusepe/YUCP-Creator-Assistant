@@ -13,6 +13,8 @@ import {
   YUCP_ALIAS_PACKAGE_INSTALL_STRATEGIES,
   YUCP_ALIAS_PACKAGE_KIND,
   YUCP_ALIAS_PACKAGE_VERSIONED_KIND,
+  yucpBootstrapIntentSigningPayload,
+  yucpBootstrapRequirementsPayload,
 } from './yucpAliasPackageContract';
 
 describe('normalizeYucpAliasPackageContract', () => {
@@ -537,5 +539,68 @@ describe('applyYucpAliasPackageManifestDefaults', () => {
         'com.yucp.importer': '>=0.1.71',
       },
     });
+  });
+});
+
+describe('bootstrap requirements binding', () => {
+  it('hashes the same requirements to the same bytes regardless of order', () => {
+    const a = yucpBootstrapRequirementsPayload({
+      vpmDependencies: { 'com.vrcfury.vrcfury': '>=0.0.0', 'adjerry91.vrcft.templates': '>=0.0.0' },
+      vpmRepositories: { 'VRCFury Repo': 'https://vcc.vrcfury.com/' },
+    });
+    const b = yucpBootstrapRequirementsPayload({
+      vpmDependencies: { 'adjerry91.vrcft.templates': '>=0.0.0', 'com.vrcfury.vrcfury': '>=0.0.0' },
+      vpmRepositories: { 'VRCFury Repo': 'https://vcc.vrcfury.com/' },
+    });
+    expect(new TextDecoder().decode(a)).toBe(new TextDecoder().decode(b));
+  });
+
+  it('changes when an attacker adds a repository', () => {
+    const honest = yucpBootstrapRequirementsPayload({
+      vpmDependencies: { 'com.vrcfury.vrcfury': '>=0.0.0' },
+    });
+    const tampered = yucpBootstrapRequirementsPayload({
+      vpmDependencies: { 'com.vrcfury.vrcfury': '>=0.0.0' },
+      vpmRepositories: { Hostile: 'https://evil.example.test/index.json' },
+    });
+    expect(new TextDecoder().decode(honest)).not.toBe(new TextDecoder().decode(tampered));
+  });
+
+  it('signs over the digest so an edited requirement invalidates the intent', () => {
+    const signed = yucpBootstrapIntentSigningPayload({
+      aliasId: 'com.lunararray.druffle',
+      intent: {
+        schemaVersion: 1,
+        intentId: '00000000-0000-4000-8000-000000000901',
+        mode: 'latest',
+        issuedAt: 1_775_000_000,
+        keyId: 'package-install-2026-07',
+        editionId: 'standard',
+        requirementsDigest: 'a'.repeat(64),
+      },
+    });
+    expect(new TextDecoder().decode(signed)).toContain('requirementsDigest');
+    expect(new TextDecoder().decode(signed)).toContain('a'.repeat(64));
+  });
+
+  it('rejects a digest that is not a SHA-256 hex string', () => {
+    expect(() =>
+      normalizeYucpAliasPackageContract({
+        kind: 'alias-v2',
+        aliasId: 'com.lunararray.druffle',
+        installStrategy: 'server-authorized',
+        importerPackage: 'com.yucp.importer',
+        bootstrapIntent: {
+          schemaVersion: 1,
+          intentId: '00000000-0000-4000-8000-000000000902',
+          mode: 'latest',
+          issuedAt: 1_775_000_000,
+          keyId: 'package-install-2026-07',
+          editionId: 'standard',
+          requirementsDigest: 'not-a-digest',
+          signature: 'AAAA',
+        },
+      })
+    ).toThrow('requirementsDigest');
   });
 });
