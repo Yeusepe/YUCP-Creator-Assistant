@@ -291,8 +291,43 @@ export const resolveTraceBuyerIdentitiesForAuthUser = query({
       licenseKeyLegacy?: string;
       provider?: string;
     }> = [];
-    // Resolved concurrently: three reads per buyer, serialized across 64
-    // buyers, is up to 192 round trips inside one query, which approaches
+    // Entitlements are granted under the creator's catalog product, not the
+    // package: the verification funnel writes the catalog's logical productId
+    // and links catalogProductId, and packages join those products through
+    // package_catalog_bindings - the same mapping the delivery path uses.
+    // Comparing entitlement.productId against the package id compared two
+    // different namespaces and silently dropped every licence.
+    const packageBindings = await ctx.db
+      .query('package_catalog_bindings')
+      .withIndex('by_creator_package_status', (q) =>
+        q
+          .eq('creatorAuthUserId', args.authUserId)
+          .eq('packageId', args.packageId)
+          .eq('status', 'active')
+      )
+      .collect();
+    const boundCatalogProductIds = new Set(
+      packageBindings.map((binding) => String(binding.catalogProductId))
+    );
+    const boundProducts = await Promise.all(
+      packageBindings.map((binding) => ctx.db.get(binding.catalogProductId))
+    );
+    // Entitlements written before catalogProductId existed carry only the
+    // catalog's logical product id, so those ids are accepted as well.
+    const boundLogicalProductIds = new Set(
+      boundProducts.flatMap((product) =>
+        product && product.authUserId === args.authUserId ? [product.productId] : []
+      )
+    );
+    const entitlementMatchesPackage = (entitlement: Doc<'entitlements'>): boolean =>
+      entitlement.authUserId === args.authUserId &&
+      (entitlement.catalogProductId
+        ? boundCatalogProductIds.has(String(entitlement.catalogProductId))
+        : boundLogicalProductIds.has(entitlement.productId) ||
+          entitlement.productId === args.packageId);
+
+    // Resolved concurrently: a handful of reads per buyer, serialized across
+    // 64 buyers, is hundreds of round trips inside one query, which approaches
     // Convex's execution limits and sits on the lookup's response path.
     const uniqueBuyerIds = [...new Set(args.buyerIds.filter(Boolean))].slice(
       0,
@@ -326,13 +361,26 @@ export const resolveTraceBuyerIdentitiesForAuthUser = query({
         return { buyerId, subjectsMatched: 0 };
       }
 
-      // Scoped to this product: owning a package does not entitle a creator to
-      // the buyer's licences for anything else.
-      const entitlement = await ctx.db
-        .query('entitlements')
-        .withIndex('by_subject', (q) => q.eq('subjectId', subject._id))
-        .filter((q) => q.eq(q.field('productId'), args.packageId))
-        .first();
+      // Scoped to this package via its catalog bindings: owning a package does
+      // not entitle a creator to the buyer's licences for anything else.
+      // Searched across every subject row the buyer has, the way the delivery
+      // path does - a re-linked account leaves the entitlement on an older
+      // subject row than the one chosen above for display.
+      const entitlementsBySubject = await Promise.all(
+        subjectMatches.map((subjectMatch) =>
+          ctx.db
+            .query('entitlements')
+            .withIndex('by_subject', (q) => q.eq('subjectId', subjectMatch._id))
+            .collect()
+        )
+      );
+      const packageEntitlements = entitlementsBySubject.flat().filter(entitlementMatchesPackage);
+      // A revoked or refunded purchase is still the answer to "who bought this
+      // file", so a terminal entitlement only loses to an active one.
+      const entitlement =
+        packageEntitlements.find((candidate) => candidate.status === 'active') ??
+        packageEntitlements[0] ??
+        null;
       const licenseSubject = entitlement?.licenseSubject;
       // licenseVerification writes this link under the BUYER's account
       // (upsertLicenseSubjectLink receives buyerAuthUserId), so keying it by

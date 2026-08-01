@@ -175,3 +175,199 @@ describe('coupling forensics authorization and audit projection', () => {
     ).rejects.toThrow('Attribution audit counts are invalid');
   });
 });
+
+describe('trace buyer identity resolution', () => {
+  beforeEach(() => {
+    process.env.CONVEX_API_SECRET = 'test-secret';
+  });
+
+  test('resolves the licence through the package catalog binding', async () => {
+    const t = makeTestConvex();
+    await seedTraceablePackage(t, {
+      authUserId: 'creator-1',
+      packageId: 'com.yucp.songthing',
+    });
+    const licenseSubject = 'ab'.repeat(32);
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      const catalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: 'creator-1',
+        createdAt: now,
+        // The catalog's logical product id, which is what entitlements carry.
+        // It deliberately differs from the package id: the resolver must join
+        // through package_catalog_bindings, not compare the two directly.
+        productId: 'song-thing',
+        provider: 'gumroad',
+        providerProductRef: 'gum-song-thing',
+        status: 'active',
+        supportsAutoDiscovery: false,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_catalog_bindings', {
+        catalogProductId,
+        createdAt: now,
+        creatorAuthUserId: 'creator-1',
+        packageId: 'com.yucp.songthing',
+        status: 'active',
+        updatedAt: now,
+      });
+      const subjectId = await ctx.db.insert('subjects', {
+        authUserId: 'buyer-1',
+        createdAt: now,
+        displayName: 'shapes',
+        primaryDiscordUserId: 'discord-buyer-1',
+        status: 'active',
+        updatedAt: now,
+      });
+      await ctx.db.insert('entitlements', {
+        authUserId: 'creator-1',
+        catalogProductId,
+        grantedAt: now,
+        licenseSubject,
+        productId: 'song-thing',
+        sourceProvider: 'gumroad',
+        sourceReference: 'gumroad:order-1',
+        status: 'active',
+        subjectId,
+        updatedAt: now,
+      });
+      await ctx.db.insert('license_subject_links', {
+        authUserId: 'buyer-1',
+        createdAt: now,
+        licenseKeyEncrypted: 'encrypted-license-key',
+        licenseSubject,
+        provider: 'gumroad',
+        providerUserId: 'gum-user-1',
+      });
+      await ctx.db.insert('external_accounts', {
+        createdAt: now,
+        provider: 'gumroad',
+        providerUserId: 'gum-user-1',
+        providerUsername: 'gumbuyer',
+        status: 'active',
+        updatedAt: now,
+      });
+    });
+
+    const result = await t.query(
+      api.couplingForensics.resolveTraceBuyerIdentitiesForAuthUser,
+      {
+        apiSecret: 'test-secret',
+        authUserId: 'creator-1',
+        buyerIds: ['buyer-1'],
+        packageId: 'com.yucp.songthing',
+      }
+    );
+
+    expect(result.packageOwned).toBe(true);
+    expect(result.identities).toEqual([
+      {
+        buyerId: 'buyer-1',
+        buyerProviderUserId: 'gum-user-1',
+        buyerProviderUsername: 'gumbuyer',
+        buyerSubjectDiscordUserId: 'discord-buyer-1',
+        buyerSubjectDisplayName: 'shapes',
+        hasEntitlement: true,
+        hasLicenseLink: true,
+        hasLicenseSubject: true,
+        licenseFingerprint: `gumroad · ${licenseSubject.slice(0, 10)}`,
+        licenseKeyEncrypted: 'encrypted-license-key',
+        provider: 'gumroad',
+        subjectsMatched: 1,
+      },
+    ]);
+  });
+
+  test('finds a legacy entitlement on an older subject row', async () => {
+    const t = makeTestConvex();
+    await seedTraceablePackage(t, {
+      authUserId: 'creator-1',
+      packageId: 'com.yucp.songthing',
+    });
+    const licenseSubject = 'cd'.repeat(32);
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      const catalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: 'creator-1',
+        createdAt: now,
+        productId: 'song-thing',
+        provider: 'gumroad',
+        providerProductRef: 'gum-song-thing',
+        status: 'active',
+        supportsAutoDiscovery: false,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_catalog_bindings', {
+        catalogProductId,
+        createdAt: now,
+        creatorAuthUserId: 'creator-1',
+        packageId: 'com.yucp.songthing',
+        status: 'active',
+        updatedAt: now,
+      });
+      // The buyer re-linked Discord: the entitlement lives on the retired
+      // subject row, while the active row is the one shown to the creator.
+      const retiredSubjectId = await ctx.db.insert('subjects', {
+        authUserId: 'buyer-1',
+        createdAt: now - 1000,
+        primaryDiscordUserId: 'discord-old',
+        status: 'suspended',
+        updatedAt: now - 1000,
+      });
+      await ctx.db.insert('subjects', {
+        authUserId: 'buyer-1',
+        createdAt: now,
+        displayName: 'shapes',
+        primaryDiscordUserId: 'discord-new',
+        status: 'active',
+        updatedAt: now,
+      });
+      // Written before catalogProductId existed: only the catalog's logical
+      // product id connects it to the package.
+      await ctx.db.insert('entitlements', {
+        authUserId: 'creator-1',
+        grantedAt: now,
+        licenseSubject,
+        productId: 'song-thing',
+        sourceProvider: 'gumroad',
+        sourceReference: 'gumroad:order-2',
+        status: 'active',
+        subjectId: retiredSubjectId,
+        updatedAt: now,
+      });
+      await ctx.db.insert('license_subject_links', {
+        authUserId: 'buyer-1',
+        createdAt: now,
+        licenseKeyEncrypted: 'encrypted-license-key-2',
+        licenseSubject,
+        provider: 'gumroad',
+      });
+    });
+
+    const result = await t.query(
+      api.couplingForensics.resolveTraceBuyerIdentitiesForAuthUser,
+      {
+        apiSecret: 'test-secret',
+        authUserId: 'creator-1',
+        buyerIds: ['buyer-1'],
+        packageId: 'com.yucp.songthing',
+      }
+    );
+
+    expect(result.packageOwned).toBe(true);
+    expect(result.identities).toEqual([
+      {
+        buyerId: 'buyer-1',
+        buyerSubjectDiscordUserId: 'discord-new',
+        buyerSubjectDisplayName: 'shapes',
+        hasEntitlement: true,
+        hasLicenseLink: true,
+        hasLicenseSubject: true,
+        licenseFingerprint: `gumroad · ${licenseSubject.slice(0, 10)}`,
+        licenseKeyEncrypted: 'encrypted-license-key-2',
+        provider: 'gumroad',
+        subjectsMatched: 2,
+      },
+    ]);
+  });
+});
