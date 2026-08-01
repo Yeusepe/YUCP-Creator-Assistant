@@ -1,4 +1,17 @@
-import { Autocomplete, Button, Chip, Label, ListBox, SearchField, useFilter } from '@heroui/react';
+import {
+  Alert,
+  Autocomplete,
+  Button,
+  Chip,
+  Disclosure,
+  Label,
+  ListBox,
+  SearchField,
+  Table,
+  useFilter,
+} from '@heroui/react';
+import { Stepper } from '@heroui-pro/react/stepper';
+import { Timeline } from '@heroui-pro/react/timeline';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
@@ -12,6 +25,7 @@ import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
 import { hasActiveCreatorBillingCapability, listCreatorCertificates } from '@/lib/certificates';
 import {
+  type CouplingForensicsAssetResult,
   type CouplingForensicsLookupResponse,
   isCouplingTraceabilityRequiredError,
   listCouplingForensicsPackages,
@@ -175,6 +189,223 @@ function MetaField({
   );
 }
 
+const ASSET_CLASSIFICATION_LABEL: Record<
+  CouplingForensicsAssetResult['layerBClassification'],
+  { label: string; color: 'success' | 'danger' | 'warning' | 'default' }
+> = {
+  'trace-recovered': { color: 'success', label: 'Trace recovered' },
+  'tamper-suspected': { color: 'danger', label: 'Tamper suspected' },
+  'trace-likely-stripped': { color: 'warning', label: 'Trace stripped' },
+  'unsupported-transform': { color: 'default', label: 'Unsupported' },
+  'no-signal-found': { color: 'default', label: 'No signal' },
+};
+
+const SCAN_PHASES = [
+  { description: 'Unpacking the archive and finding traceable files', title: 'Reading upload' },
+  { description: 'Confirming you own this package', title: 'Checking access' },
+  { description: 'Decoding traces against your buyer records', title: 'Comparing buyers' },
+  { description: 'Resolving the licenses behind each match', title: 'Identifying licenses' },
+] as const;
+
+/**
+ * Live phase progress while the lookup is in flight.
+ *
+ * The scan is one request with no intermediate reporting, so the step shown is
+ * driven by elapsed time against the phases' measured shape: everything before
+ * the buyer comparison is sub-second, and the comparison is what takes minutes.
+ * It never claims to be finished, which the verdict does when it arrives.
+ */
+function ForensicsScanProgress({ startedAt }: { startedAt: number }) {
+  const [elapsedMs, setElapsedMs] = useState(() => Date.now() - startedAt);
+  useEffect(() => {
+    const timer = window.setInterval(() => setElapsedMs(Date.now() - startedAt), 250);
+    return () => window.clearInterval(timer);
+  }, [startedAt]);
+  const currentStep = elapsedMs < 700 ? 0 : elapsedMs < 1500 ? 1 : 2;
+
+  return (
+    <div className="fx-pane space-y-3 p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-foreground text-sm font-medium">Scanning</p>
+        <span className="text-muted text-xs tabular-nums">
+          {(elapsedMs / 1000).toFixed(0)}s elapsed
+        </span>
+      </div>
+      <Stepper currentStep={currentStep} orientation="vertical" size="sm">
+        {SCAN_PHASES.map((phase) => (
+          <Stepper.Step key={phase.title}>
+            <Stepper.Indicator />
+            <Stepper.Content>
+              <Stepper.Title>{phase.title}</Stepper.Title>
+              <Stepper.Description>{phase.description}</Stepper.Description>
+            </Stepper.Content>
+            <Stepper.Separator />
+          </Stepper.Step>
+        ))}
+      </Stepper>
+      <p className="text-muted text-xs">
+        Comparing buyers is the slow phase. Files with flat or near-flat colour carry no recoverable
+        trace, so they are compared against every buyer before they can be ruled out.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * What the scan looked at and how far it got.
+ *
+ * A verdict of "no match" means something different when the scan covered the
+ * whole buyer list than when it stopped at its time budget, so the coverage is
+ * reported next to the verdict rather than left implicit.
+ */
+function ForensicsScanReport({ result }: { result: CouplingForensicsLookupResponse }) {
+  const { scan } = result;
+  const stats: Array<{ label: string; value: string }> = [
+    { label: 'Assets scanned', value: String(result.candidateAssetCount) },
+    { label: 'Traces decoded', value: String(result.decodedAssetCount) },
+    ...(scan
+      ? [
+          { label: 'Buyers compared', value: String(scan.requestedCandidateCount) },
+          { label: 'Elapsed', value: `${(scan.durationMs / 1000).toFixed(1)}s` },
+        ]
+      : []),
+  ];
+
+  return (
+    <div className="space-y-3">
+      {scan && !scan.complete ? (
+        <Alert status="warning">
+          <Alert.Indicator />
+          <Alert.Content>
+            <Alert.Title>Scan stopped early</Alert.Title>
+            <Alert.Description>
+              The scan reached its time budget after comparing {scan.requestedCandidateCount}{' '}
+              buyers. Everything above is what it found so far, so a buyer further down the list
+              would not appear yet.
+            </Alert.Description>
+          </Alert.Content>
+        </Alert>
+      ) : null}
+
+      <dl className="flex flex-wrap gap-2">
+        {stats.map((stat) => (
+          <div
+            key={stat.label}
+            className="bg-surface-secondary flex items-baseline gap-2 rounded-lg px-3 py-2"
+          >
+            <dt className="text-muted text-xs">{stat.label}</dt>
+            <dd className="text-foreground text-sm font-semibold tabular-nums">{stat.value}</dd>
+          </div>
+        ))}
+      </dl>
+
+      {scan?.pages && scan.pages.length > 0 ? (
+        <Disclosure>
+          <Disclosure.Heading>
+            <Button slot="trigger" variant="tertiary" size="sm">
+              Scan log
+              <Disclosure.Indicator />
+            </Button>
+          </Disclosure.Heading>
+          <Disclosure.Content>
+            <Disclosure.Body className="pt-2">
+              <Timeline>
+                {scan.pages.map((page) => (
+                  <Timeline.Item key={page.page} status={page.resolved > 0 ? 'success' : 'muted'}>
+                    <Timeline.Rail>
+                      <Timeline.Marker />
+                      <Timeline.Connector />
+                    </Timeline.Rail>
+                    <Timeline.Content>
+                      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 pb-4">
+                        <p className="text-foreground text-sm font-medium">
+                          Compared {page.buyersCompared} buyers
+                        </p>
+                        <span className="text-muted text-xs tabular-nums">
+                          {(page.elapsedMs / 1000).toFixed(1)}s
+                        </span>
+                        {page.resolved > 0 ? (
+                          <Chip color="success" variant="soft" size="sm">
+                            <Chip.Label>
+                              {page.resolved} trace{page.resolved === 1 ? '' : 's'} decoded
+                            </Chip.Label>
+                          </Chip>
+                        ) : (
+                          <span className="text-muted text-xs">
+                            {page.unresolvedAfter} file
+                            {page.unresolvedAfter === 1 ? '' : 's'} still unidentified
+                          </span>
+                        )}
+                      </div>
+                    </Timeline.Content>
+                  </Timeline.Item>
+                ))}
+              </Timeline>
+            </Disclosure.Body>
+          </Disclosure.Content>
+        </Disclosure>
+      ) : null}
+
+      {result.results.length > 0 ? (
+        <Disclosure>
+          <Disclosure.Heading>
+            <Button slot="trigger" variant="tertiary" size="sm">
+              Per-file detail
+              <Disclosure.Indicator />
+            </Button>
+          </Disclosure.Heading>
+          <Disclosure.Content>
+            <Disclosure.Body className="pt-2">
+              <Table>
+                <Table.ScrollContainer>
+                  <Table.Content aria-label="Per-file scan results">
+                    <Table.Header>
+                      <Table.Column isRowHeader>File</Table.Column>
+                      <Table.Column>Result</Table.Column>
+                      <Table.Column>License</Table.Column>
+                    </Table.Header>
+                    <Table.Body>
+                      {result.results.map((assetResult) => {
+                        const classification =
+                          ASSET_CLASSIFICATION_LABEL[assetResult.layerBClassification];
+                        // Which licence this individual file traces to, so a
+                        // multi-buyer archive shows per-file provenance rather
+                        // than one verdict for the whole upload.
+                        const licenses = [
+                          ...new Set(
+                            assetResult.matches
+                              .map((match) => match.licenseMasked?.trim())
+                              .filter((license): license is string => Boolean(license))
+                          ),
+                        ];
+                        return (
+                          <Table.Row key={assetResult.assetPath}>
+                            <Table.Cell className="font-mono text-xs break-all">
+                              {assetResult.assetPath}
+                            </Table.Cell>
+                            <Table.Cell>
+                              <Chip color={classification.color} variant="soft" size="sm">
+                                <Chip.Label>{classification.label}</Chip.Label>
+                              </Chip>
+                            </Table.Cell>
+                            <Table.Cell className="font-mono text-xs break-all tabular-nums">
+                              {licenses.length > 0 ? licenses.join(', ') : '—'}
+                            </Table.Cell>
+                          </Table.Row>
+                        );
+                      })}
+                    </Table.Body>
+                  </Table.Content>
+                </Table.ScrollContainer>
+              </Table>
+            </Disclosure.Body>
+          </Disclosure.Content>
+        </Disclosure>
+      ) : null}
+    </div>
+  );
+}
+
 export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?: string } = {}) {
   const toast = useToast();
   const { isPersonalDashboard } = useActiveDashboardContext();
@@ -185,6 +416,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [lookupResult, setLookupResult] = useState<CouplingForensicsLookupResponse | null>(null);
+  const [scanStartedAt, setScanStartedAt] = useState<number | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
@@ -325,6 +557,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
     onMutate: () => {
       setInlineError(null);
       setLookupResult(null);
+      setScanStartedAt(Date.now());
     },
     onSuccess: (result) => {
       setLookupResult(result);
@@ -675,71 +908,85 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
           </div>
         </section>
 
+        {/* Live scan progress, replaced by the verdict when it lands */}
+        {lookupMutation.isPending && scanStartedAt ? (
+          <section className="intg-card animate-in animate-in-delay-1 bento-col-12">
+            <ForensicsScanProgress startedAt={scanStartedAt} />
+          </section>
+        ) : null}
+
         {/* Results */}
         {lookupResult && verdictKind ? (
           <section className="intg-card animate-in animate-in-delay-1 bento-col-12">
             <div className="space-y-4">
               {verdictKind === 'match' ? (
                 <>
-                  <FxNote
-                    tone="success"
-                    title={
-                      matchedBuyers.length === 1
-                        ? 'Buyer identified'
-                        : `${matchedBuyers.length} buyers identified`
-                    }
-                    description={
-                      matchedBuyers.length === 1
-                        ? 'This file traces back to the following purchase.'
-                        : 'This file traces back to the following purchases.'
-                    }
-                  />
+                  <Alert status="success">
+                    <Alert.Indicator />
+                    <Alert.Content>
+                      <Alert.Title>
+                        {matchedBuyers.length === 1
+                          ? 'Buyer identified'
+                          : `${matchedBuyers.length} buyers identified`}
+                      </Alert.Title>
+                      <Alert.Description>
+                        {matchedBuyers.length === 1
+                          ? 'This file traces back to the license below.'
+                          : 'This file traces back to the licenses below.'}
+                      </Alert.Description>
+                    </Alert.Content>
+                  </Alert>
                   <div className="space-y-3">
                     {matchedBuyers.map((buyer) => (
-                      <div key={buyer.buyerMatchId} className="fx-pane space-y-3 p-4">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-foreground text-sm font-semibold">
-                            {buyer.buyerDisplayLabel}
-                          </p>
+                      <div key={buyer.buyerMatchId} className="fx-pane space-y-4 p-4">
+                        {/* The license is the answer this whole panel exists to
+                            produce, so it leads rather than trailing a meta list. */}
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0 space-y-1">
+                            <p className="text-muted text-xs">License</p>
+                            {buyer.licenseMasked ? (
+                              <p className="text-foreground font-mono text-base font-semibold tabular-nums break-all">
+                                {buyer.licenseMasked}
+                              </p>
+                            ) : (
+                              <p className="text-muted text-base">Not recorded for this purchase</p>
+                            )}
+                          </div>
                           {buyer.provider ? (
-                            <Chip
-                              size="sm"
-                              variant="soft"
-                              className="text-foreground/60 capitalize"
-                            >
-                              {buyer.provider}
+                            <Chip color="success" variant="soft">
+                              <Chip.Label className="capitalize">{buyer.provider}</Chip.Label>
                             </Chip>
                           ) : null}
                         </div>
                         <dl className="grid grid-cols-1 gap-x-6 gap-y-2.5 sm:grid-cols-2">
+                          <MetaField label="Buyer">{buyer.buyerDisplayLabel}</MetaField>
                           {buyer.buyerProviderUsername &&
                           buyer.buyerProviderUsername !== buyer.buyerDisplayLabel ? (
                             <MetaField label="Store account">
                               {buyer.buyerProviderUsername}
                             </MetaField>
                           ) : null}
-
                           <MetaField label="Trace recorded">
                             {formatBuyerDate(buyer.createdAt)}
                           </MetaField>
-
-                          {buyer.licenseMasked ? (
-                            <MetaField label="License" full mono>
-                              {buyer.licenseMasked}
-                            </MetaField>
-                          ) : null}
                         </dl>
                       </div>
                     ))}
                   </div>
                 </>
               ) : (
-                <FxNote
-                  tone={VERDICT_CONFIG[verdictKind].tone}
-                  title={VERDICT_CONFIG[verdictKind].title}
-                  description={VERDICT_CONFIG[verdictKind].description}
-                />
+                <Alert
+                  status={VERDICT_CONFIG[verdictKind].tone === 'warning' ? 'warning' : 'default'}
+                >
+                  <Alert.Indicator />
+                  <Alert.Content>
+                    <Alert.Title>{VERDICT_CONFIG[verdictKind].title}</Alert.Title>
+                    <Alert.Description>{VERDICT_CONFIG[verdictKind].description}</Alert.Description>
+                  </Alert.Content>
+                </Alert>
               )}
+
+              <ForensicsScanReport result={lookupResult} />
             </div>
           </section>
         ) : null}

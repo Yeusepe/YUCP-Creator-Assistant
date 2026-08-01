@@ -41,6 +41,28 @@ export interface CouplingForensicsAssetResult {
   matches: CouplingForensicsMatchSummary[];
 }
 
+/** One page of buyer candidates, as it was actually scored. */
+export interface CouplingForensicsScanPage {
+  page: number;
+  buyersCompared: number;
+  /** Assets whose trace was decoded on this page. */
+  resolved: number;
+  unresolvedAfter: number;
+  /** Milliseconds from the start of the scan to the end of this page. */
+  elapsedMs: number;
+}
+
+/** What the candidate scan actually did, so the verdict can be read in context. */
+export interface CouplingForensicsScanSummary {
+  /** False when the scan hit its time budget before exhausting the buyer list. */
+  complete: boolean;
+  durationMs: number;
+  pagesScanned: number;
+  requestedCandidateCount: number;
+  candidateEvaluationCount: number;
+  pages?: CouplingForensicsScanPage[];
+}
+
 export interface CouplingForensicsLookupResponse {
   packageId: string;
   lookupStatus:
@@ -53,6 +75,7 @@ export interface CouplingForensicsLookupResponse {
   candidateAssetCount: number;
   decodedAssetCount: number;
   results: CouplingForensicsAssetResult[];
+  scan?: CouplingForensicsScanSummary;
 }
 
 export interface CouplingForensicsPackageList {
