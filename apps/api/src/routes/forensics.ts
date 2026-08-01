@@ -583,8 +583,12 @@ async function resolveMatchedBuyerIdentities(input: {
       identities: Array<
         RevealedBuyerIdentity & {
           buyerId: string;
+          hasEntitlement?: boolean;
+          hasLicenseLink?: boolean;
+          hasLicenseSubject?: boolean;
           licenseKeyEncrypted?: string;
           licenseKeyLegacy?: string;
+          subjectsMatched?: number;
         }
       >;
       packageOwned: boolean;
@@ -605,6 +609,17 @@ async function resolveMatchedBuyerIdentities(input: {
       if (!identity) {
         continue;
       }
+      // Where the join stopped. A buyer with several subject rows resolves to
+      // whichever one this picked, so an ambiguous account has to be visible
+      // rather than silently reported as fact.
+      logger.info('Coupling trace resolved a buyer identity', {
+        hasDiscord: Boolean(identity.buyerSubjectDiscordUserId),
+        hasEntitlement: identity.hasEntitlement ?? false,
+        hasLicenseLink: identity.hasLicenseLink ?? false,
+        hasLicenseSubject: identity.hasLicenseSubject ?? false,
+        packageId: input.packageId,
+        subjectsMatched: identity.subjectsMatched ?? 0,
+      });
       // Newer purchases store the key encrypted; older ones were written in the
       // clear before that column existed and are used as-is.
       let licenseKey: string | undefined = identity.licenseKeyLegacy;

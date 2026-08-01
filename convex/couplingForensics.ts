@@ -227,6 +227,11 @@ export const resolveTraceBuyerIdentitiesForAuthUser = query({
     identities: v.array(
       v.object({
         buyerId: v.string(),
+        /** Where the join stops, so a wrong or missing answer is diagnosable. */
+        subjectsMatched: v.optional(v.number()),
+        hasEntitlement: v.optional(v.boolean()),
+        hasLicenseSubject: v.optional(v.boolean()),
+        hasLicenseLink: v.optional(v.boolean()),
         buyerProviderUserId: v.optional(v.string()),
         buyerProviderUsername: v.optional(v.string()),
         buyerSubjectDiscordUserId: v.optional(v.string()),
@@ -273,6 +278,10 @@ export const resolveTraceBuyerIdentitiesForAuthUser = query({
 
     const identities: Array<{
       buyerId: string;
+      subjectsMatched?: number;
+      hasEntitlement?: boolean;
+      hasLicenseSubject?: boolean;
+      hasLicenseLink?: boolean;
       buyerProviderUserId?: string;
       buyerProviderUsername?: string;
       buyerSubjectDiscordUserId?: string;
@@ -294,12 +303,27 @@ export const resolveTraceBuyerIdentitiesForAuthUser = query({
 
       // The sealed buyer id is the buyer's account, which is what carries the
       // Discord handle a creator recognises.
-      const subject = await ctx.db
+      // authUserId is optional on subjects and the index is not unique, so a
+      // buyer with more than one subject row (a re-link, a second Discord
+      // account) made .first() return an arbitrary one - which is how a trace
+      // can name the wrong person. Prefer an active row, then the most
+      // recently updated, so the answer is at least deterministic, and report
+      // how many matched so an ambiguous account is visible rather than
+      // silently resolved.
+      const subjectMatches = await ctx.db
         .query('subjects')
         .withIndex('by_auth_user', (q) => q.eq('authUserId', buyerId))
-        .first();
+        .collect();
+      const subject =
+        subjectMatches
+          .slice()
+          .sort((left, right) => {
+            const activeDelta =
+              Number(right.status === 'active') - Number(left.status === 'active');
+            return activeDelta !== 0 ? activeDelta : right.updatedAt - left.updatedAt;
+          })[0] ?? null;
       if (!subject) {
-        return { buyerId };
+        return { buyerId, subjectsMatched: 0 };
       }
 
       // Scoped to this product: owning a package does not entitle a creator to
@@ -336,6 +360,10 @@ export const resolveTraceBuyerIdentitiesForAuthUser = query({
 
       return {
         buyerId,
+        subjectsMatched: subjectMatches.length,
+        hasEntitlement: Boolean(entitlement),
+        hasLicenseSubject: Boolean(licenseSubject),
+        hasLicenseLink: Boolean(link),
         ...(link?.providerUserId ? { buyerProviderUserId: link.providerUserId } : {}),
         ...(buyerProviderUsername ? { buyerProviderUsername } : {}),
         ...(subject.primaryDiscordUserId
