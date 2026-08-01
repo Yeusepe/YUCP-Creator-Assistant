@@ -188,4 +188,51 @@ describe('YUCP bootstrap Unity package', () => {
       YUCP: 'https://vpm.yucp.club/index.json',
     });
   });
+  it('hands the installer the requirements the package actually declares', () => {
+    // Druffle's real set: without these the installer resolves nothing but the
+    // importer, so the packages appear in the manifest and never download.
+    const bootstrap = buildYucpAliasVpmPackage({
+      aliasId: 'com.lunararray.druffle',
+      artifactUrl: `https://vpm.test/api/vpm/alias-publications/${PUBLICATION_ID}/1.0.0.zip`,
+      bootstrapVersion: '1.0.0',
+      vpmDependencies: {
+        'adjerry91.vrcft.templates': '>=0.0.0',
+        'com.vrcfury.vrcfury': '>=0.0.0',
+        gogoloco: '>=0.0.0',
+      },
+      vpmRepositories: {
+        "VRCFT - Jerry's Templates Listing":
+          'https://adjerry91.github.io/VRCFaceTracking-Templates/index.json',
+        'GoGoLoco Listing': 'https://spokeek.github.io/goloco/index.json',
+      },
+    });
+    const unityPackage = buildYucpBootstrapUnityPackage({
+      bootstrap,
+      importerRepositoryUrl: 'https://vpm.yucp.club/index.json',
+      installerRuntime: Uint8Array.from([0x4d, 0x5a, 0x01, 0x02]),
+      installerRuntimeMeta: new TextEncoder().encode('guid: 00000000000000000000000000000001'),
+    });
+    const assets = packageAssets(parseUnityPackage(unityPackage.bytes));
+    const descriptorEntry = [...assets].find(([pathname]) =>
+      /_temp\/YUCP_TempInstall_[0-9a-f]{32}\.json$/.test(pathname)
+    );
+    const descriptor = JSON.parse(new TextDecoder().decode(descriptorEntry?.[1])) as {
+      vpmDependencies: Record<string, string>;
+      vpmRepositories: Record<string, string>;
+    };
+
+    expect(descriptor.vpmDependencies).toMatchObject({
+      'adjerry91.vrcft.templates': '>=0.0.0',
+      'com.vrcfury.vrcfury': '>=0.0.0',
+      gogoloco: '>=0.0.0',
+    });
+    expect(descriptor.vpmRepositories).toMatchObject({
+      "VRCFT - Jerry's Templates Listing":
+        'https://adjerry91.github.io/VRCFaceTracking-Templates/index.json',
+      'GoGoLoco Listing': 'https://spokeek.github.io/goloco/index.json',
+    });
+    // The platform still pins the importer and its own repository.
+    expect(descriptor.vpmDependencies['com.yucp.importer']).toBe('>=0.1.71');
+    expect(descriptor.vpmRepositories.YUCP).toBe('https://vpm.yucp.club/index.json');
+  });
 });
