@@ -16,7 +16,7 @@ const FORENSICS_PROXY_REQUEST_BODY_MAX_BYTES =
  * an earlier 120 s ceiling turned a 141 s scan into a bare 504 and discarded
  * twelve batches of completed work.
  */
-const FORENSICS_PROXY_UPSTREAM_TIMEOUT_MS = 420_000;
+const FORENSICS_PROXY_UPSTREAM_TIMEOUT_MS = 540_000;
 
 class ApiProxyRequestBodyTooLargeError extends Error {
   constructor(readonly limitBytes: number) {

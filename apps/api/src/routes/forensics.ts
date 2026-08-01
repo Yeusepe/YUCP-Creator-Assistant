@@ -47,14 +47,19 @@ const FORENSICS_ATTRIBUTION_MAXIMUM_EVALUATION_WORK = 512 * 512;
  * spent 141 s across twelve successful batches and returned a bare 504. The
  * scan now stops here and reports what it found, which is a real answer.
  *
- * Sized from measured throughput rather than a round number. A sixteen-asset
- * package scores about thirteen candidate evaluations a second, so a single
- * 256-buyer page costs roughly 16 x 256 / 13 = 315 s; at 90 s it stopped a
- * quarter of the way in and reported nothing found, which reads like an
- * acquittal but is only a clock. This budget buys that first page outright.
- * The web proxy in front of it must stay above this plus the reveal budget.
+ * Sized from measured throughput rather than a round number. Scoring costs
+ * one evaluation per asset per candidate at about thirteen a second, so a
+ * sixteen-asset package against a 256-buyer page costs 16 x 256 / 13 = 315 s.
+ * At 90 s it got 1112 evaluations in - a quarter of the way - and reported
+ * nothing found, which reads like an acquittal but was only a clock. This
+ * budget clears that first page with room to start the next one.
+ *
+ * It is a ceiling on a synchronous request, not a scaling strategy: a package
+ * with far more assets or buyers needs the scan to become a polled job rather
+ * than a longer wait. The web proxy in front of this must stay above it plus
+ * the reveal budget, or the partial verdict is discarded on the way out.
  */
-export const FORENSICS_ATTRIBUTION_SCAN_BUDGET_MS = 300_000;
+export const FORENSICS_ATTRIBUTION_SCAN_BUDGET_MS = 420_000;
 /** Matched records only: a trace never de-anonymises the set it scanned. */
 const FORENSICS_REVEAL_LIMIT = 64;
 /**
