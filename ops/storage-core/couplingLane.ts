@@ -97,67 +97,32 @@ export function resolveCouplingLane(
 // count, 0.68 against source bytes). So the job budget is denominated in
 // megapixels.
 //
-// 96 megapixels is ~21 s of estimated codec: comfortably inside the 300 s
-// per-invocation CPU ceiling, and small enough that the no-container fast path
-// stays genuinely fast. Anything larger belongs on the container lane, whose
-// cold start (1-3 s typical) is repaid many times over by real parallelism.
-export const COUPLING_WORKER_JOB_MAX_MEGAPIXELS = 96;
-// A long tail of tiny files still costs per-file overhead (key derivation, a
-// cache probe, an R2 write) that no pixel budget captures.
-export const COUPLING_WORKER_JOB_MAX_FILES = 48;
-// FBX coupling is negligible next to PNG (13 files measured at 0.4 s total),
-// so it contributes to the file count but not to the pixel budget.
-export const COUPLING_WORKER_MEGAPIXELS_PER_MS = 1 / 224;
-
 export type CouplingJobFile = {
   couplingLane?: CouplingLane | undefined;
   pixelHeight?: number | undefined;
   pixelWidth?: number | undefined;
 };
 
-export type CouplingJobLaneLimits = {
-  maxFiles: number;
-  maxMegapixels: number;
-};
-
-const DEFAULT_JOB_LIMITS: CouplingJobLaneLimits = {
-  maxFiles: COUPLING_WORKER_JOB_MAX_FILES,
-  maxMegapixels: COUPLING_WORKER_JOB_MAX_MEGAPIXELS,
-};
-
 /**
- * Decides whether a whole job may take the in-isolate worker lane.
+ * Decides whether a whole job takes the in-isolate worker lane.
  *
- * Every file must individually fit the isolate AND the job's aggregate codec
- * cost must stay inside the budget. Returns 'container' for an empty list: a
- * job with no protected files has nothing to couple in-isolate, and defaulting
- * to the lane with more headroom is the safe direction to be wrong in.
+ * Workers only, by requirement: every job whose files individually fit the
+ * isolate runs there. This function briefly also bounded the job's aggregate
+ * size (48 files / 96 megapixels) and sent anything larger to the container
+ * lane; that rerouting is gone. It contradicted the requirement, and it also
+ * moved real packages onto a path that does not band, so the splice work never
+ * ran for exactly the packages it was built for. The CPU worry it answered is
+ * handled where it belongs: the workflow shards files six to a step, each step
+ * gets its own 300 s CPU budget, and banding cut per-file codec cost ~5x.
+ *
+ * 'container' here means the legacy path, reached only by a file that cannot
+ * run in a Worker at all (exceeds isolate memory, or predates lane stamping),
+ * never by job size. Empty lists stay on the legacy path: a job with no
+ * protected files has nothing to couple in-isolate.
  */
-export function resolveJobCouplingLane(
-  files: readonly CouplingJobFile[],
-  limits: CouplingJobLaneLimits = DEFAULT_JOB_LIMITS
-): CouplingLane {
-  if (files.length < 1 || files.length > limits.maxFiles) {
+export function resolveJobCouplingLane(files: readonly CouplingJobFile[]): CouplingLane {
+  if (files.length < 1 || files.some((file) => file.couplingLane !== 'worker')) {
     return 'container';
-  }
-  if (files.some((file) => file.couplingLane !== 'worker')) {
-    return 'container';
-  }
-  let megapixels = 0;
-  for (const file of files) {
-    // Packages published before dimensions were persisted have no pixel counts
-    // to charge. The file-count bound above is the only thing holding those, so
-    // this deliberately under-counts rather than guessing: a legacy package of
-    // very large images can still take the worker lane. That is no worse than
-    // the behaviour this replaces, and the backfill in couplingLaneBackfill.ts
-    // is what closes it.
-    if (file.pixelWidth === undefined || file.pixelHeight === undefined) {
-      continue;
-    }
-    megapixels += (file.pixelWidth * file.pixelHeight) / 1_000_000;
-    if (megapixels > limits.maxMegapixels) {
-      return 'container';
-    }
   }
   return 'worker';
 }

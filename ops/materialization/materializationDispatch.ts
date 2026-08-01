@@ -200,11 +200,10 @@ export class PostgresMaterializationDispatchOutboxRepository
         JOIN package_versions v ON v.id = j.source_version_id
         WHERE j.id IN ${transaction(rows.map((row) => row.jobId))}
       `;
-      // Every file being individually worker-safe does NOT make the job
-      // worker-safe: the worker lane has no CPU parallelism, so it costs the
-      // sum of every file, and a package of many small images used to skip
-      // container allocation and then serialise for minutes on one isolate.
-      // resolveJobCouplingLane adds the aggregate bound that check was missing.
+      // Workers only: a job routes to the worker lane whenever every file is
+      // individually worker-eligible, regardless of job size. The container
+      // lane is not a routing target; it remains only as the legacy path for
+      // files that cannot run in an isolate at all.
       const workerLaneJobs = new Set(
         laneRows
           .filter(
