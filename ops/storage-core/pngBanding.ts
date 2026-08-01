@@ -98,8 +98,12 @@ const CRC_TABLE = (() => {
   return table;
 })();
 
-export function crc32(bytes: Uint8Array): number {
-  let c = -1;
+/**
+ * crc32, resumable so a chunk can be checksummed while it is written rather
+ * than after it is assembled. `crc32(b, crc32(a))` equals `crc32(a || b)`.
+ */
+export function crc32(bytes: Uint8Array, seed = 0): number {
+  let c = ~seed;
   for (let i = 0; i < bytes.length; i += 1) {
     c = (CRC_TABLE[(c ^ (bytes[i] as number)) & 0xff] as number) ^ (c >>> 8);
   }
@@ -152,6 +156,43 @@ function concat(parts: readonly Uint8Array[]): Uint8Array {
 export function encodeChunk(type: string, data: Uint8Array): Uint8Array {
   const body = concat([Uint8Array.from(type, (c) => c.charCodeAt(0)), data]);
   return concat([writeUint32(data.byteLength), body, writeUint32(crc32(body))]);
+}
+
+/** Bytes a chunk occupies: length, type, payload, crc. */
+function chunkSize(payloadLength: number): number {
+  return 12 + payloadLength;
+}
+
+/**
+ * Writes one chunk directly into `out`, checksumming as it copies.
+ *
+ * The alternative, building each chunk with encodeChunk and concatenating,
+ * holds four full-size copies of a multi-megabyte IDAT at once. That is what
+ * exceeded the 128 MiB isolate on a real release.
+ */
+function writeChunkInto(
+  out: Uint8Array,
+  offset: number,
+  type: string,
+  parts: readonly Uint8Array[]
+): number {
+  let payloadLength = 0;
+  for (const part of parts) {
+    payloadLength += part.byteLength;
+  }
+  out.set(writeUint32(payloadLength), offset);
+  let cursor = offset + 4;
+  const typeBytes = Uint8Array.from(type, (c) => c.charCodeAt(0));
+  out.set(typeBytes, cursor);
+  cursor += 4;
+  let crc = crc32(typeBytes);
+  for (const part of parts) {
+    out.set(part, cursor);
+    cursor += part.byteLength;
+    crc = crc32(part, crc);
+  }
+  out.set(writeUint32(crc), cursor);
+  return cursor + 4;
 }
 
 export function parsePng(bytes: Uint8Array): {
@@ -346,6 +387,63 @@ export function retainFilteredRows(
   return out;
 }
 
+/**
+ * Unfilters only as far as the rows in `wanted`, keeping two rows live.
+ *
+ * Only the first row of the band and of the suffix ever need their pixels, so
+ * materialising the whole raster to reach them costs an extra full-size buffer
+ * for nothing. On a 4096x4096 16-bit source that buffer is ~100 MiB, and two
+ * images in flight was enough to OOM the publish host.
+ */
+function unfilterRowsAt(
+  header: PngHeader,
+  filtered: Uint8Array,
+  wanted: readonly number[]
+): Map<number, Uint8Array> {
+  const stride = header.rowBytes + 1;
+  const bpp = header.bytesPerPixel;
+  const { rowBytes } = header;
+  const want = new Set(wanted);
+  const last = Math.max(...wanted);
+  if (filtered.byteLength < (last + 1) * stride) {
+    throw new PngBandError('Filtered scanline data is truncated');
+  }
+  const rows = new Map<number, Uint8Array>();
+  let previous = new Uint8Array(rowBytes);
+  let current = new Uint8Array(rowBytes);
+  let havePrevious = false;
+  for (let y = 0; y <= last; y += 1) {
+    const filterType = filtered[y * stride] as number;
+    if (filterType > 4) {
+      throw new PngBandError('Unknown PNG filter type');
+    }
+    const base = y * stride + 1;
+    for (let i = 0; i < rowBytes; i += 1) {
+      const a = i >= bpp ? (current[i - bpp] as number) : 0;
+      const b = havePrevious ? (previous[i] as number) : 0;
+      const c = havePrevious && i >= bpp ? (previous[i - bpp] as number) : 0;
+      const x = filtered[base + i] as number;
+      let value: number;
+      switch (filterType) {
+        case 1: value = x + a; break;
+        case 2: value = x + b; break;
+        case 3: value = x + ((a + b) >> 1); break;
+        case 4: value = x + paeth(a, b, c); break;
+        default: value = x;
+      }
+      current[i] = value & 0xff;
+    }
+    if (want.has(y)) {
+      rows.set(y, Uint8Array.from(current));
+    }
+    const swap = previous;
+    previous = current;
+    current = swap;
+    havePrevious = true;
+  }
+  return rows;
+}
+
 const FILTER_COUNT = 5;
 
 /**
@@ -489,23 +587,29 @@ export async function normalizePngForBanding(input: {
     throw new PngBandError('Band placement is out of range');
   }
   const filtered = await input.inflate(parsed.idat);
-  const raw = unfilterScanlines(header, filtered);
   const suffixRows = header.height - band.y0 - band.rows;
+  const stride = header.rowBytes + 1;
   // The source's own filters are kept everywhere they are still valid, which is
   // everywhere except the first row of the band and of the suffix. Re-filtering
   // the whole image to 0 instead measured 29% larger on the production corpus,
   // and that inflation would be paid on every delivery of every copy.
-  const prefixFiltered = filtered.slice(0, band.y0 * (header.rowBytes + 1));
-  const bandFiltered = retainFilteredRows(header, filtered, raw, band.y0, band.rows);
-  const suffixFiltered = retainFilteredRows(
-    header,
-    filtered,
-    raw,
-    band.y0 + band.rows,
-    suffixRows
+  //
+  // Those two rows are rewritten inside `filtered`, so the three segments are
+  // views rather than copies. Slicing them instead held two more near-full-size
+  // buffers, which is what exhausted the publish host's memory.
+  const boundaries = suffixRows > 0 ? [band.y0, band.y0 + band.rows] : [band.y0];
+  const boundaryRows = unfilterRowsAt(header, filtered, boundaries);
+  for (const y of boundaries) {
+    filtered[y * stride] = 0;
+    filtered.set(boundaryRows.get(y) as Uint8Array, y * stride + 1);
+  }
+  const prefixFiltered = filtered.subarray(0, band.y0 * stride);
+  const bandFiltered = filtered.subarray(
+    band.y0 * stride,
+    (band.y0 + band.rows) * stride
   );
+  const suffixFiltered = filtered.subarray((band.y0 + band.rows) * stride);
 
-  // Independent of each other, so they overlap on the threadpool.
   // Independent of each other, so they overlap on the threadpool.
   const [prefixSegment, bandSegment, suffixSegment] = await Promise.all([
     input.deflate(prefixFiltered, { final: false }),
@@ -515,25 +619,44 @@ export async function normalizePngForBanding(input: {
 
   const prefixAdler = adler32(prefixFiltered);
   const withBand = adler32(bandFiltered, prefixAdler);
-  const idat = concat([
-    // 0x78 0x9c: deflate, 32 KiB window, default level. The window size must
-    // cover the largest back-reference any segment can make.
-    Uint8Array.from([0x78, 0x9c]),
+  // 0x78 0x9c: deflate, 32 KiB window, default level. The window size must
+  // cover the largest back-reference any segment can make.
+  const zlibHeader = Uint8Array.from([0x78, 0x9c]);
+  const idatParts = [
+    zlibHeader,
     prefixSegment,
     bandSegment,
     suffixSegment,
     writeUint32(adler32(suffixFiltered, withBand)),
-  ]);
+  ];
+  let idatLength = 0;
+  for (const part of idatParts) {
+    idatLength += part.byteLength;
+  }
+  // Single allocation, same reason as spliceBandedPng: chaining concat here
+  // held four copies of a multi-megabyte IDAT at once.
+  let baseLength =
+    PNG_SIGNATURE.byteLength +
+    chunkSize(parsed.raw.byteLength) +
+    chunkSize(idatLength) +
+    chunkSize(0);
+  for (const chunk of parsed.interstitial) {
+    baseLength += chunkSize(chunk.data.byteLength);
+  }
+  const base = new Uint8Array(baseLength);
+  base.set(PNG_SIGNATURE, 0);
+  let cursor = PNG_SIGNATURE.byteLength;
+  cursor = writeChunkInto(base, cursor, 'IHDR', [parsed.raw]);
+  for (const chunk of parsed.interstitial) {
+    cursor = writeChunkInto(base, cursor, chunk.type, [chunk.data]);
+  }
+  cursor = writeChunkInto(base, cursor, 'IDAT', idatParts);
+  writeChunkInto(base, cursor, 'IEND', []);
+
   return {
     band,
     bandRange: { length: bandSegment.byteLength, offset: 2 + prefixSegment.byteLength },
-    base: concat([
-      PNG_SIGNATURE,
-      encodeChunk('IHDR', parsed.raw),
-      ...parsed.interstitial.map((chunk) => encodeChunk(chunk.type, chunk.data)),
-      encodeChunk('IDAT', idat),
-      encodeChunk('IEND', new Uint8Array(0)),
-    ]),
+    base,
     prefixAdler,
     suffixAdler: adler32(suffixFiltered),
     suffixFilteredLength: suffixFiltered.byteLength,

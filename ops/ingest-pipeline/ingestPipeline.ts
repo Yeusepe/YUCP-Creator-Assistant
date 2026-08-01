@@ -232,6 +232,16 @@ const deflateRawAsync = promisify(deflateRaw);
 const inflateAsync = promisify(inflateCb);
 
 /**
+ * Wraps bytes as a Buffer without copying them.
+ *
+ * Buffer.from(uint8array) copies. The segments handed to deflate are views into
+ * one inflated raster, so copying each of them put another full raster on the
+ * heap per image, which is what pushed the publish host into an OOM kill.
+ */
+const asBuffer = (bytes: Uint8Array): Buffer =>
+  Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
+/**
  * Level 6, measured against the alternatives on the production corpus:
  *
  *   level 1    3.3s   +59.5% vs source
@@ -251,7 +261,7 @@ const bandDeflate = async (
   options: { final: boolean }
 ): Promise<Uint8Array> =>
   new Uint8Array(
-    await deflateRawAsync(Buffer.from(bytes), {
+    await deflateRawAsync(asBuffer(bytes), {
       finishFlush: options.final ? constants.Z_FINISH : constants.Z_FULL_FLUSH,
       level: BAND_DEFLATE_LEVEL,
     })
@@ -320,7 +330,7 @@ export async function bandProtectedPngs<T extends ClassifiedPackageFile>(
         banded = await normalizePngForBanding({
           band: placement,
           deflate: bandDeflate,
-          inflate: async (bytes) => new Uint8Array(await inflateAsync(Buffer.from(bytes))),
+          inflate: async (bytes) => new Uint8Array(await inflateAsync(asBuffer(bytes))),
           png,
         });
       } catch (error) {
