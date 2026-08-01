@@ -463,7 +463,7 @@ export type DeflateFn = (
  */
 export type PublishDeflateFn = (
   bytes: Uint8Array,
-  options: { final: boolean; throwaway?: boolean }
+  options: { final: boolean }
 ) => Promise<Uint8Array> | Uint8Array;
 
 /**
@@ -506,11 +506,10 @@ export async function normalizePngForBanding(input: {
   );
 
   // Independent of each other, so they overlap on the threadpool.
-  // The band is thrown away by the first buyer to couple this file, so it is
-  // not worth compressing hard here; the prefix and suffix ship forever.
+  // Independent of each other, so they overlap on the threadpool.
   const [prefixSegment, bandSegment, suffixSegment] = await Promise.all([
     input.deflate(prefixFiltered, { final: false }),
-    input.deflate(bandFiltered, { final: false, throwaway: true }),
+    input.deflate(bandFiltered, { final: false }),
     input.deflate(suffixFiltered, { final: true }),
   ]);
 

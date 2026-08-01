@@ -32,6 +32,10 @@ RUN bun install --frozen-lockfile --filter '!@yucp/web' \
 
 ENV NODE_ENV=production
 ENV LOG_LEVEL=info
+# Publish-time PNG banding deflates on the libuv threadpool, which defaults to
+# 4 and would otherwise cap LOGICAL_FILE_INGEST_CONCURRENCY (8) below its own
+# setting. Matching them is what makes that concurrency real.
+ENV UV_THREADPOOL_SIZE=8
 
 RUN printf '%s\n' \
       '#!/bin/sh' \

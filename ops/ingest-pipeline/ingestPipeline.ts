@@ -214,22 +214,28 @@ const deflateRawAsync = promisify(deflateRaw);
 const inflateAsync = promisify(inflateCb);
 
 /**
- * Level 9 on the prefix and suffix, level 1 on the band.
+ * Level 6, measured against the alternatives on the production corpus:
  *
- * The prefix and suffix ship in every copy forever, so their bytes are worth
- * real CPU: level 9 made the base 5.2% smaller than the source where level 6
- * managed 3.1%. The band is replaced by every buyer before anyone downloads it,
- * so compressing it well at publish buys nothing and costs the most CPU of the
- * three, being the only one that is not mostly-flush-terminated.
+ *   level 1    3.3s   +59.5% vs source
+ *   level 4    7.3s    +3.2%
+ *   level 6   14.1s    +0.2%
+ *   level 9  110.8s    -1.9%
+ *
+ * Level 9 spends 96.7 extra seconds, 7.9x the deflate cost, to save 5.5 MiB
+ * across 270 MiB of textures. Publish pays that on every upload; the 2% would
+ * be saved on every delivery, but not at that price. Level 6 lands within a
+ * rounding error of the source's own size for a seventh of the work.
  */
+const BAND_DEFLATE_LEVEL = 6;
+
 const bandDeflate = async (
   bytes: Uint8Array,
-  options: { final: boolean; throwaway?: boolean }
+  options: { final: boolean }
 ): Promise<Uint8Array> =>
   new Uint8Array(
     await deflateRawAsync(Buffer.from(bytes), {
       finishFlush: options.final ? constants.Z_FINISH : constants.Z_FULL_FLUSH,
-      level: options.throwaway ? 1 : 9,
+      level: BAND_DEFLATE_LEVEL,
     })
   );
 
