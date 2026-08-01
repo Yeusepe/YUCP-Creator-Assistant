@@ -93,10 +93,20 @@ export async function runWebBuild(): Promise<void> {
   }
 }
 
-export async function uploadWebSourceMaps(releaseId: string): Promise<void> {
+export async function uploadWebSourceMaps(
+  releaseId: string,
+  distDir: string = join(REPO_ROOT_DIR, 'apps', 'web', 'dist')
+): Promise<void> {
   const serviceKey = process.env.HYPERDX_SERVICE_KEY?.trim();
   if (!serviceKey) {
-    throw new Error('HYPERDX_SERVICE_KEY is required to upload web source maps');
+    // ponytail: self-hosted ClickStack has no /sourcemaps endpoint, so the key only
+    // exists for HyperDX Cloud. Without it, ship unsymbolicated rather than fail the
+    // deploy - but still strip the maps so they never reach the public asset tree.
+    console.warn(
+      'deploy-web-worker: HYPERDX_SERVICE_KEY is not set, skipping source-map upload (browser stack traces stay minified)'
+    );
+    removePublicSourceMaps(distDir);
+    return;
   }
 
   const apiUrl =
@@ -106,7 +116,7 @@ export async function uploadWebSourceMaps(releaseId: string): Promise<void> {
     '@hyperdx/cli',
     'upload-sourcemaps',
     '--path',
-    'apps/web/dist',
+    distDir,
     '--releaseId',
     releaseId,
   ];
@@ -127,7 +137,7 @@ export async function uploadWebSourceMaps(releaseId: string): Promise<void> {
   if (exitCode !== 0) {
     throw new Error(`web source-map upload failed with exit code ${exitCode}`);
   }
-  removePublicSourceMaps(join(REPO_ROOT_DIR, 'apps', 'web', 'dist'));
+  removePublicSourceMaps(distDir);
 }
 
 async function main(): Promise<void> {

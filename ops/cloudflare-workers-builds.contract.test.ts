@@ -7,6 +7,7 @@ import {
   getWebBuildCommand,
   removePublicSourceMaps,
   SOURCE_MAP_UPLOAD_TIMEOUT_MS,
+  uploadWebSourceMaps,
 } from './deploy-web-worker';
 
 describe('Cloudflare Workers Builds contract', () => {
@@ -78,6 +79,27 @@ describe('Cloudflare Workers Builds contract', () => {
       expect(await Bun.file(resolve(clientRoot, 'app.js')).exists()).toBe(true);
     } finally {
       rmSync(publicRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('strips source maps and skips the upload when no HyperDX service key exists', async () => {
+    const distRoot = mkdtempSync(resolve(tmpdir(), 'yucp-source-map-skip-'));
+    const clientRoot = resolve(distRoot, 'client');
+    mkdirSync(clientRoot, { recursive: true });
+    writeFileSync(resolve(clientRoot, 'app.js'), 'console.log("ok");');
+    writeFileSync(resolve(clientRoot, 'app.js.map'), '{}');
+    const previousKey = process.env.HYPERDX_SERVICE_KEY;
+    delete process.env.HYPERDX_SERVICE_KEY;
+
+    try {
+      await uploadWebSourceMaps('test-release', distRoot);
+      expect(await Bun.file(resolve(clientRoot, 'app.js.map')).exists()).toBe(false);
+      expect(await Bun.file(resolve(clientRoot, 'app.js')).exists()).toBe(true);
+    } finally {
+      if (previousKey !== undefined) {
+        process.env.HYPERDX_SERVICE_KEY = previousKey;
+      }
+      rmSync(distRoot, { recursive: true, force: true });
     }
   });
 

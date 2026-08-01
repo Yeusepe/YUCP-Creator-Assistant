@@ -7,11 +7,11 @@ The application emits redacted operational failures without optional consent. He
 Set these server-side values in Infisical or the deployment secret store:
 
 - `HYPERDX_API_KEY`: browser ingest key. Expose it only through the existing public runtime configuration path.
-- `HYPERDX_SERVICE_KEY`: server-side HyperDX service key used by the source-map upload step. Never put it in browser configuration.
+- `HYPERDX_SERVICE_KEY`: optional server-side HyperDX API access key (Team Settings, not the ingest key) used by the source-map upload step. Self-hosted ClickStack has no sourcemap endpoint, so this only applies to HyperDX Cloud. Never put it in browser configuration.
 - `HYPERDX_API_URL`: HyperDX OTLP base URL when using a self-hosted or non-default endpoint.
 - `CONVEX_LOG_STREAM_SECRET`: shared secret for the secured Convex log-stream webhook.
 
-The web deployment runs `@hyperdx/cli upload-sourcemaps` with the build release ID and fails when the upload fails. Hidden production source maps are generated under `apps/web/dist` and are not served as public assets.
+The web deployment runs `@hyperdx/cli upload-sourcemaps` with the build release ID and fails when the upload fails. Without `HYPERDX_SERVICE_KEY` the upload is skipped and browser stack traces stay minified. Hidden production source maps are generated under `apps/web/dist` and are stripped before deploy either way, so they are never served as public assets.
 
 ## Cloudflare destinations
 
