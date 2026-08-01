@@ -17,6 +17,7 @@ describe('auth-server environment resolution', () => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+    vi.stubGlobal('window', undefined);
     deleteCookieMock.mockReset();
     getResponseHeadersMock.mockClear();
     for (const name of Array.from(responseHeaders.keys())) {

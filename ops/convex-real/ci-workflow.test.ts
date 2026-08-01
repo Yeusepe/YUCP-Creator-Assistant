@@ -73,6 +73,23 @@ describe('self-hosted Convex CI workflow', () => {
     expect(workflow).toContain('run: bun run test:flow:e2e:run');
   });
 
+  it('checks out the private native helper for every job that builds it', () => {
+    const testJob = workflow.slice(workflow.indexOf('  test:'), workflow.indexOf('  web-tests:'));
+    const realBackendJob = workflow.slice(
+      workflow.indexOf('  convex-real:'),
+      workflow.indexOf('  e2e-flows:')
+    );
+
+    for (const job of [testJob, realBackendJob]) {
+      expect(job).toContain('repository: Yeusepe/ca-coupling');
+      expect(job).toContain('ssh-key: ${{ secrets.CA_COUPLING_SSH_KEY }}');
+      expect(job).toContain('path: ca-coupling');
+      expect(job).toContain(
+        'YUCP_TRANSFER_HELPER_ROOT: ${{ github.workspace }}/ca-coupling/transfer-helper'
+      );
+    }
+  });
+
   it('enables test helpers after the real deploy gate and before E2E flows', () => {
     const e2eJob = workflow.slice(workflow.indexOf('  e2e-flows:'));
     const boot = e2eJob.indexOf('name: Boot and provision self-hosted Convex');

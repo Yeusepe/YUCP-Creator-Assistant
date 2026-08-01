@@ -238,7 +238,7 @@ describe('verify purchase route', () => {
     await waitFor(() => expect(dashboardApi.listUserAccounts).toHaveBeenCalled());
     expect(dashboardApi.listUserProviders).not.toHaveBeenCalled();
 
-    expect(await screen.findByLabelText('Loading store connections')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Loading connected stores')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^sign in$/i })).not.toBeInTheDocument();
 
     deferredAccounts.resolve([]);
@@ -262,7 +262,7 @@ describe('verify purchase route', () => {
     fireEvent.click(signInButton);
 
     await waitFor(() =>
-      expect(screen.getByText('Could not connect, please try again')).toBeInTheDocument()
+      expect(screen.getByText('We couldn’t connect this store. Try again.')).toBeInTheDocument()
     );
     expect(window.location.href).toBe(initialHref);
     expect(signInButton).toBeEnabled();
@@ -679,7 +679,7 @@ describe('verify purchase route', () => {
     render(<Component />, { wrapper: createWrapper() });
 
     expect(await screen.findByText('Continue in Unity')).toBeVisible();
-    expect(screen.getByText('Installation is ready to continue.')).toBeVisible();
+    expect(screen.getByText('Return to Unity to continue installation.')).toBeVisible();
     expect(screen.queryByText(/close this (page|window)/i)).not.toBeInTheDocument();
   });
 

@@ -131,7 +131,7 @@ describe('account verify route', () => {
     fireEvent.click(connectButton);
 
     await waitFor(() =>
-      expect(toastErrorMock).toHaveBeenCalledWith('Could not start provider connection', {
+      expect(toastErrorMock).toHaveBeenCalledWith('We couldn’t connect this store', {
         description: 'Unsupported redirect target',
       })
     );
@@ -149,7 +149,7 @@ describe('account verify route', () => {
 
     expect(
       await screen.findAllByText(
-        'Complete the purchase check here. Unity will resume when your package access is ready.'
+        'Confirm your purchase here. Unity will continue when the product is ready to install.'
       )
     ).not.toHaveLength(0);
     expect(screen.getByText('Waiting for verification')).toBeInTheDocument();

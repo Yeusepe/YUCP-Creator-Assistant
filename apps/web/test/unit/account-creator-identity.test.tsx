@@ -67,7 +67,7 @@ describe('account creator identity settings', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Private VPM subdomain' }), {
       target: { value: 'yeusepe-private' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Save creator identity' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save Creator Identity' }));
 
     await waitFor(() =>
       expect(dashboardApi.updateCreatorIdentity).toHaveBeenCalledWith({
@@ -96,7 +96,7 @@ describe('account creator identity settings', () => {
       );
     }
 
-    const saveButton = screen.getByRole('button', { name: 'Save creator identity' });
+    const saveButton = screen.getByRole('button', { name: 'Save Creator Identity' });
     expect(saveButton).toHaveClass('button--primary', 'account-btn', 'account-btn--primary');
     expect(saveButton.className).not.toMatch(/blue-/);
   });

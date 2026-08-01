@@ -48,9 +48,9 @@ describe('getErrorMessage', () => {
   it('maps known error codes to messages', () => {
     expect(getErrorMessage('link_expired')).toBe('This link has expired or was already used.');
     expect(getErrorMessage('invalid_token')).toBe('The verification token is invalid.');
-    expect(getErrorMessage('session_expired')).toBe('Your session has expired. Please try again.');
+    expect(getErrorMessage('session_expired')).toBe('Your session has expired. Sign in again.');
     expect(getErrorMessage('rate_limited')).toBe(
-      'Too many requests. Please wait a moment and try again.'
+      'Too many requests. Wait a moment, then try again.'
     );
   });
 

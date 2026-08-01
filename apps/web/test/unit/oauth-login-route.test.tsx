@@ -116,12 +116,13 @@ describe('oauth login route', () => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
         '/api/auth/oauth2/authorize?response_type=code&client_id=yucp-unity-creator&redirect_uri=http%3A%2F%2F127.0.0.1%3A49152%2Fcallback&scope=cert%3Aissue+profile%3Aread&state=test-state&code_challenge=test-challenge&code_challenge_method=S256',
         {
-          headers: {
-            accept: 'application/json',
-          },
+          headers: expect.any(Headers),
         }
       );
     });
+
+    const requestInit = vi.mocked(globalThis.fetch).mock.calls[0]?.[1];
+    expect(new Headers(requestInit?.headers).get('accept')).toBe('application/json');
 
     await waitFor(() => {
       expect(assignMock).toHaveBeenCalledWith(

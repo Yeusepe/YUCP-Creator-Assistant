@@ -290,7 +290,7 @@ describe('dashboard server settings', () => {
     render(<Component />, { wrapper: createWrapper() });
 
     await waitFor(() =>
-      expect(screen.getByText(/could not load server configuration/i)).toBeInTheDocument()
+      expect(screen.getByText(/we couldn’t load server settings/i)).toBeInTheDocument()
     );
 
     expect(screen.queryByText('Allow Mismatched Emails')).not.toBeInTheDocument();

@@ -6,6 +6,7 @@ import * as ed25519 from '@noble/ed25519';
 import {
   ExactStorageCatalog,
   openCatalogDatabase,
+  runCatalogMigrations,
   StorageGcCatalog,
   TufRepositoryCatalog,
 } from '../catalog';
@@ -17,9 +18,10 @@ import {
   type DisposableStorageHarness,
   startDisposableStorageHarness,
 } from '../testing/disposableStorageHarness';
+import { transferHelperRoot } from '../transferHelperRoot';
 import { publishPackageInstallerTuf } from './publishPackageInstaller';
 
-const helperRoot = path.resolve('Verify', 'Native', 'transfer-helper');
+const helperRoot = transferHelperRoot();
 
 let harness: DisposableStorageHarness | undefined;
 
@@ -37,6 +39,12 @@ class ExpiredRetentionStorage extends S3ExactStoragePort {
 
 beforeAll(async () => {
   harness = await startDisposableStorageHarness();
+  const database = openCatalogDatabase(harness.postgres.url);
+  try {
+    await runCatalogMigrations(database);
+  } finally {
+    await database.end({ timeout: 5 });
+  }
 }, 300_000);
 
 afterAll(async () => {
@@ -260,6 +268,13 @@ describe.serial('package installer TUF production publisher', () => {
       const timestamp = await reader.read('metadata', 'timestamp.json');
       expect(timestamp?.body.byteLength).toBeGreaterThan(0);
       expect(timestamp?.contentType).toBe('application/json');
+      expect(
+        (
+          JSON.parse(Buffer.from(timestamp?.body ?? []).toString('utf8')) as {
+            signed?: { version?: number };
+          }
+        ).signed?.version
+      ).toBe(renewed.metadataVersion);
       const runtime = await reader.read(
         'targets',
         runtimePath?.replace(/^targets\//, '') ?? 'missing'
@@ -281,7 +296,7 @@ describe.serial('package installer TUF production publisher', () => {
           objectKey: 'v2/metadata/tuf/package-installer/metadata/timestamp.json',
           role: 'metadata',
         })
-      ).toHaveLength(2);
+      ).toHaveLength(1);
 
       const orphanBody = Buffer.from('unreferenced TUF GC control object');
       const orphanDigest = createHash('sha256').update(orphanBody).digest('hex');

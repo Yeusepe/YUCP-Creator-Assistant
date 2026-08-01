@@ -127,10 +127,20 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      YUCP_TRANSFER_HELPER_ROOT: ${{ github.workspace }}/ca-coupling/transfer-helper
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+
+      - name: Checkout native transfer helper
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Yeusepe/ca-coupling
+          ssh-key: ${{ secrets.CA_COUPLING_SSH_KEY }}
+          persist-credentials: false
+          path: ca-coupling
 
       - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5
         with:
@@ -182,10 +192,20 @@ jobs:
     name: Convex Real Backend
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    env:
+      YUCP_TRANSFER_HELPER_ROOT: ${{ github.workspace }}/ca-coupling/transfer-helper
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+
+      - name: Checkout native transfer helper
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Yeusepe/ca-coupling
+          ssh-key: ${{ secrets.CA_COUPLING_SSH_KEY }}
+          persist-credentials: false
+          path: ca-coupling
 
       - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5
         with:

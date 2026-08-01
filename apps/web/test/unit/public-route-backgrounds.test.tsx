@@ -170,7 +170,6 @@ describe('public route backgrounds', () => {
   it.each([
     ['privacy policy', PrivacyPolicyRoute as TestRoute],
     ['terms of service', TermsOfServiceRoute as TestRoute],
-    ['verification and attestation notice', VerificationNoticeRoute as TestRoute],
     ['oauth consent', OAuthConsentRoute as TestRoute],
     ['oauth error', OAuthErrorRoute as TestRoute],
     ['install success', InstallSuccessRoute as TestRoute],
@@ -201,17 +200,14 @@ describe('public route backgrounds', () => {
     render(<Component />);
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'How YUCP verifies package access' })
+      screen.getByRole('heading', { level: 1, name: 'What happens when you verify access' })
     ).toBeVisible();
     expect(screen.getByRole('navigation', { name: 'Legal pages' })).toBeVisible();
-    expect(screen.getByRole('heading', { level: 2, name: 'For buyers' })).toBeVisible();
-    expect(screen.getByRole('heading', { level: 2, name: 'For creators' })).toBeVisible();
-
-    const officialSources = screen.getAllByRole('link', { name: /opens in a new tab/i });
-    expect(officialSources.length).toBeGreaterThanOrEqual(7);
-    for (const source of officialSources) {
-      expect(source).toHaveAttribute('target', '_blank');
-      expect(source).toHaveAttribute('rel', 'noreferrer');
-    }
+    expect(screen.getByRole('heading', { level: 2, name: 'What data YUCP uses' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 2, name: 'Your privacy choices' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Send a privacy request' })).toHaveAttribute(
+      'href',
+      'mailto:contact@yucp.club?subject=Privacy%20Request'
+    );
   });
 });

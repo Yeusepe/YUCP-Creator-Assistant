@@ -129,7 +129,7 @@ describe('setup shell behavior', () => {
     expect(getStepLabel('Step 1 / 4')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: /next step/i }));
 
-    expect(await screen.findByText('Please enter your Payhip API key.')).toBeVisible();
+    expect(await screen.findByText('Enter your Payhip API key.')).toBeVisible();
     expect(getStepLabel('Step 1 / 4')).toBeVisible();
   });
 
