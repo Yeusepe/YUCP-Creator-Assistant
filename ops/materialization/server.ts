@@ -1,5 +1,6 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { MAX_PACKAGE_INSTALLER_HELPER_BYTES } from '@yucp/shared/packageInstallerLimits';
+import { initBunServerObservability } from '@yucp/shared/serverObservability';
 import { openCatalogDatabase, runCatalogMigrations, TufRepositoryCatalog } from '../catalog';
 import {
   hydrateEnvFromInfisical,
@@ -980,6 +981,14 @@ async function main(): Promise<void> {
       process.env[key] = value;
     }
   }
+  // Only reachable after the loop above: the OTLP credentials arrive with the Infisical secrets,
+  // so starting the exporters any earlier would silently produce a no-op provider.
+  initBunServerObservability({
+    env: process.env,
+    serviceName: 'yucp-materialization-control-plane',
+    captureConsole: true,
+    resourceAttributes: { 'service.instance.role': 'materialization-broker' },
+  });
   const sql = openCatalogDatabase(requiredEnv('PACKAGE_CATALOG_DATABASE_URL'));
   await runCatalogMigrations(sql);
   const broker = new MaterializationBroker({

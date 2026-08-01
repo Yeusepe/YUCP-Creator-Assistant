@@ -66,6 +66,8 @@ export const SCHEDULER_INFISICAL_KEYS = [
 ] as const;
 
 export interface SchedulerRuntimeEnv {
+  /** Hydrated Infisical environment; the only place the OTLP credentials exist. */
+  hydratedEnv: NodeJS.ProcessEnv;
   common: CasConfig;
   metadata: CasConfig;
   protected: CasConfig;
@@ -115,6 +117,7 @@ export async function loadSchedulerRuntimeEnv(
   const runtimeEnv = await hydrateStorageServiceEnv(env, requiredKeys, fetchSecrets);
 
   return {
+    hydratedEnv: runtimeEnv,
     common: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.common),
     catalogMaxAttempts: positiveInteger(runtimeEnv, 'CATALOG_MAX_ATTEMPTS', DEFAULT_MAX_ATTEMPTS),
     metadata: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.metadata),
@@ -160,6 +163,17 @@ export async function buildSchedulerRuntime(
   fetchSecrets: FetchInfisicalSecrets = fetchInfisicalSecrets
 ): Promise<SchedulerRuntime> {
   const runtimeEnv = await loadSchedulerRuntimeEnv(env, fetchSecrets);
+  // The earlier main() call runs before any secret is fetched, so it only takes effect where the
+  // platform injects OTLP credentials directly. Infisical-backed deployments start exporting here.
+  initBunServerObservability({
+    env: runtimeEnv.hydratedEnv,
+    serviceName: 'yucp-ingest-scheduler',
+    captureConsole: true,
+    resourceAttributes: {
+      'service.instance.capacity': 1,
+      'service.instance.mode': 'fixed',
+    },
+  });
   const statusHeartbeat = createStatusHeartbeatReporter({
     serviceName: 'yucp-ingest-scheduler',
     url: runtimeEnv.statusHeartbeatUrl,
@@ -410,6 +424,7 @@ async function main(): Promise<void> {
   initBunServerObservability({
     env: process.env,
     serviceName: 'yucp-ingest-scheduler',
+    captureConsole: true,
     resourceAttributes: {
       'service.instance.capacity': 1,
       'service.instance.mode': 'fixed',

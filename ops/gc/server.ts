@@ -66,6 +66,8 @@ export const STORAGE_GC_INFISICAL_KEYS = [
 ] as const;
 
 export interface StorageGcRuntimeEnv {
+  /** Hydrated Infisical environment; the only place the OTLP credentials exist. */
+  hydratedEnv: NodeJS.ProcessEnv;
   catalogMaxAttempts: number;
   catalogDatabaseUrl: string;
   common: CasConfig;
@@ -324,6 +326,7 @@ export async function loadStorageGcRuntimeEnv(
     : STORAGE_GC_INFISICAL_KEYS;
   const runtimeEnv = await hydrateStorageServiceEnv(env, requiredKeys, fetchSecrets);
   return {
+    hydratedEnv: runtimeEnv,
     catalogMaxAttempts: positiveInteger(runtimeEnv, 'CATALOG_MAX_ATTEMPTS', DEFAULT_MAX_ATTEMPTS),
     catalogDatabaseUrl: requiredValue(runtimeEnv, 'CATALOG_DATABASE_URL'),
     common: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.common),
@@ -372,6 +375,17 @@ export async function buildStorageGcRuntime(
   fetchSecrets: FetchInfisicalSecrets = fetchInfisicalSecrets
 ): Promise<StorageGcRuntime> {
   const runtimeEnv = await loadStorageGcRuntimeEnv(env, fetchSecrets);
+  // The earlier main() call runs before any secret is fetched, so it only takes effect where the
+  // platform injects OTLP credentials directly. Infisical-backed deployments start exporting here.
+  initBunServerObservability({
+    env: runtimeEnv.hydratedEnv,
+    serviceName: 'yucp-storage-gc',
+    captureConsole: true,
+    resourceAttributes: {
+      'service.instance.capacity': 1,
+      'service.instance.mode': 'fixed',
+    },
+  });
   const statusHeartbeat = createStatusHeartbeatReporter({
     serviceName: 'yucp-storage-gc',
     url: runtimeEnv.statusHeartbeatUrl,
@@ -414,6 +428,7 @@ async function main(): Promise<void> {
   initBunServerObservability({
     env: process.env,
     serviceName: 'yucp-storage-gc',
+    captureConsole: true,
     resourceAttributes: {
       'service.instance.capacity': 1,
       'service.instance.mode': 'fixed',

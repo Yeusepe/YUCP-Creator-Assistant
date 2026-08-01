@@ -82,6 +82,12 @@ export type CasConfig = {
 const DEFAULT_S3_REQUEST_TIMEOUT_MS = 30_000;
 
 export type IngestRuntimeEnv = {
+  /**
+   * The hydrated environment this config was parsed from. Infisical secrets are returned as a
+   * copy and never reach process.env, so a service that wants telemetry credentials has to read
+   * them from here; starting an exporter from process.env silently exports nothing.
+   */
+  hydratedEnv: NodeJS.ProcessEnv;
   uploadHmacKey: string;
   catalogControlSharedSecret: string;
   catalogDatabaseUrl: string;
@@ -320,6 +326,7 @@ export async function loadIngestRuntimeEnv(
   }
 
   return {
+    hydratedEnv: runtimeEnv,
     uploadHmacKey: requireValue(runtimeEnv, 'UPLOAD_HMAC_KEY'),
     catalogControlSharedSecret: requireValue(runtimeEnv, 'PACKAGE_CATALOG_CONTROL_SHARED_SECRET'),
     catalogDatabaseUrl: requireValue(runtimeEnv, 'CATALOG_DATABASE_URL'),

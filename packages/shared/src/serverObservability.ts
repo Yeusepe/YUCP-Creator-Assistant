@@ -28,12 +28,106 @@ export interface BunServerObservabilityOptions {
   env?: NodeJS.ProcessEnv;
   serviceName: string;
   resourceAttributes?: Record<string, ResourceAttributeValue>;
+  /**
+   * Forward structured console output to OTLP as log records. The manual Bun provider installs no
+   * console instrumentation, so services that report progress and failures as
+   * `console.info(JSON.stringify(...))` are otherwise invisible to the collector no matter how
+   * correctly they are configured.
+   */
+  captureConsole?: boolean;
 }
 
 let bunProvider: BasicTracerProvider | null = null;
 let bunProviderServiceName: string | null = null;
 let shutdownHooksRegistered = false;
 let processErrorHandlersInstalled = false;
+let consoleBridgeInstalled = false;
+
+const CONSOLE_SEVERITY = {
+  debug: 'DEBUG',
+  error: 'ERROR',
+  info: 'INFO',
+  warn: 'WARN',
+} as const;
+
+type ConsoleLevel = keyof typeof CONSOLE_SEVERITY;
+
+function attributeValue(value: unknown): string | number | boolean | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    return redactString(value);
+  }
+  return redactString(JSON.stringify(value) ?? String(value));
+}
+
+/**
+ * Structured events carry their own shape; lifting the fields to attributes is what makes them
+ * filterable rather than a wall of text. Unstructured output still ships, just as a plain body.
+ */
+export function consoleLogRecord(
+  level: ConsoleLevel,
+  args: readonly unknown[],
+  serviceName: string
+): { attributes: Record<string, string | number | boolean>; body: string; severityText: string } {
+  const attributes: Record<string, string | number | boolean> = {
+    'service.name': serviceName,
+    'log.source': 'console',
+  };
+  let body: string | undefined;
+
+  if (args.length === 1 && typeof args[0] === 'string') {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(args[0]);
+    } catch {
+      parsed = undefined;
+    }
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+        const attribute = attributeValue(value);
+        if (attribute !== undefined) {
+          attributes[key] = attribute;
+        }
+      }
+      const event = (parsed as { event?: unknown }).event;
+      body = typeof event === 'string' ? event : redactString(args[0]);
+    }
+  }
+
+  return {
+    attributes,
+    body: body ?? redactString(args.map((arg) => attributeValue(arg) ?? '').join(' ')).trim(),
+    severityText: CONSOLE_SEVERITY[level],
+  };
+}
+
+function installConsoleBridge(serviceName: string) {
+  if (consoleBridgeInstalled || typeof console === 'undefined') {
+    return;
+  }
+  consoleBridgeInstalled = true;
+  const logger = logs.getLogger(serviceName);
+
+  for (const level of Object.keys(CONSOLE_SEVERITY) as ConsoleLevel[]) {
+    const original = console[level]?.bind(console);
+    if (!original) {
+      continue;
+    }
+    console[level] = (...args: unknown[]) => {
+      original(...args);
+      try {
+        logger.emit(consoleLogRecord(level, args, serviceName));
+      } catch {
+        // Telemetry must never be the reason a service loses its own log line.
+      }
+    };
+  }
+}
 
 function reportProcessError(serviceName: string, event: string, error: unknown) {
   const exception = error instanceof Error ? error : new Error(String(error));
@@ -119,6 +213,7 @@ export function initBunServerObservability({
   env = process.env,
   serviceName,
   resourceAttributes,
+  captureConsole = false,
 }: BunServerObservabilityOptions): ResolvedHyperdxConfig {
   const resolved = applyNodeHyperdxDefaults(env, serviceName);
   if (!resolved.hasOtelAuth) {
@@ -185,6 +280,9 @@ export function initBunServerObservability({
 
   bunProvider = provider;
   bunProviderServiceName = serviceName;
+  if (captureConsole) {
+    installConsoleBridge(serviceName);
+  }
   installProcessErrorHandlers(serviceName);
   registerShutdownHooks(provider, loggerProvider, meterProvider);
   return resolved;

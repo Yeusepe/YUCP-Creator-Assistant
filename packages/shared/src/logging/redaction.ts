@@ -112,6 +112,14 @@ const SENSITIVE_FIELD_NAMES = new Set([
 export function redactString(input: string): string {
   let result = input;
 
+  // Strip credentials embedded in connection URLs first. A failed database or object-store
+  // connection reports its whole DSN, so the password travels inside the error message where none
+  // of the key-based rules below can see it.
+  result = result.replace(
+    /([a-z][a-z0-9+.-]*:\/\/)[^/\s:@]+:[^/\s@]*@/gi,
+    '$1[CREDENTIALS_REDACTED]@'
+  );
+
   // Redact Discord tokens
   result = result.replace(SENSITIVE_PATTERNS.discordToken, '[DISCORD_TOKEN_REDACTED]');
 

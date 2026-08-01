@@ -1,5 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import { fetchInfisicalSecrets } from '@yucp/shared/infisical/fetchSecrets';
+import { initBunServerObservability } from '@yucp/shared/serverObservability';
 import {
   Catalog,
   type CatalogDatabase,
@@ -51,6 +52,14 @@ export async function buildIngestTusRuntime(
     requireInfisicalBootstrap(env);
   }
   const runtimeEnv = await loadIngestRuntimeEnv(env, fetchSecrets);
+  // Start exporting before the first upload can arrive. This has to run on the hydrated
+  // environment: the OTLP credentials come from Infisical, which never writes to process.env.
+  initBunServerObservability({
+    env: runtimeEnv.hydratedEnv,
+    serviceName: 'yucp-ingest-tus',
+    captureConsole: true,
+    resourceAttributes: { 'service.instance.role': 'upload-receiver' },
+  });
   const database = openCatalogDatabase(runtimeEnv.catalogDatabaseUrl);
   try {
     await runCatalogMigrations(database);
