@@ -7,6 +7,7 @@ import {
   Label,
   ListBox,
   SearchField,
+  Skeleton,
   Table,
   useFilter,
 } from '@heroui/react';
@@ -19,7 +20,6 @@ import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { DialogContext, Heading } from 'react-aria-components';
 import { ApiError } from '@/api/client';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
-import { DashboardGridSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { Icon } from '@/components/ui/Icon';
 import { useToast } from '@/components/ui/Toast';
 import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
@@ -200,6 +200,44 @@ const ASSET_CLASSIFICATION_LABEL: Record<
   'unsupported-transform': { color: 'default', label: 'Unsupported' },
   'no-signal-found': { color: 'default', label: 'No signal' },
 };
+
+/**
+ * Loading state shaped like the panel it replaces.
+ *
+ * The shared grid skeleton drew three generic row cards in its own two-column
+ * grid, which is neither this panel's layout nor its column count, so it read
+ * as loose blobs. Mirroring the real card also fixes theming for free: it uses
+ * the same intg-card surface, instead of a hardcoded light card that the dark
+ * theme had to override separately.
+ */
+function ForensicsPanelSkeleton() {
+  return (
+    <section className="intg-card bento-col-12" aria-hidden="true">
+      <div className="intg-header">
+        <div className="intg-title-row">
+          <Skeleton className="size-10 shrink-0 rounded-xl" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-4 w-40 rounded" />
+            <Skeleton className="h-3 w-4/5 max-w-md rounded" />
+          </div>
+        </div>
+      </div>
+      <div className="mt-5 space-y-5">
+        <div className="space-y-2">
+          <Skeleton className="h-3.5 w-16 rounded" />
+          <Skeleton className="h-11 w-full max-w-md rounded-xl" />
+        </div>
+        <div className="space-y-2">
+          <Skeleton className="h-3.5 w-24 rounded" />
+          <Skeleton className="h-40 w-full rounded-2xl" />
+        </div>
+        <div className="flex justify-end">
+          <Skeleton className="h-9 w-28 rounded-full" />
+        </div>
+      </div>
+    </section>
+  );
+}
 
 const SCAN_PHASES = [
   { description: 'Unpacking the archive and finding traceable files', title: 'Reading upload' },
@@ -440,12 +478,19 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
     return true;
   };
 
-  // DropZone.Area owns the drag affordance and its own hover state; this only
-  // has to pull the file out of the drop event.
-  const handleDrop = (e: React.DragEvent) => {
-    const file = e.dataTransfer?.files?.[0] ?? null;
-    if (file) handleFilePick(file);
-  };
+  // DropZone.Area emits a React Aria drop event, not a DOM DragEvent: the
+  // payload is `items` with async getFile(), and there is no dataTransfer.
+  // Reading dataTransfer here silently dropped every dragged file.
+  async function handleDrop(event: {
+    items: Array<{ kind: string; getFile?: () => Promise<File> }>;
+  }) {
+    for (const item of event.items) {
+      if (item.kind === 'file' && item.getFile) {
+        handleFilePick(await item.getFile());
+        return;
+      }
+    }
+  }
 
   const certificatesQuery = useQuery({
     queryKey: ['creator-certificates'],
@@ -621,7 +666,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
     return (
       <div className="dashboard-tab-panel is-active">
         <div className="bento-grid">
-          <DashboardGridSkeleton cards={3} />
+          <ForensicsPanelSkeleton />
         </div>
       </div>
     );
@@ -645,9 +690,6 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                 </p>
               </div>
             </div>
-            <Chip variant="soft" size="sm" className="text-foreground/60">
-              Creator Studio+
-            </Chip>
           </div>
           <div className="mt-5 space-y-5">
             {hasQueryError ? (
