@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, mkdtemp, open, rename, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
+import { constants, deflateRawSync, inflateSync } from 'node:zlib';
 import {
   Catalog,
   type PackageVersion,
@@ -30,10 +31,20 @@ import {
   DESYNC_CHUNK_AVG_KIB,
   DESYNC_STORAGE_FORMAT_VERSION,
   type DeliveryManifest,
+  type DeliveryManifestBand,
   deliveryAssemblyObjectId,
   deliveryManifestObjectId,
   parseDeliveryManifest,
 } from '../storage-core/deliveryManifest';
+import {
+  type BandedPng,
+  type BandPlacement,
+  normalizePngForBanding,
+  parsePng,
+  placeBand,
+  planBand,
+  PngBandError,
+} from '../storage-core/pngBanding';
 import {
   type CasStore,
   deleteCasIndexObject,
@@ -48,6 +59,7 @@ import { reconstructLogicalFile, storeLogicalFile } from '../storage-core/logica
 import { normalizePackageArtifact } from '../storage-core/packageNormalizer';
 import {
   classifiablePath,
+  type ClassifiedPackageFile,
   classifyPackageFiles,
   type ProtectionPolicyId,
   protectionMaterializationPolicy,
@@ -139,6 +151,9 @@ export function protectedMaterializationFiles(input: {
         throw new Error(`Protected file ${file.normalizedPath} has no materializer type`);
       }
       return {
+        // Where publish put the replaceable band, so the materializer can
+        // splice it instead of re-encoding the image. Absent means couple whole.
+        ...(file.band ? { band: file.band } : {}),
         // The coupling lane rides along so dispatch can route pure worker-lane
         // packages straight to worker coupling; it never enters the capability
         // contract (restoreProtectedFiles picks its fields explicitly).
@@ -180,6 +195,96 @@ async function readFileTail(path: string, length: number): Promise<Uint8Array> {
   } finally {
     await handle.close();
   }
+}
+
+/**
+ * The watermark payload is 864 blocks whatever the resolution, so a band 5% of
+ * the image tall carries the whole token. Widened from what the payload needs
+ * so a locally saturated strip still has candidate blocks to use.
+ */
+const BAND_BLOCKS = 864;
+const BAND_MIN_FRACTION = 0.05;
+
+const bandDeflate = (bytes: Uint8Array, options: { final: boolean }): Uint8Array =>
+  new Uint8Array(
+    deflateRawSync(Buffer.from(bytes), {
+      finishFlush: options.final ? constants.Z_FINISH : constants.Z_FULL_FLUSH,
+      level: 9,
+    })
+  );
+
+/**
+ * Re-encodes protected PNGs so a buyer's coupling can replace one band instead
+ * of the whole image, and reports where that band landed.
+ *
+ * Publish pays an inflate and a deflate per protected PNG so that every buyer
+ * of every copy stops paying a full decode and re-encode. On a 124-file package
+ * that trade is measured at 8x on the couple side.
+ *
+ * The band is placed from the source's own digest. That is deterministic and
+ * spreads placement across a package rather than putting every texture's mark
+ * in the same rows, but it is not a secret: Z_FULL_FLUSH leaves an empty stored
+ * block in the IDAT, so anyone holding the published file can see where the
+ * segment boundaries are. Placement varies the target, it does not hide it.
+ *
+ * Anything that cannot be banded (palette, interlaced, greyscale, or an image
+ * small enough that the band would be the whole thing) is left exactly as it
+ * was and couples whole, which is what every file did before this existed.
+ */
+export async function bandProtectedPngs<T extends ClassifiedPackageFile>(
+  files: readonly T[],
+  signal?: AbortSignal
+): Promise<Array<T & { band?: DeliveryManifestBand }>> {
+  return mapBoundedOrdered(
+    files,
+    async (file) => {
+      signal?.throwIfAborted();
+      if (file.classification !== 'protected' || file.materializerType !== 'png') {
+        return file;
+      }
+      const png = new Uint8Array(await readFile(file.path));
+      let banded: BandedPng;
+      let placement: BandPlacement;
+      try {
+        const { header } = parsePng(png);
+        const planned = planBand(header, {
+          blocks: BAND_BLOCKS,
+          minFraction: BAND_MIN_FRACTION,
+        });
+        if (!planned) {
+          return file;
+        }
+        placement = placeBand(header, planned, Buffer.from(file.sha256, 'hex'));
+        banded = normalizePngForBanding({
+          band: placement,
+          deflate: bandDeflate,
+          inflate: (bytes) => new Uint8Array(inflateSync(Buffer.from(bytes))),
+          png,
+        });
+      } catch (error) {
+        if (error instanceof PngBandError) {
+          return file;
+        }
+        throw error;
+      }
+      await writeFile(file.path, banded.base);
+      return {
+        ...file,
+        band: {
+          length: banded.bandRange.length,
+          offset: banded.bandRange.offset,
+          prefixAdler: banded.prefixAdler,
+          rows: placement.rows,
+          suffixAdler: banded.suffixAdler,
+          suffixFilteredLength: banded.suffixFilteredLength,
+          y0: placement.y0,
+        },
+        bytes: banded.base.byteLength,
+        sha256: createHash('sha256').update(banded.base).digest('hex'),
+      };
+    },
+    LOGICAL_FILE_INGEST_CONCURRENCY
+  );
 }
 
 export async function resolveProtectedFileCoupling(
@@ -576,7 +681,10 @@ async function prepareLogicalAssembly(
     version: input.version.version,
     versionId: input.version.id,
   });
-  const active = createActiveContentInventory(classified.files);
+  // Banding rewrites protected PNGs, so it has to land before the inventory
+  // and the CAS writes: both address a file by the digest of its stored bytes.
+  const classifiedFiles = await bandProtectedPngs(classified.files, signal);
+  const active = createActiveContentInventory(classifiedFiles);
   const creatorDomain = createHash('sha256')
     .update('yucp:creator-domain:v2\0', 'utf8')
     .update(input.creatorId, 'utf8')
@@ -584,7 +692,7 @@ async function prepareLogicalAssembly(
   // Files are stored concurrently; mapBoundedOrdered assembles results by input index, so
   // the manifest files[] order is identical to the sequential implementation.
   const files = await mapBoundedOrdered(
-    classified.files,
+    classifiedFiles,
     async (file) => {
       signal?.throwIfAborted();
       return {
@@ -601,6 +709,7 @@ async function prepareLogicalAssembly(
           store: file.classification === 'protected' ? input.protectedStore : input.commonStore,
           ownerId: input.version.id,
         })),
+        ...(file.band ? { band: file.band } : {}),
         classification: file.classification,
         ...(file.classification === 'protected' && file.materializerType
           ? await resolveProtectedFileCoupling({

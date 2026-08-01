@@ -29,6 +29,75 @@ function couplingManifest(file: Record<string, unknown>) {
 }
 
 describe('logical tree delivery manifest', () => {
+  const BAND = {
+    length: 3219,
+    offset: 4069,
+    prefixAdler: 576628372,
+    rows: 112,
+    suffixAdler: 1828093411,
+    suffixFilteredLength: 491760,
+    y0: 160,
+  };
+
+  function protectedFileWithBand(band: unknown) {
+    return {
+      band,
+      bytes: 4096,
+      chunks: [{ id: '22'.repeat(32), sha256: '11'.repeat(32), size: 4096 }],
+      classification: 'protected',
+      materializerType: 'png',
+      normalizedPath: 'Assets/Jammr/albedo.png',
+      pixelHeight: 512,
+      pixelWidth: 512,
+      sha256: '11'.repeat(32),
+    };
+  }
+
+  test('carries a band index through create and parse', () => {
+    const manifest = createDeliveryManifest(
+      couplingManifest(protectedFileWithBand(BAND) as never) as never
+    );
+    // The materializer reads this off the wire, so it has to survive the trip.
+    expect(parseDeliveryManifest(JSON.parse(JSON.stringify(manifest))).files[0]?.band).toEqual(
+      BAND
+    );
+  });
+
+  test('rejects a band that is unusable or on the wrong kind of file', () => {
+    for (const band of [
+      { ...BAND, rows: 111 }, // not whole 8-row blocks
+      { ...BAND, y0: 3 }, // not block aligned
+      { ...BAND, length: 0 }, // nothing to replace
+      { ...BAND, offset: -1 }, // negative
+      { ...BAND, prefixAdler: 1.5 }, // not an integer
+      { rows: 8 }, // incomplete
+      'nope',
+    ]) {
+      expect(() =>
+        parseDeliveryManifest(
+          JSON.parse(JSON.stringify(couplingManifest(protectedFileWithBand(band) as never)))
+        )
+      ).toThrow();
+    }
+    // A band on a common file is a manifest that contradicts itself.
+    expect(() =>
+      parseDeliveryManifest(
+        JSON.parse(
+          JSON.stringify(
+            couplingManifest({
+              band: BAND,
+              bytes: 4096,
+              chunks: [{ id: '22'.repeat(32), sha256: '11'.repeat(32), size: 4096 }],
+              classification: 'common',
+              normalizedPath: 'Assets/Jammr/shader.shader',
+              sha256: '11'.repeat(32),
+            } as never)
+          )
+        )
+      )
+    ).toThrow();
+  });
+
   test('binds sorted file recipes and active-content policy', () => {
     const manifest = createDeliveryManifest({
       activeContentDigest: '44'.repeat(32),

@@ -15,7 +15,36 @@ export type DeliveryManifestChunk = {
   size: number;
 };
 
+/**
+ * Where publish normalisation put the replaceable band inside a protected PNG.
+ *
+ * offset/length address the band's compressed bytes inside the concatenated
+ * IDAT payload; the two adlers and the suffix length let the materializer
+ * repair the zlib checksum without rescanning anything outside the band. Its
+ * absence means the file was never normalised and is coupled whole.
+ */
+export type DeliveryManifestBand = {
+  length: number;
+  offset: number;
+  prefixAdler: number;
+  rows: number;
+  suffixAdler: number;
+  suffixFilteredLength: number;
+  y0: number;
+};
+
+export const BAND_FIELDS = [
+  'length',
+  'offset',
+  'prefixAdler',
+  'rows',
+  'suffixAdler',
+  'suffixFilteredLength',
+  'y0',
+] as const;
+
 export type DeliveryManifestFile = {
+  band?: DeliveryManifestBand;
   bytes: number;
   chunks: DeliveryManifestChunk[];
   classification: 'common' | 'protected';
@@ -98,6 +127,44 @@ function parseChunk(value: unknown, fileIndex: number, chunkIndex: number): Deli
   return { id: value.id, sha256: value.sha256, size: value.size as number };
 }
 
+function parseBand(
+  value: unknown,
+  index: number,
+  classification: unknown
+): DeliveryManifestBand | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecord(value) || classification !== 'protected') {
+    throw new Error(`Delivery manifest file ${index} has an invalid band`);
+  }
+  for (const field of BAND_FIELDS) {
+    const entry = value[field];
+    if (!Number.isSafeInteger(entry) || (entry as number) < 0 || (entry as number) > 0xffffffff) {
+      throw new Error(`Delivery manifest file ${index} has an invalid band ${field}`);
+    }
+  }
+  // A band has to be whole 8-row blocks, because that is the watermark's own
+  // grid, and it has to carry compressed bytes to be replaceable at all.
+  if (
+    (value.rows as number) < 8 ||
+    (value.rows as number) % 8 !== 0 ||
+    (value.y0 as number) % 8 !== 0 ||
+    (value.length as number) < 1
+  ) {
+    throw new Error(`Delivery manifest file ${index} has an unusable band`);
+  }
+  return {
+    length: value.length as number,
+    offset: value.offset as number,
+    prefixAdler: value.prefixAdler as number,
+    rows: value.rows as number,
+    suffixAdler: value.suffixAdler as number,
+    suffixFilteredLength: value.suffixFilteredLength as number,
+    y0: value.y0 as number,
+  };
+}
+
 function parseFile(value: unknown, index: number): DeliveryManifestFile {
   if (!isRecord(value)) {
     throw new Error(`Delivery manifest file ${index} is invalid`);
@@ -134,6 +201,7 @@ function parseFile(value: unknown, index: number): DeliveryManifestFile {
   if ((value.pixelWidth === undefined) !== (value.pixelHeight === undefined)) {
     throw new Error(`Delivery manifest file ${index} has unpaired pixel dimensions`);
   }
+  const band = parseBand(value.band, index, value.classification);
   if (typeof value.sha256 !== 'string' || !SHA256_PATTERN.test(value.sha256)) {
     throw new Error(`Delivery manifest file ${index} has an invalid sha256`);
   }
@@ -160,6 +228,7 @@ function parseFile(value: unknown, index: number): DeliveryManifestFile {
     throw new Error(`Delivery manifest file ${index} chunk sizes do not equal its bytes`);
   }
   return {
+    ...(band ? { band } : {}),
     bytes: value.bytes as number,
     chunks,
     classification: value.classification,
