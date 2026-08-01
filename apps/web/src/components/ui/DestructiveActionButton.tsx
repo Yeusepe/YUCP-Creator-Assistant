@@ -3,6 +3,9 @@ import { PressableFeedback } from '@heroui-pro/react/pressable-feedback';
 import type { ComponentPropsWithoutRef, ReactNode } from 'react';
 
 const DEFAULT_HOLD_DURATION_MS = 1200;
+// PressableFeedback applies `border-radius: inherit` after HeroUI's `.button` rule.
+// Reapply HeroUI's default radius as a utility so the composed control keeps its button shape.
+const HEROUI_BUTTON_RADIUS_CLASS = 'rounded-3xl';
 
 export interface DestructiveActionButtonProps
   extends Omit<ComponentPropsWithoutRef<'button'>, 'children' | 'disabled' | 'onClick'> {
@@ -47,7 +50,9 @@ export function DestructiveActionButton({
       {...props}
       aria-label={accessibleLabel}
       className={buttonVariants({
-        className: ['justify-center shadow-none', className].filter(Boolean).join(' '),
+        className: [`${HEROUI_BUTTON_RADIUS_CLASS} justify-center shadow-none`, className]
+          .filter(Boolean)
+          .join(' '),
         size,
         variant: 'danger-soft',
       })}

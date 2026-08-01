@@ -38,6 +38,7 @@ describe('shared action buttons', () => {
 
     const button = screen.getByRole('button', { name: 'Hold to delete release' });
     expect(button).toHaveClass('button', 'button--danger-soft', 'pressable-feedback');
+    expect(button).toHaveClass('rounded-3xl');
     expect(screen.getAllByRole('button')).toHaveLength(1);
 
     fireEvent.click(button);

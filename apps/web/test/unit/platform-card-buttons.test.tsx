@@ -14,17 +14,21 @@ const baseProps = {
   onDisconnect: vi.fn(),
 };
 
+// Disconnect is a hold-to-confirm DestructiveActionButton, so it is reached by its
+// "Hold to disconnect ..." accessible label rather than by the word "Disconnect".
+const DISCONNECT_LABEL = 'Hold to disconnect Test Platform';
+
 describe('PlatformCard, YucpButton migration', () => {
-  it('renders the Connect button with btn-primary class', () => {
+  it('renders the Connect button with the HeroUI primary variant', () => {
     render(<PlatformCard {...baseProps} isConnected={false} />);
     const btn = screen.getByRole('button', { name: 'Connect' });
-    expect(btn).toHaveClass('btn-primary');
+    expect(btn).toHaveClass('button', 'button--primary');
   });
 
-  it('renders the Disconnect button with btn-danger class', () => {
+  it('renders the Disconnect button with the HeroUI danger variant', () => {
     render(<PlatformCard {...baseProps} isConnected={true} />);
-    const btn = screen.getByRole('button', { name: 'Disconnect' });
-    expect(btn).toHaveClass('btn-danger');
+    const btn = screen.getByRole('button', { name: DISCONNECT_LABEL });
+    expect(btn).toHaveClass('button', 'button--danger-soft');
   });
 
   it('disables the Disconnect button while disconnecting', () => {
@@ -45,7 +49,7 @@ describe('PlatformCard, YucpButton migration', () => {
 
   it('keeps platform-row-btn disconnect class on Disconnect button for CSS compatibility', () => {
     render(<PlatformCard {...baseProps} isConnected={true} />);
-    const btn = screen.getByRole('button', { name: 'Disconnect' });
+    const btn = screen.getByRole('button', { name: DISCONNECT_LABEL });
     expect(btn).toHaveClass('platform-row-btn', 'disconnect');
   });
 
