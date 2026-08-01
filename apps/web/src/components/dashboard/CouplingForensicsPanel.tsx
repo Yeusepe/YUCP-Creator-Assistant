@@ -798,6 +798,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                     <DropZone.Input
                       accept=".unitypackage,.zip"
                       aria-labelledby="forensics-upload-label"
+                      disabled={lookupMutation.isPending}
                       onSelect={(files) => handleFilePick(files.item(0))}
                     />
                     {selectedFile ? (

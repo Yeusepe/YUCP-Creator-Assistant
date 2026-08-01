@@ -144,7 +144,9 @@ describe('dashboard forensics product picker accessibility', () => {
     try {
       render(<CouplingForensicsPanel />, { wrapper: createWrapper() });
 
-      expect(await screen.findByText('Which product is this file from?')).toBeInTheDocument();
+      expect(
+        await screen.findByText('Product', { selector: '[data-slot="label"]' })
+      ).toBeInTheDocument();
       await waitFor(() => {
         const trigger = document.querySelector(
           '[data-slot="autocomplete-trigger"] button[aria-haspopup="listbox"]'
@@ -163,8 +165,8 @@ describe('dashboard forensics product picker accessibility', () => {
         })
       ).toBeInTheDocument();
 
-      expect(pickerTrigger).toHaveAccessibleName(/Product to scan/i);
-      expect(screen.getByText('Product to scan', { selector: '[data-slot="label"]' })).toHaveClass(
+      expect(pickerTrigger).toHaveAccessibleName(/Product/i);
+      expect(screen.getByText('Product', { selector: '[data-slot="label"]' })).not.toHaveClass(
         'sr-only'
       );
       expect(screen.getByText('Search products', { selector: '[data-slot="label"]' })).toHaveClass(

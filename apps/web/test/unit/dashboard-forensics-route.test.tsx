@@ -83,8 +83,11 @@ vi.mock('@heroui/react', () => {
     </button>
   );
 
-  const Chip = ({ children, ...props }: PropsWithChildren<Record<string, unknown>>) => (
-    <span {...props}>{children}</span>
+  const Chip = Object.assign(
+    ({ children, ...props }: PropsWithChildren<Record<string, unknown>>) => (
+      <span {...props}>{children}</span>
+    ),
+    { Label: Div }
   );
 
   const ListBox = Object.assign(
@@ -235,21 +238,106 @@ vi.mock('@heroui/react', () => {
     Title: Div,
     Description: Div,
   });
+  const Alert = Object.assign(Div, {
+    Content: Div,
+    Description: Div,
+    Indicator: Div,
+    Title: Div,
+  });
+  const Disclosure = Object.assign(Div, {
+    Body: Div,
+    Content: Div,
+    Heading: Div,
+    Indicator: Div,
+  });
+  const TableColumn = ({
+    children,
+    isRowHeader: _isRowHeader,
+    ...props
+  }: PropsWithChildren<Record<string, unknown>>) => <div {...props}>{children}</div>;
+  const Table = Object.assign(Div, {
+    Body: Div,
+    Cell: Div,
+    Column: TableColumn,
+    Content: Div,
+    Header: Div,
+    Row: Div,
+    ScrollContainer: Div,
+  });
   const Skeleton = Div;
 
   return {
+    Alert,
     Autocomplete,
     Button,
     Card,
     Chip,
+    Disclosure,
     Label: Div,
     ListBox,
     SearchField,
     Skeleton,
+    Table,
     useFilter: () => ({
       contains: (text: string, input: string) => text.toLowerCase().includes(input.toLowerCase()),
     }),
   };
+});
+
+vi.mock('@heroui-pro/react/drop-zone', () => {
+  const Div = ({ children, ...props }: PropsWithChildren<Record<string, unknown>>) => (
+    <div {...props}>{children}</div>
+  );
+  const Trigger = ({
+    children,
+    isDisabled,
+    onPress,
+    ...props
+  }: PropsWithChildren<Record<string, unknown>>) => (
+    <button
+      type="button"
+      disabled={Boolean(isDisabled)}
+      onClick={() => {
+        if (typeof onPress === 'function') onPress();
+      }}
+      {...props}
+    >
+      {children}
+    </button>
+  );
+  const Input = ({ onSelect, ...props }: Record<string, unknown>) => (
+    <input
+      id="forensics-file"
+      type="file"
+      onChange={(event) => {
+        if (typeof onSelect === 'function') {
+          const files = event.currentTarget.files;
+          onSelect({
+            item: (index: number) => files?.[index] ?? null,
+            length: files?.length ?? 0,
+          });
+        }
+      }}
+      {...props}
+    />
+  );
+  const DropZone = Object.assign(Div, {
+    Area: Div,
+    Description: Div,
+    FileFormatIcon: Div,
+    FileInfo: Div,
+    FileItem: Div,
+    FileList: Div,
+    FileMeta: Div,
+    FileName: Div,
+    FileRemoveTrigger: Trigger,
+    Icon: Div,
+    Input,
+    Label: Div,
+    Trigger,
+  });
+
+  return { DropZone };
 });
 
 vi.mock('@/components/ui/Toast', () => ({
@@ -439,7 +527,7 @@ describe('dashboard forensics route', () => {
 
     await waitFor(() => expect(forensicsApi.runCouplingForensicsLookup).toHaveBeenCalledTimes(1));
 
-    const clearButton = screen.getByRole('button', { name: /remove file/i });
+    const clearButton = screen.getByRole('button', { name: /remove original\.zip/i });
     const selectedInput = document.getElementById('forensics-file');
     if (!(selectedInput instanceof HTMLInputElement)) {
       throw new Error('Selected-state forensics file input was not rendered');
@@ -577,6 +665,7 @@ describe('dashboard forensics route', () => {
           assetPath: 'Assets/Character/body.png',
           assetType: 'png',
           decoderKind: 'png',
+          layerBClassification: 'trace-recovered',
           tokenLength: 64,
           matched: true,
           matches: [
@@ -638,6 +727,7 @@ describe('dashboard forensics route', () => {
           assetPath: 'Assets/Character/body.png',
           assetType: 'png',
           decoderKind: 'png',
+          layerBClassification: 'trace-recovered',
           tokenLength: 64,
           matched: true,
           matches: [
@@ -699,6 +789,7 @@ describe('dashboard forensics route', () => {
           assetPath: 'Assets/Character/body.png',
           assetType: 'png',
           decoderKind: 'png',
+          layerBClassification: 'trace-recovered',
           tokenLength: 64,
           matched: true,
           matches: [
@@ -743,7 +834,7 @@ describe('dashboard forensics route', () => {
 
     expect(screen.getByText('Buyer One')).toBeInTheDocument();
     expect(screen.getByText('BuyerAccount')).toBeInTheDocument();
-    expect(screen.getByText('jinxxy:abcd1234')).toBeInTheDocument();
+    expect(screen.getAllByText('jinxxy:abcd1234')).not.toHaveLength(0);
     expect(screen.queryByText('sha256-b8c6ba93829b')).not.toBeInTheDocument();
     expect(screen.queryByText('Package version')).not.toBeInTheDocument();
     expect(screen.queryByText('customer-123')).not.toBeInTheDocument();
@@ -762,6 +853,7 @@ describe('dashboard forensics route', () => {
           assetPath: 'Assets/Character/body.png',
           assetType: 'png',
           decoderKind: 'png',
+          layerBClassification: 'trace-recovered',
           tokenLength: 64,
           matched: true,
           matches: [
@@ -781,6 +873,7 @@ describe('dashboard forensics route', () => {
           assetPath: 'Assets/Character/head.png',
           assetType: 'png',
           decoderKind: 'png',
+          layerBClassification: 'trace-recovered',
           tokenLength: 64,
           matched: true,
           matches: [
