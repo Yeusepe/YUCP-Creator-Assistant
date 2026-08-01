@@ -631,8 +631,7 @@ export function createVpmRoutes({
         bootstrapVersion: input.reservation.bootstrapVersion,
         ...(bootstrapIntent ? { bootstrapIntent } : {}),
         packageVersion: input.reservation.packageVersion,
-        vpmDependencies: input.vpmDependencies ?? {},
-        ...(input.vpmRepositories ? { vpmRepositories: input.vpmRepositories } : {}),
+        vpmDependencies: {},
         packageMetadata: {
           packageName: input.presentation.packageName,
           author: input.presentation.authorName,
@@ -1627,10 +1626,11 @@ export function createVpmRoutes({
       bootstrapVersion: publication.bootstrapVersion,
       bootstrapIntent,
       packageVersion: target.version,
-      // Ingest reads these from the VPM manifests the package ships; publishing
-      // them is what makes VCC resolve VRCFury and friends on the buyer's side.
-      vpmDependencies: target.vpmDependencies ?? {},
-      ...(target.vpmRepositories ? { vpmRepositories: target.vpmRepositories } : {}),
+      // The bootstrap stays a stable pointer: it pulls in the importer and
+      // nothing else. The importer asks the broker what the release it is
+      // actually fetching needs, so an update that changes requirements does
+      // not leave every bootstrap already downloaded describing the old set.
+      vpmDependencies: {},
       packageMetadata: {
         packageName,
         author: releaseMetadata?.author?.trim() || presentation?.authorName || 'YUCP Club',

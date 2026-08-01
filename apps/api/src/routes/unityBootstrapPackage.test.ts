@@ -188,7 +188,7 @@ describe('YUCP bootstrap Unity package', () => {
       YUCP: 'https://vpm.yucp.club/index.json',
     });
   });
-  it('hands the installer the requirements the package actually declares', () => {
+  it('keeps the release requirements out of the bootstrap entirely', () => {
     // Druffle's real set: without these the installer resolves nothing but the
     // importer, so the packages appear in the manifest and never download.
     const bootstrap = buildYucpAliasVpmPackage({
@@ -221,18 +221,13 @@ describe('YUCP bootstrap Unity package', () => {
       vpmRepositories: Record<string, string>;
     };
 
-    expect(descriptor.vpmDependencies).toMatchObject({
-      'adjerry91.vrcft.templates': '>=0.0.0',
-      'com.vrcfury.vrcfury': '>=0.0.0',
-      gogoloco: '>=0.0.0',
-    });
-    expect(descriptor.vpmRepositories).toMatchObject({
-      "VRCFT - Jerry's Templates Listing":
-        'https://adjerry91.github.io/VRCFaceTracking-Templates/index.json',
-      'GoGoLoco Listing': 'https://spokeek.github.io/goloco/index.json',
-    });
-    // The platform still pins the importer and its own repository.
+    // A downloaded bootstrap must never describe a dependency set that a later
+    // release has moved on from, so it carries none of them.
+    expect(Object.keys(descriptor.vpmDependencies)).toEqual(['com.yucp.importer']);
+    expect(Object.keys(descriptor.vpmRepositories)).toEqual(['YUCP']);
     expect(descriptor.vpmDependencies['com.yucp.importer']).toBe('>=0.1.71');
     expect(descriptor.vpmRepositories.YUCP).toBe('https://vpm.yucp.club/index.json');
+    expect(JSON.stringify(descriptor)).not.toContain('gogoloco');
+    expect(JSON.stringify(descriptor)).not.toContain('adjerry91');
   });
 });

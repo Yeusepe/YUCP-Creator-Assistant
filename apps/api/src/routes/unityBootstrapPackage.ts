@@ -239,19 +239,6 @@ function installedPackageManifest(): Uint8Array {
   );
 }
 
-function stringRecord(value: unknown): Record<string, string> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {};
-  }
-  const record: Record<string, string> = {};
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof entry === 'string' && entry.trim()) {
-      record[key] = entry;
-    }
-  }
-  return record;
-}
-
 function installerDescriptor(input: {
   bootstrap: BuiltYucpAliasVpmPackage;
   importerRepositoryUrl: string;
@@ -264,16 +251,13 @@ function installerDescriptor(input: {
         displayName: input.manifest.displayName,
         version: input.bootstrap.manifest.version,
         ...(input.manifest.yucp ? { yucp: input.manifest.yucp } : {}),
-        // The installer resolves from exactly what this descriptor names, so a
-        // package's own requirements have to travel with it or they are listed
-        // in the manifest and never fetched. The importer's own pin wins: the
-        // platform decides that version, not the package.
+        // Only what is needed to get the importer in. Everything the release
+        // itself requires is fetched from the broker after the buyer confirms,
+        // so a stale download can never describe the wrong dependency set.
         vpmDependencies: {
-          ...stringRecord(input.manifest.vpmDependencies),
           'com.yucp.importer': YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_VERSION,
         },
         vpmRepositories: {
-          ...stringRecord(input.manifest.vpmRepositories),
           YUCP: input.importerRepositoryUrl,
         },
       },
