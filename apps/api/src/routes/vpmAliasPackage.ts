@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import {
   applyYucpAliasPackageManifestDefaults,
   mergeYucpAliasPackageMetadata,
+  normalizeYucpRequirementMap,
   type YucpBootstrapIntent,
 } from '@yucp/shared';
 import { strToU8, type Zippable, zipSync } from 'fflate';
@@ -388,6 +389,8 @@ export function buildYucpAliasVpmPackage(input: {
   packageVersion?: string;
   vpmDependencies: Readonly<Record<string, string>>;
   vpmRepositories?: Readonly<Record<string, string>>;
+  releaseVpmDependencies?: Readonly<Record<string, string>>;
+  releaseVpmRepositories?: Readonly<Record<string, string>>;
   packageMetadata?: YucpAliasPackageMetadataInput;
   media?: ReadonlyArray<YucpAliasPackageMediaInput>;
 }): BuiltYucpAliasVpmPackage {
@@ -398,6 +401,10 @@ export function buildYucpAliasVpmPackage(input: {
     : bootstrapVersion;
   const vpmDependencies = normalizeVpmDependencies(input.vpmDependencies);
   const vpmRepositories = normalizeVpmRepositories(input.vpmRepositories);
+  // Display only. These never reach the manifest's vpmDependencies, so the
+  // Creator Companion still installs the importer and nothing else.
+  const releaseVpmDependencies = normalizeYucpRequirementMap(input.releaseVpmDependencies);
+  const releaseVpmRepositories = normalizeYucpRequirementMap(input.releaseVpmRepositories);
   const packageMetadata = normalizePackageMetadata(input.packageMetadata);
   const media = normalizeMedia(input.media);
   const artifactUrl = normalizeArtifactUrl(input.artifactUrl, bootstrapVersion);
@@ -429,6 +436,12 @@ export function buildYucpAliasVpmPackage(input: {
           installStrategy: 'server-authorized',
           importerPackage: 'com.yucp.importer',
           ...(input.bootstrapIntent ? { bootstrapIntent: input.bootstrapIntent } : {}),
+          ...(Object.keys(releaseVpmDependencies).length > 0
+            ? { releaseVpmDependencies }
+            : {}),
+          ...(Object.keys(releaseVpmRepositories).length > 0
+            ? { releaseVpmRepositories }
+            : {}),
           ...(packageMetadata
             ? {
                 packageMetadata: {

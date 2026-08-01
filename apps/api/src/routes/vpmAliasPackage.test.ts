@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { unzipSync } from 'fflate';
+import { yucpBootstrapRequirementsPayload } from '@yucp/shared';
 import { buildYucpAliasVpmPackage } from './vpmAliasPackage';
 
 const aliasId = 'jammr';
@@ -417,5 +418,96 @@ describe('YUCP public VPM alias package', () => {
         artifactUrl: immutableArtifactUrl('1.0.0'),
       })
     ).toThrow('repository URL is invalid');
+  });
+});
+
+describe('release requirements shown on the import screen', () => {
+  it('advertises what the release pulls in without adding it to the manifest the Creator Companion installs', () => {
+    const built = buildYucpAliasVpmPackage({
+      aliasId: 'com.lunararray.druffle',
+      bootstrapVersion: '1.0.0',
+      artifactUrl: immutableArtifactUrl('1.0.0'),
+      vpmDependencies: { 'com.yucp.importer': '>=0.1.71' },
+      releaseVpmDependencies: {
+        'com.vrcfury.vrcfury': '>=0.0.0',
+        '  ': '>=0.0.0',
+        'com.creator.kit': '   ',
+      },
+      releaseVpmRepositories: { 'VRCFury Repo': 'https://vcc.vrcfury.com/' },
+    } as Parameters<typeof buildYucpAliasVpmPackage>[0]);
+
+    // The bootstrap still installs the importer and nothing else.
+    expect(built.manifest.vpmDependencies).toEqual({ 'com.yucp.importer': '>=0.1.71' });
+    const yucp = built.manifest.yucp as Record<string, unknown>;
+    expect(yucp.releaseVpmDependencies).toEqual({ 'com.vrcfury.vrcfury': '>=0.0.0' });
+    expect(yucp.releaseVpmRepositories).toEqual({
+      'VRCFury Repo': 'https://vcc.vrcfury.com/',
+    });
+  });
+
+  it('advertises exactly the requirements the signed digest covers', () => {
+    const releaseVpmDependencies = {
+      'com.vrcfury.vrcfury': '>=0.0.0',
+      'adjerry91.vrcft.templates': '>=0.0.0',
+    };
+    const releaseVpmRepositories = { 'VRCFury Repo': 'https://vcc.vrcfury.com/' };
+    const requirementsDigest = createHash('sha256')
+      .update(
+        yucpBootstrapRequirementsPayload({
+          vpmDependencies: releaseVpmDependencies,
+          vpmRepositories: releaseVpmRepositories,
+        })
+      )
+      .digest('hex');
+
+    const built = buildYucpAliasVpmPackage({
+      aliasId: 'com.lunararray.druffle',
+      bootstrapVersion: '1.0.0',
+      artifactUrl: immutableArtifactUrl('1.0.0'),
+      vpmDependencies: {},
+      releaseVpmDependencies,
+      releaseVpmRepositories,
+      bootstrapIntent: {
+        schemaVersion: 1,
+        intentId: PUBLICATION_ID,
+        mode: 'specific',
+        issuedAt: 1,
+        keyId: 'package-install-2026-07',
+        editionId: 'edition',
+        version: '1.0.0',
+        versionId: '00000000-0000-4000-8000-000000000402',
+        releaseRoot: 'a'.repeat(64),
+        requirementsDigest,
+        signature: 'signature',
+      },
+    } as Parameters<typeof buildYucpAliasVpmPackage>[0]);
+
+    // The importer refuses to show a list that does not hash to the digest, so
+    // these two have to be emitted from the same source.
+    const yucp = built.manifest.yucp as Record<string, unknown>;
+    const advertised = createHash('sha256')
+      .update(
+        yucpBootstrapRequirementsPayload({
+          vpmDependencies: yucp.releaseVpmDependencies as Record<string, string>,
+          vpmRepositories: yucp.releaseVpmRepositories as Record<string, string>,
+        })
+      )
+      .digest('hex');
+    expect(advertised).toBe(
+      (yucp.bootstrapIntent as { requirementsDigest: string }).requirementsDigest
+    );
+  });
+
+  it('leaves the block out entirely when the release requires nothing', () => {
+    const built = buildYucpAliasVpmPackage({
+      aliasId: 'com.lunararray.druffle',
+      bootstrapVersion: '1.0.0',
+      artifactUrl: immutableArtifactUrl('1.0.0'),
+      vpmDependencies: {},
+    } as Parameters<typeof buildYucpAliasVpmPackage>[0]);
+
+    const yucp = built.manifest.yucp as Record<string, unknown>;
+    expect(yucp).not.toHaveProperty('releaseVpmDependencies');
+    expect(yucp).not.toHaveProperty('releaseVpmRepositories');
   });
 });

@@ -41,6 +41,15 @@ export type YucpAliasPackageContract = {
   packageMetadata?: YucpAliasPackageMetadata;
   media?: YucpAliasPackageMedia[];
   bootstrapIntent?: YucpBootstrapIntent;
+  /**
+   * What the release itself pulls in, shown on the import screen so a buyer
+   * can see it before consenting. Display only: the bootstrap's own
+   * vpmDependencies stays the importer alone, so nothing here is installed
+   * by the Creator Companion. bootstrapIntent.requirementsDigest covers
+   * exactly these two maps, so an edited list is detectable.
+   */
+  releaseVpmDependencies?: Record<string, string>;
+  releaseVpmRepositories?: Record<string, string>;
 };
 
 export type YucpBootstrapIntent = {
@@ -68,22 +77,26 @@ export type UnsignedYucpBootstrapIntent = Omit<YucpBootstrapIntent, 'signature'>
  * whose requirements were edited no longer matches the signature it carries.
  * Keys are sorted and the shape is fixed; the C# installer mirrors this.
  */
+export function normalizeYucpRequirementMap(
+  value: Readonly<Record<string, string>> | undefined
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(value ?? {})
+      .map(([name, entry]) => [String(name).trim(), String(entry).trim()] as const)
+      .filter(([name, entry]) => name.length > 0 && entry.length > 0)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+  );
+}
+
 export function yucpBootstrapRequirementsPayload(input: {
   vpmDependencies?: Readonly<Record<string, string>>;
   vpmRepositories?: Readonly<Record<string, string>>;
 }): Uint8Array {
-  const sorted = (value: Readonly<Record<string, string>> | undefined) =>
-    Object.fromEntries(
-      Object.entries(value ?? {})
-        .map(([name, entry]) => [name.trim(), entry.trim()] as const)
-        .filter(([name, entry]) => name.length > 0 && entry.length > 0)
-        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-    );
   return new TextEncoder().encode(
     JSON.stringify({
       purpose: 'yucp-bootstrap-requirements-v1',
-      vpmDependencies: sorted(input.vpmDependencies),
-      vpmRepositories: sorted(input.vpmRepositories),
+      vpmDependencies: normalizeYucpRequirementMap(input.vpmDependencies),
+      vpmRepositories: normalizeYucpRequirementMap(input.vpmRepositories),
     })
   );
 }
@@ -410,6 +423,21 @@ function normalizeMedia(value: unknown): YucpAliasPackageMedia[] | undefined {
   return media.length > 0 ? media : undefined;
 }
 
+function normalizeReleaseRequirements(value: unknown, path: string): Record<string, string> {
+  if (value === undefined) {
+    return {};
+  }
+  if (!isRecord(value)) {
+    throw new Error(`${path} must be an object`);
+  }
+  for (const [name, entry] of Object.entries(value)) {
+    if (typeof entry !== 'string') {
+      throw new Error(`${path}.${name} must be a string`);
+    }
+  }
+  return normalizeYucpRequirementMap(value as Record<string, string>);
+}
+
 export function normalizeYucpAliasPackageContract(
   value: unknown
 ): YucpAliasPackageContract | undefined {
@@ -508,6 +536,22 @@ export function normalizeYucpAliasPackageContract(
   const media = normalizeMedia(value.media);
   if (media) {
     normalized.media = media;
+  }
+
+  const releaseVpmDependencies = normalizeReleaseRequirements(
+    value.releaseVpmDependencies,
+    `${YUCP_METADATA_ALIAS_PATH}.releaseVpmDependencies`
+  );
+  if (Object.keys(releaseVpmDependencies).length > 0) {
+    normalized.releaseVpmDependencies = releaseVpmDependencies;
+  }
+
+  const releaseVpmRepositories = normalizeReleaseRequirements(
+    value.releaseVpmRepositories,
+    `${YUCP_METADATA_ALIAS_PATH}.releaseVpmRepositories`
+  );
+  if (Object.keys(releaseVpmRepositories).length > 0) {
+    normalized.releaseVpmRepositories = releaseVpmRepositories;
   }
 
   if (kind === YUCP_ALIAS_PACKAGE_VERSIONED_KIND) {
@@ -681,6 +725,12 @@ export function mergeYucpAliasPackageMetadata(input: {
       ...(existingAliasContract?.media ? { media: existingAliasContract.media } : {}),
       ...(existingAliasContract?.bootstrapIntent
         ? { bootstrapIntent: existingAliasContract.bootstrapIntent }
+        : {}),
+      ...(existingAliasContract?.releaseVpmDependencies
+        ? { releaseVpmDependencies: existingAliasContract.releaseVpmDependencies }
+        : {}),
+      ...(existingAliasContract?.releaseVpmRepositories
+        ? { releaseVpmRepositories: existingAliasContract.releaseVpmRepositories }
         : {}),
       installStrategy: YUCP_ALIAS_PACKAGE_INSTALL_STRATEGIES.serverAuthorized,
       importerPackage: YUCP_ALIAS_PACKAGE_IMPORTER_PACKAGES.importer,

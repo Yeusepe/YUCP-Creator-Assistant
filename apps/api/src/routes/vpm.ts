@@ -632,6 +632,8 @@ export function createVpmRoutes({
         ...(bootstrapIntent ? { bootstrapIntent } : {}),
         packageVersion: input.reservation.packageVersion,
         vpmDependencies: {},
+        ...(input.vpmDependencies ? { releaseVpmDependencies: input.vpmDependencies } : {}),
+        ...(input.vpmRepositories ? { releaseVpmRepositories: input.vpmRepositories } : {}),
         packageMetadata: {
           packageName: input.presentation.packageName,
           author: input.presentation.authorName,
@@ -1631,6 +1633,10 @@ export function createVpmRoutes({
       // actually fetching needs, so an update that changes requirements does
       // not leave every bootstrap already downloaded describing the old set.
       vpmDependencies: {},
+      // Shown on the import screen so the buyer sees what the release pulls in
+      // before consenting. requirementsDigest covers exactly these maps.
+      ...(target.vpmDependencies ? { releaseVpmDependencies: target.vpmDependencies } : {}),
+      ...(target.vpmRepositories ? { releaseVpmRepositories: target.vpmRepositories } : {}),
       packageMetadata: {
         packageName,
         author: releaseMetadata?.author?.trim() || presentation?.authorName || 'YUCP Club',
