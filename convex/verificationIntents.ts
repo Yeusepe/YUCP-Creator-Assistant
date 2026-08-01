@@ -293,32 +293,84 @@ function validateRequirements(
   }
 }
 
+const INTENT_SUBJECT_FAILURES = {
+  not_found: {
+    errorCode: 'subject_not_found',
+    errorMessage: 'No linked buyer subject was found for this Creator Identity.',
+  },
+  ownership_conflict: {
+    errorCode: 'subject_ownership_conflict',
+    errorMessage:
+      'This purchase is linked to a different YUCP account. Sign in with that account, or contact support to merge them.',
+  },
+} as const;
+
+type IntentSubjectResolution =
+  | { kind: 'resolved'; subjectId: Id<'subjects'> }
+  | { kind: 'not_found' }
+  | { kind: 'ownership_conflict'; subjectId: Id<'subjects'>; ownerAuthUserId: string };
+
+/**
+ * Every downstream write requires a subject that belongs to the buyer, and
+ * completeLicenseVerification enforces that. Returning a subject owned by someone else made that
+ * enforcement throw uncaught, which Convex redacts to "Server Error" and the API turns into a 500 —
+ * buyers saw "we couldn't find that license key". Resolve ownership here so a mismatch is a
+ * reported outcome instead of a crash.
+ */
 async function resolveIntentSubjectId(
   ctx: ActionCtx,
   intent: VerificationIntentDoc,
   authUserId: string
-): Promise<Id<'subjects'> | null> {
+): Promise<IntentSubjectResolution> {
+  const verifyOwnership = async (
+    subjectId: Id<'subjects'>
+  ): Promise<IntentSubjectResolution | null> => {
+    const identity = await ctx.runQuery(internal.subjects.getSubjectIdentityById, { subjectId });
+    if (!identity) {
+      return null;
+    }
+    if (!identity.authUserId || identity.authUserId === authUserId) {
+      return { kind: 'resolved', subjectId };
+    }
+    return { kind: 'ownership_conflict', subjectId, ownerAuthUserId: identity.authUserId };
+  };
+
+  const discordUserId = await ctx.runQuery(internal.identitySync.getDiscordUserIdByAuthUser, {
+    authUserId,
+  });
+
   if (intent.subjectId != null) {
-    return intent.subjectId;
+    // The intent snapshots the subject at creation time. That owner can since have been superseded
+    // (a light placeholder promoted to the real account), so claim through the Discord identity
+    // first and only then check who the subject belongs to.
+    if (discordUserId) {
+      await ctx.runMutation(internal.identitySync.ensureSubjectForAuthUserWithDiscord, {
+        authUserId,
+        discordUserId,
+      });
+    }
+    return (await verifyOwnership(intent.subjectId)) ?? { kind: 'not_found' };
   }
 
   const subject = await ctx.runQuery(internal.yucpLicenses.getSubjectByAuthUser, {
     authUserId,
   });
-  if (subject) return subject._id;
+  if (subject) {
+    return { kind: 'resolved', subjectId: subject._id };
+  }
 
   // Lazy subject creation: look up the buyer's Discord account from Better Auth,
   // then find or create a subject linked to both identifiers so verification
   // succeeds even when syncUserFromAuth was never explicitly called.
-  const discordUserId = await ctx.runQuery(internal.identitySync.getDiscordUserIdByAuthUser, {
-    authUserId,
-  });
-  if (!discordUserId) return null;
+  if (!discordUserId) {
+    return { kind: 'not_found' };
+  }
 
-  return ctx.runMutation(internal.identitySync.ensureSubjectForAuthUserWithDiscord, {
-    authUserId,
-    discordUserId,
-  });
+  const subjectId = await ctx.runMutation(
+    internal.identitySync.ensureSubjectForAuthUserWithDiscord,
+    { authUserId, discordUserId }
+  );
+  return (await verifyOwnership(subjectId)) ?? { kind: 'not_found' };
 }
 
 interface VerificationGrantClaims {
@@ -984,25 +1036,23 @@ export const verifyIntentWithExistingEntitlement = action({
       creatorAuthUserId: requirement.creatorAuthUserId,
       productId: requirement.productId,
     });
-    const subjectId = await resolveIntentSubjectId(ctx, intent, args.authUserId);
-    if (!subjectId) {
-      console.warn('[convex] existing entitlement subject not found', {
+    const subjectResolution = await resolveIntentSubjectId(ctx, intent, args.authUserId);
+    if (subjectResolution.kind !== 'resolved') {
+      const failure = INTENT_SUBJECT_FAILURES[subjectResolution.kind];
+      console.warn('[convex] existing entitlement subject unusable', {
         phase: 'convex-verification-intent-existing-entitlement',
         intentId: args.intentId,
         methodKey: args.methodKey,
         authUserId: args.authUserId,
+        reason: subjectResolution.kind,
       });
       await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
         intentId: args.intentId,
-        errorCode: 'subject_not_found',
-        errorMessage: 'No linked buyer subject was found for this Creator Identity.',
+        ...failure,
       });
-      return {
-        success: false,
-        errorCode: 'subject_not_found',
-        errorMessage: 'No linked buyer subject was found for this Creator Identity.',
-      };
+      return { success: false, ...failure };
     }
+    const subjectId = subjectResolution.subjectId;
     const hasEntitlement = await ctx.runQuery(internal.yucpLicenses.checkSubjectEntitlement, {
       authUserId: requirement.creatorAuthUserId,
       subjectId,
@@ -1109,26 +1159,24 @@ export const verifyIntentWithBuyerProviderLink = action({
       hasProductContext: Boolean(requirement.creatorAuthUserId && requirement.productId),
     });
 
-    const subjectId = await resolveIntentSubjectId(ctx, intent, args.authUserId);
-    if (!subjectId) {
-      console.warn('[convex] buyer provider link subject not found', {
+    const subjectResolution = await resolveIntentSubjectId(ctx, intent, args.authUserId);
+    if (subjectResolution.kind !== 'resolved') {
+      const failure = INTENT_SUBJECT_FAILURES[subjectResolution.kind];
+      console.warn('[convex] buyer provider link subject unusable', {
         phase: 'convex-verification-intent-buyer-provider-link',
         intentId: args.intentId,
         methodKey: args.methodKey,
         authUserId: args.authUserId,
         provider: requirement.providerKey,
+        reason: subjectResolution.kind,
       });
       await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
         intentId: args.intentId,
-        errorCode: 'subject_not_found',
-        errorMessage: 'No linked buyer subject was found for this Creator Identity.',
+        ...failure,
       });
-      return {
-        success: false,
-        errorCode: 'subject_not_found',
-        errorMessage: 'No linked buyer subject was found for this Creator Identity.',
-      };
+      return { success: false, ...failure };
     }
+    const subjectId = subjectResolution.subjectId;
 
     const buyerProviderLink = await ctx.runQuery(internal.subjects.getBuyerProviderLinkForSubject, {
       subjectId,
@@ -1384,19 +1432,16 @@ export const verifyIntentWithManualLicense = action({
     }
 
     if (proof.manualLicenseId && proof.creatorAuthUserId && proof.productId) {
-      const subjectId = await resolveIntentSubjectId(ctx, intent, args.authUserId);
-      if (!subjectId) {
+      const subjectResolution = await resolveIntentSubjectId(ctx, intent, args.authUserId);
+      if (subjectResolution.kind !== 'resolved') {
+        const failure = INTENT_SUBJECT_FAILURES[subjectResolution.kind];
         await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
           intentId: args.intentId,
-          errorCode: 'subject_not_found',
-          errorMessage: 'No linked buyer subject was found for this Creator Identity.',
+          ...failure,
         });
-        return {
-          success: false,
-          errorCode: 'subject_not_found',
-          errorMessage: 'No linked buyer subject was found for this Creator Identity.',
-        };
+        return { success: false, ...failure };
       }
+      const subjectId = subjectResolution.subjectId;
 
       const completion = await ctx.runMutation(
         internal.verificationIntents.completeManualLicenseIntent,
@@ -1433,19 +1478,16 @@ export const verifyIntentWithManualLicense = action({
       proof.catalogProductId &&
       requirement.providerKey !== 'manual'
     ) {
-      const subjectId = await resolveIntentSubjectId(ctx, intent, args.authUserId);
-      if (!subjectId) {
+      const subjectResolution = await resolveIntentSubjectId(ctx, intent, args.authUserId);
+      if (subjectResolution.kind !== 'resolved') {
+        const failure = INTENT_SUBJECT_FAILURES[subjectResolution.kind];
         await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
           intentId: args.intentId,
-          errorCode: 'subject_not_found',
-          errorMessage: 'No linked buyer subject was found for this Creator Identity.',
+          ...failure,
         });
-        return {
-          success: false,
-          errorCode: 'subject_not_found',
-          errorMessage: 'No linked buyer subject was found for this Creator Identity.',
-        };
+        return { success: false, ...failure };
       }
+      const subjectId = subjectResolution.subjectId;
 
       const licenseSubject = await sha256Hex(args.licenseKey);
       const sourceReference = buildProviderLicenseSourceReference({

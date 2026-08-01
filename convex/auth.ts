@@ -206,6 +206,29 @@ async function scheduleCustomerReconciliation(ctx: GenericCtx<DataModel>, payloa
   });
 }
 
+/**
+ * Discord is the only sign-in method, so a buyer who verified purchases through the bot already has
+ * a subject — owned by a light placeholder minted before they ever had a Better Auth identity.
+ * Sign-in is the first moment the two can be proven to be the same person, so hand the subject over
+ * here. Best-effort: a failure must never block a sign-in.
+ */
+async function claimDiscordSubjectOnSignIn(ctx: GenericCtx<DataModel>, authUserId: unknown) {
+  if (typeof authUserId !== 'string' || !authUserId || !('runMutation' in ctx)) {
+    return;
+  }
+
+  try {
+    await ctx.runMutation(internal.identitySync.claimDiscordSubjectForAuthUser, {
+      authUserId,
+    });
+  } catch (error) {
+    console.error('[convex] failed to claim Discord subject on sign-in', {
+      authUserId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 function getRecoveryPasskeySecret(): string {
   const secret =
     process.env.ACCOUNT_RECOVERY_CONTEXT_SECRET?.trim() || process.env.BETTER_AUTH_SECRET;
@@ -388,6 +411,15 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
       },
     },
     socialProviders: discordConfig,
+    databaseHooks: {
+      session: {
+        create: {
+          after: async (session) => {
+            await claimDiscordSubjectOnSignIn(ctx, (session as { userId?: unknown }).userId);
+          },
+        },
+      },
+    },
     plugins: [
       // oauthProvider depends on the standalone JWT plugin for OAuth/OIDC tokens,
       // while convex() adds the /convex/* JWT endpoints used by the web app.

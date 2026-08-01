@@ -24,6 +24,7 @@ import { requireApiSecret } from './lib/apiAuth';
 import { buildBetterAuthUserProviderLookupWhere } from './lib/betterAuthAdapter';
 import { PII_PURPOSES } from './lib/credentialKeys';
 import { upsertLicenseSubjectLink } from './lib/licenseSubjectLink';
+import { findBetterAuthUserIdsByDiscordUserId, isLightOwnedSubject } from './lib/lightAuthIdentity';
 import { encryptPii, normalizeAndEncryptEmail } from './lib/piiCrypto';
 
 // ============================================================================
@@ -123,7 +124,53 @@ function canReassignProviderSubjectOwnership(
   );
 }
 
-async function reassignProviderSubjectOwnership(
+/**
+ * Hand a subject from its light placeholder owner to the real Better Auth account, once the buyer
+ * has actually signed in.
+ *
+ * Light users exist so the Discord-first flow has a non-null owner to write against, but nothing
+ * ever promoted them: every claim path refuses to re-point a subject that already has an owner, so
+ * the subject stayed welded to an account nobody can sign into and license verification failed with
+ * "Subject ... does not belong to buyer auth user" — a 500 that reached buyers as "we couldn't find
+ * that license key".
+ *
+ * Only a light owner is reassigned. The marker encodes the Discord id, so the placeholder and the
+ * real account are provably the same human; a subject owned by a different real account is a
+ * genuine ambiguity and is left for review.
+ */
+export async function promoteLightSubjectOwnership(
+  ctx: Pick<MutationCtx, 'db' | 'runQuery'>,
+  subject: { _id: Id<'subjects'>; authUserId?: string; primaryDiscordUserId: string }
+): Promise<string | undefined> {
+  const currentAuthUserId = subject.authUserId;
+  if (!currentAuthUserId || !(await isLightOwnedSubject(ctx, subject))) {
+    return currentAuthUserId;
+  }
+
+  const betterAuthUserIds = await findBetterAuthUserIdsByDiscordUserId(
+    ctx,
+    subject.primaryDiscordUserId
+  );
+  // Zero: they still have not signed in, so the placeholder is still the best owner.
+  // More than one: ambiguous, and reassigning could hand the subject to the wrong account.
+  if (betterAuthUserIds.length !== 1) {
+    return currentAuthUserId;
+  }
+
+  const realAuthUserId = betterAuthUserIds[0];
+  if (!realAuthUserId || realAuthUserId === currentAuthUserId) {
+    return currentAuthUserId;
+  }
+
+  await reassignProviderSubjectOwnership(ctx, {
+    subject: { _id: subject._id, authUserId: currentAuthUserId },
+    requestedAuthUserId: realAuthUserId,
+    now: Date.now(),
+  });
+  return realAuthUserId;
+}
+
+export async function reassignProviderSubjectOwnership(
   ctx: Pick<MutationCtx, 'db'>,
   {
     subject,
@@ -396,6 +443,14 @@ export const ensureSubjectForAuthUserWithDiscord = internalMutation({
     if (byDiscord) {
       if (!byDiscord.authUserId) {
         await ctx.db.patch(byDiscord._id, { authUserId: args.authUserId, updatedAt: now });
+        return byDiscord._id;
+      }
+      if (byDiscord.authUserId !== args.authUserId) {
+        // The subject is owned by someone else for this same Discord id. If that owner is the
+        // light placeholder minted before this buyer ever signed in, hand the subject over —
+        // returning it unchanged made completeLicenseVerification reject it as foreign and
+        // surfaced to buyers as "we couldn't find that license key".
+        await promoteLightSubjectOwnership(ctx, byDiscord);
       }
       return byDiscord._id;
     }
@@ -407,6 +462,49 @@ export const ensureSubjectForAuthUserWithDiscord = internalMutation({
       createdAt: now,
       updatedAt: now,
     });
+  },
+});
+
+/**
+ * Claim (or promote) the Discord subject belonging to a buyer who has just signed in.
+ *
+ * A Discord-first buyer's subject is created by the bot and owned by a light placeholder. Nothing
+ * used to hand it over when the real account finally appeared, so the placeholder stayed the owner
+ * and every later license verification failed. Sign-in is the earliest moment we can prove the two
+ * identities are the same person, so the handover happens here.
+ *
+ * Best-effort by design: it returns null rather than throwing when there is nothing to claim, and
+ * callers must not fail a sign-in because of it.
+ */
+export const claimDiscordSubjectForAuthUser = internalMutation({
+  args: { authUserId: v.string() },
+  returns: v.union(v.null(), v.id('subjects')),
+  // Annotated because the handler reaches back through `internal.identitySync`, and inferring the
+  // return type would be circular.
+  handler: async (ctx, args): Promise<Id<'subjects'> | null> => {
+    const discordUserId: string | null = await ctx.runQuery(
+      internal.identitySync.getDiscordUserIdByAuthUser,
+      { authUserId: args.authUserId }
+    );
+    if (!discordUserId) {
+      return null;
+    }
+
+    const subject = await ctx.db
+      .query('subjects')
+      .withIndex('by_discord_user', (q) => q.eq('primaryDiscordUserId', discordUserId))
+      .first();
+    if (!subject) {
+      return null;
+    }
+
+    if (!subject.authUserId) {
+      await ctx.db.patch(subject._id, { authUserId: args.authUserId, updatedAt: Date.now() });
+      return subject._id;
+    }
+
+    await promoteLightSubjectOwnership(ctx, subject);
+    return subject._id;
   },
 });
 

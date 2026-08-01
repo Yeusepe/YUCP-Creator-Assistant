@@ -11,6 +11,7 @@ import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx } from './_generated/server';
 import { internalMutation, internalQuery, mutation, query } from './_generated/server';
 import { revokeBindingRecord } from './bindings';
+import { promoteLightSubjectOwnership } from './identitySync';
 import {
   ApiActorBindingV,
   assertServiceActor,
@@ -20,13 +21,16 @@ import {
 } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
 import {
-  buildBetterAuthEqualityWhere,
-  buildBetterAuthOAuthAccountLookupWhere,
-} from './lib/betterAuthAdapter';
-import {
   type ExternalAccountIdentityCandidate,
   selectCanonicalExternalAccountCandidates,
 } from './lib/externalAccountIdentity';
+import {
+  buildLightAuthDisplayName,
+  buildLightAuthEmail,
+  buildLightAuthMarker,
+  findBetterAuthUserIdByLightMarker,
+  findBetterAuthUserIdsByDiscordUserId,
+} from './lib/lightAuthIdentity';
 import { hasActiveBindingForSubject } from './lib/ownership';
 import { ProviderV } from './lib/providers';
 
@@ -89,21 +93,6 @@ function formatBuyerProviderLinkLabel(
   return account.providerUsername?.trim() || account.providerUserId;
 }
 
-function buildLightAuthEmail(discordUserId: string) {
-  return `discord+${discordUserId}@buyers.yucp.invalid`;
-}
-
-function buildLightAuthMarker(discordUserId: string) {
-  return `light-discord:${discordUserId}`;
-}
-
-function buildLightAuthDisplayName(
-  subject: Pick<Doc<'subjects'>, 'displayName' | 'primaryDiscordUserId'>
-) {
-  const trimmed = subject.displayName?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : `Discord ${subject.primaryDiscordUserId}`;
-}
-
 export type CanonicalSubjectAuthResolution =
   | {
       kind: 'resolved';
@@ -118,38 +107,6 @@ export type CanonicalSubjectAuthResolution =
       kind: 'ambiguous';
       authUserIds: string[];
     };
-
-async function findBetterAuthUserIdByLightMarker(
-  ctx: Pick<MutationCtx, 'runQuery'>,
-  marker: string
-): Promise<string | null> {
-  const existingUser = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
-    model: 'user',
-    where: buildBetterAuthEqualityWhere([{ field: 'userId', value: marker }]),
-  })) as { id?: string; _id?: string } | null;
-
-  return existingUser?.id ?? existingUser?._id ?? null;
-}
-
-async function findBetterAuthUserIdsByDiscordUserId(
-  ctx: Pick<MutationCtx, 'runQuery'>,
-  discordUserId: string
-): Promise<string[]> {
-  const result = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
-    model: 'account',
-    where: buildBetterAuthOAuthAccountLookupWhere('discord', discordUserId),
-    select: ['userId'],
-    paginationOpts: { cursor: null, numItems: 10 },
-  })) as { page?: Array<{ userId?: string | null }> } | null;
-
-  return Array.from(
-    new Set(
-      (result?.page ?? [])
-        .map((record) => record.userId?.trim())
-        .filter((userId): userId is string => Boolean(userId))
-    )
-  );
-}
 
 export async function detectCanonicalAuthResolutionForSubject(
   ctx: Pick<MutationCtx, 'runQuery'>,
@@ -877,7 +834,8 @@ export const ensureAuthUserIdForSubject = mutation({
     }
 
     if (subject.authUserId) {
-      return subject.authUserId;
+      // Already owned — but a light placeholder must still hand over once the buyer signs in.
+      return (await promoteLightSubjectOwnership(ctx, subject)) ?? subject.authUserId;
     }
 
     if (!subject.primaryDiscordUserId) {
@@ -940,7 +898,20 @@ export const ensureCanonicalAuthContextForDiscordUser = mutation({
           `subjectId=${subjectId}, existingSubject=${existingSubject?._id}`
       );
     }
-    const resolved = await ensureCanonicalAuthUserIdForSubject(ctx, subject);
+    // A subject already owned by a light placeholder keeps that owner unless the buyer has since
+    // signed in, in which case the canonical resolution below is the real account and the subject
+    // has to follow it. Resolving without re-pointing was what left the weld permanent.
+    const promotedAuthUserId = await promoteLightSubjectOwnership(ctx, subject);
+    const resolved = await ensureCanonicalAuthUserIdForSubject(ctx, {
+      ...subject,
+      ...(promotedAuthUserId ? { authUserId: promotedAuthUserId } : {}),
+    });
+    if (subject.authUserId !== resolved.authUserId) {
+      await ctx.db.patch(subject._id, {
+        authUserId: resolved.authUserId,
+        updatedAt: Date.now(),
+      });
+    }
     return {
       subjectId: subject._id,
       authUserId: resolved.authUserId,
