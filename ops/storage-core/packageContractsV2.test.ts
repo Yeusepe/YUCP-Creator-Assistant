@@ -245,7 +245,6 @@ describe('package contracts v2', () => {
           operation: capability.operation,
           projectIdentity: capability.projectIdentity,
           releaseRoot: capability.releaseRoot,
-          traceparent: capability.traceparent,
         },
         coseSign1: signed.coseSign1,
         expectedKeyId: KEY_ID,
@@ -264,6 +263,16 @@ describe('package contracts v2', () => {
         publicKey,
       })
     ).rejects.toThrow('purpose');
+  });
+  test('keeps the traceparent in the payload even though it is not bound', () => {
+    // Dropping the traceparent from the binding must not drop it from the contract: it is what
+    // correlates an authorization back to the attempt that minted it.
+    expect(() =>
+      encodePackageOperationCapabilityV2({
+        ...packageOperationCapability(),
+        traceparent: 'not-a-traceparent',
+      })
+    ).toThrow('traceparent');
   });
   test('uses the frozen length-prefixed package hash framing', () => {
     expect(

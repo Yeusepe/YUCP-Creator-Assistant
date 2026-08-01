@@ -491,21 +491,21 @@ export class PackageOperationAuthorizationStore {
     return completed.length === 1;
   }
 
+  // Renewals are located by session, not by trace. The session id is already a deterministic
+  // identifier over the operation identity, and the grant digest below is the bearer proof; the
+  // trace only ever recorded which attempt happened to open the session. Matching on it meant an
+  // operation that resumed in a later trace could never renew the session it had just been handed.
   async beginRenewal(input: {
     buyerId: string;
     deviceKeyThumbprint: string;
     grantTokenSha256: string;
     leaseMilliseconds?: number;
     sessionId: string;
-    traceId: string;
   }): Promise<PackageOperationRenewalClaim> {
     requireText(input.buyerId, 'buyerId');
     requireDigest(input.deviceKeyThumbprint, 'deviceKeyThumbprint');
     requireDigest(input.grantTokenSha256, 'grantTokenSha256');
     requireText(input.sessionId, 'sessionId');
-    if (!/^[0-9a-f]{32}$/.test(input.traceId) || input.traceId === '0'.repeat(32)) {
-      throw new Error('traceId is invalid');
-    }
     const leaseMilliseconds =
       input.leaseMilliseconds ?? PACKAGE_INSTALL_AUTHORIZATION_POLICY.renewalLeaseMilliseconds;
     if (
@@ -549,7 +549,6 @@ export class PackageOperationAuthorizationStore {
         WHERE buyer_id = ${input.buyerId}
           AND device_key_thumbprint = ${input.deviceKeyThumbprint}
           AND outcome_session_id = ${input.sessionId}
-          AND substring(traceparent FROM 4 FOR 32) = ${input.traceId}
           AND exchange_state = 'READY'
         LIMIT 1
       `;
@@ -630,7 +629,6 @@ export class PackageOperationAuthorizationStore {
         WHERE buyer_id = ${input.buyerId}
           AND device_key_thumbprint = ${input.deviceKeyThumbprint}
           AND outcome_session_id = ${input.sessionId}
-          AND substring(traceparent FROM 4 FOR 32) = ${input.traceId}
           AND (
             outcome_grant_token_sha256 = ${input.grantTokenSha256}
             OR (

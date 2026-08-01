@@ -137,7 +137,6 @@ export type PackageOperationCapabilityValidationContext = {
   operation: InstallSessionOperation;
   projectIdentity: Uint8Array;
   releaseRoot: Uint8Array;
-  traceparent: string;
 };
 
 export type DeliveryGrantV2 = {
@@ -1130,12 +1129,18 @@ export function validatePackageOperationCapabilityV2(
   if (context.now < capability.notBefore || context.now >= capability.expiresAt) {
     throw new Error('PackageOperationCapabilityV2 is not active');
   }
+  // traceparent is carried in the payload for correlation but is deliberately NOT part of the
+  // binding. The authorization it belongs to is reserved per idempotency key, which is stable
+  // across attempts, while the traceparent changes on every attempt. Comparing it made a replayed
+  // authorization unusable from any later trace: a retry of a still-running operation got
+  // "authorization is invalid" instead of the OPERATION_AUTHORIZATION_IN_PROGRESS / session-resume
+  // answers below. It also secures nothing — the caller supplies the traceparent in the very
+  // request being checked.
   if (
     capability.aliasId !== context.aliasId ||
     capability.approvedPolicyVersion !== context.approvedPolicyVersion ||
     capability.idempotencyKey !== context.idempotencyKey ||
     capability.operation !== context.operation ||
-    capability.traceparent !== context.traceparent ||
     issuer !== normalizeOrigin(context.issuer, 'Expected package operation issuer') ||
     audience !== normalizeOrigin(context.audience, 'Expected package operation audience') ||
     !bytesEqual(capability.deviceKeyThumbprint, context.deviceKeyThumbprint) ||

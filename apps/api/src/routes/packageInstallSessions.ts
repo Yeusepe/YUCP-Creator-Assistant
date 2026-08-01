@@ -129,7 +129,6 @@ export interface PackageOperationAuthorizationPort {
     deviceKeyThumbprint: string;
     grantTokenSha256: string;
     sessionId: string;
-    traceId: string;
   }): Promise<
     | {
         capabilityId: string;
@@ -1088,7 +1087,6 @@ export function createPackageInstallSessionRoute(
           operation: input.operation,
           projectIdentity: Uint8Array.from(Buffer.from(input.projectIdentity, 'hex')),
           releaseRoot: Uint8Array.from(Buffer.from(input.targetReleaseRoot, 'hex')),
-          traceparent: input.traceparent,
         },
         coseSign1: operationCapabilityBytes,
         expectedKeyId,
@@ -1478,10 +1476,6 @@ export function createPackageInstallSessionRenewalRoute(
         409
       );
     }
-    const renewalTrace = parseTraceparent(input.traceparent);
-    if (!renewalTrace) {
-      return jsonNoStore({ error: 'traceparent is invalid' }, 400);
-    }
     const exchange = await options.authorizationPort.beginRenewal({
       buyerId: authentication.buyerId,
       deviceKeyThumbprint: authentication.deviceKeyThumbprint,
@@ -1489,7 +1483,6 @@ export function createPackageInstallSessionRenewalRoute(
         .update(Buffer.from(input.deliveryGrant, 'base64url'))
         .digest('hex'),
       sessionId: session.sessionId,
-      traceId: renewalTrace.traceId,
     });
     if (exchange.status === 'invalid') {
       return jsonNoStore(

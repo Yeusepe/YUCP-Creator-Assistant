@@ -513,7 +513,6 @@ describe.serial('PostgreSQL catalog integration', () => {
       deviceKeyThumbprint: record.deviceKeyThumbprint,
       grantTokenSha256: initialGrantDigest,
       sessionId: 'session-renewal-1',
-      traceId: '0123456789abcdef0123456789abcdef',
     });
     if (first.status !== 'claimed') {
       throw new Error(`expected claimed renewal, received ${first.status}`);
@@ -523,7 +522,6 @@ describe.serial('PostgreSQL catalog integration', () => {
       deviceKeyThumbprint: record.deviceKeyThumbprint,
       grantTokenSha256: initialGrantDigest,
       sessionId: 'session-renewal-1',
-      traceId: '0123456789abcdef0123456789abcdef',
     });
     expect(concurrent).toEqual({ status: 'in_progress' });
     const renewedGrantDigest = 'bc'.repeat(32);
@@ -545,7 +543,6 @@ describe.serial('PostgreSQL catalog integration', () => {
       deviceKeyThumbprint: record.deviceKeyThumbprint,
       grantTokenSha256: initialGrantDigest,
       sessionId: 'session-renewal-1',
-      traceId: '0123456789abcdef0123456789abcdef',
     });
     expect(retried).toEqual({
       capabilityId: record.capabilityId,
@@ -562,23 +559,16 @@ describe.serial('PostgreSQL catalog integration', () => {
       deviceKeyThumbprint: record.deviceKeyThumbprint,
       grantTokenSha256: 'cd'.repeat(32),
       sessionId: 'session-renewal-1',
-      traceId: '0123456789abcdef0123456789abcdef',
     });
     expect(substituted).toEqual({ status: 'invalid' });
-    const differentTrace = await store.beginRenewal({
-      buyerId: record.buyerId,
-      deviceKeyThumbprint: record.deviceKeyThumbprint,
-      grantTokenSha256: renewedGrantDigest,
-      sessionId: 'session-renewal-1',
-      traceId: '1123456789abcdef0123456789abcdef',
-    });
-    expect(differentTrace).toEqual({ status: 'invalid' });
+    // A renewal from a different trace used to be rejected here. The trace is no longer an input:
+    // an operation that resumed in a later trace still has to renew the session it was handed, and
+    // the grant digest asserted above is what actually authorizes the renewal.
     const retryable = await store.beginRenewal({
       buyerId: record.buyerId,
       deviceKeyThumbprint: record.deviceKeyThumbprint,
       grantTokenSha256: renewedGrantDigest,
       sessionId: 'session-renewal-1',
-      traceId: '0123456789abcdef0123456789abcdef',
     });
     if (retryable.status !== 'claimed') {
       throw new Error(`expected claimed renewal, received ${retryable.status}`);
@@ -594,7 +584,6 @@ describe.serial('PostgreSQL catalog integration', () => {
       deviceKeyThumbprint: record.deviceKeyThumbprint,
       grantTokenSha256: renewedGrantDigest,
       sessionId: 'session-renewal-1',
-      traceId: '0123456789abcdef0123456789abcdef',
     });
     expect(reclaimed).toMatchObject({
       capabilityId: record.capabilityId,
@@ -637,7 +626,6 @@ describe.serial('PostgreSQL catalog integration', () => {
       deviceKeyThumbprint: record.deviceKeyThumbprint,
       grantTokenSha256: firstDigest,
       sessionId: 'session-lost-renewal',
-      traceId: '0123456789abcdef0123456789abcdef',
     });
     if (firstRenewal.status !== 'claimed') {
       throw new Error(`expected claimed renewal, received ${firstRenewal.status}`);
@@ -665,7 +653,6 @@ describe.serial('PostgreSQL catalog integration', () => {
       deviceKeyThumbprint: record.deviceKeyThumbprint,
       grantTokenSha256: firstDigest,
       sessionId: 'session-lost-renewal',
-      traceId: '0123456789abcdef0123456789abcdef',
     });
 
     expect(advanced).toMatchObject({

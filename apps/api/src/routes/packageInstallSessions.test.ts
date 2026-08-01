@@ -324,7 +324,6 @@ describe('package install session route', () => {
           operation: 'install',
           projectIdentity: Buffer.from(projectIdentity, 'hex'),
           releaseRoot: Buffer.from('11'.repeat(32), 'hex'),
-          traceparent,
         },
         coseSign1: Buffer.from(body.operationCapability as string, 'base64url'),
         expectedKeyId: packageContractKeyId(keyId),
@@ -581,8 +580,11 @@ describe('package install session route', () => {
         buyerId: 'buyer-1',
         deviceKeyThumbprint,
         sessionId: 'session-renewable',
-        traceId: '0123456789abcdef0123456789abcdef',
       })
+    );
+    // The renewal is located by session, not by the trace the caller happens to be on.
+    expect(beginRenewal).not.toHaveBeenCalledWith(
+      expect.objectContaining({ traceId: expect.anything() })
     );
     expect(completeRenewal).toHaveBeenCalledTimes(1);
     expect(completeRenewal).toHaveBeenCalledWith(
@@ -902,6 +904,77 @@ describe('package install session route', () => {
       errorCode: 'OPERATION_AUTHORIZATION_INVALID',
     });
     expect(beginExchange).not.toHaveBeenCalled();
+  });
+
+  test('accepts an authorization minted in an earlier trace', async () => {
+    // A retry of a still-running operation reuses the idempotency key, so /authorizations replays
+    // the reservation minted by the first attempt. The retry then presents that capability under
+    // its own traceparent. Binding the trace made this the indistinguishable-from-forged 403 that
+    // wedged every retry until the reservation expired.
+    const beginExchange = mock(async () => ({
+      generation: 1,
+      status: 'claimed' as const,
+    }));
+    const handler = createPackageInstallSessionRoute({
+      accessPort: accessPort(),
+      authorizationPort: {
+        ...defaultAuthorizationPort,
+        beginExchange,
+      },
+      audience,
+      issuer,
+      keyId,
+      privateKey,
+      releasePins: defaultReleasePins,
+      verificationBaseUrl,
+      verifyAccessRequest: async () => ({
+        buyerId: 'buyer-1',
+        deviceKeyThumbprint,
+        ok: true,
+      }),
+    });
+    const retryTraceparent = '00-a9c98fa4ff48aa4e7f1a198af2167e31-ef40582d9d0d9718-01';
+    expect(retryTraceparent).not.toBe(traceparent);
+
+    const response = await handler(request(await requestBody({ traceparent: retryTraceparent })));
+
+    expect(response.status).toBe(200);
+    expect(beginExchange).toHaveBeenCalledTimes(1);
+  });
+
+  test('reports a concurrent attempt as in progress rather than invalid', async () => {
+    const beginExchange = mock(async () => ({ status: 'in_progress' as const }));
+    const handler = createPackageInstallSessionRoute({
+      accessPort: accessPort(),
+      authorizationPort: {
+        ...defaultAuthorizationPort,
+        beginExchange,
+      },
+      audience,
+      issuer,
+      keyId,
+      privateKey,
+      releasePins: defaultReleasePins,
+      verificationBaseUrl,
+      verifyAccessRequest: async () => ({
+        buyerId: 'buyer-1',
+        deviceKeyThumbprint,
+        ok: true,
+      }),
+    });
+
+    const response = await handler(
+      request(
+        await requestBody({
+          traceparent: '00-a9c98fa4ff48aa4e7f1a198af2167e31-ef40582d9d0d9718-01',
+        })
+      )
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      errorCode: 'OPERATION_AUTHORIZATION_IN_PROGRESS',
+    });
   });
 
   test('separates a stale release target from a package with no release', async () => {
