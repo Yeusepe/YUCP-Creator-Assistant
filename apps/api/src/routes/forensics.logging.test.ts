@@ -85,6 +85,7 @@ describe('forensics route safe logging', () => {
               createdAt: 2_000_000_000_000,
               creatorId: 'creator-user',
               jobId: 'job-1',
+              keyDerivation: 'v3',
               keyEpoch: 3,
               leaseGeneration: 2,
               materializerType: 'png',

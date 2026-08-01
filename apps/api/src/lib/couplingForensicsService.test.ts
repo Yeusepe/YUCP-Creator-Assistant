@@ -21,6 +21,7 @@ const primaryCandidate: CouplingAttributionCandidate = {
   capabilityId: 'capability-1',
   creatorId: 'creator-1',
   jobId: 'job-1',
+  keyDerivation: 'v2',
   keyEpoch: 1,
   leaseGeneration: 1,
   materializerType: 'png',

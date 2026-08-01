@@ -229,9 +229,13 @@ function validateAttributionCandidate(value: unknown): MaterializationAttributio
   const candidate = requireObject(value);
   const materializerType = candidate.materializerType;
   const outputFormat = candidate.outputFormat;
+  // Absent means v2: a control plane from before the field existed only knew
+  // container-coupled (v2-derived) records.
+  const keyDerivation = candidate.keyDerivation ?? 'v2';
   if (
     (materializerType !== 'fbx' && materializerType !== 'png' && materializerType !== 'zip') ||
     outputFormat !== 'zip' ||
+    (keyDerivation !== 'v2' && keyDerivation !== 'v3') ||
     !Number.isSafeInteger(candidate.keyEpoch) ||
     (candidate.keyEpoch as number) < 0 ||
     !Number.isSafeInteger(candidate.leaseGeneration) ||
@@ -264,6 +268,7 @@ function validateAttributionCandidate(value: unknown): MaterializationAttributio
           })(),
     creatorId: requireText(candidate.creatorId, 'creator identifier'),
     jobId: requireText(candidate.jobId, 'job identifier'),
+    keyDerivation,
     keyEpoch: candidate.keyEpoch as number,
     leaseGeneration: candidate.leaseGeneration as number,
     materializerType,

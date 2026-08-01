@@ -169,6 +169,7 @@ const materializationServer = Bun.serve({
           createdAt: 2_000_000_000_000,
           creatorId: TEST_AUTH_USER_ID,
           jobId: 'forensics-e2e-job',
+          keyDerivation: 'v3',
           keyEpoch: 1,
           leaseGeneration: 1,
           materializerType: 'fbx',

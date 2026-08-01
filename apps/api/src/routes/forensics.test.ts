@@ -63,6 +63,7 @@ const candidate = {
   createdAt: 2_000_000_000_000,
   creatorId: 'creator-user',
   jobId: 'job-1',
+  keyDerivation: 'v3' as const,
   keyEpoch: 3,
   leaseGeneration: 2,
   materializerType: 'png' as const,

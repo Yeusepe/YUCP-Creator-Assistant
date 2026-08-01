@@ -525,6 +525,7 @@ describe.serial('PostgreSQL materialization capability broker', () => {
           createdAt: expect.any(Number),
           creatorId: 'creator-1',
           jobId: 'job-1',
+          keyDerivation: 'v2',
           keyEpoch: 7,
           leaseGeneration: 1,
           materializerType: 'png',
@@ -985,6 +986,21 @@ describe.serial('PostgreSQL materialization capability broker', () => {
     expect(Buffer.from(rows[0]?.outputTreeRoot ?? Buffer.alloc(0)).toString('hex')).toBe(
       outputTreeRoot
     );
+
+    // A coupled (worker-lane) job derived its file keys with the v3
+    // derivation; the candidate must say so or the attribution decoder
+    // re-derives v2 keys and the buyer's mark never decodes again.
+    const coupledCandidates = await broker.listAttributionCandidates({
+      creatorId: 'creator-1',
+      productId: 'com.yucp.materialization-test',
+    });
+    const coupledCandidate = coupledCandidates.candidates.find(
+      (candidate) => candidate.jobId === 'job-coupled'
+    );
+    expect(coupledCandidate).toMatchObject({
+      attributionId: 'attribution-coupled',
+      keyDerivation: 'v3',
+    });
 
     expect(
       await broker.completeRendition({

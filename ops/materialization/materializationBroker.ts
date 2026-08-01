@@ -259,6 +259,14 @@ export type MaterializationAttributionCandidate = {
   creatorId: string;
   jobId: string;
   keyEpoch: number;
+  /**
+   * Which broker derivation minted this record's file key: container
+   * materializations couple with the v2 per-job keys, worker-lane (coupled
+   * receipt) materializations with the v3 per-buyer+release keys. The
+   * attribution decoder must re-derive with the same family or every decode
+   * misses.
+   */
+  keyDerivation: 'v2' | 'v3';
   leaseGeneration: number;
   materializerType: 'fbx' | 'png' | 'zip';
   normalizedPath: string;
@@ -1126,6 +1134,7 @@ export class MaterializationBroker {
         createdAt: number;
         creatorId: string;
         jobId: string;
+        keyDerivation: string;
         keyEpoch: number;
         leaseGeneration: number;
         materializerType: string;
@@ -1147,6 +1156,15 @@ export class MaterializationBroker {
           floor(extract(epoch FROM a.created_at) * 1000)::bigint AS "createdAt",
           j.creator_id AS "creatorId",
           j.id AS "jobId",
+          -- Coupled (worker-lane) completions store a v3 receipt whose
+          -- rendition identity is honest NULLs (migration 0031); those jobs
+          -- derived their file keys with the v3 derivation. Container jobs
+          -- store the rendition object and derived with v2. The decoder must
+          -- re-derive with the same family, so the receipt shape rides along.
+          CASE
+            WHEN r.receipt_id IS NOT NULL AND r.object_sha256 IS NULL THEN 'v3'
+            ELSE 'v2'
+          END AS "keyDerivation",
           a.key_epoch AS "keyEpoch",
           j.lease_generation AS "leaseGeneration",
           protected_file.value->>'materializerType' AS "materializerType",
@@ -1162,6 +1180,7 @@ export class MaterializationBroker {
           ) AS canonical_rank
         FROM materialization_attribution_records a
         JOIN materialization_jobs j ON j.id = a.job_id
+        LEFT JOIN materialization_receipts r ON r.job_id = j.id
         JOIN LATERAL jsonb_array_elements(j.protected_files) protected_file(value)
           ON
             protected_file.value->>'normalizedPath' = a.normalized_path
@@ -1180,6 +1199,7 @@ export class MaterializationBroker {
         "createdAt",
         "creatorId",
         "jobId",
+        "keyDerivation",
         "keyEpoch",
         "leaseGeneration",
         "materializerType",
@@ -1213,6 +1233,7 @@ export class MaterializationBroker {
             row.materializerType !== 'png' &&
             row.materializerType !== 'zip') ||
           row.outputFormat !== 'zip' ||
+          (row.keyDerivation !== 'v2' && row.keyDerivation !== 'v3') ||
           !Number.isSafeInteger(createdAt) ||
           createdAt < 0
         ) {
@@ -1221,6 +1242,7 @@ export class MaterializationBroker {
         return {
           ...row,
           createdAt,
+          keyDerivation: row.keyDerivation,
           materializerType: row.materializerType,
           outputFormat: row.outputFormat,
         };

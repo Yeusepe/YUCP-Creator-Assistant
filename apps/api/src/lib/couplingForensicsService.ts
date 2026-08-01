@@ -345,6 +345,12 @@ export type CouplingAttributionCandidate = {
   capabilityId: string;
   creatorId: string;
   jobId: string;
+  /**
+   * Which broker derivation minted the record's file key ('v2' container jobs,
+   * 'v3' worker-lane jobs). The coupling service re-derives with the same
+   * family; a mismatched family decodes nothing.
+   */
+  keyDerivation: 'v2' | 'v3';
   keyEpoch: number;
   leaseGeneration: number;
   materializerType: 'fbx' | 'png' | 'zip';
