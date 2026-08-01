@@ -1860,13 +1860,13 @@ function DashboardSetupRoute() {
       });
       toast.success(result.created ? 'Setup started' : 'Setup resumed', {
         description: result.created
-          ? 'YUCP is keeping track of your progress. Come back at any time.'
+          ? 'We’re keeping track of your progress. Come back at any time.'
           : 'Your existing setup progress is active again.',
       });
     } catch (error) {
-      toast.error('Could not start setup', {
+      toast.error('We couldn’t start setup', {
         description:
-          error instanceof Error ? error.message : 'YUCP could not start setup for this server.',
+          error instanceof Error ? error.message : 'We couldn’t start setup for this server.',
       });
     } finally {
       setIsResuming(false);
@@ -1884,14 +1884,14 @@ function DashboardSetupRoute() {
       });
       toast.success('Setup changes are on the way', {
         description:
-          'YUCP is now creating any missing roles, saving product mappings, and reusing your existing verification message only if you chose that.',
+          'We’re creating missing roles, saving product mappings, and reusing your existing verification message only if you chose that.',
       });
     } catch (error) {
-      toast.error('Could not apply setup changes', {
+      toast.error('We couldn’t apply setup changes', {
         description:
           error instanceof Error
             ? error.message
-            : 'YUCP could not queue the setup changes for this server.',
+            : 'We couldn’t queue the setup changes for this server.',
       });
     } finally {
       setIsApplying(false);
@@ -1911,8 +1911,8 @@ function DashboardSetupRoute() {
         ...(targetRoleId ? { targetRoleId } : {}),
       });
     } catch {
-      toast.error('Could not save role mapping', {
-        description: 'Your change may not have been saved. Please try again.',
+      toast.error('We couldn’t save the role mapping', {
+        description: 'Your change may not have been saved. Try again.',
       });
     } finally {
       setIsSavingConfiguration(false);
@@ -1928,9 +1928,9 @@ function DashboardSetupRoute() {
         preferences,
       });
     } catch (error) {
-      toast.error('Could not save setup choices', {
+      toast.error('We couldn’t save setup choices', {
         description:
-          error instanceof Error ? error.message : 'YUCP could not save your setup choices.',
+          error instanceof Error ? error.message : 'We couldn’t save your setup choices.',
       });
     } finally {
       setIsSavingConfiguration(false);
@@ -1949,14 +1949,14 @@ function DashboardSetupRoute() {
       });
       toast.success('Migration started', {
         description:
-          'YUCP is analyzing your server and matching your existing roles to your store products.',
+          'We’re checking your server and matching existing roles to your store products.',
       });
     } catch (error) {
-      toast.error('Could not start migration', {
+      toast.error('We couldn’t start the migration', {
         description:
           error instanceof Error
             ? error.message
-            : 'YUCP could not start migration for this server.',
+            : 'We couldn’t start the migration for this server.',
       });
     } finally {
       setIsStartingMigration(false);
@@ -1968,7 +1968,7 @@ function DashboardSetupRoute() {
       <div className="pb-16">
         <DashboardAuthRequiredState
           title="Sign in to continue setup"
-          description="Your session has expired. Please sign in again to keep configuring this server."
+          description="Your session has expired. Sign in again to keep configuring this server."
         />
       </div>
     );

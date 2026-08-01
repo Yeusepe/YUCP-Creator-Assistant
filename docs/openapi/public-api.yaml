@@ -386,7 +386,7 @@ components:
           type: string
           description: Verification provider key. Use a provider registry key such
             as 'gumroad' or 'jinxxy' for marketplace-backed methods. For 'existing_entitlement',
-            internal YUCP account checks may use 'yucp'.
+            internal Creator Account checks may use 'yucp'.
         kind:
           type: string
           enum:
@@ -420,7 +420,7 @@ components:
         providerKey:
           type: string
           description: Verification provider key. Internal entitlement checks may
-            return 'yucp' when the requirement uses the signed-in YUCP buyer account
+            return 'yucp' when the requirement uses the signed-in Creator Account
             rather than an external marketplace account.
         providerLabel:
           type: string

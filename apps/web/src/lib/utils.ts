@@ -52,11 +52,11 @@ export function getErrorMessage(error: string): string {
   const messages: Record<string, string> = {
     link_expired: 'This link has expired or was already used.',
     invalid_token: 'The verification token is invalid.',
-    session_expired: 'Your session has expired. Please try again.',
-    server_error: 'Something went wrong on our end. Please try again later.',
+    session_expired: 'Your session has expired. Sign in again.',
+    server_error: 'Something went wrong. Try again later.',
     unauthorized: 'You are not authorized to perform this action.',
     not_found: 'The resource you are looking for was not found.',
-    rate_limited: 'Too many requests. Please wait a moment and try again.',
+    rate_limited: 'Too many requests. Wait a moment, then try again.',
   };
   return messages[error] ?? error.replace(/_/g, ' ');
 }

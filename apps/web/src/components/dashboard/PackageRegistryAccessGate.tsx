@@ -16,11 +16,11 @@ export function PackageRegistryAccessGate({
   onRetry,
 }: PackageRegistryAccessGateProps) {
   const title =
-    mode === 'error' ? 'Could not verify Unity package access' : 'Unity package access required';
+    mode === 'error' ? 'We couldn’t check Unity install access' : 'Set up Unity install access';
   const description =
     mode === 'error'
-      ? 'Refresh your billing state and try again.'
-      : 'Manage install links through Polar. Upgrade billing to unlock private Unity packages.';
+      ? 'Refresh billing and try again.'
+      : 'Manage install links through Polar. Upgrade your plan to let buyers install private Unity products.';
 
   return (
     <section className={className}>
@@ -44,7 +44,7 @@ export function PackageRegistryAccessGate({
           className="account-btn account-btn--primary"
           style={{ alignSelf: 'flex-start', borderRadius: '999px' }}
         >
-          Upgrade billing
+          Upgrade plan
         </Link>
       )}
     </section>

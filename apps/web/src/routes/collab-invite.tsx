@@ -30,7 +30,7 @@ const PROVIDER_UI: Record<string, ProviderUIConfig> = {
       'In Jinxxy\u2122, go to <strong style="color:white;">Settings \u2192 API Keys</strong> and click <strong style="color:white;">New API Key</strong>. Enable scopes: <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">products_read</code> <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">orders_read</code> <code style="font-size:12px;background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px;">licenses_read</code>. Then paste it below.',
     consentDescription:
       'Your Jinxxy\u2122 API key is used to verify licenses sold through your store',
-    errorEmpty: 'Please enter your Jinxxy\u2122 API key.',
+    errorEmpty: 'Enter your Jinxxy\u2122 API key.',
     supportsAccountLinking: true,
   },
   lemonsqueezy: {
@@ -41,7 +41,7 @@ const PROVIDER_UI: Record<string, ProviderUIConfig> = {
       'In Lemon Squeezy, go to <strong style="color:white;">Settings \u2192 API</strong> and click <strong style="color:white;">Create new API key</strong>. Then paste it below.',
     consentDescription:
       'Your Lemon Squeezy API key is used to verify licenses sold through your store',
-    errorEmpty: 'Please enter your Lemon Squeezy API key.',
+    errorEmpty: 'Enter your Lemon Squeezy API key.',
     supportsAccountLinking: false,
   },
 };
@@ -52,7 +52,7 @@ const DEFAULT_PROVIDER_UI: ProviderUIConfig = {
   apiFormHeading: 'Enter your API key',
   apiFormInstructions: 'Go to your provider dashboard and create an API key, then paste it below.',
   consentDescription: 'Your API key is used to verify licenses sold through your store',
-  errorEmpty: 'Please enter your API key.',
+  errorEmpty: 'Enter your API key.',
   supportsAccountLinking: false,
 };
 
@@ -178,7 +178,7 @@ function CollabInvitePage() {
       body: JSON.stringify({ webhookSecret: secret }),
     });
     if (!res.ok) {
-      throw new Error('Could not save your signing secret.');
+      throw new Error('We couldn’t save your signing secret. Try again.');
     }
   }, []);
 
@@ -226,7 +226,7 @@ function CollabInvitePage() {
       setSigningSecretError('');
     }
     advanceWizard().catch((error) => {
-      const message = error instanceof Error ? error.message : 'Could not continue right now.';
+      const message = error instanceof Error ? error.message : 'We couldn’t continue. Try again.';
       // Surface save failures inline rather than navigating away from the wizard
       setSigningSecretError(message);
     });
@@ -360,7 +360,7 @@ function CollabInvitePage() {
       await res.json();
 
       if (!res.ok) {
-        setAccountError('Could not connect this account right now. Check the key and try again.');
+        setAccountError('We couldn’t connect this account. Check the key and try again.');
         setAccountSubmitting(false);
         return;
       }
@@ -373,7 +373,7 @@ function CollabInvitePage() {
       goToStage('stage-success');
       confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
     } catch {
-      setAccountError('Network error. Please try again.');
+      setAccountError('We couldn’t reach the service. Check your connection and try again.');
       setAccountSubmitting(false);
     }
   }, [accountApiKey, goToStage]);
@@ -403,7 +403,7 @@ function CollabInvitePage() {
       await res.json();
 
       if (!res.ok) {
-        setApiFormError('Could not connect this account right now. Check the key and try again.');
+        setApiFormError('We couldn’t connect this account. Check the key and try again.');
         setApiSubmitting(false);
         return;
       }
@@ -416,7 +416,7 @@ function CollabInvitePage() {
       goToStage('stage-success');
       confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
     } catch {
-      setApiFormError('Network error. Please try again.');
+      setApiFormError('We couldn’t reach the service. Check your connection and try again.');
       setApiSubmitting(false);
     }
   }, [apiFormKey, goToStage]);
@@ -442,7 +442,7 @@ function CollabInvitePage() {
           ],
           expired: [
             'Invite Expired',
-            'This invite link has expired. Please ask the server owner to send a new one.',
+            'This invite link has expired. Ask the server owner to send a new one.',
           ],
         };
         const [title, msg] = errorMap[data.error] || [
@@ -503,7 +503,7 @@ function CollabInvitePage() {
       if (auth === 'error') {
         showError(
           'Authentication Failed',
-          'Could not verify your Discord\u00ae identity. Please try the link again or contact the server owner.'
+          'We couldn’t verify your Discord\u00ae identity. Try the link again or contact the server owner.'
         );
         return;
       }
@@ -522,7 +522,7 @@ function CollabInvitePage() {
             const errorMap: Record<string, [string, string]> = {
               not_found: [
                 'Invalid Link',
-                'This invite session is missing or has expired. Please ask the server owner to resend the invite.',
+                'This invite is missing or has expired. Ask the server owner to send it again.',
               ],
               revoked: ['Invite Revoked', 'This invite has been revoked by the server owner.'],
               already_used: [
@@ -531,7 +531,7 @@ function CollabInvitePage() {
               ],
               expired: [
                 'Invite Expired',
-                'This invite link has expired. Please ask the server owner to send a new one.',
+                'This invite link has expired. Ask the server owner to send a new one.',
               ],
             };
             const [title, msg] = errorMap[data.error] || [
@@ -553,7 +553,7 @@ function CollabInvitePage() {
         } catch {
           showError(
             'Connection Error',
-            'Could not load this invite. Please check your internet connection and try again.'
+            'We couldn’t load this invite. Check your internet connection and try again.'
           );
         }
         return;
@@ -569,7 +569,7 @@ function CollabInvitePage() {
           if (!status.authenticated) {
             showError(
               'Authentication Failed',
-              'Your Discord\u00ae identity could not be confirmed. Please try the link again.'
+              'We couldn’t confirm your Discord\u00ae identity. Try the link again.'
             );
             return;
           }
@@ -578,7 +578,7 @@ function CollabInvitePage() {
         } catch {
           showError(
             'Connection Error',
-            'Could not verify your Discord\u00ae identity. Please check your connection and try again.'
+            'We couldn’t verify your Discord\u00ae identity. Check your connection and try again.'
           );
         }
         return;

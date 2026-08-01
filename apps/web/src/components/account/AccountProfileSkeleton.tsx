@@ -76,7 +76,7 @@ export function AccountProfileSkeleton() {
         leading={<SkeletonTile size={44} radius={14} />}
         eyebrow="Creator settings"
         title="Creator identity and URLs"
-        description="Your account-wide creator name and URL namespaces are loading."
+        description="Loading your creator name and URLs..."
       >
         <div className="account-identity-grid" aria-hidden="true">
           {['Display name', 'Public creator handle', 'Private VPM subdomain'].map((label) => (
@@ -94,7 +94,7 @@ export function AccountProfileSkeleton() {
         leading={<SkeletonTile size={44} radius={14} />}
         eyebrow="Account recovery"
         title="Can you get back in if Discord breaks?"
-        description="Discord is your normal sign-in. Add backups so you are never stuck."
+        description="Discord is your usual sign-in. Add a backup method in case you lose access."
       >
         <div className="account-status-banner account-status-banner--warning" aria-hidden="true">
           <div className="account-status-banner-copy" style={{ flex: 1 }}>
@@ -126,8 +126,8 @@ export function AccountProfileSkeleton() {
       <AccountSectionCard
         className="bento-col-12 animate-in animate-in-delay-2"
         eyebrow="Creator mode"
-        title="Your Creator Identity is getting ready"
-        description="Workspace actions and shortcuts appear here once the profile data is ready."
+        title="Loading your Creator Identity"
+        description="Workspace actions and shortcuts will appear when your profile loads."
       >
         <SkeletonLine width="min(560px, 100%)" className="skeleton-line-muted" />
         <div className="account-inline-actions" aria-hidden="true">

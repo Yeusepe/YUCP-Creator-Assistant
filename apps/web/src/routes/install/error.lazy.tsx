@@ -9,13 +9,12 @@ export const Route = createLazyFileRoute('/install/error')({
 });
 
 const ERROR_MESSAGES: Record<string, string> = {
-  installation_failed:
-    'The bot installation could not be completed. This may be a temporary issue.',
-  invalid_state: 'The installation link expired or was already used. Please start over.',
+  installation_failed: 'We couldn’t finish installing the bot. This may be temporary.',
+  invalid_state: 'This installation link has expired or has already been used. Start again.',
   bot_missing_permissions:
     'The bot needs the "Manage Roles" and "Send Messages" permissions to work correctly.',
   access_denied: 'You declined the bot installation. You can try again at any time.',
-  unknown: 'Something went wrong during installation. Please try again.',
+  unknown: 'We couldn’t finish the installation. Try again.',
 };
 
 function InstallErrorPage() {

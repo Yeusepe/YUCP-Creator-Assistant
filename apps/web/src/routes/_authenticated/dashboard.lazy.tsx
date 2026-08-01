@@ -941,8 +941,8 @@ function DashboardRouteErrorComponent({ error }: { error: Error }) {
                 className="content-header-desc"
                 style={{ fontFamily: "'AirbnbCereal', sans-serif" }}
               >
-                The dashboard shell could not be loaded. Refresh the page or sign in again if the
-                problem persists.
+                We couldn’t load the dashboard. Refresh the page or sign in again if the problem
+                continues.
               </p>
               <pre
                 style={{

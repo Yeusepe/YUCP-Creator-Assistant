@@ -8,7 +8,7 @@
  *   4. Cert envelope (JSON) returned to creator for embedding in Unity project
  *
  * Short-lived certificates: 90-day TTL (Layer 5 defense).
- * Rate limit: 1 cert per YUCP account per 30 days.
+ * Rate limit: 1 cert per Creator Account per 30 days.
  *
  * Identity anchor: Better Auth user ID (yucpUserId), stable across provider
  * reconnects, not tied to any single storefront (Gumroad, Jinxxy, etc.).

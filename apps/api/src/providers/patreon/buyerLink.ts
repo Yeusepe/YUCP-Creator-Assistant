@@ -363,7 +363,7 @@ export function createPatreonBuyerLinkPlugin(deps: PatreonBuyerLinkDeps = {}): B
           {
             success: false,
             errorCode: 'subject_not_found',
-            errorMessage: 'No linked buyer subject was found for this YUCP account.',
+            errorMessage: 'No linked buyer subject was found for this Creator Identity.',
           },
           ctx.convex.mutation
         );

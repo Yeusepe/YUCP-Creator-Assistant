@@ -340,7 +340,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
         });
         return;
       }
-      setInlineError('Scan failed. Please try again with a supported .unitypackage or .zip file.');
+      setInlineError('We couldn’t scan that file. Try a .unitypackage or .zip file.');
     },
   });
 
@@ -444,7 +444,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
             {hasCapabilityQueryError ? (
               <FxNote
                 tone="warning"
-                title="Could not verify your plan"
+                title="We couldn’t verify your plan"
                 description="Refresh your billing state and try again."
               >
                 <Button

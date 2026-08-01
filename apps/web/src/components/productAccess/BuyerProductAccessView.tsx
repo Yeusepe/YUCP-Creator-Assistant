@@ -69,7 +69,7 @@ export function BuyerProductAccessView({ access, search }: BuyerProductAccessVie
       if (intent) window.location.assign(intent.verificationUrl);
     },
     onError: () => {
-      toast.error('Could not start verification', {
+      toast.error('We couldn’t start verification', {
         description: 'Refresh the page and try again.',
       });
     },
@@ -82,7 +82,7 @@ export function BuyerProductAccessView({ access, search }: BuyerProductAccessVie
     if (copied) {
       toast.success(kind === 'index' ? 'Repository URL copied' : 'VCC setup link copied');
     } else {
-      toast.error('Could not copy to clipboard');
+      toast.error('We couldn’t copy that link');
     }
   }
 
@@ -148,7 +148,7 @@ export function BuyerProductAccessView({ access, search }: BuyerProductAccessVie
               )}
             </span>
             <h1 className="vpa-title">{product.displayName}</h1>
-            <p className="vpa-meta">Purchase-verified VCC setup and package delivery</p>
+            <p className="vpa-meta">Verify your purchase, then install in Unity</p>
           </div>
         </header>
 
@@ -186,7 +186,7 @@ export function BuyerProductAccessView({ access, search }: BuyerProductAccessVie
           {returnedFromVerification ? (
             <div className="vpa-callout vpa-callout--success">
               <Icon name="success" className="size-4" aria-hidden="true" />
-              Purchase confirmed. Your package access is ready.
+              Purchase confirmed. You can install this product in Unity.
             </div>
           ) : null}
 
@@ -202,9 +202,9 @@ export function BuyerProductAccessView({ access, search }: BuyerProductAccessVie
               {returnsToUnity
                 ? 'Switch back to the Unity importer window to finish installing.'
                 : hasAccess
-                  ? 'Add the product to VCC. YUCP then installs the verified files.'
+                  ? 'Add the product to VCC. It will install the files for you.'
                   : isAuthenticated
-                    ? `Confirm a purchase from ${providerSummary} to unlock this product.`
+                    ? `Confirm a purchase from ${providerSummary} to install this product.`
                     : 'Use the Creator Identity connected to your purchases and VCC.'}
             </p>
           </div>
@@ -250,7 +250,7 @@ export function BuyerProductAccessView({ access, search }: BuyerProductAccessVie
 
           {hasAccess && !repository ? (
             <p className="vpa-note vpa-note--error">
-              This creator has not enabled Unity access for this product.
+              This product is not available to install in Unity yet.
             </p>
           ) : null}
         </section>
@@ -294,7 +294,7 @@ export function BuyerProductAccessView({ access, search }: BuyerProductAccessVie
                       Copy
                     </YucpButton>
                   </div>
-                  <p className="vpa-manual-copy">Package source URL</p>
+                  <p className="vpa-manual-copy">Product source URL</p>
                   <div className="vpa-repo-box">
                     <p className="vpa-repo-url">{repository.indexUrl}</p>
                     <YucpButton
@@ -310,7 +310,7 @@ export function BuyerProductAccessView({ access, search }: BuyerProductAccessVie
                 </div>
               ) : (
                 <p className="vpa-manual-copy">
-                  This creator has not enabled Unity access for this product.
+                  This product is not available to install in Unity yet.
                 </p>
               )}
             </div>
@@ -362,7 +362,7 @@ export function BuyerProductAccessError({ error }: { error?: Error }) {
   return (
     <AccessPageShell>
       <div className="vp-card vp-card--error">
-        <h1 className="vp-package-name">We could not load this product access page</h1>
+        <h1 className="vp-package-name">We couldn’t load this product</h1>
         <p className="vp-card-subtitle">
           Open the link again from the store delivery message, then retry.
         </p>

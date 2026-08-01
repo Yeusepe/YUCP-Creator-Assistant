@@ -370,7 +370,8 @@ function OAuthMethodButton({
           </div>
           {providerLinkMut.isError ? (
             <p className="vp-method-error vp-method-error--full">
-              Uh oh, we didn't find a purchase. Make sure you bought on this account.
+              We couldn’t find a purchase on this account. Check that this is the account you used
+              to buy it.
             </p>
           ) : null}
         </div>
@@ -421,7 +422,7 @@ function OAuthMethodButton({
         </div>
         {connectMut.isError ? (
           <p className="vp-method-error vp-method-error--full">
-            Could not connect, please try again
+            We couldn’t connect this store. Try again.
           </p>
         ) : null}
       </div>
@@ -545,7 +546,8 @@ function LinkedEntitlementMethodButton({
         </div>
         {entitlementMut.isError ? (
           <p className="vp-method-error vp-method-error--full">
-            Uh oh, we didn&apos;t find a purchase. Make sure you bought on this account.
+            We couldn’t find a purchase on this account. Check that you used the same account you
+            used to buy it.
           </p>
         ) : null}
       </div>
@@ -636,7 +638,10 @@ function LicenseMethodRow({
               )}
             </button>
             {licenseMut.isError ? (
-              <p className="vp-method-error">License key not found or already used</p>
+              <p className="vp-method-error">
+                We couldn’t find that license key, or it has already been used. Check the key and
+                try again.
+              </p>
             ) : null}
           </>
         )}
@@ -703,7 +708,7 @@ function EntitlementRow({
           </span>
         ) : entitlementMut.isError ? (
           <button type="button" className="vp-action-btn" onClick={() => entitlementMut.mutate()}>
-            Try again
+            Try verification again
           </button>
         ) : (
           <button
@@ -950,10 +955,9 @@ function VerifyPurchasePage() {
   if (!intentId) {
     return renderShell(
       <div className="vp-card vp-card--error fade-up" style={{ animationDelay: '0.15s' }}>
-        <h1 className="vp-package-name">No verification intent</h1>
+        <h1 className="vp-package-name">Verification link missing</h1>
         <p className="vp-card-subtitle">
-          This page must be opened from within Unity's verification flow. Return to Unity and try
-          again.
+          Open this page from Unity to verify your purchase. Return to Unity and try again.
         </p>
       </div>
     );
@@ -1005,7 +1009,7 @@ function VerifyPurchasePage() {
       <div className="vp-card vp-card--error fade-up" style={{ animationDelay: '0.1s' }}>
         <h1 className="vp-package-name">Verification expired</h1>
         <p className="vp-card-subtitle">
-          This verification session has expired. Return to Unity and start the flow again.
+          This verification session has expired. Return to Unity and start again.
         </p>
       </div>
     );
@@ -1044,10 +1048,10 @@ function VerifyPurchasePage() {
 
         <p className="vp-success-subtitle fade-up" style={{ animationDelay: '0.45s' }}>
           {returnsToBuyerAccess
-            ? `${intent.packageName || intent.packageId} is ready. Continue to the product page to add it to VCC.`
+            ? `You can now add ${intent.packageName || intent.packageId} from the product page.`
             : returnToUrl
-              ? `${intent.packageName || intent.packageId} is ready. Return to Unity to continue.`
-              : `${intent.packageName || intent.packageId} is verified and ready.`}
+              ? `You can now return to Unity to continue with ${intent.packageName || intent.packageId}.`
+              : `${intent.packageName || intent.packageId} is ready to use.`}
         </p>
 
         {returnsToBuyerAccess && returnToUrl ? (
@@ -1066,7 +1070,7 @@ function VerifyPurchasePage() {
               Continue to product access
             </a>
             <p className="vp-section-desc" style={{ marginBottom: 0, maxWidth: '32rem' }}>
-              Your purchase is connected to this account.
+              This purchase is now linked to your Creator Account.
             </p>
           </div>
         ) : !returnsToBuyerAccess && returnToUrl ? (
@@ -1091,7 +1095,7 @@ function VerifyPurchasePage() {
         {!returnToUrl ? (
           <div className="vp-unity-handoff fade-up" style={{ animationDelay: '0.6s' }}>
             <p className="vp-unity-handoff-title">Continue in Unity</p>
-            <p className="vp-unity-handoff-copy">Installation is ready to continue.</p>
+            <p className="vp-unity-handoff-copy">Return to Unity to continue installation.</p>
           </div>
         ) : null}
       </div>
@@ -1103,7 +1107,7 @@ function VerifyPurchasePage() {
     return renderShell(
       <div className="vp-card vp-card--error fade-up" style={{ animationDelay: '0.1s' }}>
         <h1 className="vp-package-name">Verification unavailable</h1>
-        <p className="vp-card-subtitle">Reload this page or restart verification from Unity.</p>
+        <p className="vp-card-subtitle">Reload this page or start verification again in Unity.</p>
       </div>
     );
   }
@@ -1137,7 +1141,7 @@ function VerifyPurchasePage() {
       ? 'Pick the store account that owns this purchase, then verify.'
       : 'Connect the store you used at checkout. If you cannot sign in, use a license key below.'
     : hasLinkedEntitlement
-      ? 'These accounts are already linked to YUCP. Verify against the one that purchased this product.'
+      ? 'These accounts are already linked to your Creator Identity. Verify against the one that purchased this product.'
       : '';
 
   const visibleErrorMessage = getVisiblePurchaseVerificationError({
@@ -1176,11 +1180,11 @@ function VerifyPurchasePage() {
                     <output
                       className="vp-oauth-connections-loading"
                       aria-live="polite"
-                      aria-label="Loading store connections"
+                      aria-label="Loading connected stores"
                     >
                       <span className="vp-spinner vp-spinner--lg" aria-hidden="true" />
                       <p className="vp-oauth-connections-loading-text">
-                        Loading your store connections...
+                        Loading connected stores...
                       </p>
                     </output>
                   ) : (
@@ -1295,8 +1299,8 @@ function VerifyPurchasePage() {
       <div className="vp-card-footer">
         <p className="vp-footer-note">
           {returnsToBuyerAccess
-            ? 'Verification is handled securely in your browser. After confirmation, YUCP prepares private Unity package access for this account.'
-            : 'Verification is handled securely in your browser. After confirmation, YUCP returns you to Unity.'}
+            ? 'We verify this in your browser. After confirmation, you can install the product from Unity.'
+            : 'We verify this in your browser. After confirmation, we’ll return you to Unity.'}
         </p>
       </div>
     </div>

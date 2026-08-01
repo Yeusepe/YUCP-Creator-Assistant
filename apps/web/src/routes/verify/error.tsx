@@ -31,7 +31,7 @@ function getSafeReturnTo(value: string | null): string | null {
 }
 
 function normalizeError(error: string | null): string {
-  if (!error) return 'Verification could not be completed.';
+  if (!error) return 'We couldn’t complete verification.';
   const normalized = error
     .replace(/^link_expired$/i, 'This link has expired')
     .replace(/^missing_parameters$/i, 'Missing parameters')

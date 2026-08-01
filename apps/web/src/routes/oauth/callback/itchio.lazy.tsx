@@ -59,7 +59,7 @@ function isCreatorSetupCallback(state: string | null, tenantId: string, guildId:
 
 function getUserFacingItchioCallbackError(error: string | null | undefined): string {
   if (!error) {
-    return 'Could not finish itch.io callback.';
+    return 'We couldn’t finish connecting itch.io. Try again.';
   }
 
   const normalized = error.trim().toLowerCase();
@@ -204,8 +204,8 @@ function ItchioSetupPage() {
             getUserFacingItchioCallbackError(
               data.error ??
                 (creatorSetupCallback
-                  ? 'Could not finish itch.io setup.'
-                  : 'Could not finish itch.io verification.')
+                  ? 'We couldn’t finish setting up itch.io. Try again.'
+                  : 'We couldn’t finish verifying itch.io. Try again.')
             )
           );
         }
@@ -226,7 +226,7 @@ function ItchioSetupPage() {
           getUserFacingItchioCallbackError(
             caughtError instanceof Error
               ? caughtError.message
-              : 'Could not finish itch.io callback.'
+              : 'We couldn’t finish connecting itch.io. Try again.'
           )
         );
       }
@@ -251,7 +251,7 @@ function ItchioSetupPage() {
           </p>
           <h1 className="mt-1 text-xl font-semibold text-white">itch.io</h1>
           <p className="mt-3 text-sm leading-6 text-white/60">
-            {error ?? 'Could not finish itch.io setup.'}
+            {error ?? 'We couldn’t finish setting up itch.io. Try again.'}
           </p>
           <a
             href={dashboardUrl}

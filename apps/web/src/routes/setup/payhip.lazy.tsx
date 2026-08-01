@@ -209,7 +209,7 @@ function PayhipSetupPage() {
     setError(null);
     const trimmed = apiKey.trim();
     if (!trimmed) {
-      setError('Please enter your Payhip API key.');
+      setError('Enter your Payhip API key.');
       return false;
     }
     setIsSavingApiKey(true);
@@ -223,8 +223,8 @@ function PayhipSetupPage() {
       const message =
         err instanceof ApiError
           ? ((err.body as Record<string, string> | null)?.error ??
-            'Could not save API key. Please try again.')
-          : 'Could not save API key. Please try again.';
+            'We couldn’t save the API key. Try again.')
+          : 'We couldn’t save the API key. Try again.';
       setError(message);
       return false;
     } finally {

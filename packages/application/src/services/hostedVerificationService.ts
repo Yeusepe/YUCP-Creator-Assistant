@@ -171,12 +171,12 @@ export class HostedVerificationService {
       actionLabel: 'Check access',
       defaultTitle:
         providerKey === INTERNAL_ENTITLEMENT_PROVIDER_KEY
-          ? 'Connected YUCP access'
+          ? 'Existing purchase access'
           : `${providerLabel} access`,
       defaultDescription:
         providerKey === INTERNAL_ENTITLEMENT_PROVIDER_KEY
-          ? 'Check whether your signed-in YUCP buyer account already has access to this package.'
-          : `Check whether your linked ${providerLabel} access already grants this package.`,
+          ? 'Check whether your Creator Identity already has access to this product.'
+          : `Check whether your linked ${providerLabel} account already grants access to this product.`,
     };
   }
 
@@ -190,7 +190,7 @@ export class HostedVerificationService {
       completion: 'immediate',
       actionLabel: 'Use linked account',
       defaultTitle: `${providerLabel} account`,
-      defaultDescription: `Use the ${providerLabel} account already linked to this buyer.`,
+      defaultDescription: `Use the ${providerLabel} account you already connected.`,
     };
   }
 

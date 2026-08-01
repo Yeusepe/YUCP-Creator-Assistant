@@ -61,7 +61,7 @@ export function SignInPage({ redirectTo }: Readonly<{ redirectTo?: string | null
 function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null }>) {
   const [currentState, setCurrentState] = useState<PageState>('state-signin');
   const [isVisible, setIsVisible] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('Something went wrong. Please try again.');
+  const [errorMessage, setErrorMessage] = useState('We couldn’t complete sign-in. Try again.');
   const [authAction, setAuthAction] = useState<CreatorSuiteSignInMethodId | null>(null);
   const [isRecoveryOpen, setIsRecoveryOpen] = useState(false);
   const [recoveryStep, setRecoveryStep] = useState<RecoveryStep>('lookup');
@@ -123,7 +123,7 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
         phase: 'sign-in-click',
         route: '/sign-in',
       });
-      showError('Failed to start sign-in. Please try again.');
+      showError('We couldn’t start sign-in. Try again.');
     }
   }, [redirectTarget, showError]);
 
@@ -141,7 +141,9 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
         phase: 'passkey-sign-in',
         route: '/sign-in',
       });
-      showError(error instanceof Error ? error.message : 'Passkey sign-in could not be completed.');
+      showError(
+        error instanceof Error ? error.message : 'We couldn’t complete passkey sign-in. Try again.'
+      );
     } finally {
       setAuthAction(null);
     }
@@ -183,7 +185,7 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
       setRecoveryBackupCode('');
     } catch (error) {
       setRecoveryError(
-        error instanceof Error ? error.message : 'Recovery could not be started right now.'
+        error instanceof Error ? error.message : 'We couldn’t start account recovery. Try again.'
       );
     } finally {
       setRecoveryPendingAction(null);
@@ -206,7 +208,9 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
       setRecoveryMessage('Recovery verified. Add a new passkey to finish restoring access.');
     } catch (error) {
       setRecoveryError(
-        error instanceof Error ? error.message : 'That recovery code was not valid.'
+        error instanceof Error
+          ? error.message
+          : 'That recovery code doesn’t work. Check it and try again.'
       );
     } finally {
       setRecoveryPendingAction(null);
@@ -228,7 +232,11 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
       setRecoveryStep('enroll');
       setRecoveryMessage('Backup code accepted. Add a new passkey to finish restoring access.');
     } catch (error) {
-      setRecoveryError(error instanceof Error ? error.message : 'That backup code was not valid.');
+      setRecoveryError(
+        error instanceof Error
+          ? error.message
+          : 'That backup code doesn’t work. Check it and try again.'
+      );
     } finally {
       setRecoveryPendingAction(null);
     }
@@ -249,7 +257,7 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
       });
       if (addPasskeyResult.error) {
         throw new Error(
-          addPasskeyResult.error.message ?? 'Could not register the recovery passkey.'
+          addPasskeyResult.error.message ?? 'We couldn’t add the recovery passkey. Try again.'
         );
       }
 
@@ -263,7 +271,9 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
       window.location.assign(redirectTarget);
     } catch (error) {
       setCurrentState('state-signin');
-      setRecoveryError(error instanceof Error ? error.message : 'Recovery could not be completed.');
+      setRecoveryError(
+        error instanceof Error ? error.message : 'We couldn’t complete account recovery. Try again.'
+      );
     } finally {
       setRecoveryPendingAction(null);
     }
@@ -522,7 +532,7 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
                   className="secondary-auth-btn"
                   onClick={() => {
                     setCurrentState('state-signin');
-                    setErrorMessage('Something went wrong. Please try again.');
+                    setErrorMessage('We couldn’t complete sign-in. Try again.');
                   }}
                 >
                   Back to sign-in

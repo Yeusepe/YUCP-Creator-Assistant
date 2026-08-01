@@ -394,7 +394,7 @@ describe('VerificationSessionManager account-link callback', () => {
       }
 
       if (reference === apiMock.identitySync.syncUserFromProvider) {
-        throw new Error('This provider account is already linked to a different YUCP account.');
+        throw new Error('This provider account is already linked to a different Creator Account.');
       }
 
       throw new Error(`Unexpected mutation reference: ${String(reference)}`);
@@ -409,7 +409,7 @@ describe('VerificationSessionManager account-link callback', () => {
 
     expect(result).toEqual({
       success: false,
-      error: 'This provider account is already linked to a different YUCP account.',
+      error: 'This provider account is already linked to a different Creator Account.',
     });
     expect(
       convexMutationMock.mock.calls.filter(

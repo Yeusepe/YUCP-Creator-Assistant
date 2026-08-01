@@ -249,7 +249,7 @@ function DashboardIndex() {
       <div className="pb-16">
         <DashboardAuthRequiredState
           title="Sign in to view your dashboard"
-          description="Your session has expired. Please sign in again to access your dashboard."
+          description="Your session has expired. Sign in again to access your dashboard."
         />
       </div>
     );

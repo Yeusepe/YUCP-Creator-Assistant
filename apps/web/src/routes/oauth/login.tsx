@@ -168,8 +168,8 @@ function OAuthLoginPageContent() {
                 <div className="error-notice">
                   <Icon name="alert" />
                   <p>
-                    The sign-in could not be completed. This can happen if you denied access, the
-                    session expired, or there was a network issue. Please try again.
+                    We couldn’t finish signing in. You may have denied access, your session may have
+                    expired, or there may be a connection problem. Try again.
                   </p>
                 </div>
                 <a id="retry-btn" href={retryPathRef.current} className="retry-btn">

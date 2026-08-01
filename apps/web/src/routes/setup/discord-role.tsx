@@ -39,13 +39,13 @@ function validateRoleIds(roleIds: string[]): { ok: boolean; msg?: string } {
 
 function getErrorMessage(code: string): string {
   const msgs: Record<string, string> = {
-    missing_parameters: 'Authorization was cancelled or failed. Please try again.',
-    invalid_state: 'Session mismatch. Please try signing in again.',
-    token_exchange_failed: 'Failed to exchange Discord authorization. Please try again.',
-    no_token: 'No authorization token received from Discord. Please try again.',
-    guilds_fetch_failed: 'Failed to fetch your server list from Discord. Please try again.',
-    session_expired: 'Your setup session has expired. Please go back to Discord and start over.',
-    internal_error: 'An unexpected error occurred. Please try again.',
+    missing_parameters: 'Authorization was cancelled or failed. Try again.',
+    invalid_state: 'Your sign-in session no longer matches. Sign in again.',
+    token_exchange_failed: 'We couldn’t finish connecting Discord. Try again.',
+    no_token: 'Discord did not return a sign-in token. Try again.',
+    guilds_fetch_failed: 'We couldn’t load your Discord servers. Try again.',
+    session_expired: 'Your setup session has expired. Go back to Discord and start again.',
+    internal_error: 'Something went wrong. Try again.',
   };
   return msgs[code] || `Error: ${code}`;
 }
@@ -171,13 +171,13 @@ function DiscordRoleSetupPage() {
     setError(null);
 
     if (!selectedGuild) {
-      setError('Please select a server.');
+      setError('Select a server.');
       return;
     }
 
     const roleIds = parseRoleIds(roleIdsText);
     if (roleIds.length === 0) {
-      setError('Please add at least one role ID (one per line or comma-separated).');
+      setError('Add at least one role ID, one per line or separated by commas.');
       return;
     }
 
@@ -205,7 +205,7 @@ function DiscordRoleSetupPage() {
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        setError(data.error || 'Failed to save. Please try again.');
+        setError(data.error || 'We couldn’t save your changes. Try again.');
         setIsSaving(false);
         return;
       }
@@ -213,7 +213,7 @@ function DiscordRoleSetupPage() {
       setSuccessData({ guildName, roleIds, matchMode });
       setView('success');
     } catch {
-      setError('Network error. Please try again.');
+      setError('We couldn’t reach the service. Check your connection and try again.');
     } finally {
       setIsSaving(false);
     }

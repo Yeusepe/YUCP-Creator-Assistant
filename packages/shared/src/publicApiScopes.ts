@@ -55,7 +55,7 @@ export const PUBLIC_API_SCOPE_DEFINITIONS = [
   {
     scope: 'profile:read',
     label: 'Read basic profile',
-    description: 'Read the signed-in YUCP account profile.',
+    description: 'Read the signed-in Creator Account profile.',
     badge: 'Profile',
     sensitive: false,
     defaultForApiKeys: false,
@@ -245,7 +245,7 @@ export const STANDARD_OAUTH_SCOPE_DEFINITIONS: Record<string, OAuthScopeDisplay>
   },
   email: {
     label: 'Read your email address',
-    description: 'View the email address on your YUCP account.',
+    description: 'View the email address on your Creator Account.',
     badge: 'Email',
   },
 };

@@ -448,7 +448,7 @@ export function createConnectUserVerificationRoutes({
           return Response.json(
             {
               error:
-                'This verification link was created for a different YUCP account. Sign out here, then continue with the same YUCP account you used in Unity.',
+                'This verification link was created for a different Creator Identity. Sign out here, then continue with the same Creator Identity you used in Unity.',
               code: 'verification_intent_wrong_user',
             },
             { status: 409 }

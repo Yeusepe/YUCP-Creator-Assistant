@@ -179,9 +179,7 @@ describe('buyer product access route', () => {
 
     render(<Component />, { wrapper: createWrapper() });
 
-    expect(
-      screen.getByText('Purchase-verified VCC setup and package delivery')
-    ).toBeInTheDocument();
+    expect(screen.getByText('Verify your purchase, then install in Unity')).toBeInTheDocument();
     expect(screen.queryByText(/protected downloads/i)).not.toBeInTheDocument();
   });
 

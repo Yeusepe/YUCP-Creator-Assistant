@@ -39,7 +39,7 @@ describe('purchase verification ui state', () => {
             providerKey: 'yucp',
             providerLabel: 'YUCP',
             kind: 'existing_entitlement',
-            title: 'Check connected YUCP access',
+            title: 'Existing purchase access',
             description: null,
             creatorAuthUserId: 'creator-1',
             productId: 'product-1',
@@ -104,13 +104,13 @@ describe('purchase verification ui state', () => {
         new ApiError(409, {
           code: 'verification_intent_wrong_user',
           error:
-            'This verification link was created for a different YUCP account. Sign out here, then continue with the same YUCP account you used in Unity.',
+            'This verification link was created for a different Creator Identity. Sign out here, then continue with the same Creator Identity you used in Unity.',
         })
       )
     ).toEqual({
-      title: 'Wrong YUCP account',
+      title: 'Wrong Creator Identity',
       message:
-        'This verification link was created for a different YUCP account. Sign out here, then continue with the same YUCP account you used in Unity.',
+        'This verification link was created for a different Creator Identity. Sign out here, then continue with the same Creator Identity you used in Unity.',
       allowSignOut: true,
     });
   });
@@ -126,7 +126,7 @@ describe('purchase verification ui state', () => {
     ).toEqual({
       title: 'Verification not found',
       message:
-        'This verification link is invalid or has already expired. Return to Unity and restart the verification flow.',
+        'This verification link has expired or is no longer available. Return to Unity and start again.',
       allowSignOut: false,
     });
   });

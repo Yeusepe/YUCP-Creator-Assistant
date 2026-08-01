@@ -143,7 +143,7 @@ export function ConnectedPlatformsPanel({ onCountsChange }: ConnectedPlatformsPa
     return (
       <DashboardPanelErrorState
         id="dashboard-platforms-error"
-        title="Could not load platforms"
+        title="We couldn’t load platforms"
         description={description}
         onRetry={() => Promise.all([providersQuery.refetch(), accountsQuery.refetch()])}
       />

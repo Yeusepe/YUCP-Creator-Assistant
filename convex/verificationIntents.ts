@@ -995,12 +995,12 @@ export const verifyIntentWithExistingEntitlement = action({
       await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
         intentId: args.intentId,
         errorCode: 'subject_not_found',
-        errorMessage: 'No linked buyer subject was found for this YUCP account.',
+        errorMessage: 'No linked buyer subject was found for this Creator Identity.',
       });
       return {
         success: false,
         errorCode: 'subject_not_found',
-        errorMessage: 'No linked buyer subject was found for this YUCP account.',
+        errorMessage: 'No linked buyer subject was found for this Creator Identity.',
       };
     }
     const hasEntitlement = await ctx.runQuery(internal.yucpLicenses.checkSubjectEntitlement, {
@@ -1121,12 +1121,12 @@ export const verifyIntentWithBuyerProviderLink = action({
       await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
         intentId: args.intentId,
         errorCode: 'subject_not_found',
-        errorMessage: 'No linked buyer subject was found for this YUCP account.',
+        errorMessage: 'No linked buyer subject was found for this Creator Identity.',
       });
       return {
         success: false,
         errorCode: 'subject_not_found',
-        errorMessage: 'No linked buyer subject was found for this YUCP account.',
+        errorMessage: 'No linked buyer subject was found for this Creator Identity.',
       };
     }
 
@@ -1389,12 +1389,12 @@ export const verifyIntentWithManualLicense = action({
         await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
           intentId: args.intentId,
           errorCode: 'subject_not_found',
-          errorMessage: 'No linked buyer subject was found for this YUCP account.',
+          errorMessage: 'No linked buyer subject was found for this Creator Identity.',
         });
         return {
           success: false,
           errorCode: 'subject_not_found',
-          errorMessage: 'No linked buyer subject was found for this YUCP account.',
+          errorMessage: 'No linked buyer subject was found for this Creator Identity.',
         };
       }
 
@@ -1438,12 +1438,12 @@ export const verifyIntentWithManualLicense = action({
         await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
           intentId: args.intentId,
           errorCode: 'subject_not_found',
-          errorMessage: 'No linked buyer subject was found for this YUCP account.',
+          errorMessage: 'No linked buyer subject was found for this Creator Identity.',
         });
         return {
           success: false,
           errorCode: 'subject_not_found',
-          errorMessage: 'No linked buyer subject was found for this YUCP account.',
+          errorMessage: 'No linked buyer subject was found for this Creator Identity.',
         };
       }
 
@@ -1484,8 +1484,7 @@ export const verifyIntentWithManualLicense = action({
           licenseSubjectLink: {
             licenseSubject,
             licenseKeyEncrypted,
-            providerProductId:
-              proof.providerProductId ?? requirement.providerProductRef,
+            providerProductId: proof.providerProductId ?? requirement.providerProductRef,
           },
           correlationId: String(args.intentId),
         }

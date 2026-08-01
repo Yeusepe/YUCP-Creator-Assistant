@@ -48,7 +48,7 @@ export default function AccountMachines() {
         markSessionExpired();
         return;
       }
-      toast.error('Could not revoke device', {
+      toast.error('We couldn’t remove this device', {
         description: 'Contact support if this persists.',
       });
     },
@@ -94,7 +94,7 @@ export default function AccountMachines() {
       <div className="bento-grid">
         {query.isError && !hasAuthError && (
           <div className="bento-col-12">
-            <AccountInlineError message="Failed to load machines. Please refresh." />
+            <AccountInlineError message="We couldn’t load your devices. Refresh to try again." />
           </div>
         )}
 

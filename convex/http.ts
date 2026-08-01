@@ -108,7 +108,7 @@ import './polyfills';
  *
  *   POST /v1/licenses/verify-discord
  *        Verify entitlement via Discord role (buyer must have verified with creator's bot).
- *        Requires Bearer OAuth token to identify the buyer's YUCP account.
+ *        Requires Bearer OAuth token to identify the buyer's Creator Account.
  *        Body: { packageId, creatorAuthUserId, productId,
  *                machineFingerprint, nonce, timestamp }
  */
@@ -962,7 +962,7 @@ http.route({
           error: raw,
         });
         return errorResponse(
-          'This dev key is already registered to another YUCP account. Restore the existing certificate or rotate the local dev key before requesting a new one.',
+          'This dev key is already registered to another Creator Account. Restore the existing certificate or rotate the local dev key before requesting a new one.',
           409
         );
       }

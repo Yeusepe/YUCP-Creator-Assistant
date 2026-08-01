@@ -416,7 +416,7 @@ function toEditionId(value: string): string {
 function getFriendlyUploadError(error: unknown): string {
   const message = error instanceof Error ? error.message : 'Package upload failed.';
   if (message.startsWith('tus:')) {
-    return 'The upload could not start. Check your connection and try again.';
+    return 'We couldn’t start the upload. Check your connection and try again.';
   }
   return message;
 }
@@ -514,7 +514,7 @@ async function waitForPackageVersionReady(
     } catch (error) {
       if (signal?.aborted) return null;
       throw new PackageVersionStatusCheckError(
-        'We could not check preparation status. The package remains safe on the server.',
+        'We couldn’t check preparation status. Your upload is still on the server.',
         error
       );
     }
@@ -525,14 +525,14 @@ async function waitForPackageVersionReady(
       } catch (error) {
         if (signal?.aborted) return null;
         throw new PackageVersionStatusCheckError(
-          'The package is ready, but we could not refresh its details. The package remains safe on the server.',
+          'The product is ready, but we couldn’t refresh its details. Your upload is still on the server.',
           error
         );
       }
     }
     if (status.state === 'failed') {
       throw new PackageVersionTerminalError(
-        'We could not prepare this version. Review the package file, then upload a new version or retry this draft.'
+        'We couldn’t prepare this version. Review the file, then upload a new version or retry this draft.'
       );
     }
     if (status.state === 'deleted') {
@@ -667,11 +667,11 @@ function UploadStatusAlert({ elapsedMs, upload }: { elapsedMs: number; upload: S
           <Icon name="alert" className="size-4" />
         </Alert.Indicator>
         <Alert.Content>
-          <Alert.Title>This version could not be prepared</Alert.Title>
+          <Alert.Title>We couldn’t prepare this version</Alert.Title>
           <Alert.Description>
-            {upload.errorMessage ?? 'The package could not be prepared.'}
+            {upload.errorMessage ?? 'We couldn’t prepare this product.'}
             {upload.versionId
-              ? ' Nothing was lost: retry the upload, or check the package status to pick it back up.'
+              ? ' Nothing was lost: retry the upload, or check its status to continue.'
               : ''}
           </Alert.Description>
         </Alert.Content>
@@ -1028,7 +1028,7 @@ function ProductDetailsSheet({
   const bootstrapDownloadMutation = useMutation({
     mutationFn: (format: 'vpm' | 'unitypackage') => {
       if (!packageId) {
-        throw new Error('Upload a package before downloading a bootstrap.');
+        throw new Error('Upload a product before downloading Unity setup.');
       }
       if (bootstrapDownloadMode === 'specific' && !selectedBootstrapVersionId) {
         throw new Error('Choose the release to pin into this bootstrap.');
@@ -1047,14 +1047,14 @@ function ProductDetailsSheet({
       });
     },
     onSuccess: ({ filename }) => {
-      toast.success('Bootstrap downloaded', { description: filename });
+      toast.success('Unity setup downloaded', { description: filename });
     },
     onError: (error) => {
       if (isDashboardAuthError(error)) {
         markSessionExpired();
         return;
       }
-      toast.error('Could not download the bootstrap', {
+      toast.error('We couldn’t download the Unity setup', {
         description: error instanceof Error ? error.message : 'Try again.',
       });
     },
@@ -1062,14 +1062,14 @@ function ProductDetailsSheet({
   const createVccLinkMutation = useMutation({
     mutationFn: () => {
       if (!packageId) {
-        throw new Error('Upload a package before creating Unity access.');
+        throw new Error('Upload a product before enabling Unity installs.');
       }
       return createCreatorPackageVccLink(packageId);
     },
     onSuccess: (link) => {
       queryClient.setQueryData(['creator-package-vcc-link', packageId], link);
-      toast.success('Unity access is ready', {
-        description: 'Verified buyers now receive this package in their tailored repository.',
+      toast.success('Unity installs are ready', {
+        description: 'Verified buyers can now install this product.',
       });
     },
     onError: (error) => {
@@ -1077,7 +1077,7 @@ function ProductDetailsSheet({
         markSessionExpired();
         return;
       }
-      toast.error('Could not create Unity access', {
+      toast.error('We couldn’t enable Unity installs', {
         description: error instanceof Error ? error.message : 'Try again.',
       });
     },
@@ -1085,7 +1085,7 @@ function ProductDetailsSheet({
   const revokeVccLinkMutation = useMutation({
     mutationFn: () => {
       if (!packageId) {
-        throw new Error('Upload a package before revoking Unity access.');
+        throw new Error('Upload a product before disabling Unity installs.');
       }
       return revokeCreatorPackageVccLink(packageId);
     },
@@ -1111,8 +1111,8 @@ function ProductDetailsSheet({
         unityPackageDownloadUrl,
       });
       setIsConfirmingLinkRevoke(false);
-      toast.success('Unity access revoked', {
-        description: 'This package was removed from buyer repositories.',
+      toast.success('Unity installs disabled', {
+        description: 'Buyers can no longer install this product from Unity.',
       });
     },
     onError: (error) => {
@@ -1120,7 +1120,7 @@ function ProductDetailsSheet({
         markSessionExpired();
         return;
       }
-      toast.error('Could not revoke Unity access', {
+      toast.error('We couldn’t disable Unity installs', {
         description: error instanceof Error ? error.message : 'Try again.',
       });
     },
@@ -1155,8 +1155,8 @@ function ProductDetailsSheet({
         queryClient.invalidateQueries({ queryKey: creatorProductsQueryKey }),
         queryClient.invalidateQueries({ queryKey: creatorProductPickerQueryKey }),
       ]);
-      toast.success('Unity package name published', {
-        description: 'New bootstrap installs now use this name.',
+      toast.success('Unity product name saved', {
+        description: 'New installs now use this name.',
       });
     },
     onError: (error) => {
@@ -1164,7 +1164,7 @@ function ProductDetailsSheet({
         markSessionExpired();
         return;
       }
-      toast.error('Could not publish the Unity package name', {
+      toast.error('We couldn’t save the Unity product name', {
         description: error instanceof Error ? error.message : 'Try again.',
       });
     },
@@ -1199,7 +1199,7 @@ function ProductDetailsSheet({
         markSessionExpired();
         return;
       }
-      toast.error('Could not save the public product link', {
+      toast.error('We couldn’t save the public product link', {
         description: error instanceof Error ? error.message : 'Try again.',
       });
     },
@@ -1230,7 +1230,7 @@ function ProductDetailsSheet({
         markSessionExpired();
         return;
       }
-      toast.error('Could not cancel release', {
+      toast.error('We couldn’t cancel the release', {
         description: getApiErrorMessage(error, 'Try again.'),
       });
     },
@@ -1284,7 +1284,7 @@ function ProductDetailsSheet({
         });
         return;
       }
-      toast.error('Could not delete release', {
+      toast.error('We couldn’t delete the release', {
         description: getApiErrorMessage(error, 'Try again.'),
       });
     },
@@ -1330,7 +1330,7 @@ function ProductDetailsSheet({
         markSessionExpired();
         return;
       }
-      toast.error('Could not save package edition', {
+      toast.error('We couldn’t save the product edition', {
         description: error instanceof Error ? error.message : 'Try again.',
       });
     },
@@ -1360,7 +1360,7 @@ function ProductDetailsSheet({
         markSessionExpired();
         return;
       }
-      toast.error('Could not archive package edition', {
+      toast.error('We couldn’t archive the product edition', {
         description: error instanceof Error ? error.message : 'Try again.',
       });
     },
@@ -1390,7 +1390,7 @@ function ProductDetailsSheet({
         markSessionExpired();
         return;
       }
-      toast.error('Could not link storefront', {
+      toast.error('We couldn’t connect the store', {
         description: error instanceof Error ? error.message : 'Try again.',
       });
     },
@@ -1420,7 +1420,7 @@ function ProductDetailsSheet({
         markSessionExpired();
         return;
       }
-      toast.error('Could not unlink storefront', {
+      toast.error('We couldn’t disconnect the store', {
         description: error instanceof Error ? error.message : 'Try again.',
       });
     },
@@ -1466,7 +1466,7 @@ function ProductDetailsSheet({
       toast.success('Buyer privacy notice copied');
       return;
     }
-    toast.error('Could not copy to clipboard');
+    toast.error('We couldn’t copy that link');
   }
 
   function handleOpenChange(nextIsOpen: boolean): void {
@@ -1834,10 +1834,9 @@ function ProductDetailsSheet({
                       <Card className="pm-card rounded-2xl shadow-none">
                         <Card.Header className="flex flex-row items-start justify-between gap-3 p-4 pb-2">
                           <div className="space-y-1">
-                            <p className="text-foreground text-sm font-semibold">Unity access</p>
+                            <p className="text-foreground text-sm font-semibold">Unity installs</p>
                             <p className="pm-subtle-copy max-w-[58ch] text-xs leading-5">
-                              Enable this package in each verified buyer's private creator
-                              repository.
+                              Let verified buyers install this product from Unity.
                             </p>
                           </div>
                           {vccLinkQuery.data?.status === 'active' ? (
@@ -1862,7 +1861,7 @@ function ProductDetailsSheet({
                             <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
                               <YucpInput
                                 id="bootstrap-package-name"
-                                aria-label="Bootstrap package name"
+                                aria-label="Product name in Unity"
                                 value={bootstrapPackageName}
                                 onValueChange={setBootstrapPackageName}
                                 isDisabled={saveBootstrapPresentationMutation.isPending}
@@ -1870,7 +1869,7 @@ function ProductDetailsSheet({
                               <YucpButton
                                 yucp="secondary"
                                 size="sm"
-                                aria-label="Save bootstrap name"
+                                aria-label="Save product name"
                                 isLoading={saveBootstrapPresentationMutation.isPending}
                                 isDisabled={
                                   saveBootstrapPresentationMutation.isPending ||
@@ -1890,20 +1889,20 @@ function ProductDetailsSheet({
                           {vccLinkQuery.isPending ? (
                             <output
                               className="pm-muted-panel grid gap-3 rounded-xl p-3"
-                              aria-label="Loading Unity access"
+                              aria-label="Loading Unity install settings"
                             >
                               <Skeleton className="h-4 w-2/5 rounded" />
                               <Skeleton className="h-10 w-full rounded-xl" />
                             </output>
                           ) : vccLinkQuery.isError || !vccLinkQuery.data ? (
                             <div className="space-y-3">
-                              <AccountInlineError message="Could not load Unity access. Try again." />
+                              <AccountInlineError message="We couldn’t load Unity install settings. Try again." />
                               <YucpButton
                                 yucp="secondary"
                                 isLoading={vccLinkQuery.isFetching}
                                 onPress={() => void vccLinkQuery.refetch()}
                               >
-                                Retry Unity access
+                                Retry
                               </YucpButton>
                             </div>
                           ) : (
@@ -1911,18 +1910,17 @@ function ProductDetailsSheet({
                               {vccLinkQuery.data.status === 'active' ? (
                                 <div className="pm-muted-panel space-y-1 rounded-xl p-3">
                                   <p className="text-foreground text-sm font-medium">
-                                    Buyer repositories enabled
+                                    Unity installs enabled
                                   </p>
                                   <p className="pm-subtle-copy text-sm leading-6">
-                                    A verified buyer sees this package automatically in the one
-                                    private repository they receive for your creator profile.
+                                    Verified buyers can now install this product from Unity.
                                   </p>
                                 </div>
                               ) : (
                                 <div className="pm-muted-panel flex flex-col gap-3 rounded-xl p-3 sm:flex-row sm:items-center sm:justify-between">
                                   <p className="pm-subtle-copy max-w-[48ch] text-sm leading-6">
-                                    Enable this package once. It will appear in every entitled
-                                    buyer's existing repository for your creator profile.
+                                    Enable this product once. Verified buyers can then install it
+                                    from Unity.
                                   </p>
                                   <YucpButton
                                     size="sm"
@@ -1931,8 +1929,8 @@ function ProductDetailsSheet({
                                   >
                                     <Icon name="link" className="size-4" />
                                     {createVccLinkMutation.isPending
-                                      ? 'Creating access...'
-                                      : 'Enable Unity access'}
+                                      ? 'Enabling installs...'
+                                      : 'Enable Unity installs'}
                                   </YucpButton>
                                 </div>
                               )}
@@ -1944,7 +1942,7 @@ function ProductDetailsSheet({
                                   onPress={() => setIsBootstrapDownloadOpen(true)}
                                 >
                                   <Icon name="download" className="size-4" />
-                                  Download bootstrap
+                                  Download Unity setup
                                 </YucpButton>
                                 {vccLinkQuery.data.status === 'active' &&
                                 !isConfirmingLinkRevoke ? (
@@ -1957,7 +1955,7 @@ function ProductDetailsSheet({
                                     }
                                     onPress={() => setIsConfirmingLinkRevoke(true)}
                                   >
-                                    Disable Unity access
+                                    Disable Unity installs
                                   </YucpButton>
                                 ) : null}
                               </div>
@@ -1966,11 +1964,11 @@ function ProductDetailsSheet({
                                 <div className="pm-inline-note space-y-3 rounded-xl p-3">
                                   <div className="space-y-1">
                                     <p className="text-foreground text-sm font-semibold">
-                                      Disable Unity access?
+                                      Disable Unity installs?
                                     </p>
                                     <p className="pm-subtle-copy text-sm leading-6">
-                                      This package disappears from tailored buyer repositories.
-                                      Packages already installed in Unity stay in their projects.
+                                      Buyers will no longer see this product in Unity. Existing
+                                      installations stay in their projects.
                                     </p>
                                   </div>
                                   <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -2327,7 +2325,7 @@ function ProductDetailsSheet({
                           </output>
                         ) : versionHistoryQuery.isError ? (
                           <div className="space-y-2">
-                            <AccountInlineError message="Could not load release history." />
+                            <AccountInlineError message="We couldn’t load release history." />
                             <Button
                               size="sm"
                               variant="outline"
@@ -2528,19 +2526,19 @@ function ProductDetailsSheet({
         <Sheet.Backdrop variant="blur">
           <Sheet.Content
             className="pm-sheet-content mx-auto max-h-[94vh] max-w-[720px]"
-            aria-label="Download bootstrap"
+            aria-label="Download Unity setup"
           >
-            <Sheet.Dialog className="pm-sheet-dialog" aria-label="Download bootstrap">
+            <Sheet.Dialog className="pm-sheet-dialog" aria-label="Download Unity setup">
               <Sheet.Handle />
               <Sheet.CloseTrigger />
               <Sheet.Header>
-                <Sheet.Heading>Download bootstrap</Sheet.Heading>
+                <Sheet.Heading>Download Unity setup</Sheet.Heading>
               </Sheet.Header>
               <Sheet.Body className="space-y-5">
                 <div className="space-y-2">
                   <p className="text-foreground text-sm font-semibold">Release target</p>
                   <Segment
-                    aria-label="Bootstrap release target"
+                    aria-label="Release to install"
                     selectedKey={bootstrapDownloadMode}
                     onSelectionChange={(key) => {
                       if (key === 'latest' || key === 'specific') {
@@ -2553,15 +2551,15 @@ function ProductDetailsSheet({
                   </Segment>
                   <p className="pm-subtle-copy text-sm leading-6">
                     {bootstrapDownloadMode === 'latest'
-                      ? 'Resolves the newest authorized stable release when this bootstrap is imported. It does not subscribe the project to updates.'
+                      ? 'Uses the newest stable release when this setup file is imported. It does not subscribe the project to updates.'
                       : selectedBootstrapVersion
-                        ? `Pins this bootstrap to ${selectedBootstrapVersion.version}. It will never substitute a newer release.`
-                        : 'Choose the exact release this bootstrap should install.'}
+                        ? `Pins this setup file to ${selectedBootstrapVersion.version}. It will never substitute a newer release.`
+                        : 'Choose the exact release this setup file should install.'}
                   </p>
                 </div>
 
                 <Select
-                  aria-label="Bootstrap edition"
+                  aria-label="Setup type"
                   selectedKey={bootstrapEditionId}
                   onSelectionChange={(key) => {
                     const editionId = key?.toString();
@@ -2577,7 +2575,7 @@ function ProductDetailsSheet({
                     <Select.Indicator />
                   </Select.Trigger>
                   <Select.Popover>
-                    <ListBox aria-label="Bootstrap editions">
+                    <ListBox aria-label="Setup types">
                       {historyEditions
                         .filter((edition) => edition.status === 'active')
                         .map((edition) => (
@@ -2595,14 +2593,14 @@ function ProductDetailsSheet({
                 </Select>
 
                 {bootstrapVersionsQuery.isPending ? (
-                  <output aria-label="Loading bootstrap releases" className="block space-y-3">
+                  <output aria-label="Loading setup releases" className="block space-y-3">
                     <Skeleton className="h-16 w-full rounded-xl" />
                     <Skeleton className="h-16 w-full rounded-xl" />
                     <Skeleton className="h-28 w-full rounded-xl" />
                   </output>
                 ) : bootstrapVersionsQuery.isError ? (
                   <div className="space-y-3">
-                    <AccountInlineError message="Could not load releases for this edition." />
+                    <AccountInlineError message="We couldn’t load releases for this setup type." />
                     <YucpButton
                       yucp="secondary"
                       size="sm"
@@ -2624,7 +2622,7 @@ function ProductDetailsSheet({
                       <EmptyState.Title>No eligible SemVer release</EmptyState.Title>
                       <EmptyState.Description>
                         Publish a READY release with a valid semantic version before downloading a
-                        bootstrap for this edition.
+                        setup file for this type.
                       </EmptyState.Description>
                     </EmptyState.Content>
                   </EmptyState>
@@ -2695,15 +2693,15 @@ function ProductDetailsSheet({
                           <Icon name="package" className="size-5" />
                         </ItemCard.Icon>
                         <ItemCard.Content>
-                          <ItemCard.Title>VPM bootstrap</ItemCard.Title>
+                          <ItemCard.Title>Setup for VCC</ItemCard.Title>
                           <ItemCard.Description>
-                            Import the ZIP through VCC or another VPM-compatible package manager.
+                            Use this file with VCC to add the product to your Unity project.
                           </ItemCard.Description>
                         </ItemCard.Content>
                         <ItemCard.Action>
                           <YucpButton
                             size="sm"
-                            aria-label="Download VPM bootstrap"
+                            aria-label="Download setup for VCC"
                             isLoading={
                               bootstrapDownloadMutation.isPending &&
                               bootstrapDownloadMutation.variables === 'vpm'
@@ -2726,16 +2724,15 @@ function ProductDetailsSheet({
                           <Icon name="upload" className="size-5" />
                         </ItemCard.Icon>
                         <ItemCard.Content>
-                          <ItemCard.Title>Unitypackage bootstrap</ItemCard.Title>
+                          <ItemCard.Title>Setup for Unity</ItemCard.Title>
                           <ItemCard.Description>
-                            Import directly into an open Unity project to add the importer and
-                            review this release.
+                            Import this file into an open Unity project to add the product.
                           </ItemCard.Description>
                         </ItemCard.Content>
                         <ItemCard.Action>
                           <YucpButton
                             size="sm"
-                            aria-label="Download Unitypackage bootstrap"
+                            aria-label="Download setup for Unity"
                             isLoading={
                               bootstrapDownloadMutation.isPending &&
                               bootstrapDownloadMutation.variables === 'unitypackage'
@@ -3221,12 +3218,12 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
         return;
       }
       const message =
-        error instanceof Error ? error.message : 'We could not check this package version.';
+        error instanceof Error ? error.message : 'We couldn’t check this product version.';
       setFormError(message);
       setSelectedUpload((current) =>
         current ? { ...current, status: 'failed', errorMessage: message } : current
       );
-      toast.error('Could not prepare package', { description: message });
+      toast.error('We couldn’t prepare the product', { description: message });
     },
   });
 
@@ -3301,7 +3298,7 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
         markSessionExpired();
         return;
       }
-      toast.error('Could not stop the upload', {
+      toast.error('We couldn’t stop the upload', {
         description: getApiErrorMessage(error, 'Try again.'),
       });
     },
@@ -3356,7 +3353,7 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
     if (copied) {
       toast.success('Store-page link copied');
     } else {
-      toast.error('Could not copy to clipboard');
+      toast.error('We couldn’t copy that link');
     }
   }
 
@@ -3376,7 +3373,7 @@ export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegi
 
         {productsQuery.isError ? (
           <div className="space-y-3">
-            <AccountInlineError message="Could not load your products." />
+            <AccountInlineError message="We couldn’t load your products." />
             <YucpButton
               yucp="secondary"
               isLoading={productsQuery.isFetching}

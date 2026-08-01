@@ -146,7 +146,7 @@ function SignInRedirectPageContent() {
                 <Icon name="alert" className="w-16 h-16 mx-auto text-[#c53030] mb-4" />
                 <h1 className="text-xl text-[#ffffff] mb-3">Sign-in failed</h1>
                 <p className="text-[rgba(255,255,255,0.8)] mb-6">
-                  Something went wrong. Please try again.
+                  We couldn’t finish signing in. Try again.
                 </p>
                 <button
                   id="retry-btn"

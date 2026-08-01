@@ -184,7 +184,7 @@ export default function DashboardBilling() {
         try {
           navigateToTrustedPolarUrl(result.url);
         } catch {
-          toast.error('Could not open Polar checkout', {
+          toast.error('We couldn’t open checkout', {
             description: 'Polar returned an unexpected checkout URL.',
           });
         }
@@ -197,8 +197,8 @@ export default function DashboardBilling() {
         return;
       }
 
-      toast.error('Could not start checkout', {
-        description: 'Please try again.',
+      toast.error('We couldn’t start checkout', {
+        description: 'Try again.',
       });
       clearCheckoutState();
     },
@@ -210,7 +210,7 @@ export default function DashboardBilling() {
       try {
         navigateToTrustedPolarUrl(result.url);
       } catch {
-        toast.error('Could not open billing portal', {
+        toast.error('We couldn’t open billing', {
           description: 'Polar returned an unexpected portal URL.',
         });
       }
@@ -221,8 +221,8 @@ export default function DashboardBilling() {
         return;
       }
 
-      toast.error('Could not open billing portal', {
-        description: 'Session expired or portal unavailable.',
+      toast.error('We couldn’t open billing', {
+        description: 'Your session may have expired. Sign in again and try once more.',
       });
     },
   });
@@ -400,7 +400,7 @@ export default function DashboardBilling() {
           </div>
           <h3 className="billing-empty-title-v2">No published plans yet</h3>
           <p className="billing-empty-desc-v2">
-            Publish a recurring Polar product with entitlement benefits and it will appear here
+            Publish a recurring Polar product with purchase benefits and it will appear here
             automatically.
           </p>
         </div>
@@ -413,7 +413,7 @@ export default function DashboardBilling() {
       <div className="bento-grid">
         {query.isError && !hasAuthError && (
           <div className="bento-col-12">
-            <AccountInlineError message="Failed to load billing. Please refresh." />
+            <AccountInlineError message="We couldn’t load billing. Refresh to try again." />
           </div>
         )}
 

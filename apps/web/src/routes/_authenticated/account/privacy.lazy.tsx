@@ -67,9 +67,9 @@ function AccountPrivacy() {
       navigate({ to: '/' });
     },
     onError: () => {
-      const message = 'Failed to submit deletion request. Please try again.';
+      const message = 'We couldn’t submit the deletion request. Try again.';
       setDeleteError(message);
-      toast.error('Could not request account deletion', {
+      toast.error('We couldn’t request account deletion', {
         description: message,
       });
     },
@@ -94,8 +94,8 @@ function AccountPrivacy() {
         description: 'Your browser should begin downloading the JSON export.',
       });
     } catch {
-      toast.error('Could not prepare data export', {
-        description: 'Please try again in a moment.',
+      toast.error('We couldn’t prepare your data export', {
+        description: 'Try again in a moment.',
       });
     } finally {
       setExportLoading(false);

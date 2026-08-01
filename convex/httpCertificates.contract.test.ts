@@ -7,7 +7,7 @@ const httpSource = readFileSync(resolve(__dirname, './http.ts'), 'utf8');
 describe('/v1/certificates issuance contract', () => {
   it('maps devPublicKey ownership conflicts to a 409 with an actionable message', () => {
     expect(httpSource).toContain("raw.includes('already registered to a different user')");
-    expect(httpSource).toContain('This dev key is already registered to another YUCP account.');
+    expect(httpSource).toContain('This dev key is already registered to another Creator Account.');
     expect(httpSource).toContain('return errorResponse(');
     expect(httpSource).toContain('409');
   });
@@ -28,7 +28,9 @@ describe('/v1/certificates issuance contract', () => {
     expect(httpSource).toContain("normalizedError.includes('not set')");
     expect(httpSource).toContain("normalizedError.includes('configured yucp trust root')");
     expect(httpSource).toContain("normalizedError.includes('active trust bundle')");
-    expect(httpSource).toContain("return errorResponse('Certificate service is not available', 503)");
+    expect(httpSource).toContain(
+      "return errorResponse('Certificate service is not available', 503)"
+    );
     expect(httpSource).not.toContain("raw.includes('configured YUCP trust root')");
   });
 });

@@ -131,8 +131,8 @@ function ProviderCard({
       });
     },
     onError: () => {
-      toast.error('Could not disconnect account', {
-        description: `Please try disconnecting ${provider.label} again.`,
+      toast.error(`We couldn’t disconnect ${provider.label}`, {
+        description: 'Try again in a moment.',
       });
     },
   });
@@ -145,14 +145,14 @@ function ProviderCard({
       window.location.href = getSafeInternalRedirectTarget(redirectUrl);
     } catch {
       setConnecting(false);
-      toast.error('Could not start connection', {
-        description: `Please try connecting ${provider.label} again.`,
+      toast.error(`We couldn’t connect ${provider.label}`, {
+        description: 'Try again in a moment.',
       });
     }
   };
 
   const providerColor = provider.color ?? '#64748b';
-  const providerDescription = provider.description ?? 'Linked provider';
+  const providerDescription = provider.description ?? 'Connected service';
   const iconStyle: CSSProperties = {
     backgroundColor: `${providerColor}20`,
     color: providerColor,
@@ -302,7 +302,7 @@ function AccountConnections() {
         className="bento-col-8 animate-in animate-in-delay-1"
         eyebrow="Providers"
         title="Manage linked providers"
-        description="Connect only the services you actively use. Every provider can be revoked later from this same account shell."
+        description="Connect only the services you need. You can disconnect any service here later."
       >
         {isLoading ? (
           <div className="account-skeleton-stack">
@@ -330,15 +330,15 @@ function AccountConnections() {
         )}
 
         {!providersQuery.isLoading && !accountsQuery.isLoading && hasLoadError ? (
-          <AccountInlineError message="Failed to load account connections. Refresh to try again." />
+          <AccountInlineError message="We couldn’t load account connections. Refresh to try again." />
         ) : null}
       </AccountSectionCard>
 
       <AccountSectionCard
         className="bento-col-4 animate-in animate-in-delay-2"
         eyebrow="Guidance"
-        title="How links are used"
-        description="These connections power verification flows across supported providers."
+        title="How connections are used"
+        description="These connections let you verify purchases with supported providers."
       >
         <div className="account-kv-list">
           <div className="account-kv-row">
@@ -369,12 +369,12 @@ function AccountConnections() {
 
         <div className="account-note-stack">
           <p className="account-feature-copy">
-            Linked accounts are used only when a provider flow needs them. Disconnecting a provider
-            does not delete your licenses or revoke unrelated app authorizations.
+            Connected accounts are used only when you verify a purchase. Disconnecting one does not
+            delete your purchases or disconnect unrelated apps.
           </p>
           <p className="account-feature-copy">
-            If a linked account expires or is revoked upstream, reconnect it here before retrying a
-            hosted verification flow.
+            If a connected account expires or is disconnected at the store, reconnect it here before
+            verifying a purchase again.
           </p>
         </div>
       </AccountSectionCard>

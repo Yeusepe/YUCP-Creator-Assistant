@@ -274,8 +274,8 @@ export function DangerZonePanel({ guildId }: DangerZonePanelProps) {
     },
     onError: () => {
       setDisconnectStep(0);
-      toast.error('Could not disconnect server', {
-        description: 'Please try again or contact support.',
+      toast.error('We couldn’t disconnect the server', {
+        description: 'Try again or contact support.',
         duration: 6000,
       });
     },

@@ -267,9 +267,11 @@ function JinxxySetupPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ webhookSecret: signingSecret }),
         });
-        if (!res.ok) throw new Error('Could not save your signing secret.');
+        if (!res.ok) throw new Error('We couldn’t save your signing secret. Try again.');
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Could not save your signing secret.');
+        setError(
+          err instanceof Error ? err.message : 'We couldn’t save your signing secret. Try again.'
+        );
         setIsSavingSecret(false);
         return;
       }
@@ -290,7 +292,7 @@ function JinxxySetupPage() {
     setError(null);
 
     if (!trimmedKey) {
-      setError('Please enter your Jinxxy\u2122 API key.');
+      setError('Enter your Jinxxy\u2122 API key.');
       return;
     }
 
@@ -333,16 +335,14 @@ function JinxxySetupPage() {
         body: JSON.stringify(body),
       });
 
-      if (!res.ok) throw new Error('Could not save this Jinxxy\u2122 connection right now.');
+      if (!res.ok) throw new Error('We couldn’t save this Jinxxy\u2122 connection. Try again.');
       await res.json();
 
       setFinishSuccess(true);
       confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
       setTimeout(() => goBackToDashboard(), 1500);
     } catch {
-      setError(
-        'Could not save this Jinxxy\u2122 connection right now. Check the key and try again.'
-      );
+      setError('We couldn’t save this Jinxxy\u2122 connection. Check the key and try again.');
       setIsFinishing(false);
     }
   }, [apiKey, tenantId, signingSecret, goBackToDashboard]);
@@ -670,7 +670,7 @@ function JinxxySetupPage() {
                             <button
                               type="button"
                               className="flex-shrink-0 p-2.5 bg-white/10 shadow-sm border border-white/10 hover:border-[#0ea5e9] rounded-lg text-[rgba(255,255,255,0.8)] hover:text-[#0ea5e9] border-smooth-transition"
-                              title="Generate a secure random secret"
+                              title="Generate a random secret"
                               onClick={() => setSigningSecret(generateSecret())}
                             >
                               <Icon name="refresh" className="w-4 h-4" />
@@ -865,7 +865,7 @@ function JinxxySetupPage() {
                     <p className="text-[rgba(255,255,255,0.8)] text-lg leading-relaxed">
                       Back in the sidebar under Management, click on{' '}
                       <strong className="text-[#ffffff]">API Keys</strong>. We need to create a key
-                      to fetch your product details securely.
+                      to fetch your product details.
                     </p>
                   </div>
                 </div>

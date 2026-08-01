@@ -143,12 +143,12 @@ function VRChatVerifyPage() {
           showSuccess();
         } else if (data.needsCredentials || data.sessionExpired) {
           if (data.sessionExpired) {
-            setError('Your previous VRChat session has expired. Please sign in again.');
+            setError('Your previous VRChat session has expired. Sign in again.');
           }
           restorePendingStep();
           setIsSubmitting(false);
         } else {
-          setError(data.error || 'Auto-verify failed. Please enter your credentials.');
+          setError(data.error || 'We couldn’t verify your account. Check your sign-in details.');
           showCredentialStep();
           setIsSubmitting(false);
         }
@@ -220,8 +220,8 @@ function VRChatVerifyPage() {
     if (!token && !allowsTokenlessConnect) {
       setError(
         isConnectMode
-          ? 'Invalid or expired link. Please use the Connect VRChat button in the dashboard.'
-          : 'Invalid or expired link. Please use the Verify with VRChat button in Discord.'
+          ? 'This link is invalid or expired. Use Connect VRChat in the dashboard.'
+          : 'This link is invalid or expired. Use Verify with VRChat in Discord.'
       );
       return;
     }
@@ -233,7 +233,7 @@ function VRChatVerifyPage() {
 
     if (viewState === 'two-factor') {
       if (!twoFactorCode.trim()) {
-        setError('Please enter your 2FA code.');
+        setError('Enter your 2FA code.');
         return;
       }
       requestBody.twoFactorCode = twoFactorCode.trim();
@@ -242,7 +242,7 @@ function VRChatVerifyPage() {
       }
     } else {
       if (!username.trim() || !password) {
-        setError('Please enter your VRChat username and password.');
+        setError('Enter your VRChat username and password.');
         return;
       }
       requestBody.username = username.trim();
@@ -269,10 +269,10 @@ function VRChatVerifyPage() {
         if (data.needsCredentials || data.sessionExpired) {
           showCredentialStep();
         }
-        setError(data.error || 'Verification failed. Please check your credentials.');
+        setError(data.error || 'We couldn’t verify your account. Check your sign-in details.');
       }
     } catch {
-      setError('Network error. Please try again.');
+      setError('We couldn’t reach VRChat. Check your connection and try again.');
     }
 
     setIsSubmitting(false);
@@ -290,13 +290,13 @@ function VRChatVerifyPage() {
   const mainAriaLabel = isConnectMode ? 'VRChat account connect' : 'VRChat verification';
   const noTokenContent = isConnectMode ? (
     <p>
-      This page requires a valid connection link. Please use the <strong>Add VRChat Account</strong>{' '}
-      button in the Creator Assistant dashboard to get started.
+      This page needs a valid connection link. Use <strong>Add VRChat Account</strong> button in the
+      Creator Assistant dashboard to get started.
     </p>
   ) : (
     <p>
-      This page requires a valid verification link. Please use the{' '}
-      <strong>Verify with VRChat&reg;</strong> button in Discord&reg; to get started.
+      This page needs a valid verification link. Use the <strong>Verify with VRChat&reg;</strong>{' '}
+      button in Discord&reg; to get started.
     </p>
   );
 

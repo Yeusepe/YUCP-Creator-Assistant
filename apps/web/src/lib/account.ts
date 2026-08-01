@@ -218,7 +218,7 @@ export async function downloadUserDataExport() {
   });
 
   if (!response.ok) {
-    throw new Error('Could not prepare data export');
+    throw new Error('We couldn’t prepare your data export. Try again.');
   }
 
   return response.blob();

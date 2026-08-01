@@ -52,9 +52,7 @@ export function normalizeUploadError(error: Error): Error {
     return new Error('Upload authorization expired. Start the upload again from this saved draft.');
   }
   if (status !== undefined && status >= 500) {
-    return new Error(
-      'The upload service could not accept this package. Your draft is safe. Try again shortly.'
-    );
+    return new Error('We couldn’t accept this upload. Your draft is saved. Try again in a moment.');
   }
   return new Error(
     'The package upload was interrupted. Your draft is safe. Check your connection and try again.'

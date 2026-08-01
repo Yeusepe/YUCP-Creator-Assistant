@@ -3055,7 +3055,7 @@ const signing_log = defineTable({
 
 /**
  * Rate-limiting log for certificate issuance.
- * Enforces: 1 certificate per YUCP account per 30 days.
+ * Enforces: 1 certificate per Creator Account per 30 days.
  */
 const cert_issuance_log = defineTable({
   /** Better Auth user ID of the cert requester */

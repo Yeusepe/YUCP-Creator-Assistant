@@ -56,8 +56,8 @@ function EntitlementRow({
       });
     },
     onError: () => {
-      toast.error('Could not deactivate license', {
-        description: 'Please try again or re-run verification if the problem persists.',
+      toast.error('We couldn’t deactivate this license', {
+        description: 'Try again. If the problem continues, verify the purchase again.',
       });
     },
   });
@@ -140,8 +140,8 @@ function EntitlementRow({
       {confirming ? (
         <AccountModal title="Deactivate license?" onClose={() => setConfirming(false)}>
           <p className="account-modal-body">
-            This removes the active grant from your account and revokes the linked Discord role.
-            Re-verification requires the full provider flow again.
+            This removes access from your account and unlinks the connected Discord role. To get
+            access again, connect the store account and verify the purchase again.
           </p>
           <div className="account-modal-actions">
             <YucpButton
@@ -189,7 +189,7 @@ function AccountLicenses() {
         className="bento-col-8 animate-in animate-in-delay-1"
         eyebrow="License ledger"
         title="Verified purchases"
-        description="Review every entitlement this account has received from storefront verification."
+        description="Review the purchases linked to your Creator Account."
       >
         {licensesQuery.isLoading ? (
           <div className="account-skeleton-stack">
@@ -200,7 +200,7 @@ function AccountLicenses() {
         ) : null}
 
         {licensesQuery.isError ? (
-          <AccountInlineError message="Failed to load licenses. Please refresh." />
+          <AccountInlineError message="We couldn’t load your purchases. Refresh to try again." />
         ) : null}
 
         {!licensesQuery.isLoading && !licensesQuery.isError && allEntitlements.length === 0 ? (
@@ -229,7 +229,7 @@ function AccountLicenses() {
         className="bento-col-4 animate-in animate-in-delay-2"
         eyebrow="Context"
         title="What deactivation does"
-        description="Removing an entitlement updates the account record and revokes the role granted by this verification system."
+        description="Removing a purchase link removes the access it granted. You can verify the purchase again later."
       >
         <div className="account-kv-list">
           <div className="account-kv-row">
@@ -255,7 +255,7 @@ function AccountLicenses() {
         <div className="account-note-stack">
           <p className="account-feature-copy">
             Use deactivation when you want to remove access from this account. If you bought the
-            same product again later, the provider flow can grant a fresh entitlement.
+            same product again later, verify the new purchase to restore access.
           </p>
           <p className="account-feature-copy">
             Purchases are grouped under {subjects.length} verified subject

@@ -280,7 +280,7 @@ const OPENAPI_SPEC = {
           providerKey: {
             type: 'string',
             description:
-              "Verification provider key. Use a provider registry key such as 'gumroad' or 'jinxxy' for marketplace-backed methods. For 'existing_entitlement', internal YUCP account checks may use 'yucp'.",
+              "Verification provider key. Use a provider registry key such as 'gumroad' or 'jinxxy' for marketplace-backed methods. For 'existing_entitlement', internal Creator Account checks may use 'yucp'.",
           },
           kind: {
             type: 'string',
@@ -301,7 +301,7 @@ const OPENAPI_SPEC = {
           providerKey: {
             type: 'string',
             description:
-              "Verification provider key. Internal entitlement checks may return 'yucp' when the requirement uses the signed-in YUCP buyer account rather than an external marketplace account.",
+              "Verification provider key. Internal entitlement checks may return 'yucp' when the requirement uses the signed-in Creator Account rather than an external marketplace account.",
           },
           providerLabel: { type: 'string' },
           kind: {
@@ -617,7 +617,7 @@ const OPENAPI_SPEC = {
         operationId: 'getMyProfile',
         summary: 'Get current user profile',
         description:
-          'Returns the authenticated user profile used across YUCP account surfaces. Requires the `profile:read` scope.',
+          'Returns the authenticated user profile used across Creator Account surfaces. Requires the `profile:read` scope.',
         tags: ['Identity'],
         security: [{ bearerAuth: ['profile:read'] }, { apiKeyHeader: [] }],
         responses: {

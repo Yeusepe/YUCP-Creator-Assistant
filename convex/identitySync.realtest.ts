@@ -465,7 +465,7 @@ describe('external account', () => {
         providerUserId: 'itch-buyer-42',
         username: 'itch-intruder',
       })
-    ).rejects.toThrow('already linked to a different YUCP account');
+    ).rejects.toThrow('already linked to a different Creator Account');
 
     const ownerLinks = await t.query(api.subjects.listBuyerProviderLinksForAuthUser, {
       apiSecret: 'test-secret',

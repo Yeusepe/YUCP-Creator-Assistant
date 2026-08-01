@@ -202,7 +202,7 @@ function DashboardCollaboration() {
           <DashboardAuthRequiredState
             id="dashboard-collaboration-auth-required"
             title="Sign in to manage collaboration"
-            description="Your dashboard session expired or could not be verified. Sign in again to manage collaboration invites and connected creators."
+            description="Your dashboard session expired or couldn’t be verified. Sign in again to manage collaboration invites and connected creators."
           />
         </div>
       </div>
@@ -647,7 +647,7 @@ function StoresICollaborateWithSection({
     },
     onError: (error) => {
       setRemoveError(
-        error instanceof Error ? error.message : 'Could not leave this store right now.'
+        error instanceof Error ? error.message : 'We couldn’t leave this store. Try again.'
       );
     },
   });

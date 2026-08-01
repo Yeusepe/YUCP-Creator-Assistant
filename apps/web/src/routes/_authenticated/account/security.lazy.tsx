@@ -105,14 +105,14 @@ function AccountSecurityPage() {
     try {
       const result = await authClient.passkey.addPasskey();
       if (result.error) {
-        throw new Error(result.error.message ?? 'Could not add passkey');
+        throw new Error(result.error.message ?? 'We couldn’t add the passkey.');
       }
       await refreshPasskeys('account.security.passkey.added');
       toast.success('Passkey added', {
-        description: 'This passkey is now available as a recovery factor.',
+        description: 'You can use this passkey to recover access.',
       });
     } catch (error) {
-      toast.error('Could not add passkey', {
+      toast.error('We couldn’t add the passkey', {
         description: error instanceof Error ? error.message : 'Try again from this browser.',
       });
     } finally {
@@ -125,12 +125,12 @@ function AccountSecurityPage() {
     try {
       const result = await authClient.passkey.deletePasskey({ id: passkeyId });
       if (result.error) {
-        throw new Error(result.error.message ?? 'Could not remove passkey');
+        throw new Error(result.error.message ?? 'We couldn’t remove the passkey.');
       }
       await refreshPasskeys('account.security.passkey.removed');
       toast.success('Passkey removed');
     } catch (error) {
-      toast.error('Could not remove passkey', {
+      toast.error('We couldn’t remove the passkey', {
         description: error instanceof Error ? error.message : 'Try again.',
       });
     } finally {
@@ -143,7 +143,7 @@ function AccountSecurityPage() {
     try {
       const result = await authClient.twoFactor.enable({ method: 'totp' });
       if (result.error) {
-        throw new Error(result.error.message ?? 'Could not enable backup codes');
+        throw new Error(result.error.message ?? 'We couldn’t enable backup codes.');
       }
       const codes = requireTotpBackupCodes(result.data);
       setFreshBackupCodes(codes);
@@ -154,9 +154,9 @@ function AccountSecurityPage() {
         description: 'Store them somewhere offline. Each code works once.',
       });
     } catch (error) {
-      toast.error('Could not enable backup codes', {
+      toast.error('We couldn’t enable backup codes', {
         description:
-          error instanceof Error ? error.message : 'The security state could not be updated.',
+          error instanceof Error ? error.message : 'We couldn’t update your recovery settings.',
       });
     } finally {
       setPendingAction(null);
@@ -168,7 +168,7 @@ function AccountSecurityPage() {
     try {
       const result = await authClient.twoFactor.generateBackupCodes({});
       if (result.error) {
-        throw new Error(result.error.message ?? 'Could not regenerate backup codes');
+        throw new Error(result.error.message ?? 'We couldn’t regenerate backup codes.');
       }
       const codes = result.data?.backupCodes ?? [];
       setFreshBackupCodes(codes);
@@ -177,7 +177,7 @@ function AccountSecurityPage() {
       });
       toast.success('Backup codes regenerated');
     } catch (error) {
-      toast.error('Could not regenerate backup codes', {
+      toast.error('We couldn’t regenerate backup codes', {
         description: error instanceof Error ? error.message : 'Try again.',
       });
     } finally {
@@ -201,14 +201,14 @@ function AccountSecurityPage() {
         type: 'email-verification',
       });
       if (result.error) {
-        throw new Error(result.error.message ?? 'Could not send verification code');
+        throw new Error(result.error.message ?? 'We couldn’t send the verification code.');
       }
       setPendingRecoveryEmail(prepared.email);
       toast.success('Verification code sent', {
         description: 'Enter the code from your recovery inbox to finish enrollment.',
       });
     } catch (error) {
-      toast.error('Could not send verification code', {
+      toast.error('We couldn’t send the verification code', {
         description: error instanceof Error ? error.message : 'Try again.',
       });
     } finally {
@@ -230,7 +230,7 @@ function AccountSecurityPage() {
       setRecoveryEmailOtp('');
       toast.success('Recovery email verified');
     } catch (error) {
-      toast.error('Could not verify recovery email', {
+      toast.error('We couldn’t verify the recovery email', {
         description: error instanceof Error ? error.message : 'Try again.',
       });
     } finally {
@@ -244,7 +244,7 @@ function AccountSecurityPage() {
       await removeRecoveryContact({ contactId });
       toast.success('Recovery email removed');
     } catch (error) {
-      toast.error('Could not remove recovery email', {
+      toast.error('We couldn’t remove the recovery email', {
         description: error instanceof Error ? error.message : 'Try again.',
       });
     } finally {
@@ -262,11 +262,11 @@ function AccountSecurityPage() {
         kind,
         ...(contactId ? { contactId } : {}),
       });
-      toast.warning('Security factor marked as compromised', {
-        description: 'Recovery from that factor is now suppressed until you replace it.',
+      toast.warning('Sign-in method paused', {
+        description: 'Recovery through this method is paused until you replace it.',
       });
     } catch (error) {
-      toast.error('Could not update compromise state', {
+      toast.error('We couldn’t pause this sign-in method', {
         description: error instanceof Error ? error.message : 'Try again.',
       });
     } finally {
@@ -280,7 +280,7 @@ function AccountSecurityPage() {
       await dismissRecoveryPrompt({});
       toast.info('Recovery reminder dismissed for now');
     } catch (error) {
-      toast.error('Could not dismiss reminder', {
+      toast.error('We couldn’t dismiss the reminder', {
         description: error instanceof Error ? error.message : 'Try again.',
       });
     } finally {
@@ -292,11 +292,11 @@ function AccountSecurityPage() {
     setPendingAction('revoke-sessions');
     try {
       await revokeAllUserSessions({});
-      toast.success('All sessions revoked', {
-        description: 'Sign in again on the devices you still trust.',
+      toast.success('Signed out everywhere', {
+        description: 'Sign in again on the devices you still use.',
       });
     } catch (error) {
-      toast.error('Could not revoke sessions', {
+      toast.error('We couldn’t sign you out everywhere', {
         description: error instanceof Error ? error.message : 'Try again.',
       });
     } finally {
@@ -345,7 +345,7 @@ function AccountSecurityPage() {
         ) : (
           <div className="account-status-banner account-status-banner--success">
             <div className="account-status-banner-copy">
-              <strong>You have recovery options on file</strong>
+              <strong>Your recovery options are set up</strong>
               <span className="account-status-banner-detail">
                 Keep at least one passkey, backup code set, or recovery email active so support is
                 easier if something breaks.
@@ -392,7 +392,7 @@ function AccountSecurityPage() {
             </div>
             <div className="account-recovery-method-body">
               {isLoadingPasskeys ? (
-                <p className="account-feature-copy">Loading passkeys…</p>
+                <p className="account-feature-copy">Loading your passkeys…</p>
               ) : passkeys.length === 0 ? (
                 <p className="account-feature-copy">
                   None added yet. Start from this browser or plug in a hardware key.
@@ -586,7 +586,7 @@ function AccountSecurityPage() {
                               )
                             }
                           >
-                            Mark unsafe
+                            Pause recovery
                           </YucpButton>
                         </div>
                       </div>
@@ -604,7 +604,7 @@ function AccountSecurityPage() {
         leading={<Icon name="shieldAlert" aria-hidden />}
         eyebrow="If access might be stolen"
         title="Pause risky channels"
-        description="Use these only when you suspect someone else reached your email or Discord. We will block recovery through the channel you mark until you replace it."
+        description="Use these only when you suspect someone else has access to your email or Discord. Recovery through a paused method stays off until you replace it."
       >
         <div className="account-emergency-actions">
           <p className="account-emergency-hint">
@@ -617,14 +617,14 @@ function AccountSecurityPage() {
               isLoading={pendingAction === 'primary-email'}
               onPress={() => handleCompromised('primary-email')}
             >
-              Primary email unsafe
+              Pause primary email
             </YucpButton>
             <YucpButton
               yucp="danger"
               isLoading={pendingAction === 'discord'}
               onPress={() => handleCompromised('discord')}
             >
-              Discord unsafe
+              Pause Discord
             </YucpButton>
             <YucpButton
               yucp="secondary"

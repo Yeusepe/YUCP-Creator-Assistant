@@ -133,7 +133,7 @@ function LemonSqueezySetupPage() {
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        throw new Error(data.error || 'Something went wrong. Please try again.');
+        throw new Error(data.error || 'Something went wrong. Try again.');
       }
 
       setIsConnected(true);

@@ -393,7 +393,7 @@ describe('dashboard packages route', () => {
     expect(screen.getByText(/ready for updates/i)).toBeInTheDocument();
     expect(
       screen.queryByText(
-        'Share the YUCP access page in your store delivery notes. Buyers sign in, verify their purchase, then add the product to VCC.'
+        'Share the product page with buyers. They can sign in, verify their purchase, then install it in Unity.'
       )
     ).not.toBeInTheDocument();
     expect(screen.queryByText(/private repository/i)).not.toBeInTheDocument();
@@ -1577,7 +1577,7 @@ describe('dashboard packages route', () => {
 
     expect(
       await screen.findAllByText(
-        'We could not prepare this version. Review the package file, then upload a new version or retry this draft.'
+        'We couldn’t prepare this version. Review the file, then upload a new version or retry this draft.'
       )
     ).not.toHaveLength(0);
     expect(statusPolls).toBe(1);
@@ -1975,7 +1975,7 @@ describe('dashboard packages route', () => {
 
     await selectReleaseHistoryEdition('Commercial');
 
-    expect(await screen.findByText('Could not load release history.')).toBeInTheDocument();
+    expect(await screen.findByText('We couldn’t load release history.')).toBeInTheDocument();
   });
 
   it('loads the next 50-release page with visible pending feedback', async () => {
@@ -2392,9 +2392,9 @@ describe('dashboard packages route', () => {
     render(<Component />, { wrapper: createWrapper() });
 
     fireEvent.click(await screen.findByRole('button', { name: 'Open details for Avatar Bundle' }));
-    expect(await screen.findByText('Unity access')).toBeInTheDocument();
+    expect(await screen.findByText('Unity installs')).toBeInTheDocument();
     expect(
-      screen.getByText("Enable this package in each verified buyer's private creator repository.")
+      screen.getByText('Let verified buyers install this product from Unity.')
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Copy buyer privacy notice' }));
     await waitFor(() =>
@@ -2402,38 +2402,40 @@ describe('dashboard packages route', () => {
         expect.stringMatching(/\/legal\/verification-and-attestation$/)
       )
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Download bootstrap' }));
-    expect(await screen.findByRole('heading', { name: 'Download bootstrap' })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'Download Unity setup' }));
+    expect(
+      await screen.findByRole('heading', { name: 'Download Unity setup' })
+    ).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'Latest' })).toBeChecked();
     expect(screen.getByRole('radio', { name: 'Specific version' })).not.toBeChecked();
     expect(
       screen.getByText(
-        'Resolves the newest authorized stable release when this bootstrap is imported. It does not subscribe the project to updates.'
+        'Uses the newest stable release when this setup file is imported. It does not subscribe the project to updates.'
       )
     ).toBeInTheDocument();
-    expect(await screen.findByText('VPM bootstrap')).toBeInTheDocument();
-    expect(screen.getByText('Unitypackage bootstrap')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Download VPM bootstrap' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Download Unitypackage bootstrap' })).toBeEnabled();
+    expect(await screen.findByText('Setup for VCC')).toBeInTheDocument();
+    expect(screen.getByText('Setup for Unity')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download setup for VCC' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Download setup for Unity' })).toBeEnabled();
     fireEvent.click(screen.getByRole('radio', { name: 'Specific version' }));
     const releaseList = await screen.findByLabelText('READY package releases');
     expect(within(releaseList).getByText('2.1.0')).toBeInTheDocument();
     fireEvent.click(within(releaseList).getByText('2.1.0'));
     expect(
-      screen.getByText('Pins this bootstrap to 2.1.0. It will never substitute a newer release.')
+      screen.getByText('Pins this setup file to 2.1.0. It will never substitute a newer release.')
     ).toBeInTheDocument();
     expect(
       screen.getByText(
         "Selecting a version in VCC installs that exact release. VCC's Latest option selects the highest published stable SemVer."
       )
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Download VPM bootstrap' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Download setup for VCC' }));
     const pendingDownload = await screen.findByRole('button', {
-      name: 'Download VPM bootstrap',
+      name: 'Download setup for VCC',
     });
     expect(pendingDownload).toBeDisabled();
     expect(pendingDownload).toHaveTextContent('Downloading...');
-    expect(screen.getByRole('button', { name: 'Download Unitypackage bootstrap' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Download setup for Unity' })).toBeDisabled();
     expect(apiBlobMock).toHaveBeenCalledWith(
       '/api/creator/packages/by-package/com.creator.avatar-bundle/bootstrap',
       {
@@ -2446,25 +2448,23 @@ describe('dashboard packages route', () => {
     );
     rejectBootstrapDownload?.(new Error('Bootstrap generation failed'));
     await waitFor(() =>
-      expect(toastErrorMock).toHaveBeenCalledWith('Could not download the bootstrap', {
+      expect(toastErrorMock).toHaveBeenCalledWith('We couldn’t download the Unity setup', {
         description: 'Bootstrap generation failed',
       })
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Enable Unity access' }));
-    expect(await screen.findByRole('button', { name: 'Creating access...' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Enable Unity installs' }));
+    expect(await screen.findByRole('button', { name: 'Enabling installs...' })).toBeDisabled();
     resolveCreate?.(createdLink);
     expect(await screen.findByText('Enabled')).toBeInTheDocument();
     expect(
-      screen.getByText(
-        'A verified buyer sees this package automatically in the one private repository they receive for your creator profile.'
-      )
+      screen.getByText('Verified buyers can now install this product from Unity.')
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Disable Unity access' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Disable Unity installs' }));
     expect(
       screen.getByText(
-        'This package disappears from tailored buyer repositories. Packages already installed in Unity stay in their projects.'
+        'Buyers will no longer see this product in Unity. Existing installations stay in their projects.'
       )
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Disable access' }));
@@ -2475,7 +2475,9 @@ describe('dashboard packages route', () => {
       )
     );
     resolveRevoke?.({ revoked: true });
-    expect(await screen.findByRole('button', { name: 'Enable Unity access' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: 'Enable Unity installs' })
+    ).toBeInTheDocument();
   });
 
   it('lets the creator publish a friendly bootstrap package name', async () => {
@@ -2489,12 +2491,12 @@ describe('dashboard packages route', () => {
     render(<Component />, { wrapper: createWrapper() });
     fireEvent.click(await screen.findByRole('button', { name: 'Open details for Avatar Bundle' }));
 
-    const packageNameInput = await screen.findByLabelText('Bootstrap package name');
+    const packageNameInput = await screen.findByLabelText('Product name in Unity');
     expect(packageNameInput).toHaveValue('Avatar Bundle');
     fireEvent.change(packageNameInput, {
       target: { value: 'Avatar Essentials' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Save bootstrap name' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save product name' }));
 
     await waitFor(() =>
       expect(apiPutMock).toHaveBeenCalledWith(

@@ -189,7 +189,7 @@ function AccountProfile() {
         leading={<Icon name="shield" aria-hidden />}
         eyebrow="Account recovery"
         title="Can you get back in if Discord breaks?"
-        description="Discord is your normal sign-in. Add backups like passkeys, one-time codes, or a spare inbox so you are never stuck."
+        description="Discord is your usual sign-in. Add a backup method in case you lose access."
         actions={
           <Link to="/account/security" className="account-btn account-btn--primary">
             Manage recovery
@@ -199,7 +199,7 @@ function AccountProfile() {
         {securityOverview === undefined ? (
           <div className="account-status-banner">
             <div className="account-status-banner-copy">
-              <strong>Checking recovery coverage</strong>
+              <strong>Checking your recovery options</strong>
               <span className="account-status-banner-detail">
                 Loading your current passkeys, backup codes, and recovery inboxes.
               </span>
@@ -232,7 +232,7 @@ function AccountProfile() {
                   try {
                     await dismissRecoveryPrompt({});
                   } catch (error) {
-                    toast.error('Could not dismiss reminder', {
+                    toast.error('We couldn’t dismiss the reminder', {
                       description: error instanceof Error ? error.message : 'Try again.',
                     });
                   } finally {
@@ -247,9 +247,9 @@ function AccountProfile() {
         ) : (
           <div className="account-status-banner account-status-banner--success">
             <div className="account-status-banner-copy">
-              <strong>Recovery options look healthy</strong>
+              <strong>Recovery options are set up</strong>
               <span className="account-status-banner-detail">
-                {`${securityOverview.strongFactorCount} strong backup${securityOverview.strongFactorCount === 1 ? '' : 's'} on file.`}
+                {`${securityOverview.strongFactorCount} backup option${securityOverview.strongFactorCount === 1 ? '' : 's'} ready to use.`}
               </span>
             </div>
           </div>
@@ -287,7 +287,7 @@ function AccountProfile() {
         id="creator-account"
         className="bento-col-12 animate-in animate-in-delay-2"
         eyebrow={isCreator ? 'Creator mode' : 'Get started'}
-        title={isCreator ? 'Your Creator Identity is ready' : 'Create your Creator Identity'}
+        title={isCreator ? 'Your Creator Identity is active' : 'Create your Creator Identity'}
         description={
           isCreator
             ? 'Switch from account controls into your Creator Identity whenever you want.'
@@ -296,8 +296,8 @@ function AccountProfile() {
       >
         <p className="account-feature-copy">
           {isCreator
-            ? 'Use the creator dashboard to configure storefront integrations, packages, collaboration flows, and any connected communities.'
-            : 'This creates your creator account immediately and opens the dashboard.'}
+            ? 'Use the creator dashboard to connect stores, manage products, collaborate, and build your community.'
+            : 'This creates your Creator Account and opens the dashboard.'}
         </p>
 
         <div className="account-inline-actions">
@@ -325,7 +325,7 @@ function AccountProfile() {
                     });
                     return;
                   }
-                  toast.error('Could not create creator account', {
+                  toast.error('We couldn’t create your Creator Account', {
                     description: error instanceof Error ? error.message : 'Try again.',
                   });
                   setIsActivatingCreatorAccount(false);

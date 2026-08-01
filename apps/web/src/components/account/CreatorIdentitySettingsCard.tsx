@@ -35,8 +35,8 @@ export function CreatorIdentitySettingsCard() {
       updateCreatorIdentity(input),
     onSuccess: async (identity) => {
       setIdentityDraft(identity);
-      toast.success('Creator identity saved', {
-        description: 'Your account-wide creator links now use the updated names.',
+      toast.success('Creator Identity saved', {
+        description: 'Your creator links now use the new names.',
       });
       await queryClient.invalidateQueries({ queryKey: ['creator-identity'] });
     },
@@ -44,7 +44,7 @@ export function CreatorIdentitySettingsCard() {
       if (identityQuery.data) {
         setIdentityDraft(identityQuery.data);
       }
-      toast.error('Could not save creator identity', {
+      toast.error('We couldn’t save your Creator Identity', {
         description: error instanceof Error ? error.message : 'Check the values and try again.',
         duration: 5000,
       });
@@ -65,8 +65,8 @@ export function CreatorIdentitySettingsCard() {
       className="account-identity-card bento-col-12 animate-in animate-in-delay-2"
       leading={<Icon name="link" aria-hidden />}
       eyebrow="Creator settings"
-      title="Creator identity and URLs"
-      description="These account-wide values apply to every package. Product cards only control each product's path."
+      title="Creator Identity and URLs"
+      description="These values apply to every package. Use each product card to change that product's path."
       actions={
         <YucpButton
           yucp="primary"
@@ -74,7 +74,7 @@ export function CreatorIdentitySettingsCard() {
           isLoading={saveIdentityMutation.isPending}
           isDisabled={!canSave}
           className="account-btn account-btn--primary"
-          aria-label="Save creator identity"
+          aria-label="Save Creator Identity"
           onPress={() =>
             saveIdentityMutation.mutate({
               deliverySlug: identityDraft.deliverySlug,
@@ -83,7 +83,7 @@ export function CreatorIdentitySettingsCard() {
             })
           }
         >
-          {saveIdentityMutation.isPending ? 'Saving...' : 'Save identity'}
+          {saveIdentityMutation.isPending ? 'Saving...' : 'Save changes'}
         </YucpButton>
       }
     >
@@ -92,7 +92,7 @@ export function CreatorIdentitySettingsCard() {
           message={
             identityQuery.error instanceof Error
               ? identityQuery.error.message
-              : 'Failed to load creator identity.'
+              : 'We couldn’t load your Creator Identity. Refresh to try again.'
           }
         />
       ) : (
@@ -148,7 +148,7 @@ export function CreatorIdentitySettingsCard() {
           </fieldset>
           {identityQuery.isLoading ? (
             <output className="text-foreground/55 mt-4 text-sm dark:text-foreground/55">
-              Loading creator identity...
+              Loading your Creator Identity...
             </output>
           ) : null}
         </>

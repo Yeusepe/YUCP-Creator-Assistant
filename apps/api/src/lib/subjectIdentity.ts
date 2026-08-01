@@ -3,7 +3,7 @@ import type { Id } from '../../../../convex/_generated/dataModel';
 import type { ConvexServerClient } from './convex';
 
 export const SUBJECT_AUTH_USER_REQUIRED_ERROR =
-  'Verification subject must be linked to a YUCP account before completion';
+  'Verification subject must be linked to a Creator Account before completion';
 
 export async function ensureSubjectAuthUserId(
   convex: ConvexServerClient,

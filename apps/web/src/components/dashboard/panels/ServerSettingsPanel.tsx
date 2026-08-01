@@ -372,7 +372,7 @@ export function ServerSettingsPanel({
         setPolicyDraft(toNormalizedPolicy(settingsQuery.data));
       }
       setSaveState(variables.key, 'error');
-      toast.error(`Could not save "${SETTING_LABELS[variables.key] ?? variables.key}"`, {
+      toast.error(`We couldn’t save "${SETTING_LABELS[variables.key] ?? variables.key}"`, {
         description: 'Check your connection and try again.',
         duration: 5000,
       });
@@ -428,7 +428,7 @@ export function ServerSettingsPanel({
     return (
       <DashboardPanelErrorState
         id="server-settings-error"
-        title="Could not load server configuration"
+        title="We couldn’t load server settings"
         description={
           nonAuthError instanceof Error
             ? nonAuthError.message

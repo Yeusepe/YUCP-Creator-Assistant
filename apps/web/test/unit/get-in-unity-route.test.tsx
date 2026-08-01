@@ -137,9 +137,7 @@ describe('get in unity route', () => {
     render(<Component />, { wrapper: createWrapper() });
 
     expect(screen.getByRole('heading', { name: 'Avatar Bundle' })).toBeInTheDocument();
-    expect(
-      screen.getByText('Purchase-verified VCC setup and package delivery')
-    ).toBeInTheDocument();
+    expect(screen.getByText('Verify your purchase, then install in Unity')).toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Access steps' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Sign in to continue' }));
     await waitFor(() => expect(signInMock).toHaveBeenCalledOnce());
@@ -194,7 +192,7 @@ describe('get in unity route', () => {
     expect(document.querySelector('a[href^="/api/access/"]')).not.toBeInTheDocument();
     expect(screen.getByText(/manual setup and troubleshooting/i)).toBeInTheDocument();
     expect(
-      screen.getByText('Add the product to VCC. YUCP then installs the verified files.')
+      screen.getByText('Add the product to VCC. It will install the files for you.')
     ).toBeInTheDocument();
     expect(screen.queryByText(/protected files/i)).not.toBeInTheDocument();
   });

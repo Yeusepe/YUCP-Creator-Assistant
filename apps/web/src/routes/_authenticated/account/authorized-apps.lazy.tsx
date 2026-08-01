@@ -58,9 +58,9 @@ function GrantRow({ grant, index }: Readonly<{ grant: OAuthGrant; index: number 
     },
     onError: () => {
       toast.error(
-        isNativeApplication ? 'Could not sign application out' : 'Could not revoke app access',
+        isNativeApplication ? 'We couldn’t sign this app out' : 'We couldn’t revoke app access',
         {
-          description: `Please try ${isNativeApplication ? 'signing out of' : 'revoking'} ${grant.appName} again.`,
+          description: `Try ${isNativeApplication ? 'signing out of' : 'revoking'} ${grant.appName} again.`,
         }
       );
     },
@@ -80,11 +80,11 @@ function GrantRow({ grant, index }: Readonly<{ grant: OAuthGrant; index: number 
         </div>
 
         <div className="account-entity-body">
-          <p className="account-entity-kicker">OAuth application</p>
+          <p className="account-entity-kicker">Connected app</p>
           <h3 className="account-entity-title">{grant.appName}</h3>
           <dl className="account-entity-dl">
             <div className="account-entity-dl-row">
-              <dt>Client ID</dt>
+              <dt>App ID</dt>
               <dd>
                 <Tooltip>
                   <button
@@ -135,8 +135,8 @@ function GrantRow({ grant, index }: Readonly<{ grant: OAuthGrant; index: number 
         <AccountModal title={modalTitle} onClose={() => setConfirming(false)}>
           <p className="account-modal-body">
             {isNativeApplication
-              ? 'Signing out revokes this application’s saved YUCP session. It must sign in again before it can use your account.'
-              : 'Revoking access immediately invalidates this client’s ability to use your account. Any existing access tokens must be reissued after a new consent flow.'}
+              ? 'Signing out revokes this application’s saved Creator Account session. It must sign in again before it can use your account.'
+              : 'Revoking access stops this app from using your Creator Account. It will need your permission to connect again.'}
           </p>
           <div className="account-modal-actions">
             <YucpButton
@@ -190,7 +190,7 @@ function AccountAuthorizedApps() {
         ) : null}
 
         {grantsQuery.isError ? (
-          <AccountInlineError message="Failed to load authorized apps. Please refresh." />
+          <AccountInlineError message="We couldn’t load authorized apps. Refresh to try again." />
         ) : null}
 
         {!grantsQuery.isLoading && !grantsQuery.isError && grants.length === 0 ? (
@@ -214,11 +214,11 @@ function AccountAuthorizedApps() {
         className="bento-col-4 animate-in animate-in-delay-2"
         eyebrow="Security"
         title="What revocation means"
-        description="Revoking consent is immediate and cuts off the app until it sends you through a new authorization flow."
+        description="Revoking access takes effect immediately. The app must ask for permission again before it can reconnect."
       >
         <div className="account-kv-list">
           <div className="account-kv-row">
-            <span className="account-kv-label">Authorized clients</span>
+            <span className="account-kv-label">Connected apps</span>
             <span className="account-kv-value">{metricsPlaceholder ?? grants.length}</span>
           </div>
           <div className="account-kv-row">

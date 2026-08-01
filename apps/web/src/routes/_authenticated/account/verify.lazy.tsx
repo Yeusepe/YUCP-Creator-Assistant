@@ -106,12 +106,12 @@ function MethodCard({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user-verification-intent', intentId] });
       toast.success('Verification complete', {
-        description: `${method.title} confirmed access for this verification flow.`,
+        description: `${method.title} confirmed your purchase access.`,
       });
     },
     onError: (error) => {
-      toast.error('Could not verify access', {
-        description: error instanceof Error ? error.message : `Please try ${method.title} again.`,
+      toast.error('We couldn’t verify access', {
+        description: error instanceof Error ? error.message : `Try ${method.title} again.`,
       });
     },
   });
@@ -121,12 +121,12 @@ function MethodCard({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user-verification-intent', intentId] });
       toast.success('Verification complete', {
-        description: `${method.title} confirmed access for this verification flow.`,
+        description: `${method.title} confirmed your purchase access.`,
       });
     },
     onError: (error) => {
-      toast.error('Could not verify license', {
-        description: error instanceof Error ? error.message : 'Please try that license again.',
+      toast.error('We couldn’t verify this license', {
+        description: error instanceof Error ? error.message : 'Check the license and try again.',
       });
     },
   });
@@ -136,15 +136,15 @@ function MethodCard({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user-verification-intent', intentId] });
       toast.success('Verification complete', {
-        description: `${method.title} confirmed access for this verification flow.`,
+        description: `${method.title} confirmed your purchase access.`,
       });
     },
     onError: (error) => {
-      toast.error('Could not verify linked account', {
+      toast.error('We couldn’t verify the connected account', {
         description:
           error instanceof Error
             ? error.message
-            : `Link ${method.providerLabel} in your account before retrying this method.`,
+            : `Connect ${method.providerLabel} in your account, then try again.`,
       });
     },
   });
@@ -163,11 +163,9 @@ function MethodCard({
       window.location.href = redirectUrl;
     },
     onError: (error) => {
-      toast.error('Could not start provider connection', {
+      toast.error('We couldn’t connect this store', {
         description:
-          error instanceof Error
-            ? error.message
-            : `Please try connecting ${method.providerLabel} again.`,
+          error instanceof Error ? error.message : `Try connecting ${method.providerLabel} again.`,
       });
     },
   });
@@ -184,16 +182,16 @@ function MethodCard({
         {method.kind === 'buyer_provider_link' ? (
           <p className="account-feature-copy">
             {activeLinkLabel ? (
-              `Linked as ${activeLinkLabel}. Use this connected account to verify access for the current package.`
+              `Connected as ${activeLinkLabel}. Use this account to verify access for the current product.`
             ) : activeLink ? (
               <>
                 <span>Connected store account</span>. Use this account to verify access for the
-                current package.
+                current product.
               </>
             ) : expiredLink ? (
-              `Your linked ${method.providerLabel} account has expired. Reconnect it here, then continue verification without leaving this flow.`
+              `Your connected ${method.providerLabel} account has expired. Reconnect it here, then continue.`
             ) : (
-              `No ${method.providerLabel} account is linked yet. Connect it here so this verification intent can continue with the right store account.`
+              `No ${method.providerLabel} account is connected yet. Connect it here to verify the purchase.`
             )}
           </p>
         ) : null}
@@ -353,8 +351,8 @@ function AccountVerifyPage() {
 
   useEffect(() => {
     if (intentQuery.isError) {
-      toast.error('Could not load verification flow', {
-        description: 'Refresh the page or restart verification from Unity.',
+      toast.error('We couldn’t load the verification flow', {
+        description: 'Refresh the page or start again from Unity.',
       });
     }
   }, [intentQuery.isError, toast]);
@@ -365,10 +363,10 @@ function AccountVerifyPage() {
         <AccountSectionCard
           className="bento-col-12"
           eyebrow="Verification"
-          title="Missing verification intent"
-          description="Open this page from a signed verification flow so we know which package and machine to verify."
+          title="Verification link missing"
+          description="Open this page from Unity so we know which product to verify."
         >
-          <AccountInlineError message="No verification intent was supplied." />
+          <AccountInlineError message="No verification link was supplied." />
         </AccountSectionCard>
       </AccountPage>
     );
@@ -382,11 +380,11 @@ function AccountVerifyPage() {
         title={
           verificationIntent?.packageName || verificationIntent?.packageId || 'Verify your purchase'
         }
-        description="Complete the purchase check here. Unity will resume when your package access is ready."
+        description="Confirm your purchase here. Unity will continue when the product is ready to install."
       >
         {intentQuery.isLoading ? <DashboardListSkeleton rows={4} /> : null}
         {intentQuery.isError ? (
-          <AccountInlineError message="Failed to load verification intent. Please restart verification from Unity." />
+          <AccountInlineError message="We couldn’t load the verification request. Start again from Unity." />
         ) : null}
         {verificationIntent ? (
           <>
@@ -398,7 +396,7 @@ function AccountVerifyPage() {
                 </span>
               </div>
               <div className="account-kv-row">
-                <span className="account-kv-label">Package</span>
+                <span className="account-kv-label">Product</span>
                 <span className="account-kv-value">{verificationIntent.packageId}</span>
               </div>
               <div className="account-kv-row">
@@ -448,17 +446,17 @@ function AccountVerifyPage() {
 
       <AccountSectionCard
         className="bento-col-4 animate-in animate-in-delay-2"
-        eyebrow="Security"
+        eyebrow="About verification"
         title="Why verification happens here"
-        description="Unity is treated as a public client. The browser and server handle proof collection so store credentials and manual purchase proofs never need to live inside the editor."
+        description="Unity starts the process, but the browser handles sign-in and purchase checks. Your store credentials stay out of the Unity editor."
       >
         <div className="account-note-stack">
           <p className="account-feature-copy">
-            YUCP prepares short-lived package access only after the server verifies your purchase.
+            We prepare access after your purchase is confirmed.
           </p>
           <p className="account-feature-copy">
-            Unity receives only the access needed to finish this installation on the device that
-            started it.
+            Unity receives what it needs to finish this installation on the device you started it
+            on.
           </p>
         </div>
       </AccountSectionCard>

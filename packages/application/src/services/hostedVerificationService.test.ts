@@ -131,9 +131,8 @@ describe('HostedVerificationService', () => {
       methodKey: 'existing-entitlement',
       providerKey: 'yucp',
       kind: 'existing_entitlement',
-      title: 'Connected YUCP access',
-      description:
-        'Check whether your signed-in YUCP buyer account already has access to this package.',
+      title: 'Existing purchase access',
+      description: 'Check whether your Creator Identity already has access to this product.',
       creatorAuthUserId: 'creator_123',
       productId: 'product_123',
     });

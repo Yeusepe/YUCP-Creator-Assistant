@@ -87,7 +87,7 @@ function DashboardIntegrations() {
           <DashboardAuthRequiredState
             id="dashboard-integrations-auth-required"
             title="Sign in to manage developer integrations"
-            description="Your dashboard session expired or could not be verified. Sign in again to manage OAuth apps and API keys."
+            description="Your dashboard session expired or couldn’t be verified. Sign in again to manage connected apps and API keys."
           />
         </div>
       </div>

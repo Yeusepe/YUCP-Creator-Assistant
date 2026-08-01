@@ -57,10 +57,10 @@ export function getPurchaseIntentLoadErrorState(error: unknown): PurchaseIntentL
 
   if (code === 'verification_intent_wrong_user') {
     return {
-      title: 'Wrong YUCP account',
+      title: 'Wrong Creator Identity',
       message: getApiErrorMessage(
         error,
-        'This verification link was created for a different YUCP account.'
+        'This verification link was created for a different Creator Identity.'
       ),
       allowSignOut: true,
     };
@@ -70,7 +70,7 @@ export function getPurchaseIntentLoadErrorState(error: unknown): PurchaseIntentL
     return {
       title: 'Verification not found',
       message:
-        'This verification link is invalid or has already expired. Return to Unity and restart the verification flow.',
+        'This verification link has expired or is no longer available. Return to Unity and start again.',
       allowSignOut: false,
     };
   }
@@ -78,7 +78,7 @@ export function getPurchaseIntentLoadErrorState(error: unknown): PurchaseIntentL
   return {
     title: 'Verification not found',
     message:
-      'This verification link is invalid or has already expired. Return to Unity and restart the verification flow.',
+      'This verification link has expired or is no longer available. Return to Unity and start again.',
     allowSignOut: false,
   };
 }
