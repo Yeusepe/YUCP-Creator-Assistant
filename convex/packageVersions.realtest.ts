@@ -523,6 +523,12 @@ describe('packageVersions', () => {
           tagline: 'Shared tagline',
           version: '9.0.0',
         },
+        vpmDependencies: {
+          'com.example.runtime': '>=2.0.0',
+        },
+        vpmRepositories: {
+          'Example Repository': 'https://packages.example.test/index.json',
+        },
         version: '9.0.0',
         versionId: '00000000-0000-4000-8000-000000000022',
       })
@@ -547,6 +553,12 @@ describe('packageVersions', () => {
       },
       releaseRoot: '44'.repeat(32),
       versionId: '00000000-0000-4000-8000-000000000022',
+      vpmDependencies: {
+        'com.example.runtime': '>=2.0.0',
+      },
+      vpmRepositories: {
+        'Example Repository': 'https://packages.example.test/index.json',
+      },
     });
   });
 
@@ -601,6 +613,8 @@ describe('packageVersions', () => {
       },
       releaseRoot: '44'.repeat(32),
       versionId: '00000000-0000-4000-8000-000000000025',
+      vpmDependencies: {},
+      vpmRepositories: {},
     });
   });
 
@@ -676,6 +690,8 @@ describe('packageVersions', () => {
       },
       releaseRoot: '44'.repeat(32),
       versionId: '00000000-0000-4000-8000-000000000023',
+      vpmDependencies: {},
+      vpmRepositories: {},
     });
   });
 
@@ -778,6 +794,8 @@ describe('packageVersions', () => {
       },
       releaseRoot: '44'.repeat(32),
       versionId: '00000000-0000-4000-8000-000000000026',
+      vpmDependencies: {},
+      vpmRepositories: {},
     });
   });
 

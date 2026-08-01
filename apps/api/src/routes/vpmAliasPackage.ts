@@ -436,12 +436,8 @@ export function buildYucpAliasVpmPackage(input: {
           installStrategy: 'server-authorized',
           importerPackage: 'com.yucp.importer',
           ...(input.bootstrapIntent ? { bootstrapIntent: input.bootstrapIntent } : {}),
-          ...(Object.keys(releaseVpmDependencies).length > 0
-            ? { releaseVpmDependencies }
-            : {}),
-          ...(Object.keys(releaseVpmRepositories).length > 0
-            ? { releaseVpmRepositories }
-            : {}),
+          ...(Object.keys(releaseVpmDependencies).length > 0 ? { releaseVpmDependencies } : {}),
+          ...(Object.keys(releaseVpmRepositories).length > 0 ? { releaseVpmRepositories } : {}),
           ...(packageMetadata
             ? {
                 packageMetadata: {

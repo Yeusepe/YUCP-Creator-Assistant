@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { unzipSync } from 'fflate';
 import { yucpBootstrapRequirementsPayload } from '@yucp/shared';
+import { unzipSync } from 'fflate';
 import { buildYucpAliasVpmPackage } from './vpmAliasPackage';
 
 const aliasId = 'jammr';

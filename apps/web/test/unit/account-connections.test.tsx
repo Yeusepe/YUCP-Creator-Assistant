@@ -242,7 +242,7 @@ describe('account connections route', () => {
     render(<Component />, { wrapper: createWrapper() });
 
     expect(
-      await screen.findByText('Failed to load account connections. Refresh to try again.')
+      await screen.findByText('We couldn’t load account connections. Refresh to try again.')
     ).toBeInTheDocument();
     expect(screen.queryByText('No providers available')).toBeNull();
   });
@@ -269,8 +269,8 @@ describe('account connections route', () => {
     fireEvent.click(connectButton);
 
     await waitFor(() =>
-      expect(toastErrorMock).toHaveBeenCalledWith('Could not start connection', {
-        description: 'Please try connecting Gumroad again.',
+      expect(toastErrorMock).toHaveBeenCalledWith('We couldn’t connect Gumroad', {
+        description: 'Try again in a moment.',
       })
     );
     expect(window.location.href).toBe(initialHref);
@@ -299,8 +299,8 @@ describe('account connections route', () => {
     fireEvent.click(connectButton);
 
     await waitFor(() =>
-      expect(toastErrorMock).toHaveBeenCalledWith('Could not start connection', {
-        description: 'Please try connecting Gumroad again.',
+      expect(toastErrorMock).toHaveBeenCalledWith('We couldn’t connect Gumroad', {
+        description: 'Try again in a moment.',
       })
     );
     expect(window.location.href).toBe(initialHref);
