@@ -611,7 +611,13 @@ export function createConnectUserVerificationRoutes({
       });
       if (!result.success) {
         return Response.json(
-          { error: result.errorMessage ?? 'License verification failed', code: result.errorCode },
+          {
+            error: result.errorMessage ?? 'License verification failed',
+            // `code` is the historical field; `errorCode` is what span annotation reads, so the
+            // cause of a rejected license is queryable instead of collapsing into a bare 422.
+            code: result.errorCode,
+            errorCode: result.errorCode,
+          },
           { status: 422 }
         );
       }
@@ -621,7 +627,10 @@ export function createConnectUserVerificationRoutes({
         intentId,
         error: err instanceof Error ? err.message : String(err),
       });
-      return Response.json({ error: 'Failed to verify license' }, { status: 500 });
+      return Response.json(
+        { error: 'Failed to verify license', errorCode: 'LICENSE_VERIFICATION_CRASHED' },
+        { status: 500 }
+      );
     }
   }
 

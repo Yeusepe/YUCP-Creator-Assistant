@@ -587,6 +587,12 @@ function LicenseMethodRow({
     },
   });
 
+  // A 5xx is our fault, not the buyer's. Blaming their key for a server crash sends people off to
+  // re-check a key that was fine and hides the outage from support.
+  const licenseFailedServerSide = (licenseMut.error as { status?: number } | null)?.status
+    ? ((licenseMut.error as { status?: number }).status ?? 0) >= 500
+    : false;
+
   const cap = requirement.capability;
 
   return (
@@ -639,8 +645,9 @@ function LicenseMethodRow({
             </button>
             {licenseMut.isError ? (
               <p className="vp-method-error">
-                We couldn’t find that license key, or it has already been used. Check the key and
-                try again.
+                {licenseFailedServerSide
+                  ? 'Something went wrong on our end while checking that key. Your key is probably fine — try again in a moment, and contact support if it keeps failing.'
+                  : 'We couldn’t find that license key, or it has already been used. Check the key and try again.'}
               </p>
             ) : null}
           </>
