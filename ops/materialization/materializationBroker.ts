@@ -2467,8 +2467,11 @@ export class MaterializationBroker {
       throw new Error('Rendition output tree does not match its declared outputs');
     }
 
-    const issuedAt = toEpochSeconds(now);
-    const expiresAt = issuedAt + this.receiptSigning.lifetimeSeconds;
+    // Backdated so a buyer clock up to 60s behind still accepts a receipt it
+    // validates within a second of signing; the helper's own leeway only
+    // reaches machines once their runtime self-updates.
+    const issuedAt = toEpochSeconds(now) - 60;
+    const expiresAt = toEpochSeconds(now) + this.receiptSigning.lifetimeSeconds;
     const receiptId = randomUUID();
     const receiptBase = {
       buyerSubjectPseudonym: job.buyerSubjectPseudonym,
