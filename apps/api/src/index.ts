@@ -10,6 +10,7 @@ import {
   openCatalogDatabase,
   PackageOperationAuthorizationStore,
 } from '../../../ops/catalog';
+import { createDpopNonceManager } from '../../../ops/storage-core/dpopNonce';
 import { type Auth, createAuth } from './auth';
 import { createInternalRpcRouter, INTERNAL_RPC_PATH } from './internalRpc/router';
 import { loadCatalogControlClient } from './lib/catalogControlClient';
@@ -451,6 +452,12 @@ function initializeAuth(webhookBaseUrl?: string) {
     : null;
   nativeDiagnosticsConsentResolver = async () => false;
   setApiDiagnosticsConsentResolver(nativeDiagnosticsConsentResolver);
+  const packageInstallDpopNonceManager = packageInstallConfig
+    ? createDpopNonceManager({
+        purpose: 'yucp:package-install-dpop-nonce:v1',
+        secret: packageInstallConfig.privateKey,
+      })
+    : null;
   const packageInstallRouteOptions =
     packageInstallConfig && operationAuthorizationStore && packagePublicationAuthority
       ? {
@@ -476,6 +483,9 @@ function initializeAuth(webhookBaseUrl?: string) {
               publicResourceBaseUrl: publicBaseUrl,
               requiredAuthorizedParty: 'yucp-package-broker',
               requiredScopes: ['package:operate'],
+              ...(packageInstallDpopNonceManager
+                ? { dpopNonceManager: packageInstallDpopNonceManager }
+                : {}),
             });
             return result.ok
               ? {
@@ -484,6 +494,7 @@ function initializeAuth(webhookBaseUrl?: string) {
                   ok: true as const,
                 }
               : {
+                  ...(result.reason === 'use_dpop_nonce' ? { dpopNonce: result.dpopNonce } : {}),
                   ok: false as const,
                   status:
                     result.reason === 'insufficient_scope'

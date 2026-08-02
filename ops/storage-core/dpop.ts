@@ -14,9 +14,29 @@ const textEncoder = new TextEncoder();
 type JsonObject = Record<string, unknown>;
 
 export type VerifiedDpopProof = {
+  iat: number;
   jti: string;
+  nonceBound: boolean;
   thumbprint: Uint8Array;
 };
+
+export interface DpopReplayStore {
+  reserve(input: { expiresAt: Date; key: string; now: Date }): boolean | Promise<boolean>;
+}
+
+export interface DpopNonceVerifier {
+  verify(nonce: string, now?: Date): Promise<{ expiresAt: Date } | null>;
+}
+
+export class DpopNonceRequiredError extends Error {
+  readonly proofClockOffsetSeconds: number;
+
+  constructor(proofClockOffsetSeconds: number) {
+    super('DPoP proof requires a server nonce');
+    this.name = 'DpopNonceRequiredError';
+    this.proofClockOffsetSeconds = proofClockOffsetSeconds;
+  }
+}
 
 function decodeBase64Url(value: string, name: string): Uint8Array {
   if (!value || !BASE64URL.test(value)) {
@@ -133,11 +153,15 @@ function copyArrayBuffer(value: Uint8Array): ArrayBuffer {
 }
 
 export async function verifyDpopProof(input: {
+  acceptedFutureSkewSeconds?: number;
   accessToken: string;
   clockWindowSeconds?: number;
+  expectedThumbprint?: Uint8Array;
   method: string;
+  nonceVerifier?: DpopNonceVerifier;
   now?: Date;
   proof: string;
+  replayStore?: DpopReplayStore;
   url: string;
 }): Promise<VerifiedDpopProof> {
   if (!input.proof || input.proof.length > MAX_PROOF_LENGTH) {
@@ -188,16 +212,21 @@ export async function verifyDpopProof(input: {
     throw new Error('DPoP creation time is invalid');
   }
   const clockWindowSeconds = input.clockWindowSeconds ?? DEFAULT_CLOCK_WINDOW_SECONDS;
+  const acceptedFutureSkewSeconds = input.acceptedFutureSkewSeconds ?? clockWindowSeconds;
   if (
     !Number.isSafeInteger(clockWindowSeconds) ||
     clockWindowSeconds < 1 ||
-    clockWindowSeconds > DEFAULT_CLOCK_WINDOW_SECONDS
+    clockWindowSeconds > DEFAULT_CLOCK_WINDOW_SECONDS ||
+    !Number.isSafeInteger(acceptedFutureSkewSeconds) ||
+    acceptedFutureSkewSeconds < 0 ||
+    acceptedFutureSkewSeconds > DEFAULT_CLOCK_WINDOW_SECONDS
   ) {
     throw new Error('DPoP clock window is invalid');
   }
-  const nowSeconds = Math.floor((input.now ?? new Date()).getTime() / 1_000);
-  if (Math.abs(nowSeconds - Number(iat)) > clockWindowSeconds) {
-    throw new Error('DPoP proof is outside the permitted clock window');
+  const now = input.now ?? new Date();
+  const nowSeconds = Math.floor(now.getTime() / 1_000);
+  if (!Number.isFinite(nowSeconds)) {
+    throw new Error('DPoP verification time is invalid');
   }
   const expectedAth = new Uint8Array(
     await crypto.subtle.digest('SHA-256', textEncoder.encode(input.accessToken))
@@ -223,7 +252,46 @@ export async function verifyDpopProof(input: {
       )
     )
   );
-  return { jti, thumbprint };
+  if (input.expectedThumbprint && !constantTimeBytesEqual(thumbprint, input.expectedThumbprint)) {
+    throw new Error('DPoP proof key does not match the bound token');
+  }
+
+  const proofClockOffsetSeconds = Number(iat) - nowSeconds;
+  let nonceBound = false;
+  let replayExpiresAt = new Date((Number(iat) + clockWindowSeconds) * 1_000);
+  if (input.nonceVerifier && payload.nonce !== undefined) {
+    const nonce = requireText(payload.nonce, 'DPoP nonce', 512);
+    const verification = await input.nonceVerifier.verify(nonce, now);
+    if (
+      !verification ||
+      !Number.isFinite(verification.expiresAt.getTime()) ||
+      verification.expiresAt.getTime() <= now.getTime()
+    ) {
+      throw new DpopNonceRequiredError(proofClockOffsetSeconds);
+    }
+    nonceBound = true;
+    replayExpiresAt = verification.expiresAt;
+  }
+  if (
+    !nonceBound &&
+    (nowSeconds - Number(iat) > clockWindowSeconds ||
+      proofClockOffsetSeconds > acceptedFutureSkewSeconds)
+  ) {
+    if (input.nonceVerifier) {
+      throw new DpopNonceRequiredError(proofClockOffsetSeconds);
+    }
+    throw new Error('DPoP proof is outside the permitted clock window');
+  }
+  if (input.replayStore) {
+    const replayInput = `${encodeBase64Url(thumbprint)}\n${input.method.toUpperCase()}\n${expectedUrl}\n${jti}`;
+    const replayKey = encodeBase64Url(
+      new Uint8Array(await crypto.subtle.digest('SHA-256', textEncoder.encode(replayInput)))
+    );
+    if (!(await input.replayStore.reserve({ expiresAt: replayExpiresAt, key: replayKey, now }))) {
+      throw new Error('DPoP proof identifier has already been used');
+    }
+  }
+  return { iat: Number(iat), jti, nonceBound, thumbprint };
 }
 
 export async function dpopAccessTokenHash(accessToken: string): Promise<string> {

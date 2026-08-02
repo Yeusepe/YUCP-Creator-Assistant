@@ -1,5 +1,10 @@
 import type { DpopReplayStore } from 'better-auth/oauth2';
-import { PACKAGE_INSTALL_DPOP_PROOF_MAX_AGE_SECONDS } from '../../../../ops/storage-core/dpopReplayPolicy';
+import { DpopNonceRequiredError, verifyDpopProof } from '../../../../ops/storage-core/dpop';
+import type { DpopNonceManager } from '../../../../ops/storage-core/dpopNonce';
+import {
+  PACKAGE_INSTALL_DPOP_ACCEPTED_FUTURE_SKEW_SECONDS,
+  PACKAGE_INSTALL_DPOP_PROOF_MAX_AGE_SECONDS,
+} from '../../../../ops/storage-core/dpopReplayPolicy';
 
 export interface VerifiedOAuthAccessToken {
   grantedScopes: string[];
@@ -25,6 +30,7 @@ export interface VerifyOAuthAccessTokenOptions {
 }
 
 export interface VerifyOAuthAccessRequestOptions extends VerifyOAuthAccessTokenOptions {
+  dpopNonceManager?: DpopNonceManager;
   dpopReplayStore: DpopReplayStore;
   publicResourceBaseUrl: string;
   requiredAuthorizedParty?: string;
@@ -36,6 +42,7 @@ export type VerifyOAuthAccessTokenResult =
 
 export type VerifyOAuthAccessRequestResult =
   | { ok: true; token: VerifiedOAuthAccessRequest }
+  | { dpopNonce: string; ok: false; reason: 'use_dpop_nonce' }
   | { ok: false; reason: 'invalid' | 'insufficient_scope' | 'unavailable' };
 
 const EXPECTED_VERIFICATION_ERROR_NAMES = new Set([
@@ -96,6 +103,75 @@ function isVerificationDependencyFailure(error: unknown, depth = 0): boolean {
     return true;
   }
   return isVerificationDependencyFailure((error as Error & { cause?: unknown }).cause, depth + 1);
+}
+
+function proofContainsNonce(proof: string | null): boolean {
+  if (!proof) {
+    return false;
+  }
+  const parts = proof.split('.');
+  if (parts.length !== 3 || !parts[1]) {
+    return false;
+  }
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as unknown;
+    return Boolean(
+      payload &&
+        typeof payload === 'object' &&
+        !Array.isArray(payload) &&
+        Object.hasOwn(payload, 'nonce')
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isDpopClockWindowFailure(error: unknown): boolean {
+  return (
+    error instanceof Error && error.message === 'DPoP proof iat is outside the accepted window'
+  );
+}
+
+async function verifyNonceCapableAccessRequest(
+  request: Request,
+  options: VerifyOAuthAccessRequestOptions,
+  publicRequestUrl: URL,
+  authBase: string
+) {
+  const authorization = /^DPoP\s+(\S+)$/i.exec(request.headers.get('authorization')?.trim() ?? '');
+  const proof = request.headers.get('dpop')?.trim();
+  if (!authorization?.[1] || !proof || !options.dpopNonceManager) {
+    throw new Error('DPoP authorization is incomplete');
+  }
+  const accessToken = authorization[1];
+  const { getDpopJktFromPayload, verifyJwsAccessToken } = await import('better-auth/oauth2');
+  const verified = await verifyJwsAccessToken(accessToken, {
+    jwksFetch: `${authBase}/jwks`,
+    verifyOptions: {
+      issuer: authBase,
+      audience: options.audience,
+    },
+  });
+  const jkt = getDpopJktFromPayload(verified);
+  if (!jkt) {
+    throw new Error('DPoP-bound access token confirmation key is missing');
+  }
+  const expectedThumbprint = Buffer.from(jkt, 'base64url');
+  if (expectedThumbprint.byteLength !== 32 || expectedThumbprint.toString('base64url') !== jkt) {
+    throw new Error('DPoP-bound access token confirmation key is invalid');
+  }
+  await verifyDpopProof({
+    acceptedFutureSkewSeconds: PACKAGE_INSTALL_DPOP_ACCEPTED_FUTURE_SKEW_SECONDS,
+    accessToken,
+    clockWindowSeconds: PACKAGE_INSTALL_DPOP_PROOF_MAX_AGE_SECONDS,
+    expectedThumbprint,
+    method: request.method,
+    nonceVerifier: options.dpopNonceManager,
+    proof,
+    replayStore: options.dpopReplayStore,
+    url: publicRequestUrl.href,
+  });
+  return verified;
 }
 
 export async function verifyBetterAuthAccessToken(
@@ -192,18 +268,40 @@ export async function verifyBetterAuthAccessRequest(
        */
       url: publicRequestUrl.href,
     };
-    const verified = await verifyAccessTokenRequest(resourceInput, {
-      verifyOptions: {
-        issuer: authBase,
-        audience: options.audience,
-      },
-      jwksUrl: `${authBase}/jwks`,
-      dpop: {
-        proofMaxAgeSeconds: PACKAGE_INSTALL_DPOP_PROOF_MAX_AGE_SECONDS,
-        replayStore: options.dpopReplayStore,
-        signingAlgorithms: ['ES256'],
-      },
-    });
+    let verified: Awaited<ReturnType<typeof verifyAccessTokenRequest>>;
+    if (options.dpopNonceManager && proofContainsNonce(request.headers.get('dpop'))) {
+      verified = await verifyNonceCapableAccessRequest(
+        request,
+        options,
+        publicRequestUrl,
+        authBase
+      );
+    } else {
+      try {
+        verified = await verifyAccessTokenRequest(resourceInput, {
+          verifyOptions: {
+            issuer: authBase,
+            audience: options.audience,
+          },
+          jwksUrl: `${authBase}/jwks`,
+          dpop: {
+            proofMaxAgeSeconds: PACKAGE_INSTALL_DPOP_PROOF_MAX_AGE_SECONDS,
+            replayStore: options.dpopReplayStore,
+            signingAlgorithms: ['ES256'],
+          },
+        });
+      } catch (error) {
+        if (!options.dpopNonceManager || !isDpopClockWindowFailure(error)) {
+          throw error;
+        }
+        verified = await verifyNonceCapableAccessRequest(
+          request,
+          options,
+          publicRequestUrl,
+          authBase
+        );
+      }
+    }
     const jkt = getDpopJktFromPayload(verified);
     if (
       !verified ||
@@ -245,6 +343,28 @@ export async function verifyBetterAuthAccessRequest(
     };
   } catch (error) {
     const logMessage = options.logContext ?? 'OAuth access request verification failed';
+    if (error instanceof DpopNonceRequiredError && options.dpopNonceManager) {
+      try {
+        const challenge = await options.dpopNonceManager.issue();
+        options.logger?.warn(logMessage, {
+          expected: true,
+          message: error.message,
+          name: error.name,
+          proofClockOffsetSeconds: error.proofClockOffsetSeconds,
+          remediation: 'use_dpop_nonce',
+        });
+        return {
+          dpopNonce: challenge.nonce,
+          ok: false,
+          reason: 'use_dpop_nonce',
+        };
+      } catch (nonceError) {
+        options.logger?.warn('DPoP nonce issuance failed', {
+          message: nonceError instanceof Error ? nonceError.message : String(nonceError),
+        });
+        return { ok: false, reason: 'unavailable' };
+      }
+    }
     const metadata = {
       message: error instanceof Error ? error.message : String(error),
       ...(error instanceof Error && error.name ? { name: error.name } : {}),

@@ -760,6 +760,48 @@ describe('package install session route', () => {
     expect(port.resolveProductGroup).not.toHaveBeenCalled();
   });
 
+  test('returns the RFC 9449 resource nonce challenge without treating it as expired authentication', async () => {
+    const port = accessPort();
+    const handler = createPackageOperationAuthorizationRoute({
+      accessPort: port,
+      authorizationPort: defaultAuthorizationPort,
+      audience,
+      issuer,
+      keyId,
+      privateKey,
+      verificationBaseUrl,
+      verifyAccessRequest: async () => ({
+        dpopNonce: 'server-time-nonce',
+        ok: false,
+        status: 401,
+      }),
+    });
+    const { operationCapability: _unused, ...operation } = await requestBody();
+
+    const response = await handler(
+      new Request(`${issuer}/api/v2/package-installs/authorizations`, {
+        method: 'POST',
+        headers: {
+          Authorization: 'DPoP valid-dpop-bound-token',
+          'Content-Type': 'application/json',
+          DPoP: 'signed-proof',
+        },
+        body: JSON.stringify(operation),
+      })
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get('dpop-nonce')).toBe('server-time-nonce');
+    expect(response.headers.get('www-authenticate')).toBe(
+      'DPoP error="use_dpop_nonce", error_description="Resource server requires nonce in DPoP proof"'
+    );
+    expect(await response.json()).toEqual({
+      error: 'use_dpop_nonce',
+      error_description: 'Resource server requires nonce in DPoP proof',
+    });
+    expect(port.resolveProductGroup).not.toHaveBeenCalled();
+  });
+
   test('rejects changed device, root, project, operation, or approval before consume', async () => {
     const original = await requestBody();
     const attempts = [

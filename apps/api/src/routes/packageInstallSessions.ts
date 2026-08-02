@@ -88,7 +88,7 @@ export interface PackageInstallAccessPort {
 
 type AccessRequestResult =
   | { buyerId: string; deviceKeyThumbprint: string; ok: true }
-  | { ok: false; status: 401 | 403 | 503 };
+  | { dpopNonce?: string; ok: false; status: 401 | 403 | 503 };
 
 export interface PackageOperationAuthorizationPort {
   beginExchange(input: {
@@ -627,6 +627,23 @@ async function requireDpopAccess(
 function accessRequestFailureResponse(
   authentication: Extract<AccessRequestResult, { ok: false }>
 ): Response {
+  if (authentication.status === 401 && authentication.dpopNonce) {
+    return Response.json(
+      {
+        error: 'use_dpop_nonce',
+        error_description: 'Resource server requires nonce in DPoP proof',
+      },
+      {
+        status: 401,
+        headers: {
+          'Cache-Control': 'private, no-store',
+          'DPoP-Nonce': authentication.dpopNonce,
+          'WWW-Authenticate':
+            'DPoP error="use_dpop_nonce", error_description="Resource server requires nonce in DPoP proof"',
+        },
+      }
+    );
+  }
   if (authentication.status === 403) {
     return jsonNoStore({ error: 'Token missing required scope' }, 403);
   }

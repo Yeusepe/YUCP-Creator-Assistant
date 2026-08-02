@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, mock } from 'bun:test';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
-import { verifyDpopProof } from '../storage-core/dpop';
+import { DpopNonceRequiredError, verifyDpopProof } from '../storage-core/dpop';
 
 const now = 2_000_000_000;
 const endpoint = 'https://control.example.test/v2/internal/materialization-capabilities/consume';
@@ -82,5 +82,54 @@ describe('materialization DPoP verification', () => {
         url: endpoint,
       })
     ).rejects.toThrow('outside the permitted clock window');
+  });
+
+  it('uses a valid server nonce instead of the client clock while preserving replay expiry', async () => {
+    const nonceExpiresAt = new Date((now + 300) * 1_000);
+    const reserve = mock(async () => true);
+    const verified = await verifyDpopProof({
+      acceptedFutureSkewSeconds: 5,
+      accessToken: capability,
+      method: 'POST',
+      nonceVerifier: {
+        verify: async (nonce) =>
+          nonce === 'server-time-nonce' ? { expiresAt: nonceExpiresAt } : null,
+      },
+      now: new Date(now * 1_000),
+      proof: createProof({ iat: now + 86_400, nonce: 'server-time-nonce' }),
+      replayStore: { reserve },
+      url: endpoint,
+    });
+
+    expect(verified.nonceBound).toBe(true);
+    expect(reserve).toHaveBeenCalledWith(
+      expect.objectContaining({ expiresAt: nonceExpiresAt, now: new Date(now * 1_000) })
+    );
+  });
+
+  it('requests a server nonce only when clock skew is the remaining invalid claim', async () => {
+    await expect(
+      verifyDpopProof({
+        acceptedFutureSkewSeconds: 5,
+        accessToken: capability,
+        method: 'POST',
+        nonceVerifier: { verify: async () => null },
+        now: new Date(now * 1_000),
+        proof: createProof({ iat: now + 6 }),
+        url: endpoint,
+      })
+    ).rejects.toBeInstanceOf(DpopNonceRequiredError);
+
+    await expect(
+      verifyDpopProof({
+        acceptedFutureSkewSeconds: 5,
+        accessToken: 'different-token',
+        method: 'POST',
+        nonceVerifier: { verify: async () => null },
+        now: new Date(now * 1_000),
+        proof: createProof({ iat: now + 6 }),
+        url: endpoint,
+      })
+    ).rejects.toThrow('access token hash');
   });
 });

@@ -71,9 +71,10 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'identity',
     label: 'Identity and ownership boundaries',
     invariant:
-      'Buyer and creator identities must stay explicit at every helper, route, and persistence boundary so one actor can never materialize or mutate another actor’s state. Public API-key verification must authenticate only managed public-api records whose stored Better Auth owner matches the metadata auth user, so key metadata can never impersonate another tenant. Better Auth and its Convex adapter must use a mutually supported database contract so social sign-in never sends fields that the persisted account validator rejects, and atomic refresh-token rotation must treat an omitted optional Convex field as the nullable Better Auth field it represents without allowing a second rotation. The versioned compatibility bridge must stay narrow, atomic, and replaceable through official adapter interfaces. Package broker OAuth must use the provider RFC 8252 loopback implementation without an application-owned redirect proxy, and protected resource verification behind a reverse proxy must bind DPoP htu to the required canonical API origin instead of the browser frontend, an internal service origin, a localhost fallback, or an untrusted forwarded header. Durable DPoP replay prevention must accept the verifier’s bounded future clock skew while still rejecting the same proof twice. Package broker request verification must distinguish an unavailable replay, key, or database dependency from invalid credentials and return service unavailable instead of starting another OAuth loop.',
+      'Buyer and creator identities must stay explicit at every helper, route, and persistence boundary so one actor can never materialize or mutate another actor’s state. Public API-key verification must authenticate only managed public-api records whose stored Better Auth owner matches the metadata auth user, so key metadata can never impersonate another tenant. Better Auth and its Convex adapter must use a mutually supported database contract so social sign-in never sends fields that the persisted account validator rejects, and atomic refresh-token rotation must treat an omitted optional Convex field as the nullable Better Auth field it represents without allowing a second rotation. The versioned compatibility bridge must stay narrow, atomic, and replaceable through official adapter interfaces. Package broker OAuth must use the provider RFC 8252 loopback implementation without an application-owned redirect proxy, and protected resource verification behind a reverse proxy must bind DPoP htu to the required canonical API origin instead of the browser frontend, an internal service origin, a localhost fallback, or an untrusted forwarded header. Durable DPoP replay prevention must accept the verifier’s bounded future clock skew while still rejecting the same proof twice. An otherwise-valid proof outside that clock window must receive an RFC 9449 server-time nonce challenge, and its nonce-bound retry must retain token hash, public key, method, URL, signature, and shared replay enforcement so client clock skew never becomes an authentication loop. Package broker request verification must distinguish an unavailable replay, key, or database dependency from invalid credentials and return service unavailable instead of starting another OAuth loop.',
     primaryRegressionHomes: [
       'ops/better-auth-package-broker-loopback.contract.test.ts',
+      'ops/storage-core/dpopNonce.test.ts',
       'apps/api/src/lib/oauthAccessToken.test.ts',
       'apps/api/src/lib/publicRuntimeOrigins.test.ts',
       'apps/api/src/lib/subjectIdentity.test.ts',
@@ -190,7 +191,11 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
     id: 'unity-oauth-loopback-contract',
     description: 'Package broker OAuth provider ownership regression',
     cwdRelativeToRepoRoot: '.',
-    args: ['test', './ops/better-auth-package-broker-loopback.contract.test.ts'],
+    args: [
+      'test',
+      './ops/better-auth-package-broker-loopback.contract.test.ts',
+      './ops/storage-core/dpopNonce.test.ts',
+    ],
     covers: ['identity'],
   },
   {
@@ -274,6 +279,7 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
     args: [
       'test',
       './src/verification/hostedIntents.test.ts',
+      './src/lib/oauthAccessToken.test.ts',
       './src/lib/subjectIdentity.test.ts',
       './src/routes/connect.user-verify.manual-license.test.ts',
       './src/routes/providerPlatform.test.ts',
