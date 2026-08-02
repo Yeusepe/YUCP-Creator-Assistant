@@ -99,7 +99,7 @@ describe.serial('interactive storage harness', () => {
         versionId
       );
       expect(await exactObject.text()).toBe('persistent metadata');
-      expect(exactObject.headers.get('x-amz-version-id')).toBe(versionId);
+      expect(exactObject.headers.get('etag')).toBe(`"${versionId}"`);
       await expect(
         resetInteractiveStorageHarness({
           expectedEpoch: '000000000000',
