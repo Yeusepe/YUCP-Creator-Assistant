@@ -1088,7 +1088,7 @@ describe('role sync service regressions', () => {
     expect(addRoleToMemberMock).not.toHaveBeenCalled();
   });
 
-  it('skips tier-scoped rules when tier evidence does not match an active configured tier', async () => {
+  it('fails tier-scoped sync when provider evidence does not resolve to a catalog tier', async () => {
     const service = createService();
     const processRoleSyncJob = (
       service as unknown as {
@@ -1178,11 +1178,11 @@ describe('role sync service regressions', () => {
       })
     );
 
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
     expect(result.rolesAdded).toEqual([]);
-    expect(result.targetGuildIds).toBeUndefined();
-    expect(result.error).toBe('No role rules configured for product');
-    expect(result.nonRetriable).not.toBe(true);
+    expect(result.targetGuildIds).toEqual(['guild-123']);
+    expect(result.error).toMatch(/did not match any active catalog tier/);
+    expect(result.nonRetriable).toBe(true);
     expect(addRoleToMemberMock).not.toHaveBeenCalled();
   });
 

@@ -6,9 +6,32 @@
  */
 
 import { v } from 'convex/values';
+import type { Doc, Id } from './_generated/dataModel';
 import { mutation } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
 import { enqueueRoleSync } from './lib/roleSyncEnqueue';
+
+function isMembershipFailureForGuild(job: Doc<'outbox_jobs'>, discordGuildId: string): boolean {
+  const error = job.lastError?.toLowerCase() ?? '';
+  const isMembershipFailure =
+    error.includes('member not found in guild') ||
+    error.includes('unknown member') ||
+    error.includes('discord api error 10007');
+  if (!isMembershipFailure) {
+    return false;
+  }
+
+  return (
+    job.targetGuildId === discordGuildId ||
+    job.targetGuildIds?.includes(discordGuildId) === true ||
+    error.includes(`${discordGuildId}:`)
+  );
+}
+
+function roleSyncEntitlementId(job: Doc<'outbox_jobs'>): Id<'entitlements'> | null {
+  const entitlementId = (job.payload as { entitlementId?: unknown }).entitlementId;
+  return typeof entitlementId === 'string' ? (entitlementId as Id<'entitlements'>) : null;
+}
 
 /**
  * Handle guild member join: queue role_sync jobs if user has entitlements.
@@ -47,9 +70,6 @@ export const handleGuildMemberJoin = mutation({
     }
 
     const autoVerifyOnJoin = profile.policy?.autoVerifyOnJoin ?? false;
-    if (!autoVerifyOnJoin) {
-      return { queued: false, jobCount: 0, reason: 'autoVerifyOnJoin disabled' };
-    }
 
     const subject = await ctx.db
       .query('subjects')
@@ -79,9 +99,38 @@ export const handleGuildMemberJoin = mutation({
       return { queued: false, jobCount: 0, reason: 'No active entitlements' };
     }
 
+    let entitlementsToQueue = entitlements;
+    if (!autoVerifyOnJoin) {
+      const membershipFailures = await ctx.db
+        .query('outbox_jobs')
+        .withIndex('by_status_job_type_target_user', (q) =>
+          q
+            .eq('status', 'dead_letter')
+            .eq('jobType', 'role_sync')
+            .eq('targetDiscordUserId', args.discordUserId)
+        )
+        .collect();
+      const recoverableEntitlementIds = new Set(
+        membershipFailures
+          .filter(
+            (job) =>
+              job.authUserId === guildLink.authUserId &&
+              isMembershipFailureForGuild(job, args.discordGuildId)
+          )
+          .map(roleSyncEntitlementId)
+          .filter((entitlementId): entitlementId is Id<'entitlements'> => entitlementId !== null)
+      );
+      entitlementsToQueue = entitlements.filter((entitlement) =>
+        recoverableEntitlementIds.has(entitlement._id)
+      );
+      if (entitlementsToQueue.length === 0) {
+        return { queued: false, jobCount: 0, reason: 'autoVerifyOnJoin disabled' };
+      }
+    }
+
     let jobCount = 0;
 
-    for (const ent of entitlements) {
+    for (const ent of entitlementsToQueue) {
       const idempotencyKey = `guild_join_sync:${guildLink.authUserId}:${subject._id}:${ent._id}:${args.discordGuildId}`;
       const existing = await ctx.db
         .query('outbox_jobs')

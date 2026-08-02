@@ -10,6 +10,8 @@ import { convexTest } from 'convex-test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, internal } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
+import { PII_PURPOSES } from './lib/credentialKeys';
+import { encryptForPurpose } from './lib/vrchat/crypto';
 import { roleSyncPool } from './roleSyncWorkpool';
 import schema from './schema';
 import { makeTestConvex } from './testHelpers';
@@ -529,6 +531,350 @@ describe('entitlement evidence tier remediation', () => {
     );
 
     expect(licenseRefTierIds).toEqual([catalogTierId]);
+  });
+
+  it('replaces stale tier evidence with a purchase fact that resolves to the active catalog tier and queues a fresh sync', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+
+    const { entitlementId, subjectId } = await t.run(async (ctx) => {
+      const subjectId = await ctx.db.insert('subjects', {
+        authUserId: 'buyer-remediate-stale-tier-evidence',
+        primaryDiscordUserId: 'discord-remediate-stale-tier-evidence',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      const catalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: 'creator-remediate-stale-tier-evidence',
+        productId: 'local-stale-tier-product',
+        provider: 'jinxxy',
+        providerProductRef: 'provider-stale-tier-product',
+        displayName: 'Stale Tier Product',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('catalog_tiers', {
+        authUserId: 'creator-remediate-stale-tier-evidence',
+        provider: 'jinxxy',
+        productId: 'local-stale-tier-product',
+        catalogProductId,
+        providerProductRef: 'provider-stale-tier-product',
+        providerTierRef: 'canonical-product-version',
+        displayName: 'Canonical Tier',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('purchase_facts', {
+        authUserId: 'creator-remediate-stale-tier-evidence',
+        provider: 'jinxxy',
+        externalOrderId: 'stale-tier-order',
+        providerProductId: 'provider-stale-tier-product',
+        providerProductVersionId: 'canonical-product-version',
+        paymentStatus: 'paid',
+        lifecycleStatus: 'active',
+        purchasedAt: now - 60_000,
+        subjectId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const entitlementId = await ctx.db.insert('entitlements', {
+        authUserId: 'creator-remediate-stale-tier-evidence',
+        subjectId,
+        productId: 'local-stale-tier-product',
+        catalogProductId,
+        sourceProvider: 'jinxxy',
+        sourceReference: 'jinxxy:stale-tier-order',
+        status: 'active',
+        grantedAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('entitlement_evidence', {
+        authUserId: 'creator-remediate-stale-tier-evidence',
+        subjectId,
+        providerKey: 'jinxxy',
+        sourceReference: 'jinxxy:stale-tier-order',
+        evidenceType: 'license_verification',
+        status: 'active',
+        productId: 'local-stale-tier-product',
+        catalogProductId,
+        providerTierRefs: ['inventory-target-version'],
+        observedAt: now - 60_000,
+        createdAt: now - 60_000,
+        updatedAt: now - 60_000,
+      });
+      return { entitlementId, subjectId };
+    });
+
+    const result = await t.mutation(internal.migrations.repairEntitlementEvidenceTierRefs, {
+      limit: 10,
+    });
+
+    expect(result).toMatchObject({
+      scanned: 1,
+      repaired: 1,
+      skipped: 0,
+      roleSyncJobsCreated: 1,
+    });
+
+    const { evidence, jobs } = await t.run(async (ctx) => ({
+      evidence: await ctx.db
+        .query('entitlement_evidence')
+        .withIndex('by_source_reference', (q) =>
+          q.eq('providerKey', 'jinxxy').eq('sourceReference', 'jinxxy:stale-tier-order')
+        )
+        .first(),
+      jobs: await ctx.db
+        .query('outbox_jobs')
+        .withIndex('by_auth_user_type', (q) =>
+          q.eq('authUserId', 'creator-remediate-stale-tier-evidence').eq('jobType', 'role_sync')
+        )
+        .collect(),
+    }));
+
+    expect(evidence?.providerTierRefs).toEqual(['canonical-product-version']);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.payload).toMatchObject({
+      subjectId,
+      entitlementId,
+      discordUserId: 'discord-remediate-stale-tier-evidence',
+    });
+  });
+
+  it('lists every active tiered product supported by the provider backfill path', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+
+    await t.run(async (ctx) => {
+      for (const [productId, status, supportsAutoDiscovery, hasTier] of [
+        ['tiered-active', 'active', true, true],
+        ['tiered-manual', 'active', false, true],
+        ['tiered-hidden', 'hidden', true, true],
+        ['untiered-active', 'active', true, false],
+      ] as const) {
+        const catalogProductId = await ctx.db.insert('product_catalog', {
+          authUserId: 'creator-tier-refresh',
+          productId,
+          provider: 'jinxxy',
+          providerProductRef: `provider-${productId}`,
+          displayName: productId,
+          status,
+          supportsAutoDiscovery,
+          createdAt: now,
+          updatedAt: now,
+        });
+        if (hasTier) {
+          await ctx.db.insert('catalog_tiers', {
+            authUserId: 'creator-tier-refresh',
+            provider: 'jinxxy',
+            productId,
+            catalogProductId,
+            providerProductRef: `provider-${productId}`,
+            providerTierRef: `version-${productId}`,
+            displayName: `${productId} tier`,
+            status: 'active',
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      }
+    });
+
+    const batch = await t.query(internal.migrations.listTieredProductEvidenceRefreshBatch, {
+      authUserId: 'creator-tier-refresh',
+      provider: 'jinxxy',
+      limit: 10,
+    });
+
+    expect(batch.products).toEqual([
+      expect.objectContaining({
+        productId: 'tiered-active',
+        providerProductRef: 'provider-tiered-active',
+      }),
+      expect.objectContaining({
+        productId: 'tiered-manual',
+        providerProductRef: 'provider-tiered-manual',
+      }),
+    ]);
+    expect(batch.isDone).toBe(true);
+  });
+
+  it('lists only tier-evidence failures that retain a decryptable license source', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+    const authUserId = 'creator-tier-license-reverification';
+    const encryptionSecret = 'tier-license-reverification-secret';
+    const licenseKeyEncrypted = await encryptForPurpose(
+      'recoverable-license-key',
+      encryptionSecret,
+      PII_PURPOSES.forensicsLicenseKey
+    );
+    const subjectId = await t.run(async (ctx) =>
+      ctx.db.insert('subjects', {
+        authUserId: 'buyer-tier-license-reverification',
+        primaryDiscordUserId: 'discord-tier-license-reverification',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      })
+    );
+    const catalogProductId = await t.run(async (ctx) => {
+      const id = await ctx.db.insert('product_catalog', {
+        authUserId,
+        productId: 'local-tier-license-product',
+        provider: 'jinxxy',
+        providerProductRef: 'provider-tier-license-product',
+        displayName: 'Tier License Product',
+        status: 'active',
+        supportsAutoDiscovery: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('catalog_tiers', {
+        authUserId,
+        provider: 'jinxxy',
+        productId: 'local-tier-license-product',
+        catalogProductId: id,
+        providerProductRef: 'provider-tier-license-product',
+        providerTierRef: 'canonical-tier-license-version',
+        displayName: 'Canonical Tier',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      return id;
+    });
+
+    const recoverableEntitlementId = await t.run(async (ctx) => {
+      const recoverableEntitlementId = await ctx.db.insert('entitlements', {
+        authUserId,
+        subjectId,
+        productId: 'local-tier-license-product',
+        sourceProvider: 'jinxxy',
+        sourceReference: 'jinxxy:license-reverification-order',
+        licenseSubject: 'recoverable-license-subject',
+        catalogProductId,
+        status: 'active',
+        grantedAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('license_subject_links', {
+        authUserId,
+        licenseSubject: 'recoverable-license-subject',
+        provider: 'jinxxy',
+        providerProductId: 'provider-tier-license-product',
+        licenseKeyEncrypted,
+        createdAt: now,
+      });
+      await ctx.db.insert('entitlements', {
+        authUserId,
+        subjectId,
+        productId: 'local-tier-license-product',
+        sourceProvider: 'jinxxy',
+        sourceReference: 'jinxxy:unrecoverable-order',
+        catalogProductId,
+        status: 'active',
+        grantedAt: now,
+        updatedAt: now,
+      });
+      return recoverableEntitlementId;
+    });
+
+    const batch = await t.query(
+      internal.migrations.listTierEvidenceLicenseReverificationBatch,
+      { limit: 10 }
+    );
+
+    expect(batch.candidates).toEqual([
+      expect.objectContaining({
+        authUserId,
+        subjectId,
+        provider: 'jinxxy',
+        providerProductRef: 'provider-tier-license-product',
+        licenseKeyEncrypted,
+      }),
+    ]);
+    expect(batch.isDone).toBe(true);
+
+    const previousApiUrl = process.env.BACKFILL_API_URL;
+    const previousEncryptionSecret = process.env.ENCRYPTION_SECRET;
+    process.env.BACKFILL_API_URL = 'https://api.example.test';
+    process.env.ENCRYPTION_SECRET = encryptionSecret;
+    let persistTierEvidence = false;
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(body).toMatchObject({
+        licenseKey: 'recoverable-license-key',
+        provider: 'jinxxy',
+        productId: 'provider-tier-license-product',
+        authUserId,
+        subjectId,
+      });
+      if (persistTierEvidence) {
+        await t.run(async (ctx) => {
+          await ctx.db.insert('entitlement_evidence', {
+            authUserId,
+            subjectId,
+            providerKey: 'jinxxy',
+            sourceReference: 'jinxxy:license-reverification-order',
+            evidenceType: 'license_verification',
+            status: 'active',
+            productId: 'local-tier-license-product',
+            catalogProductId,
+            providerTierRefs: ['canonical-tier-license-version'],
+            observedAt: now,
+            createdAt: now,
+            updatedAt: now,
+          });
+        });
+      }
+      return Response.json({ success: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const result = await t.action(internal.migrations.reverifyTierEvidenceLicenses, {
+        limit: 10,
+      });
+      expect(result).toMatchObject({
+        selected: 1,
+        reverified: 0,
+        failures: [
+          expect.objectContaining({
+            error: expect.stringContaining('did not persist matching tier evidence'),
+          }),
+        ],
+        isDone: true,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      persistTierEvidence = true;
+      const successfulResult = await t.action(
+        internal.migrations.reverifyTierEvidenceLicenses,
+        { limit: 10 }
+      );
+      expect(successfulResult).toMatchObject({
+        selected: 1,
+        reverified: 1,
+        failures: [],
+        isDone: true,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(
+        await t.query(internal.migrations.isTierEvidenceResolvedForEntitlement, {
+          entitlementId: recoverableEntitlementId,
+        })
+      ).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+      if (previousApiUrl === undefined) delete process.env.BACKFILL_API_URL;
+      else process.env.BACKFILL_API_URL = previousApiUrl;
+      if (previousEncryptionSecret === undefined) delete process.env.ENCRYPTION_SECRET;
+      else process.env.ENCRYPTION_SECRET = previousEncryptionSecret;
+    }
   });
 
   it('repairs shared-order entitlement evidence by product without patching sibling rows', async () => {
@@ -1827,6 +2173,87 @@ describe('subject ownership remediation', () => {
 });
 
 describe('role sync redrive migration', () => {
+  it('selectively redrives transient Discord rate-limit failures', async () => {
+    const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
+    process.env.ROLE_SYNC_VIA_WORKPOOL = 'true';
+    const enqueueSpy = vi.spyOn(roleSyncPool, 'enqueueAction').mockResolvedValue(TEST_WORK_ID);
+    try {
+      const t = makeTestConvex();
+      const now = Date.now();
+      const { rateLimitedJobId, permanentJobId } = await t.run(async (ctx) => {
+        const subjectId = await ctx.db.insert('subjects', {
+          primaryDiscordUserId: 'discord-selective-rate-limit-redrive',
+          status: 'active',
+          createdAt: now,
+          updatedAt: now,
+        });
+        const entitlementId = await ctx.db.insert('entitlements', {
+          authUserId: 'auth-selective-rate-limit-redrive',
+          subjectId,
+          productId: 'product-selective-rate-limit-redrive',
+          sourceProvider: 'gumroad',
+          sourceReference: 'order-selective-rate-limit-redrive',
+          status: 'active',
+          grantedAt: now,
+          updatedAt: now,
+        });
+        const baseJob = {
+          authUserId: 'auth-selective-rate-limit-redrive',
+          jobType: 'role_sync' as const,
+          payload: {
+            subjectId,
+            entitlementId,
+            discordUserId: 'discord-selective-rate-limit-redrive',
+          },
+          status: 'dead_letter' as const,
+          targetDiscordUserId: 'discord-selective-rate-limit-redrive',
+          retryCount: 10,
+          maxRetries: 10,
+          createdAt: now,
+          updatedAt: now,
+        };
+        const rateLimitedJobId = await ctx.db.insert('outbox_jobs', {
+          ...baseJob,
+          idempotencyKey: 'selective-rate-limit-redrive-transient',
+          lastError: 'Uncaught Error: Rate limited (retry after 4s)',
+        });
+        const permanentJobId = await ctx.db.insert('outbox_jobs', {
+          ...baseJob,
+          idempotencyKey: 'selective-rate-limit-redrive-permanent',
+          lastError: 'Discord API error 10007: Unknown Member',
+          createdAt: now + 1,
+          updatedAt: now + 1,
+        });
+        return { rateLimitedJobId, permanentJobId };
+      });
+
+      const result = await t.mutation(internal.migrations.redriveRateLimitedRoleSync, {
+        scanLimit: 10,
+      });
+      const stored = await t.run(async (ctx) => ({
+        rateLimited: await ctx.db.get(rateLimitedJobId),
+        permanent: await ctx.db.get(permanentJobId),
+      }));
+
+      expect(result).toMatchObject({
+        scanned: 2,
+        matched: 1,
+        processed: 1,
+        skipped: 0,
+        isDone: true,
+      });
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      expect(stored.rateLimited?.status).toBe('pending');
+      expect(stored.rateLimited?.lastError).toBeUndefined();
+      expect(stored.permanent?.status).toBe('dead_letter');
+      expect(stored.permanent?.lastError).toContain('Unknown Member');
+    } finally {
+      enqueueSpy.mockRestore();
+      if (original === undefined) delete process.env.ROLE_SYNC_VIA_WORKPOOL;
+      else process.env.ROLE_SYNC_VIA_WORKPOOL = original;
+    }
+  });
+
   it('redrives role-removal jobs without entitlement ids through Workpool', async () => {
     const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
     process.env.ROLE_SYNC_VIA_WORKPOOL = 'true';

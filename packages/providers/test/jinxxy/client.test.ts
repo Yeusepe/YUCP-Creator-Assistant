@@ -30,7 +30,7 @@ describe('JinxxyApiClient.verifyLicenseWithBuyerByKey', () => {
     apiBaseUrl: 'https://api.creators.jinxxy.com/v1',
   });
 
-  it('returns the purchaser email and tier ref from documented license and order responses', async () => {
+  it('uses the purchased product version identity when the inventory target version differs', async () => {
     const calls = mockJsonSequence([
       {
         results: [
@@ -62,7 +62,7 @@ describe('JinxxyApiClient.verifyLicenseWithBuyerByKey', () => {
           id: 'inventory-1',
           object: 'InventoryItem',
           target_id: 'product-1',
-          target_version_id: 'version-advanced',
+          target_version_id: 'inventory-target-version',
           target_type: 'DIGITAL_PRODUCT',
           grant_id: 'order-item-1',
           grant_type: 'ORDER_ITEM',

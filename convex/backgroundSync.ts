@@ -102,12 +102,65 @@ export const backfillProductPurchases = internalAction({
       throw new Error(`Backfill API failed: ${res.status} ${text}`);
     }
 
-    await ctx.runMutation(internal.backgroundSync.projectBackfilledPurchasesForProduct, {
+    let cursor: string | null = null;
+    let pages = 0;
+    let purchaseFactsFound = 0;
+    let linkedToSubject = 0;
+    let entitlementsGranted = 0;
+    let skippedInactive = 0;
+    let unresolved = 0;
+    let isDone = false;
+
+    while (!isDone) {
+      const page: {
+        purchaseFactsFound: number;
+        linkedToSubject: number;
+        entitlementsGranted: number;
+        skippedInactive: number;
+        unresolved: number;
+        continueCursor: string;
+        isDone: boolean;
+      } = await ctx.runMutation(
+        internal.backgroundSync.projectBackfilledPurchasesForProduct,
+        {
+          authUserId: args.authUserId,
+          productId: args.productId,
+          provider: args.provider,
+          providerProductRef: args.providerProductRef,
+          cursor,
+          limit: 25,
+        }
+      );
+      pages++;
+      purchaseFactsFound += page.purchaseFactsFound;
+      linkedToSubject += page.linkedToSubject;
+      entitlementsGranted += page.entitlementsGranted;
+      skippedInactive += page.skippedInactive;
+      unresolved += page.unresolved;
+      cursor = page.continueCursor;
+      isDone = page.isDone;
+    }
+
+    console.info('[background-sync] projected backfilled purchases', {
+      provider: args.provider,
       authUserId: args.authUserId,
       productId: args.productId,
-      provider: args.provider,
-      providerProductRef: args.providerProductRef,
+      pages,
+      purchaseFactsFound,
+      linkedToSubject,
+      entitlementsGranted,
+      skippedInactive,
+      unresolved,
     });
+
+    return {
+      pages,
+      purchaseFactsFound,
+      linkedToSubject,
+      entitlementsGranted,
+      skippedInactive,
+      unresolved,
+    };
   },
 });
 
@@ -158,10 +211,13 @@ export const ingestBackfillPurchaseFactsBatch = mutation({
 
       if (existing) {
         const patch: Record<string, unknown> = {};
-        if (!existing.externalVariantId && p.externalVariantId) {
+        if (p.externalVariantId && existing.externalVariantId !== p.externalVariantId) {
           patch.externalVariantId = p.externalVariantId;
         }
-        if (!existing.providerProductVersionId && p.providerProductVersionId) {
+        if (
+          p.providerProductVersionId &&
+          existing.providerProductVersionId !== p.providerProductVersionId
+        ) {
           patch.providerProductVersionId = p.providerProductVersionId;
         }
         if (Object.keys(patch).length > 0) {
@@ -625,6 +681,8 @@ export const projectBackfilledPurchasesForProduct = internalMutation({
     productId: v.string(),
     provider: v.string(),
     providerProductRef: v.string(),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    limit: v.optional(v.number()),
   },
   returns: v.object({
     purchaseFactsFound: v.number(),
@@ -632,6 +690,8 @@ export const projectBackfilledPurchasesForProduct = internalMutation({
     entitlementsGranted: v.number(),
     skippedInactive: v.number(),
     unresolved: v.number(),
+    continueCursor: v.string(),
+    isDone: v.boolean(),
   }),
   handler: async (ctx, args) => {
     const apiSecret = process.env.CONVEX_API_SECRET;
@@ -643,13 +703,15 @@ export const projectBackfilledPurchasesForProduct = internalMutation({
       scopes: ['creator:delegate'],
     });
 
-    const purchaseFacts = await ctx.db
+    const limit = Math.max(1, Math.min(args.limit ?? 25, 50));
+    const purchaseFactsPage = await ctx.db
       .query('purchase_facts')
       .withIndex('by_auth_user_product', (q) =>
         q.eq('authUserId', args.authUserId).eq('providerProductId', args.providerProductRef)
       )
       .filter((q) => q.eq(q.field('provider'), args.provider))
-      .collect();
+      .paginate({ cursor: args.cursor ?? null, numItems: limit });
+    const purchaseFacts = purchaseFactsPage.page;
 
     const catalog = await ctx.db
       .query('product_catalog')
@@ -730,6 +792,8 @@ export const projectBackfilledPurchasesForProduct = internalMutation({
       entitlementsGranted,
       skippedInactive,
       unresolved,
+      continueCursor: purchaseFactsPage.continueCursor,
+      isDone: purchaseFactsPage.isDone,
     };
   },
 });

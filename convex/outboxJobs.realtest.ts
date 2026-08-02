@@ -195,6 +195,77 @@ describe('outbox_jobs schema compatibility', () => {
     expect(returnedIds).not.toContain(ids.insertedWorkpoolIds[0]);
   });
 
+  it('does not return typed pending jobs before their retry time', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+
+    const ids = await t.run(async (ctx) => {
+      const readyJobId = await ctx.db.insert('outbox_jobs', {
+        authUserId: 'auth-outbox-retry-schedule',
+        jobType: 'role_sync',
+        payload: {
+          subjectId: 'subject-ready',
+          entitlementId: 'entitlement-ready',
+          discordUserId: 'discord-ready',
+        },
+        status: 'pending',
+        idempotencyKey: 'role-sync-ready-now',
+        targetDiscordUserId: 'discord-ready',
+        retryCount: 0,
+        maxRetries: 10,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const futureJobId = await ctx.db.insert('outbox_jobs', {
+        authUserId: 'auth-outbox-retry-schedule',
+        jobType: 'role_sync',
+        payload: {
+          subjectId: 'subject-future',
+          entitlementId: 'entitlement-future',
+          discordUserId: 'discord-future',
+        },
+        status: 'pending',
+        idempotencyKey: 'role-sync-retry-in-the-future',
+        targetDiscordUserId: 'discord-future',
+        retryCount: 1,
+        maxRetries: 10,
+        nextRetryAt: now + 60_000,
+        createdAt: now + 1,
+        updatedAt: now + 1,
+      });
+      const dueJobId = await ctx.db.insert('outbox_jobs', {
+        authUserId: 'auth-outbox-retry-schedule',
+        jobType: 'role_sync',
+        payload: {
+          subjectId: 'subject-due',
+          entitlementId: 'entitlement-due',
+          discordUserId: 'discord-due',
+        },
+        status: 'pending',
+        idempotencyKey: 'role-sync-retry-is-due',
+        targetDiscordUserId: 'discord-due',
+        retryCount: 1,
+        maxRetries: 10,
+        nextRetryAt: now - 1,
+        createdAt: now + 2,
+        updatedAt: now + 2,
+      });
+      return { readyJobId, futureJobId, dueJobId };
+    });
+
+    const jobs = await t.query(api.outbox_jobs.getPendingJobs, {
+      apiSecret: 'test-convex-api-secret',
+      jobTypes: ['role_sync'],
+      excludeWorkpoolRoleJobs: true,
+      limit: 10,
+    });
+
+    const returnedIds = jobs.map((job) => job._id);
+    expect(returnedIds).toContain(ids.readyJobId);
+    expect(returnedIds).toContain(ids.dueJobId);
+    expect(returnedIds).not.toContain(ids.futureJobId);
+  });
+
   it('routes role dead-letter retries through Workpool when the rollout flag is enabled', async () => {
     const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
     process.env.ROLE_SYNC_VIA_WORKPOOL = 'true';

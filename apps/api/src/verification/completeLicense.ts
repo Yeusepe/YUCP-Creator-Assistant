@@ -173,7 +173,7 @@ export async function handleCompleteLicense(
     providerKey,
     creatorAuthUserId: verificationInput.creatorAuthUserId,
     buyerAuthUserId: verificationInput.buyerAuthUserId,
-    licenseKeyPrefix: licenseKey.trim().slice(0, 8),
+    licenseKey: '[REDACTED]',
   });
   const { identityMode: _identityMode, ...handlerInput } = verificationInput;
 

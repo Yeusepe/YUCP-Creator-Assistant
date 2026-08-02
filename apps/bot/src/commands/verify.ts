@@ -25,7 +25,7 @@ import {
 } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
-import { getApiUrls } from '../lib/apiUrls';
+import { resolveApiRequestBaseUrl } from '../lib/apiUrls';
 import { getRequiredBotActorBinding } from '../lib/convexActor';
 import { E, Emoji } from '../lib/emojis';
 import { disconnectVerification } from '../lib/internalRpc';
@@ -190,8 +190,18 @@ async function bindVerifyPanelToken(
     return;
   }
 
-  const apiForFetch = getApiUrls().apiInternal ?? apiBaseUrl;
-  if (!apiForFetch) return;
+  const apiForFetch = resolveApiRequestBaseUrl({
+    fallback: apiBaseUrl,
+    preferPublic: true,
+    requireTls: true,
+  });
+  if (!apiForFetch) {
+    logger.warn('Skipped verify panel token bind because no secure API origin is configured', {
+      guildId: params.guildId,
+      userId: params.discordUserId,
+    });
+    return;
+  }
 
   try {
     const res = await fetch(`${apiForFetch}/api/verification/panel/bind`, {

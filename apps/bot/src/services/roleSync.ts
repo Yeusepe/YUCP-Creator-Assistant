@@ -270,6 +270,8 @@ interface CatalogTierEvidenceState {
 
 const TIER_EVIDENCE_MISSING_ERROR =
   'Tier evidence missing for tier-scoped role rules. Refresh entitlement evidence before syncing tier roles.';
+const TIER_EVIDENCE_UNRESOLVED_ERROR =
+  'Tier evidence did not match any active catalog tier. Refresh the provider catalog and entitlement evidence before syncing tier roles.';
 
 function enabledTierScopedGuildIdsForRules<
   TRoleRule extends { enabled: boolean; guildId: string; catalogTierId?: string },
@@ -709,7 +711,16 @@ export class RoleSyncService {
           }
           roleRules = roleRulesWithoutTierEvidence;
         } else {
-          roleRules = selectRoleRulesForActiveTiers(roleRules, activeCatalogTierIds);
+          return {
+            success: false,
+            guildId: tierScopedGuildIds[0] ?? '',
+            targetGuildIds: tierScopedGuildIds,
+            discordUserId,
+            rolesAdded: [],
+            rolesRemoved: [],
+            error: TIER_EVIDENCE_UNRESOLVED_ERROR,
+            nonRetriable: true,
+          };
         }
       } else {
         roleRules = selectRoleRulesForActiveTiers(roleRules, activeCatalogTierIds);

@@ -346,4 +346,56 @@ describe('gumroad external storefront backfill', () => {
       externalVariantId: providerTierRef,
     });
   });
+
+  it('replaces stale provider version evidence when an authoritative backfill returns the canonical version', async () => {
+    t = makeTestConvex();
+    const creatorAuthUserId = 'creator-provider-tier-correction';
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('purchase_facts', {
+        authUserId: creatorAuthUserId,
+        provider: 'jinxxy',
+        externalOrderId: 'license-tier-correction',
+        providerProductId: 'jinxxy-tiered-product',
+        providerProductVersionId: 'inventory-target-version',
+        paymentStatus: 'paid',
+        lifecycleStatus: 'active',
+        purchasedAt: Date.now() - 60_000,
+        createdAt: Date.now() - 60_000,
+        updatedAt: Date.now() - 60_000,
+      });
+    });
+
+    await t.mutation(api.backgroundSync.ingestBackfillPurchaseFactsBatch, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      provider: 'jinxxy',
+      purchases: [
+        {
+          authUserId: creatorAuthUserId,
+          provider: 'jinxxy',
+          externalOrderId: 'license-tier-correction',
+          providerProductId: 'jinxxy-tiered-product',
+          providerProductVersionId: 'canonical-product-version',
+          paymentStatus: 'paid',
+          lifecycleStatus: 'active',
+          purchasedAt: Date.now() - 60_000,
+        },
+      ],
+    });
+
+    const purchaseFact = await t.run(async (ctx) =>
+      ctx.db
+        .query('purchase_facts')
+        .withIndex('by_auth_user_provider_order', (q) =>
+          q
+            .eq('authUserId', creatorAuthUserId)
+            .eq('provider', 'jinxxy')
+            .eq('externalOrderId', 'license-tier-correction')
+        )
+        .first()
+    );
+
+    expect(purchaseFact?.providerProductVersionId).toBe('canonical-product-version');
+  });
 });

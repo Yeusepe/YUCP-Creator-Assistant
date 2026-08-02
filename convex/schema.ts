@@ -1087,6 +1087,7 @@ const outbox_jobs = defineTable({
   .index('by_auth_user', ['authUserId'])
   .index('by_status', ['status'])
   .index('by_status_job_type', ['status', 'jobType'])
+  .index('by_status_job_type_target_user', ['status', 'jobType', 'targetDiscordUserId'])
   .index('by_status_job_type_workpool', ['status', 'jobType', 'workpoolEnqueuedAt'])
   .index('by_status_next_retry', ['status', 'nextRetryAt'])
   .index('by_idempotency', ['idempotencyKey'])

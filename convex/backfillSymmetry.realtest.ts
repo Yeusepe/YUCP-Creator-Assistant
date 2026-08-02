@@ -255,4 +255,79 @@ describe('buyer-link backfill symmetry', () => {
       expectedProviderUserId: 'gumroad-account-link-buyer',
     });
   });
+
+  it('projects a high-volume product through bounded continuation pages', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'creator-bounded-backfill';
+    const productId = 'bounded-backfill-product';
+    const providerProductRef = 'bounded-backfill-provider-product';
+    const subjectId = await seedSubject(t, {
+      authUserId: 'buyer-bounded-backfill',
+      primaryDiscordUserId: 'discord-bounded-backfill',
+    });
+
+    await seedCreatorProfile(t, {
+      authUserId: creatorAuthUserId,
+      ownerDiscordUserId: 'discord-creator-bounded-backfill',
+    });
+    await seedCatalogProduct(t, {
+      authUserId: creatorAuthUserId,
+      productId,
+      provider: 'gumroad',
+      providerProductRef,
+      displayName: 'Bounded Backfill Product',
+    });
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 3; index++) {
+        await ctx.db.insert('purchase_facts', {
+          authUserId: creatorAuthUserId,
+          provider: 'gumroad',
+          externalOrderId: `bounded-order-${index}`,
+          providerProductId: providerProductRef,
+          paymentStatus: 'paid',
+          lifecycleStatus: 'active',
+          purchasedAt: Date.now() - 60_000,
+          subjectId,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      }
+    });
+
+    const firstPage = await t.mutation(
+      internal.backgroundSync.projectBackfilledPurchasesForProduct,
+      {
+        authUserId: creatorAuthUserId,
+        productId,
+        provider: 'gumroad',
+        providerProductRef,
+        limit: 2,
+      }
+    );
+
+    expect(firstPage).toMatchObject({ purchaseFactsFound: 2, isDone: false });
+
+    const secondPage = await t.mutation(
+      internal.backgroundSync.projectBackfilledPurchasesForProduct,
+      {
+        authUserId: creatorAuthUserId,
+        productId,
+        provider: 'gumroad',
+        providerProductRef,
+        cursor: firstPage.continueCursor,
+        limit: 2,
+      }
+    );
+
+    expect(secondPage).toMatchObject({ purchaseFactsFound: 1, isDone: true });
+    const entitlements = await t.run(async (ctx) =>
+      ctx.db
+        .query('entitlements')
+        .withIndex('by_auth_user_subject', (q) =>
+          q.eq('authUserId', creatorAuthUserId).eq('subjectId', subjectId)
+        )
+        .collect()
+    );
+    expect(entitlements).toHaveLength(3);
+  });
 });

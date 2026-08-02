@@ -17,3 +17,39 @@ export function getApiUrls(): {
   const webPublic = process.env.FRONTEND_URL ?? process.env.VERIFY_BASE_URL;
   return { apiInternal, apiPublic, webPublic };
 }
+
+function normalizeApiBaseUrl(value: string | undefined): string | undefined {
+  const trimmed = value?.trim().replace(/\/$/, '');
+  if (!trimmed) return undefined;
+
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? trimmed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Resolve a bot-to-API request target with explicit transport requirements.
+ * Requests carrying credentials or Discord interaction tokens must require TLS.
+ */
+export function resolveApiRequestBaseUrl(options?: {
+  fallback?: string;
+  preferPublic?: boolean;
+  requireTls?: boolean;
+}): string | undefined {
+  const { apiInternal, apiPublic } = getApiUrls();
+  const candidates = options?.preferPublic
+    ? [apiPublic, options.fallback, apiInternal]
+    : [apiInternal, apiPublic, options?.fallback];
+  const uniqueCandidates = [
+    ...new Set(candidates.map(normalizeApiBaseUrl).filter((value): value is string => !!value)),
+  ];
+
+  if (options?.requireTls) {
+    return uniqueCandidates.find((value) => new URL(value).protocol === 'https:');
+  }
+
+  return uniqueCandidates[0];
+}

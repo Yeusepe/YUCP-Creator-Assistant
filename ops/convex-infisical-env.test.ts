@@ -56,6 +56,7 @@ describe('Convex Infisical prod helpers', () => {
     expect(syncConvexEnv).toContain("'DISCORD_BOT_TOKEN'");
     expect(secretsTemplate).toContain('ROLE_SYNC_VIA_WORKPOOL');
     expect(secretsTemplate).toContain('DISCORD_BOT_TOKEN');
+    expect(readTemplateValue(secretsTemplate, 'ROLE_SYNC_VIA_WORKPOOL')).toBe('true');
   });
 
   it('documents exact-storage TUF inputs for control-plane services', async () => {

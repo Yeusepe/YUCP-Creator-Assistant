@@ -24,7 +24,9 @@ import {
   resolveCatalogProductUrl,
 } from '@yucp/providers/providerMetadata';
 import type { Doc, Id } from './_generated/dataModel';
+import { internal } from './_generated/api';
 import {
+  internalAction,
   internalMutation,
   internalQuery,
   type MutationCtx,
@@ -34,7 +36,9 @@ import { PII_PURPOSES } from './lib/credentialKeys';
 import { upsertLicenseSubjectLink } from './lib/licenseSubjectLink';
 import { encryptPii } from './lib/piiCrypto';
 import { sha256Hex } from './lib/roleRules/queries';
+import { enqueueRoleSync } from './lib/roleSyncEnqueue';
 import { enqueueExistingRoleOutboxJobInWorkpool } from './lib/roleSyncWorkpoolDispatch';
+import { decryptForPurpose } from './lib/vrchat/crypto';
 import {
   detectCanonicalAuthResolutionForSubject,
   ensureCanonicalAuthUserIdForSubject,
@@ -42,6 +46,38 @@ import {
 } from './subjects';
 
 type LegacyMigrationDoc = Record<string, unknown>;
+type TieredProductEvidenceRefreshProduct = {
+  catalogProductId: Id<'product_catalog'>;
+  authUserId: string;
+  productId: string;
+  provider: Doc<'product_catalog'>['provider'];
+  providerProductRef: string;
+};
+type TieredProductEvidenceRefreshBatch = {
+  products: TieredProductEvidenceRefreshProduct[];
+  continueCursor: string;
+  isDone: boolean;
+};
+type TieredProductEvidenceRefreshResult = {
+  selected: number;
+  refreshed: number;
+  failures: Array<{ catalogProductId: string; error: string }>;
+  continueCursor: string;
+  isDone: boolean;
+};
+type TierEvidenceLicenseReverificationCandidate = {
+  entitlementId: Id<'entitlements'>;
+  authUserId: string;
+  subjectId: Id<'subjects'>;
+  provider: Doc<'entitlements'>['sourceProvider'];
+  providerProductRef: string;
+  licenseKeyEncrypted: string;
+};
+type TierEvidenceLicenseReverificationBatch = {
+  candidates: TierEvidenceLicenseReverificationCandidate[];
+  continueCursor: string;
+  isDone: boolean;
+};
 type BuyerAttributionCandidateConfidence = 'high' | 'medium';
 type BuyerAttributionRelatedBuyerProviderLink = {
   id: Id<'buyer_provider_links'>;
@@ -1011,10 +1047,25 @@ function parseEntitlementPurchaseReference(
   return { externalOrderId: trimmed };
 }
 
-async function entitlementHasActiveTierEvidence(
+async function activeCatalogTierRefsForEntitlement(
   ctx: Pick<QueryCtx, 'db'>,
   entitlement: Doc<'entitlements'>
-): Promise<boolean> {
+): Promise<Set<string>> {
+  const catalogTiers = await ctx.db
+    .query('catalog_tiers')
+    .withIndex('by_product', (q) =>
+      q.eq('authUserId', entitlement.authUserId).eq('productId', entitlement.productId)
+    )
+    .filter((q) => q.eq(q.field('status'), 'active'))
+    .collect();
+
+  return new Set(catalogTiers.map((tier) => tier.providerTierRef.trim()).filter(Boolean));
+}
+
+async function activeEntitlementTierEvidenceRefs(
+  ctx: Pick<QueryCtx, 'db'>,
+  entitlement: Doc<'entitlements'>
+): Promise<Set<string>> {
   const evidenceRows = await ctx.db
     .query('entitlement_evidence')
     .withIndex('by_source_reference', (q) =>
@@ -1027,12 +1078,19 @@ async function entitlementHasActiveTierEvidence(
     .filter((q) => q.eq(q.field('productId'), entitlement.productId))
     .collect();
 
-  return evidenceRows.some(
-    (evidence) =>
-      evidence.status === 'active' &&
-      Array.isArray(evidence.providerTierRefs) &&
-      evidence.providerTierRefs.some((providerTierRef) => providerTierRef.trim().length > 0)
-  );
+  const providerTierRefs = new Set<string>();
+  for (const evidence of evidenceRows) {
+    if (evidence.status !== 'active' || !Array.isArray(evidence.providerTierRefs)) {
+      continue;
+    }
+    for (const providerTierRef of evidence.providerTierRefs) {
+      const normalized = providerTierRef.trim();
+      if (normalized) {
+        providerTierRefs.add(normalized);
+      }
+    }
+  }
+  return providerTierRefs;
 }
 
 function purchaseFactMatchesEntitlementProduct(args: {
@@ -1858,6 +1916,8 @@ export const repairEntitlementEvidenceTierRefs = internalMutation({
     scanned: v.number(),
     repaired: v.number(),
     skipped: v.number(),
+    roleSyncJobsCreated: v.number(),
+    skippedNoDiscordId: v.number(),
     remaining: v.number(),
     continueCursor: v.optional(v.union(v.string(), v.null())),
     isDone: v.boolean(),
@@ -1873,9 +1933,20 @@ export const repairEntitlementEvidenceTierRefs = internalMutation({
     let scanned = 0;
     let repaired = 0;
     let skipped = 0;
+    let roleSyncJobsCreated = 0;
+    let skippedNoDiscordId = 0;
 
     for (const entitlement of page.page) {
-      if (await entitlementHasActiveTierEvidence(ctx, entitlement)) {
+      const activeCatalogTierRefs = await activeCatalogTierRefsForEntitlement(ctx, entitlement);
+      const activeEvidenceTierRefs = await activeEntitlementTierEvidenceRefs(ctx, entitlement);
+      if (
+        [...activeEvidenceTierRefs].some((providerTierRef) =>
+          activeCatalogTierRefs.has(providerTierRef)
+        )
+      ) {
+        continue;
+      }
+      if (activeCatalogTierRefs.size === 0 && activeEvidenceTierRefs.size > 0) {
         continue;
       }
 
@@ -1891,6 +1962,13 @@ export const repairEntitlementEvidenceTierRefs = internalMutation({
         purchaseFact.externalVariantId,
       ]);
       if (providerTierRefs.length === 0) {
+        skipped++;
+        continue;
+      }
+      if (
+        activeCatalogTierRefs.size > 0 &&
+        !providerTierRefs.some((providerTierRef) => activeCatalogTierRefs.has(providerTierRef))
+      ) {
         skipped++;
         continue;
       }
@@ -1935,15 +2013,344 @@ export const repairEntitlementEvidenceTierRefs = internalMutation({
       }
 
       repaired++;
+
+      const subject = await ctx.db.get(entitlement.subjectId);
+      const discordUserId = subject?.primaryDiscordUserId;
+      if (!discordUserId || isProviderScopedSubjectIdentity(discordUserId)) {
+        skippedNoDiscordId++;
+        continue;
+      }
+
+      await enqueueRoleSync(ctx, {
+        authUserId: entitlement.authUserId,
+        subjectId: entitlement.subjectId,
+        entitlementId: entitlement._id,
+        discordUserId,
+        idempotencyKey: `tier_evidence_repair:${entitlement._id}:${providerTierRefs.join('|')}`,
+      });
+      roleSyncJobsCreated++;
     }
 
     return {
       scanned,
       repaired,
       skipped,
+      roleSyncJobsCreated,
+      skippedNoDiscordId,
       remaining: page.isDone ? 0 : 1,
       continueCursor: page.continueCursor,
       isDone: page.isDone,
+    };
+  },
+});
+
+/**
+ * List the bounded set of active, tiered catalog products whose authoritative
+ * purchase facts can be refreshed through the provider backfill capability.
+ * This is provider-neutral: product capabilities and catalog tiers decide
+ * eligibility, while the provider plugin owns the external API semantics.
+ * `supportsAutoDiscovery` describes catalog discovery, not purchase-history
+ * backfill, so historical and manually-added tiered products remain eligible.
+ */
+export const listTieredProductEvidenceRefreshBatch = internalQuery({
+  args: {
+    authUserId: v.optional(v.string()),
+    provider: v.optional(v.string()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<TieredProductEvidenceRefreshBatch> => {
+    const limit = Math.max(1, Math.min(args.limit ?? 25, 100));
+    let query = ctx.db
+      .query('product_catalog')
+      .withIndex('by_status', (q) => q.eq('status', 'active'));
+    if (args.authUserId) {
+      query = query.filter((q) => q.eq(q.field('authUserId'), args.authUserId));
+    }
+    if (args.provider) {
+      query = query.filter((q) => q.eq(q.field('provider'), args.provider));
+    }
+
+    const page = await query.paginate({ cursor: args.cursor ?? null, numItems: limit });
+    const products: TieredProductEvidenceRefreshProduct[] = [];
+
+    for (const product of page.page) {
+      const activeTier = await ctx.db
+        .query('catalog_tiers')
+        .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', product._id))
+        .filter((q) => q.eq(q.field('status'), 'active'))
+        .first();
+      if (!activeTier) {
+        continue;
+      }
+      products.push({
+        catalogProductId: product._id,
+        authUserId: product.authUserId,
+        productId: product.productId,
+        provider: product.provider,
+        providerProductRef: product.providerProductRef,
+      });
+    }
+
+    return {
+      products,
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
+    };
+  },
+});
+
+/**
+ * Refresh authoritative purchase facts for one bounded page of tiered products.
+ * Run each page before repairEntitlementEvidenceTierRefs so stale upstream
+ * identifiers are corrected at their canonical purchase-fact source first.
+ */
+export const refreshTieredProductEvidenceSources = internalAction({
+  args: {
+    authUserId: v.optional(v.string()),
+    provider: v.optional(v.string()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<TieredProductEvidenceRefreshResult> => {
+    const batch: TieredProductEvidenceRefreshBatch = await ctx.runQuery(
+      internal.migrations.listTieredProductEvidenceRefreshBatch,
+      {
+        authUserId: args.authUserId,
+        provider: args.provider,
+        cursor: args.cursor,
+        limit: args.limit,
+      }
+    );
+    const failures: Array<{ catalogProductId: string; error: string }> = [];
+    let refreshed = 0;
+
+    for (const product of batch.products) {
+      try {
+        await ctx.runAction(internal.backgroundSync.backfillProductPurchases, {
+          authUserId: product.authUserId,
+          productId: product.productId,
+          provider: product.provider,
+          providerProductRef: product.providerProductRef,
+        });
+        refreshed++;
+      } catch (error) {
+        failures.push({
+          catalogProductId: product.catalogProductId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    console.info('[role-sync-recovery] refreshed tier evidence sources', {
+      provider: args.provider ?? 'all',
+      selected: batch.products.length,
+      refreshed,
+      failed: failures.length,
+      isDone: batch.isDone,
+    });
+
+    return {
+      selected: batch.products.length,
+      refreshed,
+      failures,
+      continueCursor: batch.continueCursor,
+      isDone: batch.isDone,
+    };
+  },
+});
+
+/**
+ * Find tier-evidence failures that can be recovered by revalidating the
+ * encrypted license captured during the original verification. The provider
+ * plugin remains the authority for tier identity; this query never infers a
+ * tier from catalog shape alone.
+ */
+export const listTierEvidenceLicenseReverificationBatch = internalQuery({
+  args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<TierEvidenceLicenseReverificationBatch> => {
+    const limit = Math.max(1, Math.min(args.limit ?? 100, 500));
+    const page = await ctx.db
+      .query('entitlements')
+      .withIndex('by_status', (q) => q.eq('status', 'active'))
+      .paginate({ cursor: args.cursor ?? null, numItems: limit });
+    const candidates: TierEvidenceLicenseReverificationCandidate[] = [];
+
+    for (const entitlement of page.page) {
+      const activeCatalogTierRefs = await activeCatalogTierRefsForEntitlement(ctx, entitlement);
+      if (activeCatalogTierRefs.size === 0) {
+        continue;
+      }
+      const activeEvidenceTierRefs = await activeEntitlementTierEvidenceRefs(ctx, entitlement);
+      if (
+        [...activeEvidenceTierRefs].some((providerTierRef) =>
+          activeCatalogTierRefs.has(providerTierRef)
+        )
+      ) {
+        continue;
+      }
+      if (!entitlement.licenseSubject) {
+        continue;
+      }
+
+      const catalogProduct = entitlement.catalogProductId
+        ? await ctx.db.get(entitlement.catalogProductId)
+        : null;
+      if (
+        !catalogProduct ||
+        catalogProduct.status !== 'active' ||
+        catalogProduct.provider !== entitlement.sourceProvider
+      ) {
+        continue;
+      }
+
+      const licenseLink = await ctx.db
+        .query('license_subject_links')
+        .withIndex('by_auth_user_subject', (q) =>
+          q
+            .eq('authUserId', entitlement.authUserId)
+            .eq('licenseSubject', entitlement.licenseSubject as string)
+        )
+        .filter((q) => q.eq(q.field('provider'), entitlement.sourceProvider))
+        .first();
+      if (!licenseLink?.licenseKeyEncrypted) {
+        continue;
+      }
+
+      candidates.push({
+        entitlementId: entitlement._id,
+        authUserId: entitlement.authUserId,
+        subjectId: entitlement.subjectId,
+        provider: entitlement.sourceProvider,
+        providerProductRef: catalogProduct.providerProductRef,
+        licenseKeyEncrypted: licenseLink.licenseKeyEncrypted,
+      });
+    }
+
+    return {
+      candidates,
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
+    };
+  },
+});
+
+/**
+ * Confirm that provider verification persisted evidence for an active catalog
+ * tier on the entitlement being remediated. An HTTP success alone is not a
+ * successful remediation.
+ */
+export const isTierEvidenceResolvedForEntitlement = internalQuery({
+  args: {
+    entitlementId: v.id('entitlements'),
+  },
+  handler: async (ctx, args) => {
+    const entitlement = await ctx.db.get(args.entitlementId);
+    if (!entitlement || entitlement.status !== 'active') {
+      return false;
+    }
+
+    const activeCatalogTierRefs = await activeCatalogTierRefsForEntitlement(ctx, entitlement);
+    if (activeCatalogTierRefs.size === 0) {
+      return false;
+    }
+    const activeEvidenceTierRefs = await activeEntitlementTierEvidenceRefs(ctx, entitlement);
+    return [...activeEvidenceTierRefs].some((providerTierRef) =>
+      activeCatalogTierRefs.has(providerTierRef)
+    );
+  },
+});
+
+/**
+ * Revalidate one bounded page of recoverable license-backed tier evidence.
+ * The existing provider-neutral complete-license endpoint dispatches to the
+ * owning provider plugin, updates evidence, and enqueues a fresh role sync.
+ */
+export const reverifyTierEvidenceLicenses = internalAction({
+  args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const batch: TierEvidenceLicenseReverificationBatch = await ctx.runQuery(
+      internal.migrations.listTierEvidenceLicenseReverificationBatch,
+      args
+    );
+    const apiUrl = process.env.BACKFILL_API_URL;
+    const apiSecret = process.env.CONVEX_API_SECRET;
+    const encryptionSecret = process.env.ENCRYPTION_SECRET;
+    if (!apiUrl || !apiSecret || !encryptionSecret) {
+      throw new Error(
+        'BACKFILL_API_URL, CONVEX_API_SECRET, and ENCRYPTION_SECRET are required for license evidence reverification'
+      );
+    }
+
+    const failures: Array<{ entitlementId: Id<'entitlements'>; error: string }> = [];
+    let reverified = 0;
+
+    for (const candidate of batch.candidates) {
+      try {
+        const licenseKey = await decryptForPurpose(
+          candidate.licenseKeyEncrypted,
+          encryptionSecret,
+          PII_PURPOSES.forensicsLicenseKey
+        );
+        const response = await fetch(
+          `${apiUrl.replace(/\/$/, '')}/api/verification/complete-license`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              apiSecret,
+              licenseKey,
+              provider: candidate.provider,
+              productId: candidate.providerProductRef,
+              authUserId: candidate.authUserId,
+              subjectId: candidate.subjectId,
+            }),
+          }
+        );
+        const result = (await response.json().catch(() => null)) as {
+          success?: boolean;
+          error?: string;
+        } | null;
+        if (!response.ok || result?.success !== true) {
+          throw new Error(result?.error ?? `License reverification failed with HTTP ${response.status}`);
+        }
+        const tierEvidenceResolved = await ctx.runQuery(
+          internal.migrations.isTierEvidenceResolvedForEntitlement,
+          { entitlementId: candidate.entitlementId }
+        );
+        if (!tierEvidenceResolved) {
+          throw new Error(
+            'License reverification succeeded but did not persist matching tier evidence'
+          );
+        }
+        reverified++;
+      } catch (error) {
+        failures.push({
+          entitlementId: candidate.entitlementId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    console.info('[role-sync-recovery] reverified license tier evidence', {
+      selected: batch.candidates.length,
+      reverified,
+      failed: failures.length,
+      isDone: batch.isDone,
+    });
+
+    return {
+      selected: batch.candidates.length,
+      reverified,
+      failures,
+      continueCursor: batch.continueCursor,
+      isDone: batch.isDone,
     };
   },
 });
@@ -2149,6 +2556,77 @@ export const redriveDeadLetterRoleSync = internalMutation({
       skipped,
       // This is a bounded page signal, not a full backlog count. Keep re-running until it is 0.
       remaining: Math.max(targets.length - processed - skipped, 0),
+    };
+  },
+});
+
+function isDiscordRateLimitDeadLetter(job: Doc<'outbox_jobs'>): boolean {
+  return Boolean(job.lastError && /\bRate limited(?:\s|\(|$)/i.test(job.lastError));
+}
+
+/**
+ * Re-drive only role jobs that exhausted their Workpool attempts on a
+ * transient Discord rate limit. Permanent membership, missing-role, and tier
+ * evidence failures remain dead-lettered for their owning recovery path.
+ */
+export const redriveRateLimitedRoleSync = internalMutation({
+  args: {
+    jobType: v.optional(v.union(v.literal('role_sync'), v.literal('role_removal'))),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    scanLimit: v.optional(v.number()),
+  },
+  returns: v.object({
+    scanned: v.number(),
+    matched: v.number(),
+    processed: v.number(),
+    skipped: v.number(),
+    continueCursor: v.string(),
+    isDone: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    if (process.env.ROLE_SYNC_VIA_WORKPOOL !== 'true') {
+      throw new Error('ROLE_SYNC_VIA_WORKPOOL must be enabled to redrive role sync jobs');
+    }
+
+    const scanLimit = Math.max(1, Math.min(args.scanLimit ?? 100, 500));
+    const jobType = args.jobType ?? 'role_sync';
+    const page = await ctx.db
+      .query('outbox_jobs')
+      .withIndex('by_status_job_type', (q) =>
+        q.eq('status', 'dead_letter').eq('jobType', jobType)
+      )
+      .paginate({ cursor: args.cursor ?? null, numItems: scanLimit });
+    const targets = page.page
+      .filter(isDiscordRateLimitDeadLetter)
+      .sort((a, b) => a.createdAt - b.createdAt);
+
+    let processed = 0;
+    let skipped = 0;
+    const now = Date.now();
+    for (const job of targets) {
+      const dispatch = await enqueueExistingRoleOutboxJobInWorkpool(ctx, job);
+      if (!dispatch.enqueued) {
+        skipped++;
+        continue;
+      }
+      await ctx.db.patch(job._id, {
+        status: 'pending',
+        retryCount: 0,
+        lastError: undefined,
+        nextRetryAt: undefined,
+        workpoolEnqueuedAt: now,
+        updatedAt: now,
+      });
+      processed++;
+    }
+
+    return {
+      scanned: page.page.length,
+      matched: targets.length,
+      processed,
+      skipped,
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
     };
   },
 });

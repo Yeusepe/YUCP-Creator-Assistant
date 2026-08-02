@@ -76,6 +76,9 @@ export const getPendingJobs = query({
               .withIndex('by_status_job_type_workpool', (q) =>
                 q.eq('status', 'pending').eq('jobType', jobType).eq('workpoolEnqueuedAt', undefined)
               )
+              .filter((q) =>
+                q.or(q.eq(q.field('nextRetryAt'), undefined), q.lte(q.field('nextRetryAt'), now))
+              )
               .take(limit))
           );
           continue;
@@ -87,6 +90,9 @@ export const getPendingJobs = query({
             .withIndex('by_status_job_type', (q) =>
               q.eq('status', 'pending').eq('jobType', jobType)
             )
+            .filter((q) =>
+              q.or(q.eq(q.field('nextRetryAt'), undefined), q.lte(q.field('nextRetryAt'), now))
+            )
             .take(limit))
         );
       }
@@ -97,15 +103,12 @@ export const getPendingJobs = query({
     const pendingJobs = await ctx.db
       .query('outbox_jobs')
       .withIndex('by_status', (q) => q.eq('status', 'pending'))
+      .filter((q) =>
+        q.or(q.eq(q.field('nextRetryAt'), undefined), q.lte(q.field('nextRetryAt'), now))
+      )
       .take(limit);
 
-    // Also get jobs ready for retry (in_progress with nextRetryAt in the past)
-    const retryJobs = await ctx.db
-      .query('outbox_jobs')
-      .withIndex('by_status_next_retry', (q) => q.eq('status', 'pending').lt('nextRetryAt', now))
-      .take(limit - pendingJobs.length);
-
-    return [...pendingJobs, ...retryJobs];
+    return pendingJobs.sort((a, b) => a.createdAt - b.createdAt);
   },
 });
 

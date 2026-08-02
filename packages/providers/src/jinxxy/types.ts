@@ -264,7 +264,16 @@ export interface JinxxyLicenseRaw {
     target_type?: string;
     grant_id?: string | null;
     grant_type?: string | null;
-    item?: { name: string };
+    item?: {
+      id?: string;
+      object?: string;
+      name: string;
+      version?: {
+        id: string;
+        object?: string;
+        name?: string;
+      };
+    };
     order?: { id: string; object?: string; payment_status?: string };
   };
   activations?: { total_count: number };

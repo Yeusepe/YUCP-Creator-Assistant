@@ -374,14 +374,23 @@ export class JinxxyApiClient {
   /**
    * Map raw Jinxxy API license (GET /licenses/{id}) to JinxxyLicense.
    * API returns inventory_item, user, activations - not flat product_id/status.
+   *
+   * Jinxxy documents the purchased product version at `inventory_item.item.version.id`
+   * independently from `inventory_item.target_version_id`:
+   * https://api.creators.jinxxy.com/v1/docs#tag/licenses/GET/licenses/{id}
+   * https://api.creators.jinxxy.com/v1/openapi.json
+   * Catalog tiers use product `versions[].id`, so the nested purchased version is
+   * the canonical identity and the target version remains a compatibility fallback.
    */
   private mapRawLicenseToLicense(raw: JinxxyLicenseRaw): JinxxyLicense {
     const inv = raw.inventory_item;
+    const productVersionId =
+      inv?.item?.version?.id?.trim() || inv?.target_version_id?.trim() || undefined;
     return {
       id: raw.id,
       key: raw.key,
       product_id: inv?.target_id ?? '',
-      product_version_id: inv?.target_version_id,
+      product_version_id: productVersionId,
       customer_id: raw.user?.id,
       status: 'active', // Jinxxy API has no status; existence implies valid (matches jinx-master)
       created_at: '',

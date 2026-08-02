@@ -496,7 +496,7 @@ describe('roleSyncActions.runRoleSync', () => {
     );
   });
 
-  it('skips tier-scoped sync when tier evidence does not match an active configured tier', async () => {
+  it('fails tier-scoped sync when provider evidence does not resolve to a catalog tier', async () => {
     const t = makeTestConvex();
     const { subjectId, entitlementId, outboxJobId, guildLinkId } = await seed(t);
     const fetchFn = mockFetch(204);
@@ -563,12 +563,12 @@ describe('roleSyncActions.runRoleSync', () => {
       discordUserId: DISCORD_USER,
     });
 
-    expect(result.success).toBe(true);
-    expect(result.skipped).toBe(true);
+    expect(result.success).toBe(false);
+    expect(result.skipped).toBeUndefined();
     expect(result.rolesAdded).toEqual([]);
-    expect(result.targetGuildIds).toEqual([]);
-    expect(result.error).toBe('No role rules configured for product');
-    expect(result.nonRetriable).toBeUndefined();
+    expect(result.targetGuildIds).toEqual([GUILD_ID]);
+    expect(result.error).toMatch(/did not match any active catalog tier/);
+    expect(result.nonRetriable).toBe(true);
     expect(fetchFn).not.toHaveBeenCalled();
   });
 

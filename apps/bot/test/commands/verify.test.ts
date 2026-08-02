@@ -15,11 +15,15 @@
 
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { ConvexHttpClient } from 'convex/browser';
-import type { ChatInputCommandInteraction } from 'discord.js';
-import { buildVerifyStatusReply, handleVerifySpawn } from '../../src/commands/verify';
+import type { ButtonInteraction, ChatInputCommandInteraction } from 'discord.js';
+import {
+  buildVerifyStatusReply,
+  handleVerifySpawn,
+  handleVerifyStartButton,
+} from '../../src/commands/verify';
 import { E } from '../../src/lib/emojis';
 import { buildVerifyPromptMessage, VERIFY_PROMPT_FOOTER_TEXT } from '../../src/lib/verifyPrompt';
-import { mockSlashCommand } from '../helpers/mockInteraction';
+import { mockButton, mockSlashCommand } from '../helpers/mockInteraction';
 
 // ─── Convex mock factory ──────────────────────────────────────────────────────
 
@@ -394,6 +398,61 @@ describe('buildVerifyStatusReply', () => {
 
     const text = JSON.stringify(reply.components[0].toJSON());
     expect(text).toContain('Use this command in a server');
+  });
+});
+
+describe('verify panel token binding transport', () => {
+  const originalFetch = globalThis.fetch;
+  const originalApiBaseUrl = process.env.API_BASE_URL;
+  const originalApiInternalUrl = process.env.API_INTERNAL_URL;
+  const originalInternalServiceAuthSecret = process.env.INTERNAL_SERVICE_AUTH_SECRET;
+
+  beforeEach(() => {
+    process.env.API_BASE_URL = 'https://api.example.com';
+    process.env.API_INTERNAL_URL = 'http://api.zeabur.internal:8080';
+    process.env.INTERNAL_SERVICE_AUTH_SECRET = 'test-internal-service-secret';
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (originalApiBaseUrl === undefined) delete process.env.API_BASE_URL;
+    else process.env.API_BASE_URL = originalApiBaseUrl;
+    if (originalApiInternalUrl === undefined) delete process.env.API_INTERNAL_URL;
+    else process.env.API_INTERNAL_URL = originalApiInternalUrl;
+    if (originalInternalServiceAuthSecret === undefined) {
+      delete process.env.INTERNAL_SERVICE_AUTH_SECRET;
+    } else {
+      process.env.INTERNAL_SERVICE_AUTH_SECRET = originalInternalServiceAuthSecret;
+    }
+  });
+
+  it('binds the panel through HTTPS when the configured private endpoint rejects the request', async () => {
+    const requestedUrls: string[] = [];
+    globalThis.fetch = mock(async (input: string | URL | Request) => {
+      const url = String(input);
+      requestedUrls.push(url);
+      return new Response(JSON.stringify({ success: url.startsWith('https://') }), {
+        headers: { 'content-type': 'application/json' },
+        status: url.startsWith('https://') ? 200 : 403,
+      });
+    }) as unknown as typeof fetch;
+
+    const interaction = mockButton({
+      customId: 'creator_verify:start',
+      guildId: 'guild-panel-bind',
+      userId: 'user-panel-bind',
+    });
+    const convex = makeConvex({ providers: ['jinxxy'] });
+
+    await handleVerifyStartButton(
+      interaction as unknown as ButtonInteraction,
+      convex,
+      'api-secret',
+      'https://api.example.com',
+      { authUserId: 'auth-panel-bind', guildId: 'guild-panel-bind' }
+    );
+
+    expect(requestedUrls).toEqual(['https://api.example.com/api/verification/panel/bind']);
   });
 });
 

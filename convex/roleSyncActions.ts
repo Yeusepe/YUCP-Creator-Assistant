@@ -36,6 +36,8 @@ const DISCORD_API_BASE = 'https://discord.com/api/v10';
 const DISCORD_FETCH_TIMEOUT_MS = 30_000;
 const TIER_EVIDENCE_MISSING_ERROR =
   'Tier evidence missing for tier-scoped role rules. Refresh entitlement evidence before syncing tier roles.';
+const TIER_EVIDENCE_UNRESOLVED_ERROR =
+  'Tier evidence did not match any active catalog tier. Refresh the provider catalog and entitlement evidence before syncing tier roles.';
 
 export interface RoleSyncActionResult {
   success: boolean;
@@ -396,7 +398,16 @@ export const runRoleSync = internalAction({
           }
           roleRules = roleRulesWithoutTierEvidence;
         } else {
-          roleRules = selectRoleRulesForActiveTiers(roleRules, activeCatalogTierIds);
+          return {
+            success: false,
+            guildId: tierScopedGuildIds[0] ?? '',
+            targetGuildIds: tierScopedGuildIds,
+            discordUserId,
+            rolesAdded: [],
+            rolesRemoved: [],
+            error: TIER_EVIDENCE_UNRESOLVED_ERROR,
+            nonRetriable: true,
+          };
         }
       } else {
         roleRules = selectRoleRulesForActiveTiers(roleRules, activeCatalogTierIds);
