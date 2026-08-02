@@ -95,16 +95,19 @@ export function BuyerProductAccessView({ access, search }: BuyerProductAccessVie
   const hasAccess = accessState.hasActiveEntitlement;
   const cameFromSignIn = search.from === 'signin';
 
-  // Signing in is only ever a step towards verifying, so an unentitled buyer
-  // returning from it goes straight on rather than landing on a second button.
+  // Better Auth's reactive session is the source of truth for whether this browser
+  // has an active signed-in session. A buyer returning from sign-in or arriving
+  // from the native broker can therefore proceed directly to the app-owned
+  // verification intent instead of stopping on a redundant handoff button.
+  // https://better-auth.com/docs/concepts/session-management#use-session
   const hasForwardedToVerification = useRef(false);
   const startAccess = startAccessMutation.mutate;
   useEffect(() => {
-    if (!cameFromSignIn || !isAuthenticated || hasAccess) return;
+    if ((!cameFromSignIn && !brokerReturnUrl) || !isAuthenticated || hasAccess) return;
     if (hasForwardedToVerification.current) return;
     hasForwardedToVerification.current = true;
     startAccess();
-  }, [cameFromSignIn, hasAccess, isAuthenticated, startAccess]);
+  }, [brokerReturnUrl, cameFromSignIn, hasAccess, isAuthenticated, startAccess]);
 
   if (isAuthPending) return <PageLoadingOverlay />;
 

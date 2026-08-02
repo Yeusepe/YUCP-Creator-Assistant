@@ -9,6 +9,7 @@ const useLoaderDataMock = vi.hoisted(() => vi.fn());
 const useSearchMock = vi.hoisted(() => vi.fn(() => ({ grant: undefined, intent_id: undefined })));
 const copyToClipboardMock = vi.hoisted(() => vi.fn());
 const clearProductAccessGrantFromUrlMock = vi.hoisted(() => vi.fn());
+const createBuyerProductAccessVerificationIntentMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: () => (options: unknown) => ({
@@ -30,7 +31,7 @@ vi.mock('@/lib/server/productAccess', () => ({
 vi.mock('@/lib/productAccess', () => ({
   buildProductAccessReturnPath: () => '/access/catalog%2Fproduct',
   clearProductAccessGrantFromUrl: clearProductAccessGrantFromUrlMock,
-  createBuyerProductAccessVerificationIntent: vi.fn(),
+  createBuyerProductAccessVerificationIntent: createBuyerProductAccessVerificationIntentMock,
 }));
 
 vi.mock('@/hooks/usePublicAuth', () => ({
@@ -75,6 +76,48 @@ describe('buyer product access route', () => {
     useSearchMock.mockReturnValue({ grant: undefined, intent_id: undefined });
     copyToClipboardMock.mockReset();
     clearProductAccessGrantFromUrlMock.mockReset();
+    createBuyerProductAccessVerificationIntentMock.mockReset();
+  });
+
+  it('starts purchase verification when Unity opens the page for an authenticated buyer', async () => {
+    const Component = BuyerProductAccessRoute.options.component;
+    if (!Component) throw new Error('Buyer product access route component is not defined');
+    const returnTo = 'http://127.0.0.1:64049/verified';
+    useSearchMock.mockReturnValue({
+      grant: undefined,
+      intent_id: undefined,
+      return_to: returnTo,
+    });
+    useLoaderDataMock.mockReturnValue({
+      product: {
+        catalogProductId: 'catalog/product',
+        displayName: 'Avatar Bundle',
+        canonicalSlug: null,
+        thumbnailUrl: null,
+        provider: 'gumroad',
+        providerLabel: 'Gumroad',
+        storefrontUrl: null,
+        storefronts: [
+          {
+            catalogProductId: 'catalog/product',
+            provider: 'gumroad',
+            providerLabel: 'Gumroad',
+            storefrontUrl: null,
+          },
+        ],
+      },
+      accessState: { hasActiveEntitlement: false, requiresVerification: true },
+    });
+    createBuyerProductAccessVerificationIntentMock.mockResolvedValue(null);
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(createBuyerProductAccessVerificationIntentMock).toHaveBeenCalledExactlyOnceWith(
+        'catalog/product',
+        { returnTo }
+      );
+    });
   });
 
   it('clears verification grants from the URL after reading the return state', async () => {
