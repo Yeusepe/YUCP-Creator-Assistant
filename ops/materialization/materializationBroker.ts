@@ -1151,82 +1151,96 @@ export class MaterializationBroker {
         sourceSha256: string;
       }>
     >`
-      WITH ranked_candidates AS (
+      -- Loose index scan over materialization_attribution_records_canonical_idx
+      -- (migration 0033): each recursive step is one index probe that lands on
+      -- the next distinct attribution_id at its canonical row (newest
+      -- created_at, job id tiebreak), so the walk costs one probe per distinct
+      -- candidate rather than one sort of every record - re-import duplication
+      -- does not slow it down. The cursor applies after the walk, over exactly
+      -- one row per attribution_id, so a page can never resurface an id.
+      WITH RECURSIVE canonical_seeds AS (
+        (
+          SELECT a.attribution_id, a.job_id, a.created_at
+          FROM materialization_attribution_records a
+          JOIN materialization_jobs j ON j.id = a.job_id
+            AND j.creator_id = ${creatorId}
+            AND j.product_id = ${productId}
+            AND j.state = 'SUCCEEDED'
+          ORDER BY a.attribution_id, a.created_at DESC, a.job_id DESC
+          LIMIT 1
+        )
+        UNION ALL
+        SELECT next_seed.attribution_id, next_seed.job_id, next_seed.created_at
+        FROM canonical_seeds seed
+        CROSS JOIN LATERAL (
+          SELECT a.attribution_id, a.job_id, a.created_at
+          FROM materialization_attribution_records a
+          JOIN materialization_jobs j ON j.id = a.job_id
+            AND j.creator_id = ${creatorId}
+            AND j.product_id = ${productId}
+            AND j.state = 'SUCCEEDED'
+          WHERE a.attribution_id > seed.attribution_id
+          ORDER BY a.attribution_id, a.created_at DESC, a.job_id DESC
+          LIMIT 1
+        ) next_seed
+      ),
+      canonical AS (
         SELECT
-          a.algorithm_version AS "algorithmVersion",
-          a.attribution_id AS "attributionId",
-          encode(a.attribution_token_hash, 'hex') AS "attributionTokenHash",
-          j.buyer_subject_pseudonym AS "buyerSubjectPseudonym",
-          a.capability_id AS "capabilityId",
-          floor(extract(epoch FROM a.created_at) * 1000)::bigint AS "createdAt",
-          j.creator_id AS "creatorId",
-          j.id AS "jobId",
-          -- Coupled (worker-lane) completions store a v3 receipt whose
-          -- rendition identity is honest NULLs (migration 0031); those jobs
-          -- derived their file keys with the v3 derivation. Container jobs
-          -- store the rendition object and derived with v2. The decoder must
-          -- re-derive with the same family, so the receipt shape rides along.
-          CASE
-            WHEN r.receipt_id IS NOT NULL AND r.object_sha256 IS NULL THEN 'v3'
-            ELSE 'v2'
-          END AS "keyDerivation",
-          a.key_epoch AS "keyEpoch",
-          j.lease_generation AS "leaseGeneration",
-          protected_file.value->>'materializerType' AS "materializerType",
-          a.normalized_path AS "normalizedPath",
-          a.output_format AS "outputFormat",
-          a.plugin_version AS "pluginVersion",
-          encode(j.protected_source_root, 'hex') AS "protectedSourceRoot",
-          encode(j.release_root, 'hex') AS "releaseRoot",
-          encode(a.source_sha256, 'hex') AS "sourceSha256",
-          row_number() OVER (
-            PARTITION BY a.attribution_id
-            ORDER BY a.created_at DESC, j.id DESC
-          ) AS canonical_rank
-        FROM materialization_attribution_records a
-        JOIN materialization_jobs j ON j.id = a.job_id
-        LEFT JOIN materialization_receipts r ON r.job_id = j.id
-        JOIN LATERAL jsonb_array_elements(j.protected_files) protected_file(value)
-          ON
-            protected_file.value->>'normalizedPath' = a.normalized_path
-            AND protected_file.value->>'sourceSha256' = encode(a.source_sha256, 'hex')
+          attribution_id,
+          job_id,
+          floor(extract(epoch FROM created_at) * 1000)::bigint AS created_ms
+        FROM canonical_seeds
+      ),
+      candidate_page AS (
+        SELECT attribution_id, job_id, created_ms
+        FROM canonical
         WHERE
-          j.creator_id = ${creatorId}
-          AND j.product_id = ${productId}
-          AND j.state = 'SUCCEEDED'
+          ${cursorCreatedAt}::bigint IS NULL
+          OR created_ms < ${cursorCreatedAt}
+          OR (
+            created_ms = ${cursorCreatedAt}
+            AND attribution_id > ${cursorAttributionId}
+          )
+        ORDER BY created_ms DESC, attribution_id
+        LIMIT ${candidateLimit + 1}
       )
       SELECT
-        "algorithmVersion",
-        "attributionId",
-        "attributionTokenHash",
-        "buyerSubjectPseudonym",
-        "capabilityId",
-        "createdAt",
-        "creatorId",
-        "jobId",
-        "keyDerivation",
-        "keyEpoch",
-        "leaseGeneration",
-        "materializerType",
-        "normalizedPath",
-        "outputFormat",
-        "pluginVersion",
-        "protectedSourceRoot",
-        "releaseRoot",
-        "sourceSha256"
-      FROM ranked_candidates
-      WHERE
-        canonical_rank = 1
-        AND (
-          ${cursorCreatedAt}::bigint IS NULL
-          OR "createdAt" < ${cursorCreatedAt}
-          OR (
-            "createdAt" = ${cursorCreatedAt}
-            AND "attributionId" > ${cursorAttributionId}
-          )
-        )
-      ORDER BY "createdAt" DESC, "attributionId"
-      LIMIT ${candidateLimit + 1}
+        a.algorithm_version AS "algorithmVersion",
+        a.attribution_id AS "attributionId",
+        encode(a.attribution_token_hash, 'hex') AS "attributionTokenHash",
+        j.buyer_subject_pseudonym AS "buyerSubjectPseudonym",
+        a.capability_id AS "capabilityId",
+        p.created_ms AS "createdAt",
+        j.creator_id AS "creatorId",
+        j.id AS "jobId",
+        -- Coupled (worker-lane) completions store a v3 receipt whose
+        -- rendition identity is honest NULLs (migration 0031); those jobs
+        -- derived their file keys with the v3 derivation. Container jobs
+        -- store the rendition object and derived with v2. The decoder must
+        -- re-derive with the same family, so the receipt shape rides along.
+        CASE
+          WHEN r.receipt_id IS NOT NULL AND r.object_sha256 IS NULL THEN 'v3'
+          ELSE 'v2'
+        END AS "keyDerivation",
+        a.key_epoch AS "keyEpoch",
+        j.lease_generation AS "leaseGeneration",
+        protected_file.value->>'materializerType' AS "materializerType",
+        a.normalized_path AS "normalizedPath",
+        a.output_format AS "outputFormat",
+        a.plugin_version AS "pluginVersion",
+        encode(j.protected_source_root, 'hex') AS "protectedSourceRoot",
+        encode(j.release_root, 'hex') AS "releaseRoot",
+        encode(a.source_sha256, 'hex') AS "sourceSha256"
+      FROM candidate_page p
+      JOIN materialization_attribution_records a
+        ON a.job_id = p.job_id AND a.attribution_id = p.attribution_id
+      JOIN materialization_jobs j ON j.id = a.job_id
+      LEFT JOIN materialization_receipts r ON r.job_id = j.id
+      JOIN LATERAL jsonb_array_elements(j.protected_files) protected_file(value)
+        ON
+          protected_file.value->>'normalizedPath' = a.normalized_path
+          AND protected_file.value->>'sourceSha256' = encode(a.source_sha256, 'hex')
+      ORDER BY p.created_ms DESC, p.attribution_id
     `;
     const truncated = rows.length > candidateLimit;
     const candidates = rows
