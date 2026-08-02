@@ -375,7 +375,7 @@ describe('dashboard packages route', () => {
       tusEndpoint: 'https://ingest.test/files',
       headers: { 'X-YUCP-Version-Id': 'version-2' },
       catalogProductId: 'catalog_product_1',
-      protectionPolicyId: 'supported-visual-assets-v2',
+      protectionPolicyId: 'supported-visual-assets-v3',
     });
     apiPutMock.mockResolvedValue({ editionId: 'supporter', saved: true });
   });
@@ -1026,7 +1026,7 @@ describe('dashboard packages route', () => {
       tusEndpoint: 'https://ingest.test/files',
       headers: { 'X-YUCP-Version-Id': 'version-authorized-before-tus' },
       catalogProductId: 'catalog_product_1',
-      protectionPolicyId: 'supported-visual-assets-v2',
+      protectionPolicyId: 'supported-visual-assets-v3',
     });
     const Component = DashboardPackagesRoute.options.component;
     if (!Component) throw new Error('Dashboard packages component is missing');
@@ -1073,7 +1073,7 @@ describe('dashboard packages route', () => {
       tusEndpoint: 'https://ingest.test/files',
       headers: { 'X-YUCP-Version-Id': 'version-conflict-preparing' },
       catalogProductId: 'catalog_product_1',
-      protectionPolicyId: 'supported-visual-assets-v2',
+      protectionPolicyId: 'supported-visual-assets-v3',
     });
     apiGetMock.mockImplementation((path: string) => {
       if (path === '/api/creator/packages') {
@@ -1149,7 +1149,7 @@ describe('dashboard packages route', () => {
       tusEndpoint: 'https://ingest.test/files',
       headers: { 'X-YUCP-Version-Id': 'version-processing' },
       catalogProductId: 'catalog_product_1',
-      protectionPolicyId: 'supported-visual-assets-v2',
+      protectionPolicyId: 'supported-visual-assets-v3',
     });
     apiGetMock.mockImplementation(
       (path: string, options?: { params?: { configured?: string } }) => {
@@ -1239,7 +1239,7 @@ describe('dashboard packages route', () => {
       tusEndpoint: 'https://ingest.test/files',
       headers: { 'X-YUCP-Version-Id': 'version-delayed-ready' },
       catalogProductId: 'catalog_product_1',
-      protectionPolicyId: 'supported-visual-assets-v2',
+      protectionPolicyId: 'supported-visual-assets-v3',
     });
     apiGetMock.mockImplementation((path: string) => {
       if (path === '/api/creator/packages') {
@@ -1316,7 +1316,7 @@ describe('dashboard packages route', () => {
       tusEndpoint: 'https://ingest.test/files',
       headers: { 'X-YUCP-Version-Id': 'version-remount-ready' },
       catalogProductId: 'catalog_product_1',
-      protectionPolicyId: 'supported-visual-assets-v2',
+      protectionPolicyId: 'supported-visual-assets-v3',
     });
     apiGetMock.mockImplementation((path: string) => {
       if (path === '/api/creator/packages') {
@@ -1387,7 +1387,7 @@ describe('dashboard packages route', () => {
       tusEndpoint: 'https://ingest.test/files',
       headers: { 'X-YUCP-Version-Id': 'version-transient-status' },
       catalogProductId: 'catalog_product_1',
-      protectionPolicyId: 'supported-visual-assets-v2',
+      protectionPolicyId: 'supported-visual-assets-v3',
     });
     apiGetMock.mockImplementation((path: string) => {
       if (path === '/api/creator/packages') {
@@ -1457,7 +1457,7 @@ describe('dashboard packages route', () => {
       tusEndpoint: 'https://ingest.test/files',
       headers: { 'X-YUCP-Version-Id': 'version-ready-refresh' },
       catalogProductId: 'catalog_product_1',
-      protectionPolicyId: 'supported-visual-assets-v2',
+      protectionPolicyId: 'supported-visual-assets-v3',
     });
     apiGetMock.mockImplementation((path: string) => {
       if (path === '/api/creator/packages') {
@@ -1527,7 +1527,7 @@ describe('dashboard packages route', () => {
       tusEndpoint: 'https://ingest.test/files',
       headers: { 'X-YUCP-Version-Id': 'version-failed' },
       catalogProductId: 'catalog_product_1',
-      protectionPolicyId: 'supported-visual-assets-v2',
+      protectionPolicyId: 'supported-visual-assets-v3',
     });
     apiGetMock.mockImplementation((path: string, options?: { params?: { packageId?: string } }) => {
       if (path === '/api/creator/packages') {
@@ -1598,7 +1598,7 @@ describe('dashboard packages route', () => {
       tusEndpoint: 'https://ingest.test/files',
       headers: { 'X-YUCP-Version-Id': 'version-recovering' },
       catalogProductId: 'catalog_product_1',
-      protectionPolicyId: 'supported-visual-assets-v2',
+      protectionPolicyId: 'supported-visual-assets-v3',
     });
     apiGetMock.mockImplementation((path: string) => {
       if (path === '/api/creator/packages') {

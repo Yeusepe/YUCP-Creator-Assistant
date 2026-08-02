@@ -1,15 +1,9 @@
-import { type CouplingJobFile, resolveJobCouplingLane } from '../storage-core/couplingLane';
-
 const DISPATCH_CLOCK_SKEW_SECONDS = 5 * 60;
 const DISPATCH_BATCH_LIMIT = 100;
 const HEX_SHA256 = /^[0-9a-f]{64}$/;
 
 export type MaterializationDispatchEntry = {
   cacheAffinityKey: string;
-  // Present when the source version's protected files are all worker-lane AND
-  // their aggregate codec cost fits the in-isolate budget; the materializer
-  // then couples in-isolate without a container.
-  couplingMode?: 'worker';
   jobId: string;
   lane: 'large' | 'maintenance';
   traceId: string;
@@ -181,38 +175,8 @@ export class PostgresMaterializationDispatchOutboxRepository
       if (rows.length === 0) {
         return [];
       }
-      // Pure worker-lane packages skip container allocation entirely: the mode is
-      // derived from the ingest-stamped coupling lanes on the source version, so a
-      // client can never influence it.
-      const laneRows = await transaction<
-        Array<{
-          jobId: string;
-          protectedFiles: CouplingJobFile[] | null;
-        }>
-      >`
-        SELECT
-          j.id AS "jobId",
-          v.protected_files AS "protectedFiles"
-        FROM materialization_jobs j
-        JOIN package_versions v ON v.id = j.source_version_id
-        WHERE j.id IN ${transaction(rows.map((row) => row.jobId))}
-      `;
-      // Workers only: a job routes to the worker lane whenever every file is
-      // individually worker-eligible, regardless of job size. The container
-      // lane is not a routing target; it remains only as the legacy path for
-      // files that cannot run in an isolate at all.
-      const workerLaneJobs = new Set(
-        laneRows
-          .filter(
-            (row) =>
-              Array.isArray(row.protectedFiles) &&
-              resolveJobCouplingLane(row.protectedFiles) === 'worker'
-          )
-          .map((row) => row.jobId)
-      );
       return rows.map((row) => ({
         cacheAffinityKey: Buffer.from(row.cacheAffinityKey).toString('hex'),
-        ...(workerLaneJobs.has(row.jobId) ? { couplingMode: 'worker' as const } : {}),
         jobId: row.jobId,
         lane: row.lane,
         traceId: row.traceId,
@@ -303,7 +267,6 @@ export class CloudflareMaterializationDispatcher {
       JSON.stringify({
         jobs: entries.map((entry) => ({
           cacheAffinityKey: entry.cacheAffinityKey,
-          ...(entry.couplingMode ? { couplingMode: entry.couplingMode } : {}),
           jobId: entry.jobId,
           lane: entry.lane,
           traceId: entry.traceId,

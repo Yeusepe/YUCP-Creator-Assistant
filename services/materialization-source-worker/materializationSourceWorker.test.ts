@@ -135,8 +135,12 @@ function protectedManifest(
         },
       ],
       classification: 'protected' as const,
-      materializerType: 'png-dct-qim-v2',
-      normalizedPath: 'Assets/package.png',
+      couplingPlan: {
+        peakDynamicBytes: Math.ceil((chunkBytes.byteLength * 22) / 10) + 4 * 1024 * 1024,
+        strategy: 'fbx-v1' as const,
+      },
+      materializerType: 'fbx',
+      normalizedPath: 'Assets/package.fbx',
       sha256: chunkSha256,
     },
   ];
@@ -158,7 +162,7 @@ function protectedManifest(
     protectionPolicyDigest: '55'.repeat(32),
     protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
     releaseRoot: identity.releaseRoot,
-    schemaVersion: 4,
+    schemaVersion: 5,
     storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
     version: '1.0.0',
     versionId,
@@ -345,7 +349,7 @@ describe('materialization source Worker', () => {
     });
     const invalidBody = JSON.stringify({
       privateMarker,
-      schemaVersion: 4,
+      schemaVersion: 5,
     });
     const env = await testEnv({
       common: bucketStub(() => undefined),

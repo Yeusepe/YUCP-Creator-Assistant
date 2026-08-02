@@ -60,6 +60,7 @@ import type * as lib_externalAccountIdentity from "../lib/externalAccountIdentit
 import type * as lib_hkdfAesGcm from "../lib/hkdfAesGcm.js";
 import type * as lib_httpRateLimit from "../lib/httpRateLimit.js";
 import type * as lib_licenseSubjectLink from "../lib/licenseSubjectLink.js";
+import type * as lib_lightAuthIdentity from "../lib/lightAuthIdentity.js";
 import type * as lib_logger from "../lib/logger.js";
 import type * as lib_ownership from "../lib/ownership.js";
 import type * as lib_piiCrypto from "../lib/piiCrypto.js";
@@ -193,6 +194,7 @@ declare const fullApi: ApiFromModules<{
   "lib/hkdfAesGcm": typeof lib_hkdfAesGcm;
   "lib/httpRateLimit": typeof lib_httpRateLimit;
   "lib/licenseSubjectLink": typeof lib_licenseSubjectLink;
+  "lib/lightAuthIdentity": typeof lib_lightAuthIdentity;
   "lib/logger": typeof lib_logger;
   "lib/ownership": typeof lib_ownership;
   "lib/piiCrypto": typeof lib_piiCrypto;

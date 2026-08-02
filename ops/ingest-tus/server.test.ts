@@ -254,7 +254,7 @@ describe('ingest-tus production runtime', () => {
         expiresAt: Date.now() + 60_000,
         key,
         packageId: 'com.yucp.runtime-test',
-        protectionPolicyId: 'supported-visual-assets-v2',
+        protectionPolicyId: 'supported-visual-assets-v3',
         version: '1.0.0',
         versionId,
       });

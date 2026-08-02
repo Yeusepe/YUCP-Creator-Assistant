@@ -51,7 +51,7 @@ describe('upload telemetry', () => {
       sig: 'secret',
       tusEndpoint: 'https://ingest.test/files',
       headers: {},
-      protectionPolicyId: 'supported-visual-assets-v2',
+      protectionPolicyId: 'supported-visual-assets-v3',
     });
     findPreviousUploadsMock.mockResolvedValue([]);
     startSpanMock.mockReturnValue({ end: spanEndMock, fail: spanFailMock });
@@ -74,7 +74,7 @@ describe('upload telemetry', () => {
     });
     expect(uploadOptionsMock.mock.calls[0]?.[0]).toMatchObject({
       metadata: {
-        protectionPolicyId: 'supported-visual-assets-v2',
+        protectionPolicyId: 'supported-visual-assets-v3',
       },
     });
   });

@@ -362,7 +362,7 @@ describe.serial('PostgreSQL catalog integration', () => {
   it('refuses to collect a version whose key another verified version now holds', async () => {
     const database = requireSql();
     const gc = new StorageGcCatalog(database);
-    const objectKey = `indexes/${randomUUID()}.logical-tree-v4.json`;
+    const objectKey = `indexes/${randomUUID()}.logical-tree-v5.json`;
     const superseded = randomUUID();
     const live = randomUUID();
 

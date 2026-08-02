@@ -85,6 +85,11 @@ export type BandedPng = {
   bandRange: { length: number; offset: number };
   /** Running adler32 of the filtered prefix, and of the filtered suffix. */
   prefixAdler: number;
+  /** CRC32 of `IDAT` plus the immutable payload prefix. */
+  idatPrefixCrc32: number;
+  /** CRC32 of the immutable payload suffix, excluding the zlib Adler trailer. */
+  idatSuffixCrc32: number;
+  idatSuffixLength: number;
   suffixAdler: number;
   suffixFilteredLength: number;
 };
@@ -495,7 +500,11 @@ export function planBand(
   }
   const needed = Math.ceil(options.blocks / blocksPerRow);
   const fractional = Math.ceil(Math.floor(header.height / 8) * options.minFraction);
-  const budget = Math.floor(PLAN_BAND_MAX_RASTER_BYTES / (header.width * 4) / 8);
+  // Both the source-native raster and the RGBA codec raster must fit. A 16-bit
+  // RGB row is wider than its RGBA8 expansion, so an RGBA-only cap still lets
+  // the native band exceed the isolate plan.
+  const widestRow = Math.max(header.rowBytes, header.width * 4);
+  const budget = Math.floor(PLAN_BAND_MAX_RASTER_BYTES / widestRow / 8);
   const rows = Math.max(needed, Math.min(fractional, budget), 1) * 8;
   if (rows >= header.height || rows * header.width * 4 > PLAN_BAND_MAX_RASTER_BYTES) {
     return null;
@@ -731,6 +740,18 @@ export async function normalizePngForBanding(input: {
     ...segments[2],
     writeUint32(totalAdler),
   ];
+  const idatType = Uint8Array.from('IDAT', (character) => character.charCodeAt(0));
+  let idatPrefixCrc32 = crc32(idatType);
+  idatPrefixCrc32 = crc32(idatParts[0] as Uint8Array, idatPrefixCrc32);
+  for (const part of segments[0]) {
+    idatPrefixCrc32 = crc32(part, idatPrefixCrc32);
+  }
+  let idatSuffixCrc32 = 0;
+  let idatSuffixLength = 0;
+  for (const part of segments[2]) {
+    idatSuffixCrc32 = crc32(part, idatSuffixCrc32);
+    idatSuffixLength += part.byteLength;
+  }
   let idatLength = 0;
   for (const part of idatParts) {
     idatLength += part.byteLength;
@@ -759,6 +780,9 @@ export async function normalizePngForBanding(input: {
     band,
     bandRange: { length: bandLength, offset: 2 + prefixLength },
     base,
+    idatPrefixCrc32,
+    idatSuffixCrc32,
+    idatSuffixLength,
     prefixAdler,
     suffixAdler,
     suffixFilteredLength,

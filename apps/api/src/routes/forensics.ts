@@ -1237,11 +1237,11 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
       // standing without a name on it: the creator still earned the match.
       const identities = await withRevealBudget(
         resolveMatchedBuyerIdentities({
-        attributionIds: [...matchedAttributionIds],
-        config,
-        convex,
-        durableCandidatesById,
-        packageId,
+          attributionIds: [...matchedAttributionIds],
+          config,
+          convex,
+          durableCandidatesById,
+          packageId,
           ...(traceparent ? { traceparent } : {}),
           viewerAuthUserId: viewer.authUserId,
         }),
@@ -1299,9 +1299,7 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
       // key-only buyers look distinct and one buyer with both look single, and
       // it put a decrypted key on the metric path.
       const revealedBuyerCount = new Set(
-        [...identities.values()].flatMap((identity) =>
-          identity.buyerId ? [identity.buyerId] : []
-        )
+        [...identities.values()].flatMap((identity) => (identity.buyerId ? [identity.buyerId] : []))
       ).size;
       logger.info('Coupling attribution buyers revealed', {
         matchedAttributions: matchedAttributionIds.size,

@@ -17,20 +17,17 @@ import {
   mapBoundedOrdered,
 } from '../storage-core/boundedOrderedBatch';
 import {
-  type CouplingLane,
-  type CouplingLaneLimits,
-  PNG_HEADER_BYTES,
-  readPngCouplingMetadata,
-  readZipCouplingMetadata,
-  resolveCouplingLane,
-  ZIP_TRAILER_BYTES,
-} from '../storage-core/couplingLane';
+  type CouplingPlan,
+  createFbxCouplingPlan,
+  createPngBandCouplingPlan,
+  createPngWholeCouplingPlan,
+  readPngGeometry,
+} from '../storage-core/couplingPlan';
 import {
   createDeliveryManifest,
   DESYNC_CHUNK_AVG_KIB,
   DESYNC_STORAGE_FORMAT_VERSION,
   type DeliveryManifest,
-  type DeliveryManifestBand,
   deliveryAssemblyObjectId,
   deliveryManifestObjectId,
   parseDeliveryManifest,
@@ -150,23 +147,10 @@ export function protectedMaterializationFiles(input: {
         throw new Error(`Protected file ${file.normalizedPath} has no materializer type`);
       }
       return {
-        // Where publish put the replaceable band, so the materializer can
-        // splice it instead of re-encoding the image. Absent means couple whole.
-        ...(file.band ? { band: file.band } : {}),
-        // The coupling lane rides along so dispatch can route pure worker-lane
-        // packages straight to worker coupling; it never enters the capability
-        // contract (restoreProtectedFiles picks its fields explicitly).
-        ...(file.couplingLane ? { couplingLane: file.couplingLane } : {}),
+        couplingPlan: file.couplingPlan,
         materializerType: file.materializerType,
         normalizedPath: file.normalizedPath,
-        // Dimensions ride along for the same reason: the per-file lane only
-        // proves one image fits the isolate's memory, while dispatch has to
-        // bound the whole job's codec cost, and that cost tracks pixels rather
-        // than bytes. Without these, resolveJobCouplingLane can only fall back
-        // to the file-count bound.
-        ...(file.pixelHeight !== undefined ? { pixelHeight: file.pixelHeight } : {}),
-        ...(file.pixelWidth !== undefined ? { pixelWidth: file.pixelWidth } : {}),
-        required: false,
+        required: true,
         sourceSha256: file.sha256,
       };
     });
@@ -177,19 +161,6 @@ async function readFileHeader(path: string, length: number): Promise<Uint8Array>
   try {
     const buffer = Buffer.alloc(length);
     const { bytesRead } = await handle.read(buffer, 0, length, 0);
-    return buffer.subarray(0, bytesRead);
-  } finally {
-    await handle.close();
-  }
-}
-
-async function readFileTail(path: string, length: number): Promise<Uint8Array> {
-  const handle = await open(path, 'r');
-  try {
-    const { size } = await handle.stat();
-    const want = Math.min(length, size);
-    const buffer = Buffer.alloc(want);
-    const { bytesRead } = await handle.read(buffer, 0, want, Math.max(0, size - want));
     return buffer.subarray(0, bytesRead);
   } finally {
     await handle.close();
@@ -252,87 +223,111 @@ const BAND_DEFLATE_LEVEL = 6;
 export async function bandProtectedPngs<T extends ClassifiedPackageFile>(
   files: readonly T[],
   signal?: AbortSignal
-): Promise<Array<T & { band?: DeliveryManifestBand }>> {
+): Promise<Array<T & { couplingPlan?: CouplingPlan }>> {
   const passStartedAt = Date.now();
-  const results: Array<T & { band?: DeliveryManifestBand }> = await mapBoundedOrdered(
+  const results: Array<T & { couplingPlan?: CouplingPlan }> = await mapBoundedOrdered(
     files,
     async (file) => {
       signal?.throwIfAborted();
-      if (file.classification !== 'protected' || file.materializerType !== 'png') {
+      if (file.classification !== 'protected') {
         return file;
+      }
+      if (file.materializerType === 'fbx') {
+        return { ...file, couplingPlan: createFbxCouplingPlan(file.bytes) };
+      }
+      if (file.materializerType !== 'png') {
+        throw new Error(
+          `Protected materializer type ${file.materializerType ?? 'missing'} is unsupported by v5`
+        );
       }
       const startedAt = Date.now();
       const png = new Uint8Array(await readFile(file.path));
-      let banded: BandedPng;
-      let placement: BandPlacement;
-      let pixels = { height: 0, width: 0 };
-      const skip = (reason: string): T => {
-        // console.info, not console.log: the log shipper only forwards
-        // info and above, which is why this pass was invisible in HyperDX
-        // while it was running.
-        console.info(
-          JSON.stringify({
-            bytes: file.bytes,
-            event: 'ingest_pipeline.band_skipped',
-            ms: Date.now() - startedAt,
-            reason,
-          })
-        );
-        return file;
-      };
+      const geometry = readPngGeometry(png);
+      if (!geometry) {
+        throw new Error('Protected PNG has unsupported or malformed geometry');
+      }
+      let banded: BandedPng | null = null;
+      let placement: BandPlacement | null = null;
+      let bandFailure: string | null = null;
       try {
         const { header } = parsePng(png);
-        pixels = { height: header.height, width: header.width };
         const planned = planBand(header, {
           blocks: BAND_BLOCKS,
           minFraction: BAND_MIN_FRACTION,
         });
         if (!planned) {
-          return skip('band would cover the whole image');
+          bandFailure = 'band would cover the whole image';
+        } else {
+          placement = placeBand(header, planned, Buffer.from(file.sha256, 'hex'));
+          banded = await normalizePngForBanding({
+            band: placement,
+            level: BAND_DEFLATE_LEVEL,
+            png,
+          });
         }
-        placement = placeBand(header, planned, Buffer.from(file.sha256, 'hex'));
-        banded = await normalizePngForBanding({
-          band: placement,
-          level: BAND_DEFLATE_LEVEL,
-          png,
-        });
       } catch (error) {
-        if (error instanceof PngBandError) {
-          return skip(error.message);
+        if (!(error instanceof PngBandError)) {
+          throw error;
         }
-        throw error;
+        bandFailure = error.message;
+      }
+      if (!banded || !placement) {
+        const couplingPlan = createPngWholeCouplingPlan({
+          ...geometry,
+          fileBytes: file.bytes,
+        });
+        console.info(
+          JSON.stringify({
+            bytes: file.bytes,
+            couplingStrategy: couplingPlan.strategy,
+            event: 'ingest_pipeline.coupling_planned',
+            ms: Date.now() - startedAt,
+            peakDynamicBytes: couplingPlan.peakDynamicBytes,
+            reason: bandFailure,
+          })
+        );
+        return { ...file, couplingPlan };
       }
       await writeFile(file.path, banded.base);
+      const band = {
+        idatPrefixCrc32: banded.idatPrefixCrc32,
+        idatSuffixCrc32: banded.idatSuffixCrc32,
+        idatSuffixLength: banded.idatSuffixLength,
+        length: banded.bandRange.length,
+        offset: banded.bandRange.offset,
+        prefixAdler: banded.prefixAdler,
+        rows: placement.rows,
+        suffixAdler: banded.suffixAdler,
+        suffixFilteredLength: banded.suffixFilteredLength,
+        y0: placement.y0,
+      };
+      const couplingPlan = createPngBandCouplingPlan({
+        ...geometry,
+        band,
+        fileBytes: banded.base.byteLength,
+      });
       console.info(
         JSON.stringify({
           bandRows: placement.rows,
           bandY0: placement.y0,
           bytesAfter: banded.base.byteLength,
           bytesBefore: file.bytes,
-          event: 'ingest_pipeline.banded',
+          couplingStrategy: couplingPlan.strategy,
+          event: 'ingest_pipeline.coupling_planned',
           ms: Date.now() - startedAt,
-          pixelHeight: pixels.height,
-          pixelWidth: pixels.width,
+          peakDynamicBytes: couplingPlan.peakDynamicBytes,
         })
       );
       return {
         ...file,
-        band: {
-          length: banded.bandRange.length,
-          offset: banded.bandRange.offset,
-          prefixAdler: banded.prefixAdler,
-          rows: placement.rows,
-          suffixAdler: banded.suffixAdler,
-          suffixFilteredLength: banded.suffixFilteredLength,
-          y0: placement.y0,
-        },
         bytes: banded.base.byteLength,
+        couplingPlan,
         sha256: createHash('sha256').update(banded.base).digest('hex'),
       };
     },
     BAND_CONCURRENCY
   );
-  const banded = results.filter((file) => file.band).length;
+  const banded = results.filter((file) => file.couplingPlan?.strategy === 'png-band-v1').length;
   const eligible = files.filter(
     (file) => file.classification === 'protected' && file.materializerType === 'png'
   ).length;
@@ -346,47 +341,6 @@ export async function bandProtectedPngs<T extends ClassifiedPackageFile>(
     })
   );
   return results;
-}
-
-export async function resolveProtectedFileCoupling(
-  input: {
-    bytes: number;
-    materializerType: string;
-    path: string;
-  },
-  limits?: CouplingLaneLimits
-): Promise<{ couplingLane: CouplingLane; pixelHeight?: number; pixelWidth?: number }> {
-  const pngMetadata =
-    input.materializerType === 'png'
-      ? readPngCouplingMetadata(await readFileHeader(input.path, PNG_HEADER_BYTES))
-      : null;
-  // A ZIP's own size says nothing about how far it expands, so the lane comes
-  // from the central directory in its tail rather than from its byte count.
-  const zipMetadata =
-    input.materializerType === 'zip'
-      ? readZipCouplingMetadata(await readFileTail(input.path, ZIP_TRAILER_BYTES))
-      : null;
-  const couplingLane = resolveCouplingLane(
-    {
-      bytes: input.bytes,
-      materializerType: input.materializerType,
-      ...(pngMetadata
-        ? {
-            pngHeight: pngMetadata.height,
-            pngStreamingSupported: pngMetadata.streamingSupported,
-            pngWidth: pngMetadata.width,
-          }
-        : {}),
-      ...(zipMetadata
-        ? { zipEntries: zipMetadata.entries, zipTotalBytes: zipMetadata.totalBytes }
-        : {}),
-    },
-    limits
-  );
-  return {
-    couplingLane,
-    ...(pngMetadata ? { pixelHeight: pngMetadata.height, pixelWidth: pngMetadata.width } : {}),
-  };
 }
 
 type ResolvedAssemblyStorage = {
@@ -695,7 +649,7 @@ async function prepareLogicalAssembly(
         if (!classifiablePath(file.normalizedPath).endsWith('.png')) {
           return file;
         }
-        const metadata = readPngCouplingMetadata(await readFileHeader(file.path, PNG_HEADER_BYTES));
+        const metadata = readPngGeometry(await readFileHeader(file.path, 29));
         return metadata
           ? { ...file, pixelHeight: metadata.height, pixelWidth: metadata.width }
           : file;
@@ -756,32 +710,32 @@ async function prepareLogicalAssembly(
   // the manifest files[] order is identical to the sequential implementation.
   const files = await mapBoundedOrdered(
     classifiedFiles,
-    async (file) => {
+    async (file): Promise<DeliveryManifest['files'][number]> => {
       signal?.throwIfAborted();
+      const stored = await storeLogicalFile({
+        bytes: file.bytes,
+        domain:
+          file.classification === 'protected'
+            ? `protected:creator:${creatorDomain}:v2`
+            : 'common:global:v2',
+        path: file.path,
+        // The normalizer hashed every logical file while copying it into the tree.
+        precomputedSha256: true,
+        sha256: file.sha256,
+        store: file.classification === 'protected' ? input.protectedStore : input.commonStore,
+        ownerId: input.version.id,
+      });
+      if (file.classification === 'common') {
+        return { ...stored, classification: 'common', normalizedPath: file.normalizedPath };
+      }
+      if (!file.couplingPlan || !file.materializerType) {
+        throw new Error(`Protected file ${file.normalizedPath} has no v5 coupling plan`);
+      }
       return {
-        ...(await storeLogicalFile({
-          bytes: file.bytes,
-          domain:
-            file.classification === 'protected'
-              ? `protected:creator:${creatorDomain}:v2`
-              : 'common:global:v2',
-          path: file.path,
-          // The normalizer hashed every logical file while copying it into the tree.
-          precomputedSha256: true,
-          sha256: file.sha256,
-          store: file.classification === 'protected' ? input.protectedStore : input.commonStore,
-          ownerId: input.version.id,
-        })),
-        ...(file.band ? { band: file.band } : {}),
-        classification: file.classification,
-        ...(file.classification === 'protected' && file.materializerType
-          ? await resolveProtectedFileCoupling({
-              bytes: file.bytes,
-              materializerType: file.materializerType,
-              path: file.path,
-            })
-          : {}),
-        ...(file.materializerType ? { materializerType: file.materializerType } : {}),
+        ...stored,
+        classification: 'protected',
+        couplingPlan: file.couplingPlan,
+        materializerType: file.materializerType,
         normalizedPath: file.normalizedPath,
       };
     },
@@ -800,7 +754,7 @@ async function prepareLogicalAssembly(
     protectionPolicyDigest: classified.digest,
     protectionPolicyId: classified.id,
     releaseRoot: release.releaseRoot,
-    schemaVersion: 4,
+    schemaVersion: 5,
     storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
     version: input.version.version,
     versionId: input.version.id,

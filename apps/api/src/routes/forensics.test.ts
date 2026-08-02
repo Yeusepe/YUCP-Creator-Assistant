@@ -825,7 +825,11 @@ describe('forensics lookup jobs', () => {
     for (let attempt = 0; attempt < 200; attempt++) {
       const response = await routes.getLookupJob(pollRequest(jobId), jobId);
       expect(response.status).toBe(200);
-      const body = (await response.json()) as { state: string; httpStatus: number; result: unknown };
+      const body = (await response.json()) as {
+        state: string;
+        httpStatus: number;
+        result: unknown;
+      };
       if (body.state === 'done') {
         return body;
       }

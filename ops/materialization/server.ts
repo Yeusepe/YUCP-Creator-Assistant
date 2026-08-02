@@ -514,10 +514,7 @@ export function createMaterializationControlPlaneHandler(
       ATTRIBUTION_CANDIDATES_PATH,
       publicRouteUrl(config.publicBaseUrl, ATTRIBUTION_CANDIDATES_PATH),
     ],
-    [
-      ATTRIBUTION_SUBJECTS_PATH,
-      publicRouteUrl(config.publicBaseUrl, ATTRIBUTION_SUBJECTS_PATH),
-    ],
+    [ATTRIBUTION_SUBJECTS_PATH, publicRouteUrl(config.publicBaseUrl, ATTRIBUTION_SUBJECTS_PATH)],
   ]);
   const apiPaths = new Set([
     ATTRIBUTION_CANDIDATES_PATH,
@@ -552,19 +549,19 @@ export function createMaterializationControlPlaneHandler(
           ? 'materialization.attribution.candidates'
           : url.pathname === ATTRIBUTION_SUBJECTS_PATH
             ? 'materialization.attribution.subjects'
-          : url.pathname === CLAIM_JOB_PATH
-            ? 'materialization.job.claim'
-            : url.pathname === RENEW_JOB_PATH
-              ? 'materialization.job.renew'
-              : url.pathname === PROGRESS_JOB_PATH
-                ? 'materialization.job.progress'
-                : url.pathname === STATUS_JOB_PATH
-                  ? 'materialization.job.status'
-                  : url.pathname === FAIL_JOB_PATH
-                    ? 'materialization.job.fail'
-                    : url.pathname === COMPLETE_PATH
-                      ? 'materialization.rendition.complete'
-                      : 'materialization.capability.consume';
+            : url.pathname === CLAIM_JOB_PATH
+              ? 'materialization.job.claim'
+              : url.pathname === RENEW_JOB_PATH
+                ? 'materialization.job.renew'
+                : url.pathname === PROGRESS_JOB_PATH
+                  ? 'materialization.job.progress'
+                  : url.pathname === STATUS_JOB_PATH
+                    ? 'materialization.job.status'
+                    : url.pathname === FAIL_JOB_PATH
+                      ? 'materialization.job.fail'
+                      : url.pathname === COMPLETE_PATH
+                        ? 'materialization.rendition.complete'
+                        : 'materialization.capability.consume';
     const emit = (status: 'accepted' | 'rejected', errorCode?: string, failureReason?: string) => {
       config.onEvent?.({
         durationMs: performance.now() - startedAt,

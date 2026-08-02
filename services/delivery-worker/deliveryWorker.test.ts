@@ -150,7 +150,7 @@ function commonManifest(
     protectionPolicyDigest: '55'.repeat(32),
     protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
     releaseRoot: identity.releaseRoot,
-    schemaVersion: 4,
+    schemaVersion: 5,
     storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
     version: '1.0.0',
     versionId,

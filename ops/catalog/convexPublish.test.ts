@@ -203,7 +203,7 @@ describe('createConvexCatalogPublish', () => {
         ],
         protectedSourceRoot: '66'.repeat(32),
         protectionPolicyDigest: '77'.repeat(32),
-        protectionPolicyId: 'supported-visual-assets-v2',
+        protectionPolicyId: 'supported-visual-assets-v3',
         previousState: 'PROMOTING',
         releaseRoot: '88'.repeat(32),
         state: 'READY',

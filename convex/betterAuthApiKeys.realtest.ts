@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { api } from './_generated/api';
-import betterAuthSchema from './betterAuth/schema';
 import { makeTestConvex } from './testHelpers';
 
 const API_SECRET = 'test-secret';
@@ -52,7 +51,6 @@ describe('betterAuthApiKeys', () => {
 
   it('creates managed public API keys with the Better Auth owner stored in referenceId', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
-    t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
     const ownerAuthUserId = await seedBetterAuthUser(t);
 
     const result = await t.mutation(api.betterAuthApiKeys.createApiKey, {
@@ -94,7 +92,6 @@ describe('betterAuthApiKeys', () => {
 
   it('stores the public tenant authUserId as the reference owner', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
-    t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
     const tenantAuthUserId = await seedBetterAuthUser(t, {
       name: 'Public Tenant',
       email: 'public-tenant@example.com',
@@ -138,7 +135,6 @@ describe('betterAuthApiKeys', () => {
 
   it('rejects a managed public API key when metadata names a different owner', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
-    t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
     const attackerAuthUserId = await seedBetterAuthUser(t, {
       name: 'Attacker',
       email: 'attacker@example.com',
@@ -182,7 +178,6 @@ describe('betterAuthApiKeys', () => {
 
   it('rejects managed public API keys whose reference owner differs from metadata', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
-    t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
     const sessionOwnerUserId = await seedBetterAuthUser(t, {
       name: 'Different Reference Owner',
       email: 'different-reference-owner@example.com',

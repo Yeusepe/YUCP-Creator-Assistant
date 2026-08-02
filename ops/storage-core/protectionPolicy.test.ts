@@ -19,10 +19,10 @@ describe('protection policy materialization semantics', () => {
     );
   });
 
-  it('uses best-effort server materialization for the active policy', () => {
+  it('requires server materialization for the active policy', () => {
     expect(protectionMaterializationPolicy(ACTIVE_PROTECTION_POLICY_ID)).toEqual({
       minimumCoupledFiles: 1,
-      protectedFileRequirement: 'best-effort',
+      protectedFileRequirement: 'required',
     });
   });
 

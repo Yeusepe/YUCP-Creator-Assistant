@@ -36,7 +36,7 @@ export type ProtectionPolicySnapshot = {
 
 export type ProtectionMaterializationPolicy = {
   minimumCoupledFiles: number;
-  protectedFileRequirement: 'best-effort';
+  protectedFileRequirement: 'required';
 };
 
 const classificationRules: ReadonlyArray<{
@@ -65,7 +65,7 @@ export function classifiablePath(normalizedPath: string): string {
 
 const materializationPolicy: ProtectionMaterializationPolicy = {
   minimumCoupledFiles: 1,
-  protectedFileRequirement: 'best-effort',
+  protectedFileRequirement: 'required',
 };
 
 export function protectionMaterializationPolicy(policyId: string): ProtectionMaterializationPolicy {

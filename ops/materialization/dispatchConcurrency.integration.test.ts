@@ -326,7 +326,7 @@ describe.serial('materialization dispatch concurrency', () => {
     for (const entry of [...first, ...second]) {
       expect(entry.cacheAffinityKey).toMatch(/^[0-9a-f]{64}$/);
       expect(['large', 'maintenance']).toContain(entry.lane);
-      expect(entry.couplingMode).toBeUndefined();
+      expect('couplingMode' in entry).toBeFalse();
     }
     // All 15 rows are now DISPATCHING - claimed exactly once.
     const rows = await outboxRows();

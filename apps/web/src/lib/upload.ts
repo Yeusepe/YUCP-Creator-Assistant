@@ -11,7 +11,7 @@ export interface UploadAuthorization {
   tusEndpoint: string;
   headers: Record<string, string>;
   catalogProductId?: string;
-  protectionPolicyId: 'supported-visual-assets-v2';
+  protectionPolicyId: 'supported-visual-assets-v3';
 }
 
 function getTusResponseStatus(error: Error): number | undefined {

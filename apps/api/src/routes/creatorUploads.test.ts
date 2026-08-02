@@ -490,7 +490,7 @@ describe('creator upload authorization', () => {
       'x-yucp-upload-edition-id': 'standard',
       'x-yucp-upload-exp': body.exp,
       'x-yucp-upload-package-id': 'com.yucp.avatar',
-      'x-yucp-upload-protection-policy-id': 'supported-visual-assets-v2',
+      'x-yucp-upload-protection-policy-id': 'supported-visual-assets-v3',
       'x-yucp-upload-sig': body.sig,
       'x-yucp-upload-version': '1.2.3',
       'x-yucp-upload-version-id': body.versionId,
@@ -513,7 +513,7 @@ describe('creator upload authorization', () => {
           editionId: 'standard',
           exp: body.exp,
           packageId: 'com.yucp.avatar',
-          protectionPolicyId: 'supported-visual-assets-v2',
+          protectionPolicyId: 'supported-visual-assets-v3',
           sig: body.sig,
           version: '1.2.3',
           versionId: body.versionId,
@@ -826,7 +826,7 @@ describe('creator upload authorization', () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      protectionPolicyId: 'supported-visual-assets-v2',
+      protectionPolicyId: 'supported-visual-assets-v3',
     });
   });
 
@@ -861,8 +861,8 @@ describe('creator upload authorization', () => {
     };
 
     expect(response.status).toBe(200);
-    expect(body.protectionPolicyId).toBe('supported-visual-assets-v2');
-    expect(body.headers['x-yucp-upload-protection-policy-id']).toBe('supported-visual-assets-v2');
+    expect(body.protectionPolicyId).toBe('supported-visual-assets-v3');
+    expect(body.headers['x-yucp-upload-protection-policy-id']).toBe('supported-visual-assets-v3');
     expect(
       await verifyUploadCapability(
         {
@@ -870,7 +870,7 @@ describe('creator upload authorization', () => {
           editionId: 'standard',
           exp: body.exp,
           packageId: 'com.yucp.avatar',
-          protectionPolicyId: 'supported-visual-assets-v2',
+          protectionPolicyId: 'supported-visual-assets-v3',
           sig: body.sig,
           version: '1.0.0',
           versionId: body.versionId,

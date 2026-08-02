@@ -10,7 +10,6 @@ import { convexTest } from 'convex-test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, internal } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
-import betterAuthSchema from './betterAuth/schema';
 import { roleSyncPool } from './roleSyncWorkpool';
 import schema from './schema';
 import { makeTestConvex } from './testHelpers';
@@ -25,11 +24,6 @@ type ComponentAwareTestConvex = ReturnType<typeof makeTestConvex> & {
     componentPath: string,
     handler: (ctx: ComponentMutationCtx) => Promise<Output>
   ) => Promise<Output>;
-  registerComponent: (
-    componentPath: string,
-    schema: unknown,
-    functions: Record<string, () => Promise<unknown>>
-  ) => void;
 };
 
 type TestImportMeta = ImportMeta & {
@@ -1468,7 +1462,6 @@ describe('subject ownership remediation', () => {
 
   it('detects subjects whose auth owner disagrees with the Better Auth Discord owner', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
-    t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
     const now = Date.now();
 
     await seedBetterAuthDiscordAccount(t, {
@@ -1531,7 +1524,6 @@ describe('subject ownership remediation', () => {
 
   it('detects a wrongly owned subject beyond the first scan batch', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
-    t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
     const now = Date.now();
 
     await seedBetterAuthDiscordAccount(t, {
@@ -1581,7 +1573,6 @@ describe('subject ownership remediation', () => {
 
   it('repairs subject ownership and removes the foreign links from the old auth user page', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
-    t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
     const now = Date.now();
 
     await seedBetterAuthDiscordAccount(t, {
@@ -1672,7 +1663,6 @@ describe('subject ownership remediation', () => {
 
   it('materializes a light auth owner when the Discord user has no Better Auth account', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
-    t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
     const now = Date.now();
 
     const subjectId = await t.run(async (ctx) => {
@@ -1746,7 +1736,6 @@ describe('subject ownership remediation', () => {
 
   it('marks provider-scoped subjects with conflicting active auth bindings as ambiguous instead of auto-repairing them', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
-    t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
     const now = Date.now();
 
     const subjectId = await t.run(async (ctx) => {

@@ -679,7 +679,8 @@ async function routeRequest(request: Request): Promise<Response> {
   if (pathname.startsWith('/api/forensics/')) {
     // Job-status polling ticks every few seconds for the length of a scan, so
     // it gets its own budget instead of eating the lookup allowance.
-    const isJobPoll = request.method === 'GET' && pathname.startsWith('/api/forensics/lookup/jobs/');
+    const isJobPoll =
+      request.method === 'GET' && pathname.startsWith('/api/forensics/lookup/jobs/');
     if (
       isJobPoll
         ? isRateLimited(`forensics-poll:${clientAddress}`, 120, 60_000)

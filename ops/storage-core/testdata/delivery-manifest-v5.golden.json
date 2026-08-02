@@ -1,0 +1,55 @@
+{
+  "activeContentDigest": "4444444444444444444444444444444444444444444444444444444444444444",
+  "activePolicyVersion": "active-content-policy-v1",
+  "chunkAvgKib": 256,
+  "commonRoot": "5555555555555555555555555555555555555555555555555555555555555555",
+  "files": [
+    {
+      "bytes": 4096,
+      "chunks": [
+        {
+          "id": "2222222222222222222222222222222222222222222222222222222222222222",
+          "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "size": 4096
+        }
+      ],
+      "classification": "protected",
+      "couplingPlan": {
+        "band": {
+          "idatPrefixCrc32": 123,
+          "idatSuffixCrc32": 456,
+          "idatSuffixLength": 789,
+          "length": 3219,
+          "offset": 4069,
+          "prefixAdler": 576628372,
+          "rows": 112,
+          "suffixAdler": 1828093411,
+          "suffixFilteredLength": 491760,
+          "y0": 160
+        },
+        "bitDepth": 8,
+        "colorType": 6,
+        "height": 512,
+        "peakDynamicBytes": 4886889,
+        "rowBytes": 2048,
+        "strategy": "png-band-v1",
+        "width": 512
+      },
+      "materializerType": "png",
+      "normalizedPath": "Assets/Jammr/albedo.png",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    }
+  ],
+  "normalizationPolicyVersion": "package-normalization-policy-v2",
+  "packageId": "com.yucp.example",
+  "protectedSourceRoot": "6666666666666666666666666666666666666666666666666666666666666666",
+  "protectionPolicyDigest": "7777777777777777777777777777777777777777777777777777777777777777",
+  "protectionPolicyId": "supported-visual-assets-v3",
+  "releaseRoot": "3333333333333333333333333333333333333333333333333333333333333333",
+  "schemaVersion": 5,
+  "storageFormatVersion": "desync-uncompressed-sha256-v1",
+  "version": "1.2.3",
+  "versionId": "version-1",
+  "vpmDependencies": {},
+  "vpmRepositories": {}
+}

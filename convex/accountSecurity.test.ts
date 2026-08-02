@@ -4,7 +4,6 @@ import type { GenericActionCtx, GenericMutationCtx, UserIdentity } from 'convex/
 import { beforeEach, describe, expect, it } from 'vitest';
 import { api, internal } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
-import betterAuthSchema from './betterAuth/schema';
 import { makeTestConvex } from './testHelpers';
 
 type ComponentMutationCtx = GenericMutationCtx<DataModel> &
@@ -66,7 +65,6 @@ describe('accountSecurity', () => {
 
   it('reads security overview without writing query state and resolves the Better Auth user by _id', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
-    t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
 
     const { authUserId, authed } = await createAuthedUser(t, {
       email: 'recover@example.com',
@@ -93,7 +91,6 @@ describe('accountSecurity', () => {
 
   it('requires the authenticated API boundary to verify a recovery contact', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
-    t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
 
     const { authUserId, authed } = await createAuthedUser(t, {
       email: 'owner@example.com',
@@ -145,7 +142,6 @@ describe('accountSecurity', () => {
 
   it('cancels active recovery sessions when a recovery email is removed', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
-    t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
 
     const { authUserId, authed } = await createAuthedUser(t, {
       email: 'owner@example.com',
@@ -212,7 +208,6 @@ describe('accountSecurity', () => {
 
   it('locks backup-code recovery after repeated invalid attempts', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
-    t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
 
     const { authUserId } = await createAuthedUser(t, {
       email: 'backup-owner@example.com',
@@ -277,7 +272,6 @@ describe('accountSecurity', () => {
 
   it('rejects recovery emails already used by another account or primary login', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
-    t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
 
     const { authUserId: firstAuthUserId } = await createAuthedUser(t, {
       email: 'primary@example.com',
@@ -319,7 +313,6 @@ describe('accountSecurity', () => {
 
   it('consumes the exact pending email recovery session that was verified', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
-    t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
 
     const { authUserId } = await createAuthedUser(t, {
       email: 'recover@example.com',
@@ -386,7 +379,6 @@ describe('accountSecurity', () => {
 
   it('does not complete expired or already-finished recovery sessions', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
-    t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
 
     const { authUserId } = await createAuthedUser(t, {
       email: 'recovering@example.com',
@@ -455,7 +447,6 @@ describe('accountSecurity', () => {
 
   it('rejects recovery passkey completion when the signed method does not match the stored session', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
-    t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
 
     const { authUserId } = await createAuthedUser(t, {
       email: 'recovering@example.com',

@@ -1,3 +1,4 @@
+import { type CouplingPlan, parseCouplingPlan } from './couplingPlan';
 import { isProtectionPolicyId } from './protectionPolicyId';
 import { normalizeVpmBootstrapMedia, type VpmBootstrapMediaObject } from './vpmBootstrapMedia';
 import {
@@ -7,7 +8,7 @@ import {
 
 export const DESYNC_STORAGE_FORMAT_VERSION = 'desync-uncompressed-sha256-v1';
 export const DESYNC_CHUNK_AVG_KIB = 256;
-export const LOGICAL_TREE_MANIFEST_SCHEMA_VERSION = 4;
+export const LOGICAL_TREE_MANIFEST_SCHEMA_VERSION = 5;
 
 export type DeliveryManifestChunk = {
   id: string;
@@ -15,46 +16,24 @@ export type DeliveryManifestChunk = {
   size: number;
 };
 
-/**
- * Where publish normalisation put the replaceable band inside a protected PNG.
- *
- * offset/length address the band's compressed bytes inside the concatenated
- * IDAT payload; the two adlers and the suffix length let the materializer
- * repair the zlib checksum without rescanning anything outside the band. Its
- * absence means the file was never normalised and is coupled whole.
- */
-export type DeliveryManifestBand = {
-  length: number;
-  offset: number;
-  prefixAdler: number;
-  rows: number;
-  suffixAdler: number;
-  suffixFilteredLength: number;
-  y0: number;
-};
-
-export const BAND_FIELDS = [
-  'length',
-  'offset',
-  'prefixAdler',
-  'rows',
-  'suffixAdler',
-  'suffixFilteredLength',
-  'y0',
-] as const;
-
-export type DeliveryManifestFile = {
-  band?: DeliveryManifestBand;
+type DeliveryManifestFileBase = {
   bytes: number;
   chunks: DeliveryManifestChunk[];
-  classification: 'common' | 'protected';
-  couplingLane?: 'container' | 'worker';
-  materializerType?: string;
   normalizedPath: string;
-  pixelHeight?: number;
-  pixelWidth?: number;
   sha256: string;
 };
+
+export type DeliveryManifestFile =
+  | (DeliveryManifestFileBase & {
+      classification: 'common';
+      couplingPlan?: undefined;
+      materializerType?: undefined;
+    })
+  | (DeliveryManifestFileBase & {
+      classification: 'protected';
+      couplingPlan: CouplingPlan;
+      materializerType: string;
+    });
 
 export type DeliveryManifest = {
   activeContentDigest: string;
@@ -127,44 +106,6 @@ function parseChunk(value: unknown, fileIndex: number, chunkIndex: number): Deli
   return { id: value.id, sha256: value.sha256, size: value.size as number };
 }
 
-function parseBand(
-  value: unknown,
-  index: number,
-  classification: unknown
-): DeliveryManifestBand | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (!isRecord(value) || classification !== 'protected') {
-    throw new Error(`Delivery manifest file ${index} has an invalid band`);
-  }
-  for (const field of BAND_FIELDS) {
-    const entry = value[field];
-    if (!Number.isSafeInteger(entry) || (entry as number) < 0 || (entry as number) > 0xffffffff) {
-      throw new Error(`Delivery manifest file ${index} has an invalid band ${field}`);
-    }
-  }
-  // A band has to be whole 8-row blocks, because that is the watermark's own
-  // grid, and it has to carry compressed bytes to be replaceable at all.
-  if (
-    (value.rows as number) < 8 ||
-    (value.rows as number) % 8 !== 0 ||
-    (value.y0 as number) % 8 !== 0 ||
-    (value.length as number) < 1
-  ) {
-    throw new Error(`Delivery manifest file ${index} has an unusable band`);
-  }
-  return {
-    length: value.length as number,
-    offset: value.offset as number,
-    prefixAdler: value.prefixAdler as number,
-    rows: value.rows as number,
-    suffixAdler: value.suffixAdler as number,
-    suffixFilteredLength: value.suffixFilteredLength as number,
-    y0: value.y0 as number,
-  };
-}
-
 function parseFile(value: unknown, index: number): DeliveryManifestFile {
   if (!isRecord(value)) {
     throw new Error(`Delivery manifest file ${index} is invalid`);
@@ -172,6 +113,13 @@ function parseFile(value: unknown, index: number): DeliveryManifestFile {
   const normalizedPath = validateLogicalPath(value.normalizedPath, index);
   if (value.classification !== 'common' && value.classification !== 'protected') {
     throw new Error(`Delivery manifest file ${index} has an invalid classification`);
+  }
+  const expectedFields =
+    value.classification === 'protected'
+      ? 'bytes,chunks,classification,couplingPlan,materializerType,normalizedPath,sha256'
+      : 'bytes,chunks,classification,normalizedPath,sha256';
+  if (Object.keys(value).sort().join(',') !== expectedFields) {
+    throw new Error(`Delivery manifest file ${index} has invalid fields`);
   }
   const materializerType =
     typeof value.materializerType === 'string' ? value.materializerType.trim() : undefined;
@@ -182,26 +130,6 @@ function parseFile(value: unknown, index: number): DeliveryManifestFile {
   ) {
     throw new Error(`Delivery manifest file ${index} has an invalid materializerType`);
   }
-  if (
-    value.couplingLane !== undefined &&
-    ((value.couplingLane !== 'worker' && value.couplingLane !== 'container') ||
-      value.classification !== 'protected')
-  ) {
-    throw new Error(`Delivery manifest file ${index} has an invalid couplingLane`);
-  }
-  for (const dimension of ['pixelWidth', 'pixelHeight'] as const) {
-    const dim = value[dimension];
-    if (
-      dim !== undefined &&
-      (!Number.isSafeInteger(dim) || (dim as number) <= 0 || value.classification !== 'protected')
-    ) {
-      throw new Error(`Delivery manifest file ${index} has an invalid ${dimension}`);
-    }
-  }
-  if ((value.pixelWidth === undefined) !== (value.pixelHeight === undefined)) {
-    throw new Error(`Delivery manifest file ${index} has unpaired pixel dimensions`);
-  }
-  const band = parseBand(value.band, index, value.classification);
   if (typeof value.sha256 !== 'string' || !SHA256_PATTERN.test(value.sha256)) {
     throw new Error(`Delivery manifest file ${index} has an invalid sha256`);
   }
@@ -227,19 +155,34 @@ function parseFile(value: unknown, index: number): DeliveryManifestFile {
   if (!Number.isSafeInteger(chunkBytes) || chunkBytes !== value.bytes) {
     throw new Error(`Delivery manifest file ${index} chunk sizes do not equal its bytes`);
   }
-  return {
-    ...(band ? { band } : {}),
+  const base = {
     bytes: value.bytes as number,
     chunks,
-    classification: value.classification,
-    ...(value.couplingLane !== undefined
-      ? { couplingLane: value.couplingLane as 'container' | 'worker' }
-      : {}),
-    ...(materializerType ? { materializerType } : {}),
     normalizedPath,
-    ...(value.pixelHeight !== undefined ? { pixelHeight: value.pixelHeight as number } : {}),
-    ...(value.pixelWidth !== undefined ? { pixelWidth: value.pixelWidth as number } : {}),
     sha256: value.sha256,
+  };
+  if (value.classification === 'common') {
+    return { ...base, classification: 'common' };
+  }
+  let couplingPlan: CouplingPlan;
+  try {
+    couplingPlan = parseCouplingPlan(value.couplingPlan, value.bytes as number);
+  } catch (error) {
+    throw new Error(`Delivery manifest file ${index} has an invalid couplingPlan`, {
+      cause: error,
+    });
+  }
+  if (
+    (couplingPlan.strategy === 'fbx-v1' && materializerType !== 'fbx') ||
+    (couplingPlan.strategy !== 'fbx-v1' && materializerType !== 'png')
+  ) {
+    throw new Error(`Delivery manifest file ${index} has a mismatched couplingPlan`);
+  }
+  return {
+    ...base,
+    classification: 'protected',
+    couplingPlan,
+    materializerType: materializerType as string,
   };
 }
 
@@ -258,7 +201,7 @@ export function deliveryManifestObjectId(versionId: string): string {
   if (!VERSION_ID_PATTERN.test(versionId)) {
     throw new Error('Delivery manifest versionId must be a safe object-key segment');
   }
-  return `${versionId}.logical-tree-v4.json`;
+  return `${versionId}.logical-tree-v5.json`;
 }
 
 export function deliveryAssemblyObjectId(versionId: string, contentSha256: string): string {
@@ -268,7 +211,7 @@ export function deliveryAssemblyObjectId(versionId: string, contentSha256: strin
   if (!/^[0-9a-f]{64}$/.test(contentSha256)) {
     throw new Error('Delivery assembly content digest must be a SHA-256 hex string');
   }
-  return `${versionId}.${contentSha256.slice(0, 16)}.logical-tree-assembly-v4.json`;
+  return `${versionId}.${contentSha256.slice(0, 16)}.logical-tree-assembly-v5.json`;
 }
 
 export function parseDeliveryManifest(value: unknown): DeliveryManifest {

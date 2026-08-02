@@ -1062,7 +1062,7 @@ describe.serial('PostgreSQL materialization capability broker', () => {
     expect(await repository.claim(10)).toEqual([]);
   }, 20_000);
 
-  it('marks dispatch entries with couplingMode only when every protected file is worker-lane', async () => {
+  it('emits only the strict worker-only dispatch contract', async () => {
     const broker = createBroker();
     const workerVersionId = randomUUID();
     await requireSql()`
@@ -1080,10 +1080,10 @@ describe.serial('PostgreSQL materialization capability broker', () => {
         ${'55'.repeat(32)}, 4096, 2,
         ${requireSql().json([
           {
-            couplingLane: 'worker',
-            materializerType: 'png',
-            normalizedPath: 'Assets/Product/w.png',
-            required: false,
+            couplingPlan: { peakDynamicBytes: 4_196_608, strategy: 'fbx-v1' },
+            materializerType: 'fbx',
+            normalizedPath: 'Assets/Product/w.fbx',
+            required: true,
             sourceSha256: '42'.repeat(32),
           },
         ])},
@@ -1130,8 +1130,8 @@ describe.serial('PostgreSQL materialization capability broker', () => {
       const entries = await repository.claim(10);
       const byJob = new Map(entries.map((entry) => [entry.jobId, entry]));
       expect(byJob.get('job-lane-default')).toBeDefined();
-      expect(byJob.get('job-lane-default')?.couplingMode).toBeUndefined();
-      expect(byJob.get('job-lane-worker')?.couplingMode).toBe('worker');
+      expect('couplingMode' in (byJob.get('job-lane-default') ?? {})).toBeFalse();
+      expect('couplingMode' in (byJob.get('job-lane-worker') ?? {})).toBeFalse();
     } finally {
       await requireSql()`
         TRUNCATE TABLE

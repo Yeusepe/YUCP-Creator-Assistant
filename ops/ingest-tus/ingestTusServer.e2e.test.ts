@@ -344,7 +344,7 @@ async function uploadCapabilityHeaders(input: {
     expiresAt: Date.now() + 10 * 60_000,
     key: uploadHmacKey,
     packageId: input.packageId,
-    protectionPolicyId: 'supported-visual-assets-v2',
+    protectionPolicyId: 'supported-visual-assets-v3',
     version: input.version,
     versionId: input.versionId ?? randomUUID(),
   });
@@ -807,7 +807,7 @@ describe.serial('tus ingest end to end', () => {
     });
     expect(assembledRow.release_root).toMatch(/^[0-9a-f]{64}$/);
     expect(assembledRow.assembly_object_id).toMatch(
-      new RegExp(`^local:.*${assembledRow.id}\\.[0-9a-f]{16}\\.logical-tree-assembly-v4\\.json$`)
+      new RegExp(`^local:.*${assembledRow.id}\\.[0-9a-f]{16}\\.logical-tree-assembly-v5\\.json$`)
     );
     expect(await outboxEventTypes(assembledRow.id)).toEqual([
       'catalog.version.created',
@@ -898,7 +898,7 @@ describe.serial('tus ingest end to end', () => {
     });
     expect(assembledRow.release_root).toMatch(/^[0-9a-f]{64}$/);
     expect(assembledRow.assembly_object_id).toMatch(
-      new RegExp(`^s3:${assembledRow.id}\\.[0-9a-f]{16}\\.logical-tree-assembly-v4\\.json$`)
+      new RegExp(`^s3:${assembledRow.id}\\.[0-9a-f]{16}\\.logical-tree-assembly-v5\\.json$`)
     );
     const assemblyIndexId = assembledRow.assembly_object_id?.slice('s3:'.length) ?? '';
     expect(await outboxEventTypes(assembledRow.id)).toEqual([
@@ -1349,7 +1349,7 @@ describe.serial('tus ingest end to end', () => {
     expect(replacedRow.state).toBe('ASSEMBLED');
     expect(replacedRow.error).toBeNull();
     expect(replacedRow.assembly_object_id).toMatch(
-      new RegExp(`^s3:${firstRow.id}\\.[0-9a-f]{16}\\.logical-tree-assembly-v4\\.json$`)
+      new RegExp(`^s3:${firstRow.id}\\.[0-9a-f]{16}\\.logical-tree-assembly-v5\\.json$`)
     );
     expect(replacedRow.assembly_object_id).not.toBe(firstRow.assembly_object_id);
   });

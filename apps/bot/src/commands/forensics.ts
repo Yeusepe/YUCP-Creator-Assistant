@@ -10,6 +10,28 @@ const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024;
 const NO_ALLOWED_MENTIONS = { parse: [] } as const;
 
+const FORENSICS_JOB_POLL_INTERVAL_MS = 5_000;
+/** Above the API's scan budget plus reveal budget, with margin for queueing. */
+const FORENSICS_JOB_POLL_DEADLINE_MS = 10 * 60_000;
+/** Transient poll failures a scan is allowed to ride out before giving up. */
+const FORENSICS_JOB_POLL_MAX_CONSECUTIVE_FAILURES = 3;
+
+type ForensicsScanPage = {
+  buyersCompared: number;
+  elapsedMs: number;
+  page: number;
+  resolved: number;
+  unresolvedAfter: number;
+};
+
+type ForensicsJobStatus =
+  | { state: 'running'; progress: { elapsedMs: number; pages: ForensicsScanPage[] } }
+  | { state: 'done'; httpStatus: number; result: unknown };
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 type ForensicsLookupResponse = {
   packageId: string;
   lookupStatus:
@@ -118,7 +140,8 @@ export async function handleForensicsPackageAutocomplete(
 
 export async function handleForensicsLookup(
   interaction: ChatInputCommandInteraction,
-  ctx: { authUserId: string; guildId: string }
+  ctx: { authUserId: string; guildId: string },
+  opts?: { pollIntervalMs?: number }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -160,20 +183,92 @@ export async function handleForensicsLookup(
       })
     );
 
-    const response = await fetch(`${apiBase}/api/forensics/lookup`, {
+    const authHeaders = {
+      'x-internal-service-secret': getInternalRpcSharedSecret(process.env),
+      'x-yucp-auth-user-id': ctx.authUserId,
+    };
+
+    // A scan of a large buyer catalogue runs for minutes - longer than a
+    // single HTTP request survives. Start a server-side job and poll for the
+    // verdict, editing the deferred reply as scan pages come in.
+    const startResponse = await fetch(`${apiBase}/api/forensics/lookup/jobs`, {
       method: 'POST',
-      headers: {
-        'x-internal-service-secret': getInternalRpcSharedSecret(process.env),
-        'x-yucp-auth-user-id': ctx.authUserId,
-      },
+      headers: authHeaders,
       body: formData,
     });
+    const startPayload = (await startResponse.json().catch(() => null)) as {
+      jobId?: string;
+      error?: string;
+    } | null;
+    if (!startResponse.ok || !startPayload?.jobId) {
+      const message =
+        startPayload && typeof startPayload.error === 'string'
+          ? startPayload.error
+          : 'Coupling lookup failed.';
+      await interaction.editReply({
+        content: `${E.X_} ${message}${dashboardUrl ? `\n\nIf this keeps happening, try the dashboard uploader: ${dashboardUrl}` : ''}`,
+        allowedMentions: NO_ALLOWED_MENTIONS,
+      });
+      return;
+    }
 
-    const payload = (await response.json().catch(() => null)) as
+    const pollIntervalMs = opts?.pollIntervalMs ?? FORENSICS_JOB_POLL_INTERVAL_MS;
+    const deadline = Date.now() + FORENSICS_JOB_POLL_DEADLINE_MS;
+    let consecutiveFailures = 0;
+    let lastReportedPage = 0;
+    let final: { httpStatus: number; body: unknown } | null = null;
+    while (!final) {
+      await sleep(pollIntervalMs);
+      if (Date.now() > deadline) {
+        await interaction.editReply({
+          content: `${E.Timer} The scan did not finish in time.${dashboardUrl ? ` Try the dashboard uploader instead: ${dashboardUrl}` : ''}`,
+          allowedMentions: NO_ALLOWED_MENTIONS,
+        });
+        return;
+      }
+      let status: ForensicsJobStatus;
+      try {
+        const pollResponse = await fetch(
+          `${apiBase}/api/forensics/lookup/jobs/${startPayload.jobId}`,
+          { headers: authHeaders }
+        );
+        if (!pollResponse.ok) {
+          throw new Error(`Job poll failed with status ${pollResponse.status}`);
+        }
+        status = (await pollResponse.json()) as ForensicsJobStatus;
+        consecutiveFailures = 0;
+      } catch (error) {
+        // One dropped poll must not discard a scan that is still running.
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= FORENSICS_JOB_POLL_MAX_CONSECUTIVE_FAILURES) {
+          throw error;
+        }
+        continue;
+      }
+      if (status.state === 'running') {
+        const latestPage = status.progress.pages.at(-1);
+        if (latestPage && latestPage.page > lastReportedPage) {
+          lastReportedPage = latestPage.page;
+          const elapsedSeconds = Math.round(latestPage.elapsedMs / 1000);
+          await interaction
+            .editReply({
+              content: `${E.Timer} Scanning ${formatDiscordInlineCode(packageId)}... page ${latestPage.page}: ${latestPage.buyersCompared} buyers compared, ${latestPage.resolved} resolved (${elapsedSeconds}s elapsed)`,
+              allowedMentions: NO_ALLOWED_MENTIONS,
+            })
+            .catch(() => {
+              // A dropped progress edit must not abort a scan that is still running.
+            });
+        }
+        continue;
+      }
+      final = { httpStatus: status.httpStatus, body: status.result };
+    }
+
+    const payload = final.body as
       | (ForensicsLookupResponse & { error?: string; code?: string })
       | null;
 
-    if (response.status === 402 || payload?.code === 'coupling_traceability_required') {
+    if (final.httpStatus === 402 || payload?.code === 'coupling_traceability_required') {
       await interaction.editReply({
         content: `${E.Key} Creator Studio+ is required for coupling traceability.${dashboardUrl ? ` Upgrade or run the lookup from the dashboard: ${dashboardUrl}` : ''}`,
         allowedMentions: NO_ALLOWED_MENTIONS,
@@ -181,7 +276,7 @@ export async function handleForensicsLookup(
       return;
     }
 
-    if (!response.ok || !payload) {
+    if (final.httpStatus < 200 || final.httpStatus >= 300 || !payload) {
       const message =
         payload && typeof payload.error === 'string' ? payload.error : 'Coupling lookup failed.';
       await interaction.editReply({

@@ -154,11 +154,11 @@ describe('package install access', () => {
     expect(publication?.versionId).toBe('current-postgres-version-id');
   });
 
-  it('matches authority protected files that carry lane metadata beyond the public projection', async () => {
+  it('matches authority protected files that carry v5 plans beyond the public projection', async () => {
     const publicFile = {
       materializerType: 'png',
       normalizedPath: 'Assets/Textures/body.png',
-      required: false,
+      required: true,
       sourceSha256: '88'.repeat(32),
     };
     convexQueryMock.mockResolvedValue({
@@ -199,10 +199,15 @@ describe('package install access', () => {
             protectedFiles: [
               {
                 ...publicFile,
-                couplingLane: 'worker',
-                pngHeight: 2048,
-                pngWidth: 2048,
-                streamingSupported: true,
+                couplingPlan: {
+                  bitDepth: 8,
+                  colorType: 6,
+                  height: 2048,
+                  peakDynamicBytes: 70_000_000,
+                  rowBytes: 8192,
+                  strategy: 'png-whole-v1',
+                  width: 2048,
+                },
               },
             ],
             protectedSourceRoot: '55'.repeat(32),

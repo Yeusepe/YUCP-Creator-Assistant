@@ -63,7 +63,8 @@ describe('banding protected PNGs at ingest', () => {
       { ...original, classification: 'protected' as const, materializerType: 'png' as const },
     ]);
 
-    const band = banded?.band;
+    const band =
+      banded?.couplingPlan?.strategy === 'png-band-v1' ? banded.couplingPlan.band : undefined;
     if (!band) {
       throw new Error('A 512x512 RGBA PNG must be bandable');
     }
@@ -93,17 +94,21 @@ describe('banding protected PNGs at ingest', () => {
       { file: await place('icon.png', makePng(64, 64)), why: 'tiny' },
       // Greyscale: the marked channel would be ambiguous coming back.
       { file: await place('mask.png', makePng(512, 512, 0)), why: 'greyscale' },
-      // Not a PNG at all.
-      { file: await place('model.fbx', Uint8Array.from([1, 2, 3, 4])), why: 'not a png' },
     ];
     for (const { file, why } of cases) {
       const [result] = await bandProtectedPngs([
         { ...file, classification: 'protected' as const, materializerType: 'png' as const },
       ]);
-      expect(result?.band, why).toBeUndefined();
+      expect(result?.couplingPlan?.strategy, why).toBe('png-whole-v1');
       expect(result?.sha256, why).toBe(file.sha256);
       expect(new Uint8Array(await readFile(file.path)).byteLength, why).toBe(file.bytes);
     }
+    const malformed = await place('not-png.png', Uint8Array.from([1, 2, 3, 4]));
+    await expect(
+      bandProtectedPngs([
+        { ...malformed, classification: 'protected' as const, materializerType: 'png' as const },
+      ])
+    ).rejects.toThrow('unsupported or malformed');
   });
 
   it('does not touch common files or non-PNG protected files', async () => {
@@ -114,7 +119,11 @@ describe('banding protected PNGs at ingest', () => {
       { ...mesh, classification: 'protected' as const, materializerType: 'fbx' as const },
     ]);
     for (const result of results) {
-      expect(result.band).toBeUndefined();
+      if (result.classification === 'common') {
+        expect(result.couplingPlan).toBeUndefined();
+      } else {
+        expect(result.couplingPlan?.strategy).toBe('fbx-v1');
+      }
     }
   });
 });
@@ -130,7 +139,7 @@ describe('banded files and the release roots', () => {
     const [banded] = await bandProtectedPngs([
       { ...original, classification: 'protected' as const, materializerType: 'png' as const },
     ]);
-    if (!banded?.band) {
+    if (banded?.couplingPlan?.strategy !== 'png-band-v1') {
       throw new Error('the fixture must band');
     }
     expect(banded.sha256).not.toBe(original.sha256);
@@ -140,6 +149,7 @@ describe('banded files and the release roots', () => {
         bytes: banded.bytes,
         chunks: [{ id: '22'.repeat(32), sha256: banded.sha256, size: banded.bytes }],
         classification: 'protected' as const,
+        couplingPlan: banded.couplingPlan,
         materializerType: 'png',
         normalizedPath: banded.normalizedPath,
         sha256: banded.sha256,

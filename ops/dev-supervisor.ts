@@ -1171,7 +1171,7 @@ export function applyLocalStorageProfile(
       secrets.materializationMaterializerSharedSecret,
     MATERIALIZATION_RENDITION_SHARED_SECRET: secrets.materializationRenditionSharedSecret,
     MATERIALIZER_ORIGIN_URL: couplingUrl,
-    MATERIALIZATION_PLUGIN_VERSION: baseEnv.MATERIALIZATION_PLUGIN_VERSION ?? 'coupling-server-v3',
+    MATERIALIZATION_PLUGIN_VERSION: baseEnv.MATERIALIZATION_PLUGIN_VERSION ?? 'coupling-server-v4',
     MATERIALIZATION_RECEIPT_KEY_ID: secrets.materializationReceiptKeyId,
     MATERIALIZATION_RECEIPT_PRIVATE_KEY: secrets.materializationReceiptPrivateKey,
     MATERIALIZATION_RECEIPT_PUBLIC_KEY: secrets.materializationReceiptPublicKey,

@@ -8,6 +8,7 @@ import type { FunctionArgs, FunctionReference, FunctionReturnType } from 'convex
 import { getFunctionName } from 'convex/server';
 import { convexTest, type TestConvex } from 'convex-test';
 import type { Doc, Id } from './_generated/dataModel';
+import betterAuthSchema from './betterAuth/schema';
 import schema from './schema';
 
 export type ConvexTestInstance = TestConvex<typeof schema>;
@@ -136,6 +137,13 @@ export function makeTestConvex(
 ): ActorAwareConvexTestInstance {
   // import.meta.glob is a Vite-specific API required by convex-test.
   const rawTestInstance = convexTest(schema, (import.meta as ImportMetaWithGlob).glob('./**/*.ts'));
+  // Any function reaching identitySync (and friends) hits the betterAuth component adapter, so
+  // every test instance needs it registered up front.
+  rawTestInstance.registerComponent(
+    'betterAuth',
+    betterAuthSchema,
+    (import.meta as ImportMetaWithGlob).glob('./betterAuth/**/*.ts')
+  );
   const testInstance = rawTestInstance as ActorAwareConvexTestInstance;
   if (options.injectActor === false) {
     return testInstance;

@@ -499,7 +499,7 @@ describe('ingest tus upload capability isolation', () => {
         expiresAt: Date.now() + 60_000,
         key: uploadHmacKey,
         packageId,
-        protectionPolicyId: 'supported-visual-assets-v2',
+        protectionPolicyId: 'supported-visual-assets-v3',
         version,
         versionId: crypto.randomUUID(),
       });
@@ -565,7 +565,7 @@ describe('ingest tus upload capability isolation', () => {
       expiresAt: Date.now() + 60_000,
       key: uploadHmacKey,
       packageId: 'com.creator.resume',
-      protectionPolicyId: 'supported-visual-assets-v2',
+      protectionPolicyId: 'supported-visual-assets-v3',
       version: '1.0.0',
       versionId,
     });
@@ -628,7 +628,7 @@ describe('ingest tus upload capability isolation', () => {
       expiresAt: Date.now() + 60_000,
       key: uploadHmacKey,
       packageId: signedPackageId,
-      protectionPolicyId: 'supported-visual-assets-v2',
+      protectionPolicyId: 'supported-visual-assets-v3',
       version: '1.0.0',
       versionId: crypto.randomUUID(),
     });
@@ -764,7 +764,7 @@ describe('ingest tus upload capability isolation', () => {
       expiresAt: Date.now() + 60_000,
       key: uploadHmacKey,
       packageId: 'com.creator.cleanup',
-      protectionPolicyId: 'supported-visual-assets-v2',
+      protectionPolicyId: 'supported-visual-assets-v3',
       version: '1.0.0',
       versionId: crypto.randomUUID(),
     });
