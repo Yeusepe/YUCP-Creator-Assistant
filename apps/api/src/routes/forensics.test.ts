@@ -759,3 +759,159 @@ describe('forensics routes', () => {
     expect((routes as Record<string, unknown>).revealLicense).toBeUndefined();
   });
 });
+
+describe('forensics lookup jobs', () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    queryMock.mockReset();
+    mutationMock.mockReset();
+    mutationMock.mockResolvedValue(undefined);
+    extractCouplingForensicsArchiveMock.mockReset();
+    extractCouplingForensicsArchiveMock.mockResolvedValue({
+      assets: [
+        {
+          assetPath: 'Assets/Jammr/body.png',
+          assetType: 'png',
+          filePath: assetFixturePath,
+        },
+      ],
+      declaredPackageIds: ['com.yucp.jammr'],
+    });
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  function createJobRoutes(input?: { maxLookupUploadBytes?: number }) {
+    let sessionUserId = 'creator-user';
+    const switchableAuth = {
+      getSession: async () => ({ user: { id: sessionUserId } }),
+    } as unknown as Auth;
+    const listAttributionCandidates = mock(async (request: { candidateLimit?: number }) => ({
+      candidateLimit: request.candidateLimit ?? 512,
+      candidates: [candidate],
+      truncated: false,
+    }));
+    const routes = createForensicsRoutes(switchableAuth, {
+      apiBaseUrl: 'http://localhost:3001',
+      couplingServiceBaseUrl: 'https://coupling.internal',
+      couplingServiceSharedSecret: TEST_COUPLING_BEARER,
+      convexApiSecret: TEST_CONVEX_API_TOKEN,
+      convexUrl: 'http://convex.invalid',
+      encryptionSecret: TEST_ENCRYPTION_KEY,
+      frontendBaseUrl: 'http://localhost:3000',
+      lookupRateLimitStore: new InMemoryPublicApiRateLimitStore(),
+      materializationControl: { listAttributionCandidates },
+      ...(input?.maxLookupUploadBytes ? { maxLookupUploadBytes: input.maxLookupUploadBytes } : {}),
+    });
+    return {
+      routes,
+      setSessionUserId: (id: string) => {
+        sessionUserId = id;
+      },
+    };
+  }
+
+  function pollRequest(jobId: string): Request {
+    return new Request(`http://localhost:3001/api/forensics/lookup/jobs/${jobId}`);
+  }
+
+  async function pollUntilDone(
+    routes: ReturnType<typeof createJobRoutes>['routes'],
+    jobId: string
+  ): Promise<{ state: string; httpStatus: number; result: unknown }> {
+    for (let attempt = 0; attempt < 200; attempt++) {
+      const response = await routes.getLookupJob(pollRequest(jobId), jobId);
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { state: string; httpStatus: number; result: unknown };
+      if (body.state === 'done') {
+        return body;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    throw new Error('lookup job never finished');
+  }
+
+  test('runs the scan in the background and serves the verdict to polls', async () => {
+    installAuthorization();
+    const { routes } = createJobRoutes();
+    globalThis.fetch = mock(async () =>
+      Response.json({
+        results: [
+          {
+            assetPath: 'Assets/Jammr/body.png',
+            assetType: 'png',
+            attributionId: candidate.attributionId,
+            buyerSubjectPseudonym,
+            matched: true,
+          },
+        ],
+        schemaVersion: 2,
+      })
+    ) as unknown as typeof fetch;
+
+    const startResponse = await routes.startLookupJob(lookupRequest());
+    expect(startResponse.status).toBe(202);
+    const { jobId } = (await startResponse.json()) as { jobId: string };
+    expect(jobId).toMatch(/^[a-f0-9]{32}$/);
+
+    const done = await pollUntilDone(routes, jobId);
+    expect(done.httpStatus).toBe(200);
+    expect(done.result).toMatchObject({
+      candidateAssetCount: 1,
+      decodedAssetCount: 1,
+      lookupStatus: 'attributed',
+      packageId: 'com.yucp.jammr',
+    });
+  });
+
+  test('hides jobs from any viewer other than the one who started them', async () => {
+    installAuthorization();
+    const { routes, setSessionUserId } = createJobRoutes();
+    globalThis.fetch = mock(async () =>
+      Response.json({ results: [], schemaVersion: 2 })
+    ) as unknown as typeof fetch;
+
+    const startResponse = await routes.startLookupJob(lookupRequest());
+    const { jobId } = (await startResponse.json()) as { jobId: string };
+
+    setSessionUserId('someone-else');
+    const denied = await routes.getLookupJob(pollRequest(jobId), jobId);
+    expect(denied.status).toBe(404);
+
+    const missing = await routes.getLookupJob(pollRequest('ab'.repeat(16)), 'ab'.repeat(16));
+    expect(missing.status).toBe(404);
+  });
+
+  test('surfaces gate failures as the job verdict with the original status', async () => {
+    installAuthorization({ capabilityEnabled: false });
+    const { routes } = createJobRoutes();
+    globalThis.fetch = mock(async () => {
+      throw new Error('must not run');
+    }) as unknown as typeof fetch;
+
+    const startResponse = await routes.startLookupJob(lookupRequest());
+    expect(startResponse.status).toBe(202);
+    const { jobId } = (await startResponse.json()) as { jobId: string };
+
+    const done = await pollUntilDone(routes, jobId);
+    expect(done.httpStatus).toBe(402);
+    expect(done.result).toMatchObject({ code: 'coupling_traceability_required' });
+  });
+
+  test('rejects oversized job uploads before creating any state', async () => {
+    const { routes } = createJobRoutes({ maxLookupUploadBytes: 3 });
+    const response = await routes.startLookupJob(
+      new Request('http://localhost:3001/api/forensics/lookup/jobs', {
+        body: new Uint8Array(1024 * 1024 + 4),
+        headers: { 'content-length': String(1024 * 1024 + 4) },
+        method: 'POST',
+      })
+    );
+    // The shared body ceiling is upload limit + multipart overhead; anything
+    // past it must be refused without a job id ever existing.
+    expect(response.status).toBe(413);
+  });
+});

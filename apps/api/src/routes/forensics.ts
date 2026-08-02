@@ -1,4 +1,4 @@
-import { createHash, createHmac } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -69,6 +69,37 @@ const FORENSICS_REVEAL_LIMIT = 64;
  */
 const FORENSICS_REVEAL_BUDGET_MS = 15_000;
 const TRACEPARENT_PATTERN = /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/;
+/**
+ * A scan of a large buyer catalogue outlives what browsers and edge proxies
+ * will hold a single request open for (Cloudflare cuts around 100 s, Chrome
+ * around 300 s; the scan budget alone is 420 s). The job flow decouples the
+ * scan from the request: the upload returns a job id immediately and the
+ * dashboard polls for the verdict, so no hop between the buyer list and the
+ * screen has to survive the whole scan.
+ */
+const FORENSICS_JOB_TTL_MS = 30 * 60_000;
+/** One re-run while a scan is still going, never a fleet. */
+const FORENSICS_JOB_MAX_RUNNING_PER_USER = 2;
+
+type ForensicsScanPageProgress = {
+  buyersCompared: number;
+  elapsedMs: number;
+  page: number;
+  resolved: number;
+  unresolvedAfter: number;
+};
+
+type ForensicsLookupHooks = {
+  onScanPage?: (page: ForensicsScanPageProgress) => void;
+};
+
+type ForensicsLookupJob = {
+  authUserId: string;
+  createdAt: number;
+  id: string;
+  pages: ForensicsScanPageProgress[];
+  result?: { body: unknown; httpStatus: number };
+};
 
 export type ForensicsConfig = {
   apiBaseUrl: string;
@@ -711,7 +742,7 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
     }
   }
 
-  async function lookup(request: Request): Promise<Response> {
+  async function lookup(request: Request, hooks?: ForensicsLookupHooks): Promise<Response> {
     const viewer = await resolveViewer(request, auth, config);
     if (viewer instanceof Response) {
       return viewer;
@@ -1054,13 +1085,15 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
           scanPageIndex += 1;
           const pageElapsedMs = Date.now() - scanStartedAt;
           const resolvedInPage = beforeUnresolved - unresolvedAssets.length;
-          scanPages.push({
+          const pageProgress = {
             buyersCompared: candidateResult.candidates.length,
             elapsedMs: pageElapsedMs,
             page: scanPageIndex,
             resolved: resolvedInPage,
             unresolvedAfter: unresolvedAssets.length,
-          });
+          };
+          scanPages.push(pageProgress);
+          hooks?.onScanPage?.(pageProgress);
           logger.info('Coupling attribution page scored', {
             candidatesInPage: candidateResult.candidates.length,
             elapsedMs: pageElapsedMs,
@@ -1345,8 +1378,136 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
     }
   }
 
+  // ponytail: in-process job store; move to Convex if the API ever runs more
+  // than one instance behind a balancer.
+  const jobs = new Map<string, ForensicsLookupJob>();
+
+  function sweepJobs(now: number): void {
+    for (const [id, job] of jobs) {
+      if (now - job.createdAt > FORENSICS_JOB_TTL_MS) {
+        jobs.delete(id);
+      }
+    }
+  }
+
+  /**
+   * Accepts the same multipart upload as the synchronous lookup, but answers
+   * with a job id as soon as the bytes are on the server. Only the checks that
+   * gate creating server-side state run here (auth, body size, job quota);
+   * everything else - capability, ownership, archive validity, the scan itself
+   * - happens in the background and surfaces as the job's stored verdict, so
+   * the polling client sees exactly the response the synchronous route would
+   * have sent.
+   */
+  async function startLookupJob(request: Request): Promise<Response> {
+    const viewer = await resolveViewer(request, auth, config);
+    if (viewer instanceof Response) {
+      return viewer;
+    }
+    if (request.method !== 'POST') {
+      return jsonResponse({ error: 'Method not allowed' }, 405);
+    }
+
+    const maxLookupUploadBytes = resolveLookupUploadLimit(config);
+    let uploadBody: Uint8Array;
+    try {
+      uploadBody = await readRequestBytesWithLimit(
+        request,
+        resolveLookupRequestBodyLimit(maxLookupUploadBytes)
+      );
+    } catch (error) {
+      if (error instanceof RequestBodyError && error.status === 413) {
+        return jsonResponse({ error: 'Upload exceeds the size limit' }, 413);
+      }
+      throw error;
+    }
+
+    const now = Date.now();
+    sweepJobs(now);
+    const runningJobs = [...jobs.values()].filter(
+      (job) => job.authUserId === viewer.authUserId && !job.result
+    ).length;
+    if (runningJobs >= FORENSICS_JOB_MAX_RUNNING_PER_USER) {
+      return jsonResponse(
+        { error: 'Too many scans already running', code: 'coupling_trace_job_limit' },
+        409
+      );
+    }
+
+    const job: ForensicsLookupJob = {
+      authUserId: viewer.authUserId,
+      createdAt: now,
+      id: randomBytes(16).toString('hex'),
+      pages: [],
+    };
+    jobs.set(job.id, job);
+
+    const backgroundHeaders = new Headers(request.headers);
+    backgroundHeaders.delete('content-length');
+    const backgroundRequest = new Request(request.url, {
+      body: uploadBody.buffer as ArrayBuffer,
+      headers: backgroundHeaders,
+      method: 'POST',
+    });
+    void lookup(backgroundRequest, {
+      onScanPage: (page) => {
+        job.pages.push(page);
+      },
+    })
+      .then(async (response) => {
+        job.result = {
+          body: await response.json().catch(() => null),
+          httpStatus: response.status,
+        };
+      })
+      .catch((error) => {
+        // lookup() answers its own failures, so reaching this means something
+        // broke outside its handler; the job must still terminate.
+        logger.error('Coupling forensics lookup job crashed', {
+          error: error instanceof Error ? error.message : String(error),
+          jobId: job.id,
+        });
+        job.result = {
+          body: { error: 'Coupling forensics lookup failed' },
+          httpStatus: 500,
+        };
+      });
+
+    return jsonResponse({ jobId: job.id }, 202);
+  }
+
+  async function getLookupJob(request: Request, jobId: string): Promise<Response> {
+    const viewer = await resolveViewer(request, auth, config);
+    if (viewer instanceof Response) {
+      return viewer;
+    }
+    sweepJobs(Date.now());
+    const job = jobs.get(jobId);
+    // A wrong owner gets the same answer as a wrong id: job ids must not be
+    // probeable for existence.
+    if (!job || job.authUserId !== viewer.authUserId) {
+      return jsonResponse({ error: 'Not found' }, 404);
+    }
+    if (!job.result) {
+      return jsonResponse({
+        state: 'running',
+        progress: {
+          elapsedMs: Date.now() - job.createdAt,
+          pages: job.pages,
+        },
+      });
+    }
+    return jsonResponse({
+      state: 'done',
+      httpStatus: job.result.httpStatus,
+      result: job.result.body,
+    });
+  }
+
   return {
+    getLookupJob,
     listPackages,
     lookup,
+    startLookupJob,
   };
 }

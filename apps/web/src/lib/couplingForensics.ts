@@ -95,14 +95,73 @@ export async function listCouplingForensicsPackages() {
   return await apiClient.get<CouplingForensicsPackageList>('/api/forensics/packages');
 }
 
-export async function runCouplingForensicsLookup(args: { packageId: string; file: File }) {
+export interface CouplingForensicsLookupProgress {
+  elapsedMs: number;
+  pages: CouplingForensicsScanPage[];
+}
+
+type CouplingForensicsJobStatus =
+  | { state: 'running'; progress: CouplingForensicsLookupProgress }
+  | { state: 'done'; httpStatus: number; result: unknown };
+
+const LOOKUP_JOB_POLL_INTERVAL_MS = 2_500;
+/** Above the API's scan budget plus reveal budget, with margin for queueing. */
+const LOOKUP_JOB_POLL_DEADLINE_MS = 10 * 60_000;
+/** Transient poll failures a scan is allowed to ride out before giving up. */
+const LOOKUP_JOB_POLL_MAX_CONSECUTIVE_FAILURES = 3;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * A scan of a large buyer catalogue runs for minutes - longer than browsers
+ * and edge proxies keep a single request open. The upload starts a server-side
+ * job and the verdict is fetched by polling, so nothing on the path has to
+ * survive the whole scan. Errors surface as the same ApiError the synchronous
+ * route produced, so callers are unchanged.
+ */
+export async function runCouplingForensicsLookup(args: {
+  packageId: string;
+  file: File;
+  onProgress?: (progress: CouplingForensicsLookupProgress) => void;
+}) {
   const formData = new FormData();
   formData.set('packageId', args.packageId);
   formData.set('file', args.file);
-  return await apiFetch<CouplingForensicsLookupResponse>('/api/forensics/lookup', {
+  const { jobId } = await apiFetch<{ jobId: string }>('/api/forensics/lookup/jobs', {
     method: 'POST',
     body: formData,
   });
+
+  const deadline = Date.now() + LOOKUP_JOB_POLL_DEADLINE_MS;
+  let consecutiveFailures = 0;
+  for (;;) {
+    await sleep(LOOKUP_JOB_POLL_INTERVAL_MS);
+    if (Date.now() > deadline) {
+      throw new ApiError(504, { error: 'The scan did not finish in time' });
+    }
+    let status: CouplingForensicsJobStatus;
+    try {
+      status = await apiFetch<CouplingForensicsJobStatus>(`/api/forensics/lookup/jobs/${jobId}`);
+      consecutiveFailures = 0;
+    } catch (error) {
+      // One dropped poll must not discard a scan that is still running.
+      consecutiveFailures += 1;
+      if (consecutiveFailures >= LOOKUP_JOB_POLL_MAX_CONSECUTIVE_FAILURES) {
+        throw error;
+      }
+      continue;
+    }
+    if (status.state === 'running') {
+      args.onProgress?.(status.progress);
+      continue;
+    }
+    if (status.httpStatus < 200 || status.httpStatus >= 300) {
+      throw new ApiError(status.httpStatus, status.result);
+    }
+    return status.result as CouplingForensicsLookupResponse;
+  }
 }
 
 export function isCouplingTraceabilityRequiredError(error: unknown) {

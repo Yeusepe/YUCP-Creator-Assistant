@@ -52,14 +52,19 @@ function readContentLength(headers: Headers): number | null {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
+/** The sync lookup and the job-start upload both carry the full archive. */
+function isForensicsUploadPath(pathname: string): boolean {
+  return pathname === '/api/forensics/lookup' || pathname === '/api/forensics/lookup/jobs';
+}
+
 function getRequestBodyLimit(pathname: string): number {
-  return pathname === '/api/forensics/lookup'
+  return isForensicsUploadPath(pathname)
     ? FORENSICS_PROXY_REQUEST_BODY_MAX_BYTES
     : API_PROXY_REQUEST_BODY_MAX_BYTES;
 }
 
 function getUpstreamTimeout(pathname: string): number {
-  return pathname === '/api/forensics/lookup'
+  return isForensicsUploadPath(pathname)
     ? FORENSICS_PROXY_UPSTREAM_TIMEOUT_MS
     : API_PROXY_UPSTREAM_TIMEOUT_MS;
 }

@@ -27,6 +27,7 @@ import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardS
 import { hasActiveCreatorBillingCapability, listCreatorCertificates } from '@/lib/certificates';
 import {
   type CouplingForensicsAssetResult,
+  type CouplingForensicsLookupProgress,
   type CouplingForensicsLookupResponse,
   isCouplingTraceabilityRequiredError,
   listCouplingForensicsPackages,
@@ -255,24 +256,35 @@ const SCAN_PHASES = [
 /**
  * Live phase progress while the lookup is in flight.
  *
- * The scan is one request with no intermediate reporting, so the step shown is
- * driven by elapsed time against the phases' measured shape: everything before
- * the buyer comparison is sub-second, and the comparison is what takes minutes.
- * It never claims to be finished, which the verdict does when it arrives.
+ * The early steps are driven by elapsed time (everything before the buyer
+ * comparison is sub-second); once the polled job starts reporting scored
+ * pages, the comparison shows real coverage instead of a guess.
  */
-function ForensicsScanProgress({ startedAt }: { startedAt: number }) {
+function ForensicsScanProgress({
+  startedAt,
+  progress,
+}: {
+  startedAt: number;
+  progress?: CouplingForensicsLookupProgress | null;
+}) {
   const [elapsedMs, setElapsedMs] = useState(() => Date.now() - startedAt);
   useEffect(() => {
     const timer = window.setInterval(() => setElapsedMs(Date.now() - startedAt), 250);
     return () => window.clearInterval(timer);
   }, [startedAt]);
   const currentStep = elapsedMs < 700 ? 0 : elapsedMs < 1500 ? 1 : 2;
+  const pages = progress?.pages ?? [];
+  const buyersCompared = pages.reduce((total, page) => total + page.buyersCompared, 0);
+  const tracesDecoded = pages.reduce((total, page) => total + page.resolved, 0);
 
   return (
     <div className="fx-pane space-y-3 p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-foreground text-sm font-medium">Scanning</p>
         <span className="text-muted text-xs tabular-nums">
+          {pages.length > 0
+            ? `Compared ${buyersCompared} buyers · ${tracesDecoded} traces decoded · `
+            : ''}
           {(elapsedMs / 1000).toFixed(0)}s elapsed
         </span>
       </div>
@@ -462,6 +474,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [lookupResult, setLookupResult] = useState<CouplingForensicsLookupResponse | null>(null);
   const [scanStartedAt, setScanStartedAt] = useState<number | null>(null);
+  const [scanProgress, setScanProgress] = useState<CouplingForensicsLookupProgress | null>(null);
 
   const handleFilePick = (file: File | null): boolean => {
     if (lookupMutation.isPending) return false;
@@ -595,10 +608,11 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
 
   const lookupMutation = useMutation({
     mutationFn: ({ packageId, file }: { packageId: string; file: File }) =>
-      runCouplingForensicsLookup({ packageId, file }),
+      runCouplingForensicsLookup({ packageId, file, onProgress: setScanProgress }),
     onMutate: () => {
       setInlineError(null);
       setLookupResult(null);
+      setScanProgress(null);
       setScanStartedAt(Date.now());
     },
     onSuccess: (result) => {
@@ -899,7 +913,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
         {/* Live scan progress, replaced by the verdict when it lands */}
         {lookupMutation.isPending && scanStartedAt ? (
           <section className="intg-card animate-in animate-in-delay-1 bento-col-12">
-            <ForensicsScanProgress startedAt={scanStartedAt} />
+            <ForensicsScanProgress startedAt={scanStartedAt} progress={scanProgress} />
           </section>
         ) : null}
 

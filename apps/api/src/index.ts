@@ -677,7 +677,14 @@ async function routeRequest(request: Request): Promise<Response> {
     }
   }
   if (pathname.startsWith('/api/forensics/')) {
-    if (isRateLimited(`forensics:${clientAddress}`, 30, 60_000)) {
+    // Job-status polling ticks every few seconds for the length of a scan, so
+    // it gets its own budget instead of eating the lookup allowance.
+    const isJobPoll = request.method === 'GET' && pathname.startsWith('/api/forensics/lookup/jobs/');
+    if (
+      isJobPoll
+        ? isRateLimited(`forensics-poll:${clientAddress}`, 120, 60_000)
+        : isRateLimited(`forensics:${clientAddress}`, 30, 60_000)
+    ) {
       return new Response(JSON.stringify({ error: 'Too many requests' }), {
         status: 429,
         headers: { 'Content-Type': 'application/json' },
@@ -1384,6 +1391,16 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname === '/api/forensics/lookup' && forensicsRoutes) {
     if (request.method === 'POST') return forensicsRoutes.lookup(request);
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  if (pathname === '/api/forensics/lookup/jobs' && forensicsRoutes) {
+    if (request.method === 'POST') return forensicsRoutes.startLookupJob(request);
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  const forensicsJobMatch = pathname.match(/^\/api\/forensics\/lookup\/jobs\/([a-f0-9]{32})$/);
+  if (forensicsJobMatch && forensicsRoutes) {
+    if (request.method === 'GET')
+      return forensicsRoutes.getLookupJob(request, forensicsJobMatch[1]);
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
   const entitlementRevokeMatch = pathname.match(/^\/api\/connect\/user\/entitlements\/([^/]+)$/);
