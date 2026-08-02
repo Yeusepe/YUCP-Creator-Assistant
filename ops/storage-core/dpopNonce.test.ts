@@ -28,8 +28,10 @@ describe('DPoP server nonce', () => {
       secret,
     });
     const issued = await manager.issue(now);
-    const replacement = issued.nonce.endsWith('A') ? 'B' : 'A';
-    const tampered = `${issued.nonce.slice(0, -1)}${replacement}`;
+    const segments = issued.nonce.split('.');
+    const signature = segments[3] as string;
+    const replacement = signature.startsWith('A') ? 'B' : 'A';
+    const tampered = [...segments.slice(0, 3), `${replacement}${signature.slice(1)}`].join('.');
 
     await expect(manager.verify(tampered, now)).resolves.toBeNull();
     await expect(otherManager.verify(issued.nonce, now)).resolves.toBeNull();
@@ -39,5 +41,16 @@ describe('DPoP server nonce', () => {
     await expect(
       manager.verify(issued.nonce, new Date(now.getTime() + 301_000))
     ).resolves.toBeNull();
+  });
+
+  it('rejects unsafe configuration and nonces issued beyond the future-skew allowance', async () => {
+    expect(() => createDpopNonceManager({ secret: new Uint8Array(31) })).toThrow(
+      'configuration is invalid'
+    );
+
+    const manager = createDpopNonceManager({ acceptedFutureSkewSeconds: 5, secret });
+    const futureNonce = await manager.issue(new Date(now.getTime() + 6_000));
+
+    await expect(manager.verify(futureNonce.nonce, now)).resolves.toBeNull();
   });
 });

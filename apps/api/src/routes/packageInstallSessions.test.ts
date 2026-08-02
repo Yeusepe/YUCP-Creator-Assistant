@@ -791,6 +791,7 @@ describe('package install session route', () => {
     );
 
     expect(response.status).toBe(401);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
     expect(response.headers.get('dpop-nonce')).toBe('server-time-nonce');
     expect(response.headers.get('www-authenticate')).toBe(
       'DPoP error="use_dpop_nonce", error_description="Resource server requires nonce in DPoP proof"'

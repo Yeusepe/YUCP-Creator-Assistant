@@ -123,6 +123,18 @@ describe('materialization DPoP verification', () => {
     await expect(
       verifyDpopProof({
         acceptedFutureSkewSeconds: 5,
+        accessToken: capability,
+        method: 'POST',
+        nonceVerifier: { verify: async () => ({ expiresAt: new Date(now * 1_000) }) },
+        now: new Date(now * 1_000),
+        proof: createProof({ iat: now, nonce: 'expired-server-nonce' }),
+        url: endpoint,
+      })
+    ).rejects.toBeInstanceOf(DpopNonceRequiredError);
+
+    await expect(
+      verifyDpopProof({
+        acceptedFutureSkewSeconds: 5,
         accessToken: 'different-token',
         method: 'POST',
         nonceVerifier: { verify: async () => null },

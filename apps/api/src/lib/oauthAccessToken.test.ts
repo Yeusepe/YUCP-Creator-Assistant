@@ -326,6 +326,14 @@ describe('verifyBetterAuthAccessToken', () => {
         sub: 'user_123',
       },
     });
+    await expect(
+      verifyBetterAuthAccessRequest(request(createProof('expired-server-nonce')), nonceOptions)
+    ).resolves.toEqual({
+      dpopNonce: 'server-time-nonce',
+      ok: false,
+      reason: 'use_dpop_nonce',
+    });
+    expect(verifyAccessTokenRequestMock).toHaveBeenCalledTimes(1);
   });
 
   it('does not reinterpret an unstructured verifier exception as a nonce challenge', async () => {

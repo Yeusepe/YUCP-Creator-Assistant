@@ -141,6 +141,17 @@ function isDpopClockWindowFailure(error: unknown): boolean {
   );
 }
 
+function decodeDpopThumbprint(value: string): Buffer | null {
+  try {
+    const thumbprint = Buffer.from(value, 'base64url');
+    return thumbprint.byteLength === 32 && thumbprint.toString('base64url') === value
+      ? thumbprint
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 async function verifyNonceCapableAccessRequest(
   request: Request,
   options: VerifyOAuthAccessRequestOptions,
@@ -165,8 +176,8 @@ async function verifyNonceCapableAccessRequest(
   if (!jkt) {
     throw new Error('DPoP-bound access token confirmation key is missing');
   }
-  const expectedThumbprint = Buffer.from(jkt, 'base64url');
-  if (expectedThumbprint.byteLength !== 32 || expectedThumbprint.toString('base64url') !== jkt) {
+  const expectedThumbprint = decodeDpopThumbprint(jkt);
+  if (!expectedThumbprint) {
     throw new Error('DPoP-bound access token confirmation key is invalid');
   }
   await verifyDpopProof({
@@ -321,13 +332,8 @@ export async function verifyBetterAuthAccessRequest(
     ) {
       return { ok: false, reason: 'invalid' };
     }
-    let thumbprint: Buffer;
-    try {
-      thumbprint = Buffer.from(jkt, 'base64url');
-    } catch {
-      return { ok: false, reason: 'invalid' };
-    }
-    if (thumbprint.byteLength !== 32 || thumbprint.toString('base64url') !== jkt) {
+    const thumbprint = decodeDpopThumbprint(jkt);
+    if (!thumbprint) {
       return { ok: false, reason: 'invalid' };
     }
     const grantedScopes =
