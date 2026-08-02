@@ -59,6 +59,7 @@ describe('loadEnv', () => {
   it('keeps delivery and VPM configuration optional when all values are unset', () => {
     delete process.env.PACKAGE_DELIVERY_AUDIENCE;
     delete process.env.PACKAGE_INSTALL_ISSUER;
+    delete process.env.PACKAGE_INSTALL_DPOP_NONCE_SECRET;
     delete process.env.PACKAGE_INSTALL_SIGNING_KEY_ID;
     delete process.env.PACKAGE_INSTALL_SIGNING_PRIVATE_KEY;
     delete process.env.PACKAGE_OPERATION_AUTHORIZATION_DATABASE_URL;
@@ -77,6 +78,7 @@ describe('loadEnv', () => {
 
     expect(env).toHaveProperty('PACKAGE_DELIVERY_AUDIENCE', undefined);
     expect(env).toHaveProperty('PACKAGE_INSTALL_ISSUER', undefined);
+    expect(env).toHaveProperty('PACKAGE_INSTALL_DPOP_NONCE_SECRET', undefined);
     expect(env).toHaveProperty('PACKAGE_INSTALL_SIGNING_KEY_ID', undefined);
     expect(env).toHaveProperty('PACKAGE_INSTALL_SIGNING_PRIVATE_KEY', undefined);
     expect(env).toHaveProperty('PACKAGE_OPERATION_AUTHORIZATION_DATABASE_URL', undefined);

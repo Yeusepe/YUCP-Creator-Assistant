@@ -194,6 +194,7 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
     args: [
       'test',
       './ops/better-auth-package-broker-loopback.contract.test.ts',
+      './ops/materialization/dpop.test.ts',
       './ops/storage-core/dpopNonce.test.ts',
     ],
     covers: ['identity'],

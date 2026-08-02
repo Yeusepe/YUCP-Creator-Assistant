@@ -45,6 +45,8 @@ export interface LocalEnv {
   PACKAGE_CATALOG_CONTROL_TIMEOUT_MS?: string;
   /** Delivery Worker origin bound into v2 package grants. */
   PACKAGE_DELIVERY_AUDIENCE?: string;
+  /** Base64url 32-byte secret used only to authenticate resource-server DPoP nonces. */
+  PACKAGE_INSTALL_DPOP_NONCE_SECRET?: string;
   /** Canonical public API origin bound into v2 package grants. */
   PACKAGE_INSTALL_ISSUER?: string;
   /** Purpose-separated Ed25519 key identifier for package install contracts. */
@@ -237,6 +239,7 @@ function loadFromEnv(): LocalEnv {
     PACKAGE_CATALOG_CONTROL_SHARED_SECRET: process.env.PACKAGE_CATALOG_CONTROL_SHARED_SECRET,
     PACKAGE_CATALOG_CONTROL_TIMEOUT_MS: process.env.PACKAGE_CATALOG_CONTROL_TIMEOUT_MS,
     PACKAGE_DELIVERY_AUDIENCE: process.env.PACKAGE_DELIVERY_AUDIENCE,
+    PACKAGE_INSTALL_DPOP_NONCE_SECRET: process.env.PACKAGE_INSTALL_DPOP_NONCE_SECRET,
     PACKAGE_INSTALL_ISSUER: process.env.PACKAGE_INSTALL_ISSUER,
     PACKAGE_INSTALL_SIGNING_KEY_ID: process.env.PACKAGE_INSTALL_SIGNING_KEY_ID,
     PACKAGE_INSTALL_SIGNING_PRIVATE_KEY: process.env.PACKAGE_INSTALL_SIGNING_PRIVATE_KEY,

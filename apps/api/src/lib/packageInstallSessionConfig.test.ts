@@ -4,15 +4,18 @@ import { loadPackageInstallSessionConfig } from './packageInstallSessionConfig';
 describe('package install session configuration', () => {
   test('loads a strict Ed25519 signing seed and origin bindings', () => {
     const privateKey = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
+    const dpopNonceSecret = Uint8Array.from({ length: 32 }, (_, index) => 32 - index);
     expect(
       loadPackageInstallSessionConfig({
         PACKAGE_DELIVERY_AUDIENCE: 'https://delivery.example.test',
+        PACKAGE_INSTALL_DPOP_NONCE_SECRET: Buffer.from(dpopNonceSecret).toString('base64url'),
         PACKAGE_INSTALL_ISSUER: 'https://api.example.test',
         PACKAGE_INSTALL_SIGNING_KEY_ID: 'package-install-2026-01',
         PACKAGE_INSTALL_SIGNING_PRIVATE_KEY: Buffer.from(privateKey).toString('base64url'),
       })
     ).toEqual({
       audience: 'https://delivery.example.test',
+      dpopNonceSecret,
       issuer: 'https://api.example.test',
       keyId: 'package-install-2026-01',
       privateKey,
@@ -32,6 +35,7 @@ describe('package install session configuration', () => {
     expect(() =>
       loadPackageInstallSessionConfig({
         PACKAGE_DELIVERY_AUDIENCE: 'https://delivery.example.test/path',
+        PACKAGE_INSTALL_DPOP_NONCE_SECRET: Buffer.alloc(32, 2).toString('base64url'),
         PACKAGE_INSTALL_ISSUER: 'https://api.example.test',
         PACKAGE_INSTALL_SIGNING_KEY_ID: 'package-install-2026-01',
         PACKAGE_INSTALL_SIGNING_PRIVATE_KEY: Buffer.alloc(32, 1).toString('base64url'),
@@ -40,10 +44,30 @@ describe('package install session configuration', () => {
     expect(() =>
       loadPackageInstallSessionConfig({
         PACKAGE_DELIVERY_AUDIENCE: 'https://delivery.example.test',
+        PACKAGE_INSTALL_DPOP_NONCE_SECRET: Buffer.alloc(32, 2).toString('base64url'),
         PACKAGE_INSTALL_ISSUER: 'https://api.example.test',
         PACKAGE_INSTALL_SIGNING_KEY_ID: 'package-install-2026-01',
         PACKAGE_INSTALL_SIGNING_PRIVATE_KEY: Buffer.alloc(31, 1).toString('base64url'),
       })
     ).toThrow('32-byte');
+    expect(() =>
+      loadPackageInstallSessionConfig({
+        PACKAGE_DELIVERY_AUDIENCE: 'https://delivery.example.test',
+        PACKAGE_INSTALL_DPOP_NONCE_SECRET: Buffer.alloc(31, 2).toString('base64url'),
+        PACKAGE_INSTALL_ISSUER: 'https://api.example.test',
+        PACKAGE_INSTALL_SIGNING_KEY_ID: 'package-install-2026-01',
+        PACKAGE_INSTALL_SIGNING_PRIVATE_KEY: Buffer.alloc(32, 1).toString('base64url'),
+      })
+    ).toThrow('PACKAGE_INSTALL_DPOP_NONCE_SECRET must encode 32 random bytes');
+    const reusedSecret = Buffer.alloc(32, 3).toString('base64url');
+    expect(() =>
+      loadPackageInstallSessionConfig({
+        PACKAGE_DELIVERY_AUDIENCE: 'https://delivery.example.test',
+        PACKAGE_INSTALL_DPOP_NONCE_SECRET: reusedSecret,
+        PACKAGE_INSTALL_ISSUER: 'https://api.example.test',
+        PACKAGE_INSTALL_SIGNING_KEY_ID: 'package-install-2026-01',
+        PACKAGE_INSTALL_SIGNING_PRIVATE_KEY: reusedSecret,
+      })
+    ).toThrow('must not reuse the package signing seed');
   });
 });

@@ -87,26 +87,34 @@ export function createDpopNonceManager(input: {
     throw new Error('DPoP nonce configuration is invalid');
   }
   const secret = new Uint8Array(input.secret);
-  const key = crypto.subtle
-    .importKey('raw', secret, 'HKDF', false, ['deriveKey'])
-    .then((material) =>
-      crypto.subtle.deriveKey(
-        {
-          hash: 'SHA-256',
-          info: textEncoder.encode(purpose),
-          name: 'HKDF',
-          salt: new Uint8Array(),
-        },
-        material,
-        { hash: 'SHA-256', length: 256, name: 'HMAC' },
-        false,
-        ['sign', 'verify']
-      )
-    );
+  let keyPromise: Promise<CryptoKey> | undefined;
+  const getKey = () => {
+    keyPromise ??= crypto.subtle
+      .importKey('raw', secret, 'HKDF', false, ['deriveKey'])
+      .then((material) =>
+        crypto.subtle.deriveKey(
+          {
+            hash: 'SHA-256',
+            info: textEncoder.encode(purpose),
+            name: 'HKDF',
+            salt: new Uint8Array(),
+          },
+          material,
+          { hash: 'SHA-256', length: 256, name: 'HMAC' },
+          false,
+          ['sign', 'verify']
+        )
+      );
+    return keyPromise;
+  };
 
   async function signNonce(unsigned: string): Promise<Uint8Array> {
     return new Uint8Array(
-      await crypto.subtle.sign('HMAC', await key, textEncoder.encode(`${purpose}\0${unsigned}`))
+      await crypto.subtle.sign(
+        'HMAC',
+        await getKey(),
+        textEncoder.encode(`${purpose}\0${unsigned}`)
+      )
     );
   }
 
@@ -159,7 +167,7 @@ export function createDpopNonceManager(input: {
       if (
         !(await crypto.subtle.verify(
           'HMAC',
-          await key,
+          await getKey(),
           copyArrayBuffer(signature),
           textEncoder.encode(`${purpose}\0${unsigned}`)
         ))

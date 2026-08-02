@@ -1090,6 +1090,7 @@ export function applyLocalStorageProfile(
   storage: DisposableStorageHarness | InteractiveStorageHarness,
   secrets: {
     couplingServiceSharedSecret: string;
+    installDpopNonceSecret: string;
     installSigningKeyId: string;
     installSigningPrivateKey: string;
     installSigningPublicKey: string;
@@ -1182,6 +1183,7 @@ export function applyLocalStorageProfile(
     MATERIALIZATION_SOURCE_GRANT_PRIVATE_KEY: secrets.materializationSourceGrantPrivateKey,
     MATERIALIZATION_SOURCE_GRANT_PUBLIC_KEY: secrets.materializationSourceGrantPublicKey,
     PACKAGE_DELIVERY_AUDIENCE: deliveryUrl,
+    PACKAGE_INSTALL_DPOP_NONCE_SECRET: secrets.installDpopNonceSecret,
     PACKAGE_INSTALL_ISSUER: apiUrl,
     PACKAGE_INSTALL_SIGNING_KEY_ID: secrets.installSigningKeyId,
     PACKAGE_INSTALL_SIGNING_PRIVATE_KEY: secrets.installSigningPrivateKey,
@@ -1458,6 +1460,7 @@ async function startDevRuntime(
       {
         couplingServiceSharedSecret:
           stableSecrets?.couplingServiceSharedSecret ?? randomBytes(32).toString('base64url'),
+        installDpopNonceSecret: randomBytes(32).toString('base64url'),
         installSigningKeyId,
         installSigningPrivateKey: installSigningPrivateKey.toString('base64url'),
         installSigningPublicKey,

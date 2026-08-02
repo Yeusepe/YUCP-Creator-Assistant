@@ -259,6 +259,8 @@ export async function verifyDpopProof(input: {
   const proofClockOffsetSeconds = Number(iat) - nowSeconds;
   let nonceBound = false;
   let replayExpiresAt = new Date((Number(iat) + clockWindowSeconds) * 1_000);
+  // A valid server nonce supplies freshness independently of the client's clock, per RFC 9449
+  // section 11.1. All other proof bindings and the shared jti replay reservation remain required.
   if (input.nonceVerifier && payload.nonce !== undefined) {
     const nonce = requireText(payload.nonce, 'DPoP nonce', 512);
     const verification = await input.nonceVerifier.verify(nonce, now);
@@ -277,6 +279,8 @@ export async function verifyDpopProof(input: {
     (nowSeconds - Number(iat) > clockWindowSeconds ||
       proofClockOffsetSeconds > acceptedFutureSkewSeconds)
   ) {
+    // Nonce-less proofs remain the normal path while iat is inside the asymmetric clock window.
+    // Only otherwise-valid proofs outside that window receive a server-time nonce challenge.
     if (input.nonceVerifier) {
       throw new DpopNonceRequiredError(proofClockOffsetSeconds);
     }

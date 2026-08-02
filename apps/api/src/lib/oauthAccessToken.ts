@@ -127,8 +127,17 @@ function proofContainsNonce(proof: string | null): boolean {
 }
 
 function isDpopClockWindowFailure(error: unknown): boolean {
-  return (
-    error instanceof Error && error.message === 'DPoP proof iat is outside the accepted window'
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const body = (error as Error & { body?: unknown }).body;
+  return Boolean(
+    body &&
+      typeof body === 'object' &&
+      !Array.isArray(body) &&
+      (body as Record<string, unknown>).error === 'invalid_dpop_proof' &&
+      (body as Record<string, unknown>).error_description ===
+        'DPoP proof iat is outside the accepted window'
   );
 }
 

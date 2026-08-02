@@ -72,6 +72,7 @@ describe('cloudflare-web-config', () => {
     source.METADATA_S3_ACCESS_KEY_ID = 'placeholder-write-key-must-not-sync';
     source.METADATA_S3_SECRET_ACCESS_KEY = 'placeholder-write-secret-must-not-sync';
     source.PACKAGE_INSTALL_SIGNING_PRIVATE_KEY = 'private-key-must-not-sync';
+    source.PACKAGE_INSTALL_DPOP_NONCE_SECRET = 'nonce-secret-must-not-sync';
 
     expect(getDeliveryWorkerBindingValues(source)).toEqual(
       Object.fromEntries(

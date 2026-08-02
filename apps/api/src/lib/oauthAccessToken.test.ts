@@ -257,7 +257,12 @@ describe('verifyBetterAuthAccessToken', () => {
       sub: 'user_123',
     });
     verifyAccessTokenRequestImpl = async () => {
-      throw new Error('DPoP proof iat is outside the accepted window');
+      throw Object.assign(new Error('DPoP proof iat is outside the accepted window'), {
+        body: {
+          error: 'invalid_dpop_proof',
+          error_description: 'DPoP proof iat is outside the accepted window',
+        },
+      });
     };
     const endpoint = 'https://api.example.test/api/v2/package-installs/sessions';
     const createProof = (nonce?: string) => {
@@ -321,5 +326,38 @@ describe('verifyBetterAuthAccessToken', () => {
         sub: 'user_123',
       },
     });
+  });
+
+  it('does not reinterpret an unstructured verifier exception as a nonce challenge', async () => {
+    verifyAccessTokenRequestImpl = async () => {
+      throw new Error('DPoP proof iat is outside the accepted window');
+    };
+    const dpopNonceManager = {
+      issue: mock(async () => ({
+        expiresAt: new Date(Date.now() + 300_000),
+        nonce: 'server-time-nonce',
+      })),
+      verify: mock(async () => null),
+    };
+
+    const result = await verifyBetterAuthAccessRequest(
+      new Request('https://api.example.test/api/v2/package-installs/authorizations', {
+        method: 'POST',
+        headers: {
+          Authorization: 'DPoP access-token',
+          DPoP: 'proof-jwt',
+        },
+      }),
+      {
+        ...options,
+        audience: 'https://api.example.test',
+        dpopNonceManager,
+        dpopReplayStore: { reserve: async () => true },
+      }
+    );
+
+    expect(result).toEqual({ ok: false, reason: 'invalid' });
+    expect(verifyJwsAccessTokenMock).not.toHaveBeenCalled();
+    expect(dpopNonceManager.issue).not.toHaveBeenCalled();
   });
 });

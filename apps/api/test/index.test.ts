@@ -78,6 +78,7 @@ describe('API server, production app harness', () => {
 
   it('boots and serves health with optional package install and VPM variables unset', async () => {
     expect(process.env.PACKAGE_DELIVERY_AUDIENCE).toBeUndefined();
+    expect(process.env.PACKAGE_INSTALL_DPOP_NONCE_SECRET).toBeUndefined();
     expect(process.env.PACKAGE_INSTALL_SIGNING_KEY_ID).toBeUndefined();
     expect(process.env.PACKAGE_INSTALL_SIGNING_PRIVATE_KEY).toBeUndefined();
     expect(process.env.VPM_BASE_URL).toBeUndefined();

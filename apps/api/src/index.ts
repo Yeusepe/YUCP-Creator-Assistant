@@ -455,7 +455,7 @@ function initializeAuth(webhookBaseUrl?: string) {
   const packageInstallDpopNonceManager = packageInstallConfig
     ? createDpopNonceManager({
         purpose: 'yucp:package-install-dpop-nonce:v1',
-        secret: packageInstallConfig.privateKey,
+        secret: packageInstallConfig.dpopNonceSecret,
       })
     : null;
   const packageInstallRouteOptions =

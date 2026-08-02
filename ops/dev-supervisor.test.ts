@@ -643,6 +643,7 @@ describe('DevSupervisor', () => {
     } as DisposableStorageHarness;
     const profileSecrets = {
       couplingServiceSharedSecret: 'local-coupling-service-secret',
+      installDpopNonceSecret: 'local-install-dpop-nonce-secret',
       installSigningKeyId: 'local-install-key',
       installSigningPrivateKey: 'local-install-private-key',
       installSigningPublicKey: 'local-install-public-key',
@@ -711,6 +712,7 @@ describe('DevSupervisor', () => {
       MATERIALIZATION_SOURCE_GRANT_PUBLIC_KEY: 'local-source-grant-public-key',
       PACKAGE_DELIVERY_AUDIENCE: 'http://127.0.0.1:3003',
       PACKAGE_INSTALL_ISSUER: 'http://127.0.0.1:3001',
+      PACKAGE_INSTALL_DPOP_NONCE_SECRET: 'local-install-dpop-nonce-secret',
       PACKAGE_INSTALL_SIGNING_KEY_ID: 'local-install-key',
       PACKAGE_INSTALL_SIGNING_PRIVATE_KEY: 'local-install-private-key',
       PACKAGE_INSTALL_SIGNING_PUBLIC_KEY: 'local-install-public-key',
