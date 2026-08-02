@@ -45,6 +45,8 @@ describe('Better Auth package broker loopback contract', () => {
     expect(authRuntime).toContain(
       'refreshTokenReuseInterval: OAUTH_NATIVE_REFRESH_TOKEN_REUSE_INTERVAL_SECONDS'
     );
+    expect(authOptions).toContain('customTokenResponseFields: authorizationServerTimeFields');
+    expect(authRuntime).toContain('customTokenResponseFields: authorizationServerTimeFields');
     expect(clientSeed).toContain("const callbackUrl = 'http://127.0.0.1/callback';");
     expect(devSupervisor).toContain(
       'bunx convex dev --run seedYucpOAuthClient:seedPackageBrokerOAuthClient'

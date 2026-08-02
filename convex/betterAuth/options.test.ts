@@ -207,6 +207,32 @@ describe('createSchemaAuthOptions', () => {
     }
   });
 
+  it('publishes authorization-server time through Better Auth token response fields', async () => {
+    const before = Math.floor(Date.now() / 1000);
+
+    for (const options of [createSchemaAuthOptions(), createAuthOptions({} as never)]) {
+      const oauthPlugin = options.plugins?.find(
+        (plugin) => plugin.id === 'oauth-provider'
+      ) as
+        | {
+            options?: {
+              customTokenResponseFields?: (input: unknown) =>
+                | Record<string, unknown>
+                | Promise<Record<string, unknown>>;
+            };
+          }
+        | undefined;
+
+      expect(oauthPlugin?.options?.customTokenResponseFields).toBeFunction();
+      const fields = await oauthPlugin!.options!.customTokenResponseFields!({});
+      const after = Math.floor(Date.now() / 1000);
+
+      expect(Number.isInteger(fields.authorization_server_time)).toBeTrue();
+      expect(fields.authorization_server_time).toBeGreaterThanOrEqual(before);
+      expect(fields.authorization_server_time).toBeLessThanOrEqual(after);
+    }
+  });
+
   it('adds the Polar billing plugin when certificate billing env is configured', () => {
     process.env.POLAR_ACCESS_TOKEN = 'polar-token';
     process.env.POLAR_WEBHOOK_SECRET = 'polar-webhook-secret';

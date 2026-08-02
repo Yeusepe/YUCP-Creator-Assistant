@@ -12,6 +12,7 @@ import { emailOTP, jwt, twoFactor } from 'better-auth/plugins';
 import { oneTimeToken } from 'better-auth/plugins/one-time-token';
 import { createJwtJwksAdapter } from './jwtAdapter';
 import {
+  authorizationServerTimeFields,
   OAUTH_NATIVE_REFRESH_TOKEN_REUSE_INTERVAL_SECONDS,
   OAUTH_PROVIDER_SCOPES,
 } from './oauthProviderScopes';
@@ -67,6 +68,7 @@ export const createSchemaAuthOptions = (): BetterAuthOptions =>
         allowUnauthenticatedClientRegistration: false,
         grantTypes: ['authorization_code', 'refresh_token'],
         refreshTokenReuseInterval: OAUTH_NATIVE_REFRESH_TOKEN_REUSE_INTERVAL_SECONDS,
+        customTokenResponseFields: authorizationServerTimeFields,
         silenceWarnings: {
           oauthAuthServerConfig: true,
         },

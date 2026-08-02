@@ -18,6 +18,25 @@ export const PACKAGE_BROKER_OPERATION_SCOPE = 'package:operate';
 // https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14.2
 export const OAUTH_NATIVE_REFRESH_TOKEN_REUSE_INTERVAL_SECONDS = 30;
 
+export interface AuthorizationServerTimeFields {
+  [key: string]: unknown;
+  authorization_server_time: number;
+}
+
+/**
+ * Better Auth explicitly supports adding non-standard fields beside the
+ * standard OAuth token response fields through `customTokenResponseFields`.
+ * The native client uses this whole-second server timestamp as its trusted
+ * clock anchor while retaining the provider's normal token expiry fields.
+ *
+ * https://better-auth.com/docs/beta/plugins/oauth-provider#custom-token-response-fields
+ */
+export function authorizationServerTimeFields(): AuthorizationServerTimeFields {
+  return {
+    authorization_server_time: Math.floor(Date.now() / 1000),
+  };
+}
+
 export type OAuthProviderScope =
   | PublicApiScope
   | typeof OAUTH_REFRESH_TOKEN_SCOPE

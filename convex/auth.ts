@@ -31,6 +31,7 @@ import type { DataModel } from './_generated/dataModel';
 import authConfig from './auth.config';
 import { createJwtJwksAdapter } from './betterAuth/jwtAdapter';
 import {
+  authorizationServerTimeFields,
   OAUTH_NATIVE_REFRESH_TOKEN_REUSE_INTERVAL_SECONDS,
   OAUTH_PROVIDER_SCOPES,
 } from './betterAuth/oauthProviderScopes';
@@ -464,6 +465,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
         allowUnauthenticatedClientRegistration: false,
         grantTypes: ['authorization_code', 'refresh_token'],
         refreshTokenReuseInterval: OAUTH_NATIVE_REFRESH_TOKEN_REUSE_INTERVAL_SECONDS,
+        customTokenResponseFields: authorizationServerTimeFields,
         silenceWarnings: {
           oauthAuthServerConfig: true,
         },
