@@ -4,6 +4,7 @@ import {
   base64UrlDecodeToBytes,
   base64UrlEncode,
   bytesToHex,
+  isSyntheticEmail,
   normalizeEmail,
   sha256Base64Url,
   sha256Bytes,
@@ -51,5 +52,12 @@ describe('crypto primitives', () => {
 
   it('normalizes email values before hashing', () => {
     expect(normalizeEmail('  USER@Example.com  ')).toBe('user@example.com');
+  });
+
+  it('detects synthetic .invalid emails', () => {
+    expect(isSyntheticEmail('123456789@discord.invalid')).toBe(true);
+    expect(isSyntheticEmail('  USR_ID@VRChat.INVALID ')).toBe(true);
+    expect(isSyntheticEmail('real@gmail.com')).toBe(false);
+    expect(isSyntheticEmail('invalid@example.com')).toBe(false);
   });
 });

@@ -1,3 +1,4 @@
+import { isSyntheticEmail } from '@yucp/shared/crypto';
 import { api } from '../../../../convex/_generated/api';
 import type { Auth } from '../auth';
 import { BetterAuthEndpointError } from '../auth';
@@ -73,6 +74,17 @@ export function createAccountSecurityRoutes(auth: Auth, config: AccountSecurityR
     const email = body?.email?.trim();
     if (!email) {
       return jsonResponse({ error: 'Email is required' }, 400);
+    }
+
+    // Synthetic .invalid addresses are derivable from public Discord IDs.
+    // Answer identically to an unknown email, without touching Convex, so the
+    // route can't be used to enumerate accounts.
+    if (isSyntheticEmail(email)) {
+      return jsonResponse({
+        success: true,
+        message:
+          'If that account can recover by email, a recovery code has been sent. Backup codes and support recovery remain available.',
+      });
     }
 
     try {

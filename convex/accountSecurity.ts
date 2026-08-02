@@ -1,5 +1,5 @@
 import { issueRecoveryPasskeyContext, type RecoveryContextMethod, sha256Hex } from '@yucp/shared';
-import { normalizeEmail } from '@yucp/shared/crypto';
+import { isSyntheticEmail, normalizeEmail } from '@yucp/shared/crypto';
 import { symmetricDecrypt, symmetricEncrypt } from 'better-auth/crypto';
 import type { BackupCodeOptions } from 'better-auth/plugins';
 import { ConvexError, v } from 'convex/values';
@@ -402,7 +402,10 @@ async function computeSecurityPosture(
   const strongFactorCount =
     Number(passkeys.length > 0) + Number(backupCodeCount > 0) + Number(verifiedContacts.length > 0);
   const primaryEmail = user?.email ? normalizeEmail(user.email) : null;
-  const primaryEmailRecoveryEligible = Boolean(primaryEmail) && !state?.primaryEmailCompromisedAt;
+  // Synthetic .invalid addresses (Discord/VRChat sign-in) can never receive an
+  // OTP — without this guard resolveRecoveryRoute would send codes into the void.
+  const primaryEmailRecoveryEligible =
+    primaryEmail !== null && !isSyntheticEmail(primaryEmail) && !state?.primaryEmailCompromisedAt;
   const shouldShowPrompt =
     strongFactorCount === 0 &&
     (!state?.dismissedUntil || Number(state.dismissedUntil) <= now) &&
@@ -783,6 +786,16 @@ export const dismissRecoveryPrompt = mutation({
     const authUser = await getAuthenticatedAuthUser(ctx);
     const authUserId = requireAuthenticatedUserId(authUser);
     const now = Date.now();
+    const posture = await computeSecurityPosture(ctx, authUserId);
+    if (
+      posture.strongFactorCount === 0 &&
+      posture.primaryEmail &&
+      isSyntheticEmail(posture.primaryEmail)
+    ) {
+      throw new ConvexError(
+        'Add a backup sign-in method first — Discord is currently your only way into this account.'
+      );
+    }
     await upsertSecurityState(
       ctx,
       authUserId,

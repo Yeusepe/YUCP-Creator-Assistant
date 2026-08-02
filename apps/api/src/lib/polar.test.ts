@@ -144,4 +144,57 @@ describe('createCertificateBillingPortalSession', () => {
     ]);
     expect(createdSessions).toEqual([{ customerId: 'cust_created' }]);
   });
+
+  it('never looks up or creates a Polar customer with a synthetic .invalid email', async () => {
+    const createdCustomers: Array<Record<string, unknown>> = [];
+    let listCalls = 0;
+
+    listImpl = async () => {
+      listCalls += 1;
+      return {
+        async *[Symbol.asyncIterator]() {
+          yield { result: { items: [] } };
+        },
+      } satisfies AsyncIterable<unknown>;
+    };
+    createImpl = async (args) => {
+      createdCustomers.push(args);
+      return { id: 'cust_created' };
+    };
+
+    await expect(
+      createCertificateBillingPortalSession({
+        externalCustomerId: 'auth-user-789',
+        customerEmail: '123456789012345678@discord.invalid',
+        customerName: 'Emailless Discord User',
+      })
+    ).rejects.toThrow('No billing customer exists for this account');
+
+    expect(listCalls).toBe(0);
+    expect(createdCustomers).toEqual([]);
+  });
+
+  it('still resolves synthetic-email users who already have a customer by external id', async () => {
+    const createdSessions: Array<Record<string, unknown>> = [];
+
+    getExternalImpl = async (args) => {
+      expect(args).toEqual({ externalId: 'auth-user-789' });
+      return { id: 'cust_by_external' };
+    };
+    createSessionImpl = async (args) => {
+      createdSessions.push(args);
+      return { customerPortalUrl: 'https://polar.example.test/portal/external' };
+    };
+
+    const result = await createCertificateBillingPortalSession({
+      externalCustomerId: 'auth-user-789',
+      customerEmail: '123456789012345678@discord.invalid',
+      customerName: 'Emailless Discord User',
+    });
+
+    expect(result).toEqual({
+      customerPortalUrl: 'https://polar.example.test/portal/external',
+    });
+    expect(createdSessions).toEqual([{ customerId: 'cust_by_external' }]);
+  });
 });

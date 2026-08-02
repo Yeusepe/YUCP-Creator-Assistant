@@ -22,6 +22,7 @@ import {
   PUBLIC_API_KEY_PREFIX,
   verifyRecoveryPasskeyContext,
 } from '@yucp/shared';
+import { isSyntheticEmail } from '@yucp/shared/crypto';
 import type { BetterAuthOptions } from 'better-auth';
 import { betterAuth } from 'better-auth';
 import { emailOTP, jwt, twoFactor } from 'better-auth/plugins';
@@ -265,6 +266,16 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
           discord: {
             clientId: discordClientId,
             clientSecret: discordClientSecret,
+            // Never request the email scope: Discord's consent screen stops
+            // asking for it and /users/@me omits the field entirely. Better
+            // Auth still requires a unique user.email, so mint a non-routable
+            // one from the snowflake — same shape as convex/plugins/vrchat.ts.
+            disableDefaultScope: true,
+            scope: ['identify'],
+            mapProfileToUser: (profile: { id: string }) => ({
+              email: `${profile.id}@discord.invalid`,
+              emailVerified: false,
+            }),
           },
         }
       : {};
@@ -312,7 +323,12 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
                 ? { server: certificateBillingConfig.polarServer }
                 : {}),
             }),
-            createCustomerOnSignUp: true,
+            // Polar rejects .invalid emails (EmailStrDNS: MX check) and its
+            // user.create.before hook would abort sign-up for synthetic-email
+            // users. The customer is created at checkout instead, keyed on
+            // externalCustomerId, with a real billing email collected by
+            // Polar's hosted page.
+            createCustomerOnSignUp: false,
             getCustomerCreateParams: async () => ({
               metadata: {
                 certificate_billing: true,
@@ -477,7 +493,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
           // Industry standard: Auth0, Okta, etc. all embed name/email in
           // first-party access tokens via custom claims.
           name: user?.name ?? null,
-          email: user?.email ?? null,
+          email: user?.email && !isSyntheticEmail(user.email) ? user.email : null,
         }),
       }),
       // Better Auth one-time token reference:

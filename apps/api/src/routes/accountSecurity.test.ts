@@ -44,6 +44,41 @@ describe('account security routes', () => {
     loggerWarnMock.mockReset();
   });
 
+  it('answers synthetic .invalid lookups generically without touching Convex', async () => {
+    const sendEmailOtp = mock(async (_input: { email: string; type: string }) => ({
+      success: true,
+    }));
+
+    const routes = createAccountSecurityRoutes(
+      {
+        sendEmailOtp,
+        checkEmailOtp: mock(async () => ({ success: true })),
+      } as never,
+      {
+        convexApiSecret: 'test-secret',
+        convexUrl: 'https://test.convex.cloud',
+      }
+    );
+
+    const response = await routes.startRecovery(
+      new Request('http://localhost/api/account-recovery/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: '123456789012345678@discord.invalid' }),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      success: true,
+      message:
+        'If that account can recover by email, a recovery code has been sent. Backup codes and support recovery remain available.',
+    });
+    expect(convexQueryMock).not.toHaveBeenCalled();
+    expect(convexMutationMock).not.toHaveBeenCalled();
+    expect(sendEmailOtp).not.toHaveBeenCalled();
+  });
+
   it('returns a generic success response and starts email recovery when allowed', async () => {
     convexQueryMock.mockImplementation(async (...args: unknown[]) => {
       const [reference] = args;

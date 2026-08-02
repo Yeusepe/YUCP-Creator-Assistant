@@ -89,6 +89,62 @@ describe('accountSecurity', () => {
     expect(state).toBeNull();
   }, 20_000);
 
+  it('treats synthetic .invalid primary emails as ineligible for email recovery', async () => {
+    const t = makeTestConvex() as ComponentAwareTestConvex;
+
+    const { authed } = await createAuthedUser(t, {
+      email: '123456789012345678@discord.invalid',
+      name: 'Emailless Discord User',
+    });
+
+    const overview = await authed.query(api.accountSecurity.getSecurityOverview, {});
+
+    expect(overview.primaryEmail).toBe('123456789012345678@discord.invalid');
+    expect(overview.primaryEmailRecoveryEligible).toBe(false);
+    expect(overview.strongFactorCount).toBe(0);
+  }, 20_000);
+
+  it('blocks recovery-prompt dismissal for synthetic-email users with zero factors', async () => {
+    const t = makeTestConvex() as ComponentAwareTestConvex;
+
+    const { authUserId, authed } = await createAuthedUser(t, {
+      email: '123456789012345678@discord.invalid',
+      name: 'Emailless Discord User',
+    });
+
+    await expect(authed.mutation(api.accountSecurity.dismissRecoveryPrompt, {})).rejects.toThrow(
+      'Add a backup sign-in method first'
+    );
+
+    // With one verified recovery contact (a strong factor), dismissal works.
+    const prepared = await authed.mutation(api.accountSecurity.prepareRecoveryContactEnrollment, {
+      email: 'real-backup@example.com',
+    });
+    await t.mutation(api.accountSecurity.verifyRecoveryContactEnrollmentForApi, {
+      apiSecret: 'test-secret',
+      authUserId,
+      email: prepared.email,
+    });
+
+    // With a strong factor the dismissal is accepted; the sync then clears
+    // dismissedUntil because the prompt no longer shows at all.
+    const overview = await authed.mutation(api.accountSecurity.dismissRecoveryPrompt, {});
+    expect(overview.strongFactorCount).toBe(1);
+    expect(overview.shouldShowPrompt).toBe(false);
+  }, 20_000);
+
+  it('still allows dismissal for routable-email users with zero factors', async () => {
+    const t = makeTestConvex() as ComponentAwareTestConvex;
+
+    const { authed } = await createAuthedUser(t, {
+      email: 'routable@example.com',
+      name: 'Routable User',
+    });
+
+    const overview = await authed.mutation(api.accountSecurity.dismissRecoveryPrompt, {});
+    expect(overview.dismissedUntil).toBeTypeOf('number');
+  }, 20_000);
+
   it('requires the authenticated API boundary to verify a recovery contact', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
 

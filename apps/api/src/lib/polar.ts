@@ -1,4 +1,5 @@
 import { Polar } from '@polar-sh/sdk';
+import { isSyntheticEmail } from '@yucp/shared/crypto';
 import { getCertificateBillingConfig } from '../../../../convex/lib/certificateBillingConfig';
 import { withApiSpan } from './observability';
 
@@ -134,6 +135,11 @@ export async function createCertificateBillingPortalSession(input: {
         return null;
       }
 
+      // Polar rejects non-routable addresses (DNS MX validation), and creating
+      // customers at .invalid addresses would bounce receipts forever.
+      const customerEmail =
+        input.customerEmail && !isSyntheticEmail(input.customerEmail) ? input.customerEmail : null;
+
       let customerId: string | null = null;
 
       try {
@@ -157,7 +163,7 @@ export async function createCertificateBillingPortalSession(input: {
         }
       }
 
-      if (!customerId && input.customerEmail) {
+      if (!customerId && customerEmail) {
         // Polar list-customers reference:
         // https://docs.polar.sh/api-reference/customers/list
         const customers = await withApiSpan(
@@ -169,7 +175,7 @@ export async function createCertificateBillingPortalSession(input: {
           async () =>
             collectPageItems(
               await polar.customers.list({
-                email: input.customerEmail,
+                email: customerEmail,
                 limit: 1,
               })
             )
@@ -178,10 +184,9 @@ export async function createCertificateBillingPortalSession(input: {
       }
 
       if (!customerId) {
-        if (!input.customerEmail) {
-          throw new Error('Polar customer portal requires a customer email');
+        if (!customerEmail) {
+          throw new Error('No billing customer exists for this account');
         }
-        const customerEmail = input.customerEmail;
 
         // Polar create-customer reference:
         // https://docs.polar.sh/api-reference/customers/create

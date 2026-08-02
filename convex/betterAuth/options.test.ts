@@ -243,7 +243,7 @@ describe('createSchemaAuthOptions', () => {
     expect(polarPlugin).toBeDefined();
   });
 
-  it('omits yucp_user_id metadata until Better Auth has created the user id', async () => {
+  it('does not create a Polar customer on sign-up (customers are created at checkout)', async () => {
     process.env.POLAR_ACCESS_TOKEN = 'polar-token';
     process.env.POLAR_WEBHOOK_SECRET = 'polar-webhook-secret';
 
@@ -351,14 +351,25 @@ describe('createSchemaAuthOptions', () => {
       }
     );
 
-    expect(customerCreatePayload).toMatchObject({
-      email: 'person@example.com',
-      name: 'Person',
-      metadata: {
-        certificate_billing: true,
-      },
-    });
-    expect(customerCreatePayload?.metadata?.yucp_user_id).toBeUndefined();
+    // createCustomerOnSignUp is off: Polar rejects synthetic .invalid emails,
+    // so customer creation moved to checkout (keyed on externalCustomerId).
+    expect(customerCreatePayload).toBeUndefined();
+
+    // The pair guarantee: sign-up with a synthetic email must never throw.
+    await expect(
+      beforeCreateHook!(
+        {
+          email: '123456789012345678@discord.invalid',
+          name: 'Emailless Discord User',
+          id: undefined,
+        },
+        {
+          context: {
+            logger: console,
+          },
+        }
+      )
+    ).resolves.toBeUndefined();
   });
 
   it('stores jwks signing metadata in the schema mirror', () => {

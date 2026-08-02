@@ -66,6 +66,7 @@
 
 import { PROVIDER_REGISTRY, PROVIDER_REGISTRY_BY_KEY } from '@yucp/providers/providerMetadata';
 import { PUBLIC_API_AUDIENCE } from '@yucp/shared';
+import { isSyntheticEmail } from '@yucp/shared/crypto';
 import { httpRouter } from 'convex/server';
 import { api, components, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
@@ -544,10 +545,13 @@ http.route({
 
     if (!user) return errorResponse('User not found', 404);
 
+    // Synthetic .invalid addresses are internal placeholders, not identity —
+    // never publish them to OAuth clients.
+    const rawEmail = user.email ?? tokenResult.email;
     return jsonResponse({
       sub: tokenResult.yucpUserId,
       name: user.name ?? tokenResult.name,
-      email: user.email ?? tokenResult.email,
+      email: rawEmail && !isSyntheticEmail(rawEmail) ? rawEmail : null,
     });
   }),
 });

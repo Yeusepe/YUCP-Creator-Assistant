@@ -77,6 +77,7 @@ export {
   base64UrlDecodeToBytes,
   base64UrlEncode,
   bytesToHex,
+  isSyntheticEmail,
   normalizeEmail,
   sha256Base64Url,
   sha256Bytes,

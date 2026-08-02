@@ -49,3 +49,12 @@ export async function sha256Base64Url(input: Sha256Input): Promise<string> {
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
+
+/**
+ * Synthetic account emails minted for OAuth providers that don't share an email
+ * (e.g. `{discordId}@discord.invalid`, `{vrchatId}@vrchat.invalid`). RFC 6761
+ * reserves `.invalid`, so these can never route mail.
+ */
+export function isSyntheticEmail(email: string): boolean {
+  return normalizeEmail(email).endsWith('.invalid');
+}

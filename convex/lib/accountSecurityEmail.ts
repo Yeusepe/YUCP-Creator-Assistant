@@ -7,6 +7,7 @@
  */
 
 import { sha256Hex } from '@yucp/shared';
+import { isSyntheticEmail } from '@yucp/shared/crypto';
 
 const RESEND_BASE_URL = 'https://api.resend.com';
 const RESEND_REQUEST_TIMEOUT_MS = 10_000;
@@ -77,6 +78,13 @@ export async function sendEmailOtpEmail(params: {
   otp: string;
   type: EmailOtpType;
 }): Promise<void> {
+  // Root-cause guard: every OTP send funnels through here, including direct
+  // /email-otp/* calls that bypass recovery routing. Synthetic .invalid
+  // addresses can never receive mail.
+  if (isSyntheticEmail(params.email)) {
+    throw new Error('Cannot send email to a non-routable address');
+  }
+
   const apiKey = process.env.RESEND_API_KEY?.trim();
   const from = process.env.EMAIL_FROM?.trim();
 

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { createLazyFileRoute, Link } from '@tanstack/react-router';
+import { isSyntheticEmail } from '@yucp/shared/crypto';
 import { useMutation as useConvexMutation, useQuery as useConvexQuery } from 'convex/react';
 import { type CSSProperties, useState } from 'react';
 import { AccountPage, AccountSectionCard } from '@/components/account/AccountPage';
@@ -67,10 +68,10 @@ function AccountProfile() {
   });
 
   const sessionUser = sessionQuery.data?.user;
-  const displayName =
-    sessionUser?.name ?? viewer.name ?? sessionUser?.email ?? viewer.email ?? 'Discord account';
+  const rawEmail = sessionUser?.email ?? viewer.email ?? null;
+  const email = rawEmail && !isSyntheticEmail(rawEmail) ? rawEmail : null;
+  const displayName = sessionUser?.name ?? viewer.name ?? email ?? 'Discord account';
   const avatarUrl = sessionUser?.image ?? viewer.image ?? null;
-  const email = sessionUser?.email ?? viewer.email ?? null;
   const accounts = accountsQuery.data ?? [];
   const licenses = licensesQuery.data ?? [];
   const entitlements = licenses.flatMap((subject) => subject.entitlements);
@@ -224,24 +225,32 @@ function AccountProfile() {
               <Link to="/account/security" className="account-btn account-btn--primary">
                 Set up in security
               </Link>
-              <YucpButton
-                yucp="secondary"
-                isLoading={isDismissingRecoveryPrompt}
-                onPress={async () => {
-                  setIsDismissingRecoveryPrompt(true);
-                  try {
-                    await dismissRecoveryPrompt({});
-                  } catch (error) {
-                    toast.error('We couldn’t dismiss the reminder', {
-                      description: error instanceof Error ? error.message : 'Try again.',
-                    });
-                  } finally {
-                    setIsDismissingRecoveryPrompt(false);
-                  }
-                }}
-              >
-                Remind me later
-              </YucpButton>
+              {/* Synthetic-email users with zero factors can't dismiss: Discord
+                  is their only door and the server rejects the dismissal. */}
+              {!(
+                rawEmail &&
+                isSyntheticEmail(rawEmail) &&
+                securityOverview.strongFactorCount === 0
+              ) && (
+                <YucpButton
+                  yucp="secondary"
+                  isLoading={isDismissingRecoveryPrompt}
+                  onPress={async () => {
+                    setIsDismissingRecoveryPrompt(true);
+                    try {
+                      await dismissRecoveryPrompt({});
+                    } catch (error) {
+                      toast.error('We couldn’t dismiss the reminder', {
+                        description: error instanceof Error ? error.message : 'Try again.',
+                      });
+                    } finally {
+                      setIsDismissingRecoveryPrompt(false);
+                    }
+                  }}
+                >
+                  Remind me later
+                </YucpButton>
+              )}
             </div>
           </div>
         ) : (

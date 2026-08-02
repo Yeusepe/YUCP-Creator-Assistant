@@ -1,4 +1,5 @@
 import { createLazyFileRoute } from '@tanstack/react-router';
+import { isSyntheticEmail } from '@yucp/shared/crypto';
 import { useMutation as useConvexMutation, useQuery as useConvexQuery } from 'convex/react';
 import { useMemo, useState } from 'react';
 import { AccountPage, AccountSectionCard } from '@/components/account/AccountPage';
@@ -317,13 +318,19 @@ function AccountSecurityPage() {
         title="Can you get back in without Discord?"
         description="You usually sign in with Discord. Add at least one backup so you are not locked out if you lose Discord, your phone, or access to your main email."
         actions={
-          <YucpButton
-            yucp="secondary"
-            isLoading={pendingAction === 'dismiss-prompt'}
-            onPress={handleDismissPrompt}
-          >
-            Dismiss reminder
-          </YucpButton>
+          /* Synthetic-email users with zero factors can't dismiss: Discord is
+             their only door and the server rejects the dismissal. */
+          securityOverview.strongFactorCount === 0 &&
+          securityOverview.primaryEmail &&
+          isSyntheticEmail(securityOverview.primaryEmail) ? undefined : (
+            <YucpButton
+              yucp="secondary"
+              isLoading={pendingAction === 'dismiss-prompt'}
+              onPress={handleDismissPrompt}
+            >
+              Dismiss reminder
+            </YucpButton>
+          )
         }
       >
         {securityOverview.shouldShowPrompt ? (
