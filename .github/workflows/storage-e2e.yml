@@ -11,8 +11,11 @@ on:
       - "ops/ingest-pipeline/**"
       - "ops/ingest-tus/**"
       - "ops/gc/**"
+      - "ops/materialization/**"
       - "ops/scheduler/**"
       - "ops/testing/**"
+      - "ops/tuf/**"
+      - "ops/transferHelperRoot.ts"
       - "services/delivery-worker/**"
       - "package.json"
       - "bun.lock"
@@ -26,8 +29,11 @@ on:
       - "ops/ingest-pipeline/**"
       - "ops/ingest-tus/**"
       - "ops/gc/**"
+      - "ops/materialization/**"
       - "ops/scheduler/**"
       - "ops/testing/**"
+      - "ops/tuf/**"
+      - "ops/transferHelperRoot.ts"
       - "services/delivery-worker/**"
       - "package.json"
       - "bun.lock"
@@ -45,10 +51,26 @@ jobs:
     name: Storage and Delivery E2E
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      YUCP_TRANSFER_HELPER_ROOT: ${{ github.workspace }}/ca-coupling/transfer-helper
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+
+      - name: Checkout native transfer helper
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: Yeusepe/ca-coupling
+          ssh-key: ${{ secrets.CA_COUPLING_SSH_KEY }}
+          persist-credentials: false
+          path: ca-coupling
+
+      # Official setup contract: https://github.com/actions/setup-go
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version-file: 'ca-coupling/transfer-helper/go.mod'
+          cache-dependency-path: 'ca-coupling/transfer-helper/go.sum'
 
       - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5
         with:

@@ -50,6 +50,22 @@ function usesMutableSetupBunVersion(workflow: string): boolean {
 }
 
 describe('GitHub workflow Bun versions', () => {
+  it('provisions the native TUF helper for storage E2E', () => {
+    const workflow = readFileSync(join(WORKFLOWS_DIR, 'storage-e2e.yml'), 'utf8');
+
+    expect(workflow).toContain(
+      'YUCP_TRANSFER_HELPER_ROOT: ${{ github.workspace }}/ca-coupling/transfer-helper'
+    );
+    expect(workflow).toContain('name: Checkout native transfer helper');
+    expect(workflow).toContain('repository: Yeusepe/ca-coupling');
+    expect(workflow).toContain(
+      'uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c'
+    );
+    expect(workflow).toContain("go-version-file: 'ca-coupling/transfer-helper/go.mod'");
+    expect(workflow).toContain('- "ops/tuf/**"');
+    expect(workflow).toContain('- "ops/materialization/**"');
+  });
+
   it('does not persist checkout credentials in the web test job', () => {
     const workflow = readFileSync(join(WORKFLOWS_DIR, 'ci.yml'), 'utf8');
     const webTestsJob = workflow.match(/\n {2}web-tests:\n([\s\S]*?)(?=\n {2}[a-z][\w-]*:\n)/)?.[1];
