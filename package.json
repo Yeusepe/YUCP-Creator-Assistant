@@ -239,6 +239,7 @@
     "heroui-native-pro"
   ],
   "patchedDependencies": {
+    "@better-auth/oauth-provider@1.7.0-rc.2": "patches/@better-auth%2Foauth-provider@1.7.0-rc.2.patch",
     "@convex-dev/better-auth@0.12.5": "patches/@convex-dev%2Fbetter-auth@0.12.5.patch"
   },
   "description": "![YUCP Creator Assistant](https://github.com/user-attachments/assets/592a7c28-0bec-4673-9a43-0656d2a9ca6c)",

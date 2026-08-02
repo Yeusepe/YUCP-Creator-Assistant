@@ -254,6 +254,7 @@
   ],
   "patchedDependencies": {
     "@convex-dev/better-auth@0.12.5": "patches/@convex-dev%2Fbetter-auth@0.12.5.patch",
+    "@better-auth/oauth-provider@1.7.0-rc.2": "patches/@better-auth%2Foauth-provider@1.7.0-rc.2.patch",
   },
   "overrides": {
     "@babel/core": "7.29.7",

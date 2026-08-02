@@ -1,0 +1,19 @@
+diff --git a/dist/index.mjs b/dist/index.mjs
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -1951,0 +1952,1 @@
++	await params.beforeTokenIssuance?.();
+@@ -2015,1 +2016,1 @@
+-	const verification = await ctx.context.internalAdapter.consumeVerificationValue(authorizationCodeId);
++	const verification = await ctx.context.internalAdapter.findVerificationValue(authorizationCodeId);
+@@ -2165,0 +2167,10 @@
++		beforeTokenIssuance: async () => {
++			const consumed = await ctx.context.internalAdapter.consumeVerificationValue(authorizationCodeId);
++			if (!consumed) {
++				await revokeTokensIssuedForAuthorizationCode(ctx, authorizationCodeId);
++				throw new APIError("BAD_REQUEST", {
++					error_description: "invalid code",
++					error: "invalid_grant"
++				});
++			}
++		},
