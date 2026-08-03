@@ -706,6 +706,64 @@ describe.serial('PostgreSQL materialization capability broker', () => {
     });
     expect(secondAttributionPage.nextCursor).toBeUndefined();
 
+    // Rename attribution-2's file (record + the job's protected_files entry it
+    // must join against) so the basename filter has two distinct names, with
+    // deliberately different casing: matching is per lowercased basename.
+    await requireSql()`
+      UPDATE materialization_attribution_records
+      SET normalized_path = 'Assets/Product/B.PNG'
+      WHERE attribution_id = 'attribution-2'
+    `;
+    await requireSql()`
+      UPDATE materialization_jobs
+      SET protected_files = replace(
+        protected_files::text, 'Assets/Product/a.png', 'Assets/Product/B.PNG'
+      )::jsonb
+      WHERE id = 'job-1'
+    `;
+    const matchedPage = await broker.listAttributionCandidates({
+      creatorId: 'creator-1',
+      pathBasenames: ['b.png'],
+      pathFilterMode: 'match',
+      productId: 'com.yucp.materialization-test',
+    });
+    expect(matchedPage.candidates.map((candidate) => candidate.attributionId)).toEqual([
+      'attribution-2',
+    ]);
+    expect(matchedPage.truncated).toBeFalse();
+    const excludedPage = await broker.listAttributionCandidates({
+      creatorId: 'creator-1',
+      pathBasenames: ['b.png'],
+      pathFilterMode: 'exclude',
+      productId: 'com.yucp.materialization-test',
+    });
+    expect(excludedPage.candidates.map((candidate) => candidate.attributionId)).toEqual([
+      'attribution-1',
+    ]);
+    const filteredFirstPage = await broker.listAttributionCandidates({
+      candidateLimit: 1,
+      creatorId: 'creator-1',
+      pathBasenames: ['a.png', 'b.png'],
+      pathFilterMode: 'match',
+      productId: 'com.yucp.materialization-test',
+    });
+    expect(filteredFirstPage.truncated).toBeTrue();
+    expect(filteredFirstPage.nextCursor).toBeString();
+    // A cursor is bound to the filter that minted it; continuing a different
+    // feed with it would skip or repeat candidates.
+    let crossFeedCursorError: unknown;
+    try {
+      await broker.listAttributionCandidates({
+        creatorId: 'creator-1',
+        cursor: filteredFirstPage.nextCursor,
+        productId: 'com.yucp.materialization-test',
+      });
+    } catch (error) {
+      crossFeedCursorError = error;
+    }
+    expect(crossFeedCursorError).toBeInstanceOf(Error);
+    expect((crossFeedCursorError as Error).message).toContain('cursor is invalid');
+
     let replayError: unknown;
     try {
       await broker.consumeCapability({

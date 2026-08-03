@@ -9,6 +9,7 @@ import { getClientAddress } from '../lib/clientAddress';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { extractCouplingForensicsArchive } from '../lib/couplingForensicsArchives';
 import {
+  attributionBasename,
   CouplingServiceConfigurationError,
   CouplingServiceRequestError,
   type ForensicsScoreResult,
@@ -969,6 +970,26 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         );
       };
 
+      // The candidate pool grows as buyers x protected files, but an upload
+      // can only ever match candidates for the files it contains (or renamed
+      // copies of them). Scan the basename-matching slice of the pool first so
+      // every buyer's copy of the uploaded files is compared before the budget
+      // is spent on the rest; the second phase sweeps the complement so a
+      // renamed leak still gets the remaining budget. The two feeds partition
+      // the pool, so no candidate is charged twice.
+      const uploadBasenames = [
+        ...new Set(extraction.assets.map((asset) => attributionBasename(asset.assetPath))),
+      ].filter(Boolean);
+      const scanPhases: Array<
+        { pathBasenames: string[]; pathFilterMode: 'exclude' | 'match' } | undefined
+      > =
+        uploadBasenames.length >= 1 && uploadBasenames.length <= 64
+          ? [
+              { pathBasenames: uploadBasenames, pathFilterMode: 'match' },
+              { pathBasenames: uploadBasenames, pathFilterMode: 'exclude' },
+            ]
+          : [undefined];
+
       const scanStartedAt = Date.now();
       let scanPageIndex = 0;
       let scanDeadlineReached = false;
@@ -987,141 +1008,153 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         packageId,
         uploadSha256,
       });
-      for (;;) {
-        if (Date.now() - scanStartedAt >= FORENSICS_ATTRIBUTION_SCAN_BUDGET_MS) {
-          // Every batch already scored is kept: the caller gets the matches
-          // found so far plus an explicit incomplete flag, rather than a 504
-          // that discards minutes of successful work.
-          scanDeadlineReached = true;
-          logger.warn('Coupling attribution scan budget reached', {
-            candidateEvaluationCount,
-            elapsedMs: Date.now() - scanStartedAt,
-            packageId,
-            pagesScanned: scanPageIndex,
-            requestedCandidateCount,
-            unresolvedAssetCount: unresolvedAssets.length,
-          });
-          break;
-        }
-        const remainingCandidateWork = maximumAttributionCandidateWork - requestedCandidateCount;
-        const remainingEvaluationWork = maximumAttributionEvaluationWork - candidateEvaluationCount;
-        const requestedPageLimit = Math.min(
-          FORENSICS_ATTRIBUTION_PAGE_SIZE,
-          remainingCandidateWork,
-          Math.floor(remainingEvaluationWork / Math.max(1, unresolvedAssets.length))
-        );
-        if (requestedPageLimit < 1) {
-          return await buildCandidateWorkLimitResponse();
-        }
-        const candidateResult: MaterializationAttributionCandidatePage =
-          await config.materializationControl.listAttributionCandidates({
-            candidateLimit: requestedPageLimit,
-            creatorId: viewer.authUserId,
-            ...(cursor ? { cursor } : {}),
-            productId: packageId,
-            ...(traceparent ? { traceparent } : {}),
-          });
-        if (
-          candidateResult.candidateLimit !== requestedPageLimit ||
-          candidateResult.candidates.length > requestedPageLimit ||
-          (candidateResult.truncated &&
-            (candidateResult.candidates.length !== requestedPageLimit ||
-              !candidateResult.nextCursor))
-        ) {
-          throw new CouplingServiceRequestError(
-            'Materialization control returned an invalid attribution page',
-            502
+      phases: for (const scanPhase of scanPhases) {
+        cursor = undefined;
+        for (;;) {
+          if (Date.now() - scanStartedAt >= FORENSICS_ATTRIBUTION_SCAN_BUDGET_MS) {
+            // Every batch already scored is kept: the caller gets the matches
+            // found so far plus an explicit incomplete flag, rather than a 504
+            // that discards minutes of successful work.
+            scanDeadlineReached = true;
+            logger.warn('Coupling attribution scan budget reached', {
+              candidateEvaluationCount,
+              elapsedMs: Date.now() - scanStartedAt,
+              packageId,
+              pagesScanned: scanPageIndex,
+              requestedCandidateCount,
+              unresolvedAssetCount: unresolvedAssets.length,
+            });
+            break phases;
+          }
+          const remainingCandidateWork = maximumAttributionCandidateWork - requestedCandidateCount;
+          const remainingEvaluationWork =
+            maximumAttributionEvaluationWork - candidateEvaluationCount;
+          const requestedPageLimit = Math.min(
+            FORENSICS_ATTRIBUTION_PAGE_SIZE,
+            remainingCandidateWork,
+            Math.floor(remainingEvaluationWork / Math.max(1, unresolvedAssets.length))
           );
-        }
-
-        requestedCandidateCount += candidateResult.candidates.length;
-        candidateEvaluationCount += candidateResult.candidates.length * unresolvedAssets.length;
-        for (const candidate of candidateResult.candidates) {
-          if (durableCandidatesById.has(candidate.attributionId)) {
+          if (requestedPageLimit < 1) {
+            return await buildCandidateWorkLimitResponse();
+          }
+          const candidateResult: MaterializationAttributionCandidatePage =
+            await config.materializationControl.listAttributionCandidates({
+              candidateLimit: requestedPageLimit,
+              creatorId: viewer.authUserId,
+              ...(cursor ? { cursor } : {}),
+              ...(scanPhase ?? {}),
+              productId: packageId,
+              ...(traceparent ? { traceparent } : {}),
+            });
+          if (
+            candidateResult.candidateLimit !== requestedPageLimit ||
+            candidateResult.candidates.length > requestedPageLimit ||
+            (candidateResult.truncated &&
+              (candidateResult.candidates.length !== requestedPageLimit ||
+                !candidateResult.nextCursor))
+          ) {
             throw new CouplingServiceRequestError(
-              'Materialization control returned duplicate attribution candidates',
+              'Materialization control returned an invalid attribution page',
               502
             );
           }
-          durableCandidatesById.set(candidate.attributionId, candidate);
-          candidatesById.set(candidate.attributionId, {
-            assetPath: candidate.normalizedPath,
-            attributionId: candidate.attributionId,
-            buyerSubjectPseudonym: candidate.buyerSubjectPseudonym,
-            createdAt: candidate.createdAt,
-          });
-        }
 
-        if (candidateResult.candidates.length > 0 && unresolvedAssets.length > 0) {
-          const pageOutcome = await runCouplingAttribution(
-            unresolvedAssets,
-            candidateResult.candidates.map(({ createdAt: _createdAt, ...candidate }) => candidate),
-            {
-              baseUrl: config.couplingServiceBaseUrl,
-              deadlineAtMs: scanStartedAt + FORENSICS_ATTRIBUTION_SCAN_BUDGET_MS,
-              sharedSecret: config.couplingServiceSharedSecret,
+          requestedCandidateCount += candidateResult.candidates.length;
+          candidateEvaluationCount += candidateResult.candidates.length * unresolvedAssets.length;
+          for (const candidate of candidateResult.candidates) {
+            if (durableCandidatesById.has(candidate.attributionId)) {
+              throw new CouplingServiceRequestError(
+                'Materialization control returned duplicate attribution candidates',
+                502
+              );
             }
-          );
-          // The service stops starting batches once the deadline is close, so
-          // an incomplete page means the scan as a whole is incomplete.
-          if (!pageOutcome.complete) {
-            scanDeadlineReached = true;
+            durableCandidatesById.set(candidate.attributionId, candidate);
+            candidatesById.set(candidate.attributionId, {
+              assetPath: candidate.normalizedPath,
+              attributionId: candidate.attributionId,
+              buyerSubjectPseudonym: candidate.buyerSubjectPseudonym,
+              createdAt: candidate.createdAt,
+            });
           }
-          evaluationsPerformed += pageOutcome.evaluationsPerformed;
-          for (const scoreResult of pageOutcome.results) {
-            scoreResultsByPath.set(
-              scoreResult.assetPath,
-              mergeScoreResult(scoreResultsByPath.get(scoreResult.assetPath), scoreResult)
-            );
-          }
-          const beforeUnresolved = unresolvedAssets.length;
-          // Only a decoded asset leaves the work set. 'no-signal' means this
-          // page's candidates did not match, not that the asset carries no
-          // mark, so dropping it here would stop the scan before a buyer on a
-          // later page could ever be found.
-          unresolvedAssets = unresolvedAssets.filter(
-            (asset) => scoreResultsByPath.get(asset.assetPath)?.preclassification !== 'decoded'
-          );
-          scanPageIndex += 1;
-          const pageElapsedMs = Date.now() - scanStartedAt;
-          const resolvedInPage = beforeUnresolved - unresolvedAssets.length;
-          const pageProgress = {
-            buyersCompared: candidateResult.candidates.length,
-            elapsedMs: pageElapsedMs,
-            page: scanPageIndex,
-            resolved: resolvedInPage,
-            unresolvedAfter: unresolvedAssets.length,
-          };
-          scanPages.push(pageProgress);
-          hooks?.onScanPage?.(pageProgress);
-          logger.info('Coupling attribution page scored', {
-            candidatesInPage: candidateResult.candidates.length,
-            elapsedMs: pageElapsedMs,
-            packageId,
-            pageIndex: scanPageIndex,
-            resolvedInPage,
-            unresolvedAssetCount: unresolvedAssets.length,
-          });
-        }
 
-        if (scanDeadlineReached) {
-          // Without this break the loop keeps paging candidates the service
-          // will refuse, and can spuriously trip the 409 work limit instead of
-          // returning the partial verdict.
-          break;
+          if (candidateResult.candidates.length > 0 && unresolvedAssets.length > 0) {
+            const pageOutcome = await runCouplingAttribution(
+              unresolvedAssets,
+              candidateResult.candidates.map(
+                ({ createdAt: _createdAt, ...candidate }) => candidate
+              ),
+              {
+                baseUrl: config.couplingServiceBaseUrl,
+                deadlineAtMs: scanStartedAt + FORENSICS_ATTRIBUTION_SCAN_BUDGET_MS,
+                sharedSecret: config.couplingServiceSharedSecret,
+              }
+            );
+            // The service stops starting batches once the deadline is close, so
+            // an incomplete page means the scan as a whole is incomplete.
+            if (!pageOutcome.complete) {
+              scanDeadlineReached = true;
+            }
+            evaluationsPerformed += pageOutcome.evaluationsPerformed;
+            for (const scoreResult of pageOutcome.results) {
+              scoreResultsByPath.set(
+                scoreResult.assetPath,
+                mergeScoreResult(scoreResultsByPath.get(scoreResult.assetPath), scoreResult)
+              );
+            }
+            const beforeUnresolved = unresolvedAssets.length;
+            // Only a decoded asset leaves the work set. 'no-signal' means this
+            // page's candidates did not match, not that the asset carries no
+            // mark, so dropping it here would stop the scan before a buyer on a
+            // later page could ever be found.
+            unresolvedAssets = unresolvedAssets.filter(
+              (asset) => scoreResultsByPath.get(asset.assetPath)?.preclassification !== 'decoded'
+            );
+            scanPageIndex += 1;
+            const pageElapsedMs = Date.now() - scanStartedAt;
+            const resolvedInPage = beforeUnresolved - unresolvedAssets.length;
+            const pageProgress = {
+              buyersCompared: candidateResult.candidates.length,
+              elapsedMs: pageElapsedMs,
+              page: scanPageIndex,
+              resolved: resolvedInPage,
+              unresolvedAfter: unresolvedAssets.length,
+            };
+            scanPages.push(pageProgress);
+            hooks?.onScanPage?.(pageProgress);
+            logger.info('Coupling attribution page scored', {
+              candidatesInPage: candidateResult.candidates.length,
+              elapsedMs: pageElapsedMs,
+              packageId,
+              pageIndex: scanPageIndex,
+              resolvedInPage,
+              unresolvedAssetCount: unresolvedAssets.length,
+            });
+          }
+
+          if (scanDeadlineReached) {
+            // Without this break the loop keeps paging candidates the service
+            // will refuse, and can spuriously trip the 409 work limit instead of
+            // returning the partial verdict.
+            break phases;
+          }
+          if (unresolvedAssets.length === 0) {
+            break phases;
+          }
+          if (!candidateResult.truncated) {
+            // This phase's feed is exhausted; the next phase scans the rest of
+            // the pool with its own cursor chain.
+            break;
+          }
+          const canEvaluateAnotherCandidate =
+            maximumAttributionEvaluationWork - candidateEvaluationCount >= unresolvedAssets.length;
+          if (
+            requestedCandidateCount >= maximumAttributionCandidateWork ||
+            !canEvaluateAnotherCandidate
+          ) {
+            return await buildCandidateWorkLimitResponse();
+          }
+          cursor = candidateResult.nextCursor;
         }
-        if (unresolvedAssets.length === 0 || !candidateResult.truncated) {
-          break;
-        }
-        const canEvaluateAnotherCandidate =
-          maximumAttributionEvaluationWork - candidateEvaluationCount >= unresolvedAssets.length;
-        if (
-          requestedCandidateCount >= maximumAttributionCandidateWork ||
-          !canEvaluateAnotherCandidate
-        ) {
-          return await buildCandidateWorkLimitResponse();
-        }
-        cursor = candidateResult.nextCursor;
       }
       const scanDurationMs = Date.now() - scanStartedAt;
       const scanSummary = {

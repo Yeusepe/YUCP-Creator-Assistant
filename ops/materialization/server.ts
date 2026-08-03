@@ -38,6 +38,7 @@ const ATTRIBUTION_CANDIDATES_PATH = '/v2/internal/materialization-attribution/ca
 const ATTRIBUTION_SUBJECTS_PATH = '/v2/internal/materialization-attribution/subjects';
 const PACKAGE_INSTALLER_TUF_PREFIX = '/v2/internal/package-installer/tuf/';
 const ATTRIBUTION_CANDIDATE_PAGE_LIMIT = 512;
+const ATTRIBUTION_PATH_BASENAME_LIMIT = 64;
 /** Matches the broker's reveal bound: matched records, never the scanned set. */
 const ATTRIBUTION_SUBJECT_PAGE_LIMIT = 64;
 const REQUEST_BODY_LIMIT = 64 * 1_024;
@@ -677,6 +678,8 @@ export function createMaterializationControlPlaneHandler(
           ...(body.candidateLimit === undefined ? [] : ['candidateLimit']),
           'creatorId',
           ...(body.cursor === undefined ? [] : ['cursor']),
+          ...(body.pathBasenames === undefined ? [] : ['pathBasenames']),
+          ...(body.pathFilterMode === undefined ? [] : ['pathFilterMode']),
           'productId',
         ]);
         if (!config.broker.listAttributionCandidates) {
@@ -693,12 +696,37 @@ export function createMaterializationControlPlaneHandler(
             'candidate_limit is invalid'
           );
         }
+        if ((body.pathBasenames === undefined) !== (body.pathFilterMode === undefined)) {
+          throw new RequestBoundaryError(400, 'path_filter_invalid', 'path filter is invalid');
+        }
+        let pathFilter:
+          | { pathBasenames: string[]; pathFilterMode: 'exclude' | 'match' }
+          | undefined;
+        if (body.pathBasenames !== undefined) {
+          if (body.pathFilterMode !== 'match' && body.pathFilterMode !== 'exclude') {
+            throw new RequestBoundaryError(400, 'path_filter_invalid', 'path filter is invalid');
+          }
+          if (
+            !Array.isArray(body.pathBasenames) ||
+            body.pathBasenames.length < 1 ||
+            body.pathBasenames.length > ATTRIBUTION_PATH_BASENAME_LIMIT
+          ) {
+            throw new RequestBoundaryError(400, 'path_filter_invalid', 'path filter is invalid');
+          }
+          pathFilter = {
+            pathBasenames: body.pathBasenames.map((value, index) =>
+              requireString(value, `path_basenames[${index}]`, 512)
+            ),
+            pathFilterMode: body.pathFilterMode,
+          };
+        }
         const result = await config.broker.listAttributionCandidates({
           ...(candidateLimit === undefined ? {} : { candidateLimit }),
           creatorId: requireString(body.creatorId, 'creator_id'),
           ...(body.cursor === undefined
             ? {}
             : { cursor: requireString(body.cursor, 'cursor', 2_048) }),
+          ...(pathFilter ?? {}),
           productId: requireString(body.productId, 'product_id'),
         });
         emit('accepted');

@@ -231,7 +231,25 @@ test('loads Infisical bootstrap credentials from local .env.infisical before run
       if (request.headers.get('authorization') !== `Bearer ${MATERIALIZATION_API_SECRET}`) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
-      const body = (await request.json()) as { candidateLimit?: number };
+      const body = (await request.json()) as {
+        candidateLimit?: number;
+        pathBasenames?: string[];
+        pathFilterMode?: 'exclude' | 'match';
+      };
+      // The scan requests the basename-matching slice first, then the rest;
+      // serving the same candidate to both feeds would trip the route's
+      // duplicate-candidate guard.
+      const candidateMatchesFilter = (body.pathBasenames ?? []).includes('model.fbx');
+      const candidateInFeed =
+        body.pathFilterMode === undefined ||
+        (body.pathFilterMode === 'match') === candidateMatchesFilter;
+      if (!candidateInFeed) {
+        return Response.json({
+          candidateLimit: body.candidateLimit ?? 512,
+          candidates: [],
+          truncated: false,
+        });
+      }
       return Response.json({
         candidateLimit: body.candidateLimit ?? 512,
         candidates: [

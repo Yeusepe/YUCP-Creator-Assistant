@@ -515,7 +515,7 @@ function buildCandidatePoolsByAssetType(
   return candidatesByAssetType;
 }
 
-function attributionBasename(value: string): string {
+export function attributionBasename(value: string): string {
   const normalized = value.replaceAll('\\', '/').replace(/\/+$/, '');
   return (normalized.slice(normalized.lastIndexOf('/') + 1) || normalized).toLowerCase();
 }

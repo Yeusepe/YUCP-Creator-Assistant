@@ -156,7 +156,25 @@ const materializationServer = Bun.serve({
     if (request.headers.get('authorization') !== `Bearer ${TEST_MATERIALIZATION_SECRET}`) {
       return Response.json({ error: 'Forbidden' }, { status: 403 });
     }
-    const body = (await request.json()) as { candidateLimit?: number };
+    const body = (await request.json()) as {
+      candidateLimit?: number;
+      pathBasenames?: string[];
+      pathFilterMode?: 'exclude' | 'match';
+    };
+    // The scan requests the basename-matching slice first, then the rest;
+    // serving the same candidate to both feeds would trip the API's
+    // duplicate-candidate guard.
+    const candidateMatchesFilter = (body.pathBasenames ?? []).includes('harnessfixture.fbx');
+    const candidateInFeed =
+      body.pathFilterMode === undefined ||
+      (body.pathFilterMode === 'match') === candidateMatchesFilter;
+    if (!candidateInFeed) {
+      return Response.json({
+        candidateLimit: body.candidateLimit ?? 512,
+        candidates: [],
+        truncated: false,
+      });
+    }
     return Response.json({
       candidateLimit: body.candidateLimit ?? 512,
       candidates: [

@@ -654,7 +654,7 @@ describe('materialization control-plane HTTP boundary', () => {
         },
         listAttributionCandidates: async (input) => {
           calls.push(
-            `attribution:${input.creatorId}:${input.productId}:${input.candidateLimit}:${input.cursor}`
+            `attribution:${input.creatorId}:${input.productId}:${input.candidateLimit}:${input.cursor}:${input.pathFilterMode}:${(input.pathBasenames ?? []).join('|')}`
           );
           return {
             candidateLimit: input.candidateLimit ?? 512,
@@ -889,6 +889,41 @@ describe('materialization control-plane HTTP boundary', () => {
     );
     expect(oversizedAttributionPage.status).toBe(400);
 
+    const filteredAttribution = await handler(
+      new Request(attributionEndpoint, {
+        body: JSON.stringify({
+          candidateLimit: 64,
+          creatorId: 'creator-1',
+          pathBasenames: ['body.png', 'detail.png'],
+          pathFilterMode: 'exclude',
+          productId: 'product-1',
+        }),
+        headers: {
+          Authorization: `Bearer ${apiSecret}`,
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      })
+    );
+    expect(filteredAttribution.status).toBe(200);
+
+    const orphanFilterMode = await handler(
+      new Request(attributionEndpoint, {
+        body: JSON.stringify({
+          creatorId: 'creator-1',
+          pathFilterMode: 'match',
+          productId: 'product-1',
+        }),
+        headers: {
+          Authorization: `Bearer ${apiSecret}`,
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      })
+    );
+    expect(orphanFilterMode.status).toBe(400);
+    expect(await orphanFilterMode.json()).toEqual({ error: 'path_filter_invalid' });
+
     const failed = await handler(
       new Request(failEndpoint, {
         body: JSON.stringify({
@@ -918,7 +953,8 @@ describe('materialization control-plane HTTP boundary', () => {
       'issue:data-node-1:3',
       'renew:data-node-1:3',
       'progress:data-node-1:3:7:1024',
-      'attribution:creator-1:product-1:128:cursor-1',
+      'attribution:creator-1:product-1:128:cursor-1:undefined:',
+      'attribution:creator-1:product-1:64:undefined:exclude:body.png|detail.png',
       'fail:data-node-1:proof-fail-1',
     ]);
     const failureEvent = controlPlaneEvents.find(

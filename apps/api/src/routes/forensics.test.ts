@@ -94,6 +94,33 @@ function lookupRequest(
   });
 }
 
+/** Mirrors attributionBasename in couplingForensicsService. */
+function testBasename(value: string): string {
+  const normalized = value.replaceAll('\\', '/');
+  return (normalized.slice(normalized.lastIndexOf('/') + 1) || normalized).toLowerCase();
+}
+
+/**
+ * Serves the page's candidates the way the control plane now does: the scan
+ * asks for the basename-matching slice of the pool first, then the rest, so a
+ * mock that ignored the filter would hand the same candidates to both phases
+ * and trip the route's duplicate-candidate guard.
+ */
+function filterCandidatesForRequest<T extends { normalizedPath: string }>(
+  candidates: T[],
+  request: { pathBasenames?: string[]; pathFilterMode?: 'exclude' | 'match' }
+): T[] {
+  if (!request.pathFilterMode) {
+    return candidates;
+  }
+  const names = new Set(request.pathBasenames ?? []);
+  return candidates.filter((entry) =>
+    request.pathFilterMode === 'match'
+      ? names.has(testBasename(entry.normalizedPath))
+      : !names.has(testBasename(entry.normalizedPath))
+  );
+}
+
 function createRoutes(input?: {
   candidatePage?: {
     candidateLimit: number;
@@ -111,10 +138,17 @@ function createRoutes(input?: {
     candidates: [candidate],
     truncated: false,
   };
-  const listAttributionCandidates = mock(async (request: { candidateLimit?: number }) => ({
-    ...candidatePage,
-    candidateLimit: request.candidateLimit ?? candidatePage.candidateLimit,
-  }));
+  const listAttributionCandidates = mock(
+    async (request: {
+      candidateLimit?: number;
+      pathBasenames?: string[];
+      pathFilterMode?: 'exclude' | 'match';
+    }) => ({
+      ...candidatePage,
+      candidates: filterCandidatesForRequest(candidatePage.candidates, request),
+      candidateLimit: request.candidateLimit ?? candidatePage.candidateLimit,
+    })
+  );
   const routes = createForensicsRoutes(auth, {
     apiBaseUrl: 'http://localhost:3001',
     couplingServiceBaseUrl: 'https://coupling.internal',
@@ -246,6 +280,8 @@ describe('forensics routes', () => {
     expect(listAttributionCandidates).toHaveBeenCalledWith({
       candidateLimit: 256,
       creatorId: 'creator-user',
+      pathBasenames: ['body.png'],
+      pathFilterMode: 'match',
       productId: 'com.yucp.jammr',
       traceparent,
     });
@@ -379,31 +415,37 @@ describe('forensics routes', () => {
       attributionId: `attribution-page-1-${index}`,
       jobId: `job-page-1-${index}`,
     }));
-    const listAttributionCandidates = mock(async (input: { cursor?: string }) => {
-      if (!input.cursor) {
+    // The matching-basename phase exhausts without a decode, so the scan moves
+    // on to the rest of the pool, where the renamed copy actually matches.
+    const listAttributionCandidates = mock(
+      async (input: { cursor?: string; pathFilterMode?: 'exclude' | 'match' }) => {
+        if (input.pathFilterMode === 'match') {
+          expect(input.cursor).toBeUndefined();
+          return {
+            candidateLimit: 256,
+            candidates: firstPageCandidates,
+            truncated: false,
+          };
+        }
+        expect(input.pathFilterMode).toBe('exclude');
+        expect(input.cursor).toBeUndefined();
         return {
           candidateLimit: 256,
-          candidates: firstPageCandidates,
-          nextCursor: 'cursor-1',
+          candidates: Array.from({ length: 256 }, (_, index) =>
+            index === 0
+              ? laterCandidate
+              : {
+                  ...candidate,
+                  attributionId: `attribution-page-2-${index}`,
+                  jobId: `job-page-2-${index}`,
+                  normalizedPath: 'Assets/Jammr/body-v2.png',
+                }
+          ),
+          nextCursor: 'cursor-2',
           truncated: true,
         };
       }
-      expect(input.cursor).toBe('cursor-1');
-      return {
-        candidateLimit: 256,
-        candidates: Array.from({ length: 256 }, (_, index) =>
-          index === 0
-            ? laterCandidate
-            : {
-                ...candidate,
-                attributionId: `attribution-page-2-${index}`,
-                jobId: `job-page-2-${index}`,
-              }
-        ),
-        nextCursor: 'cursor-2',
-        truncated: true,
-      };
-    });
+    );
     const routes = createForensicsRoutes(auth, {
       apiBaseUrl: 'http://localhost:3001',
       couplingServiceBaseUrl: 'https://coupling.internal',
@@ -457,12 +499,15 @@ describe('forensics routes', () => {
     expect(listAttributionCandidates).toHaveBeenNthCalledWith(1, {
       candidateLimit: 256,
       creatorId: 'creator-user',
+      pathBasenames: ['body.png'],
+      pathFilterMode: 'match',
       productId: 'com.yucp.jammr',
     });
     expect(listAttributionCandidates).toHaveBeenNthCalledWith(2, {
       candidateLimit: 256,
       creatorId: 'creator-user',
-      cursor: 'cursor-1',
+      pathBasenames: ['body.png'],
+      pathFilterMode: 'exclude',
       productId: 'com.yucp.jammr',
     });
     expect(listAttributionCandidates).toHaveBeenCalledTimes(2);
@@ -652,6 +697,8 @@ describe('forensics routes', () => {
     expect(listAttributionCandidates).toHaveBeenCalledWith({
       candidateLimit: 1,
       creatorId: 'creator-user',
+      pathBasenames: ['body.png', 'detail.png'],
+      pathFilterMode: 'match',
       productId: 'com.yucp.jammr',
     });
   });
@@ -789,11 +836,17 @@ describe('forensics lookup jobs', () => {
     const switchableAuth = {
       getSession: async () => ({ user: { id: sessionUserId } }),
     } as unknown as Auth;
-    const listAttributionCandidates = mock(async (request: { candidateLimit?: number }) => ({
-      candidateLimit: request.candidateLimit ?? 512,
-      candidates: [candidate],
-      truncated: false,
-    }));
+    const listAttributionCandidates = mock(
+      async (request: {
+        candidateLimit?: number;
+        pathBasenames?: string[];
+        pathFilterMode?: 'exclude' | 'match';
+      }) => ({
+        candidateLimit: request.candidateLimit ?? 512,
+        candidates: filterCandidatesForRequest([candidate], request),
+        truncated: false,
+      })
+    );
     const routes = createForensicsRoutes(switchableAuth, {
       apiBaseUrl: 'http://localhost:3001',
       couplingServiceBaseUrl: 'https://coupling.internal',

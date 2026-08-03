@@ -292,13 +292,64 @@ const MATERIALIZATION_ATTRIBUTION_CANDIDATE_LIMIT = 512;
 const MATERIALIZATION_ATTRIBUTION_REVEAL_LIMIT = 64;
 const MATERIALIZATION_ATTRIBUTION_CURSOR_MAX_BYTES = 2_048;
 
+const MATERIALIZATION_ATTRIBUTION_PATH_BASENAME_LIMIT = 64;
+
+type MaterializationAttributionPathFilter = {
+  basenames: string[];
+  mode: 'exclude' | 'match';
+};
+
 type MaterializationAttributionCursor = {
   attributionId: string;
   createdAt: number;
   creatorId: string;
+  pathFilter: string;
   productId: string;
   schemaVersion: 1;
 };
+
+function requireAttributionPathFilter(
+  basenames: unknown,
+  mode: unknown
+): MaterializationAttributionPathFilter {
+  if (mode !== 'match' && mode !== 'exclude') {
+    throw new Error('pathFilterMode is invalid');
+  }
+  if (
+    !Array.isArray(basenames) ||
+    basenames.length < 1 ||
+    basenames.length > MATERIALIZATION_ATTRIBUTION_PATH_BASENAME_LIMIT
+  ) {
+    throw new Error('pathBasenames is invalid');
+  }
+  const normalized = new Set<string>();
+  for (const value of basenames) {
+    const basename = requireText(value, 'pathBasenames entry', 512).toLowerCase();
+    if (basename.includes('/') || basename.includes('\\')) {
+      throw new Error('pathBasenames entry is invalid');
+    }
+    normalized.add(basename);
+  }
+  return { basenames: [...normalized].sort(), mode };
+}
+
+/**
+ * The cursor binds the filter that produced it, so a page cursor from one
+ * feed can never continue a differently filtered feed - that would silently
+ * skip or repeat candidates.
+ */
+function attributionPathFilterFingerprint(
+  filter: MaterializationAttributionPathFilter | undefined
+): string {
+  if (!filter) {
+    return '';
+  }
+  return createHash('sha256')
+    .update(filter.mode)
+    .update('\0')
+    .update(filter.basenames.join('\0'))
+    .digest('base64url');
+}
 
 function encodeAttributionCursor(cursor: MaterializationAttributionCursor): string {
   return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
@@ -307,7 +358,8 @@ function encodeAttributionCursor(cursor: MaterializationAttributionCursor): stri
 function decodeAttributionCursor(
   value: string,
   creatorId: string,
-  productId: string
+  productId: string,
+  pathFilterFingerprint: string
 ): MaterializationAttributionCursor {
   const encoded = requireText(value, 'cursor', MATERIALIZATION_ATTRIBUTION_CURSOR_MAX_BYTES);
   let parsed: unknown;
@@ -322,10 +374,11 @@ function decodeAttributionCursor(
   const cursor = parsed as Record<string, unknown>;
   if (
     Object.keys(cursor).sort().join(',') !==
-      'attributionId,createdAt,creatorId,productId,schemaVersion' ||
+      'attributionId,createdAt,creatorId,pathFilter,productId,schemaVersion' ||
     cursor.schemaVersion !== 1 ||
     cursor.creatorId !== creatorId ||
     cursor.productId !== productId ||
+    cursor.pathFilter !== pathFilterFingerprint ||
     typeof cursor.attributionId !== 'string' ||
     !Number.isSafeInteger(cursor.createdAt) ||
     (cursor.createdAt as number) < 0
@@ -337,6 +390,7 @@ function decodeAttributionCursor(
     attributionId,
     createdAt: cursor.createdAt as number,
     creatorId,
+    pathFilter: pathFilterFingerprint,
     productId,
     schemaVersion: 1,
   };
@@ -1112,6 +1166,8 @@ export class MaterializationBroker {
     candidateLimit?: number;
     creatorId: string;
     cursor?: string;
+    pathBasenames?: string[];
+    pathFilterMode?: 'exclude' | 'match';
     productId: string;
   }): Promise<MaterializationAttributionCandidatePage> {
     const creatorId = requireText(input.creatorId, 'creatorId', 512);
@@ -1124,11 +1180,28 @@ export class MaterializationBroker {
     ) {
       throw new Error('candidateLimit is invalid');
     }
+    if ((input.pathBasenames === undefined) !== (input.pathFilterMode === undefined)) {
+      throw new Error('pathBasenames and pathFilterMode must be provided together');
+    }
+    const pathFilter =
+      input.pathBasenames === undefined
+        ? undefined
+        : requireAttributionPathFilter(input.pathBasenames, input.pathFilterMode);
+    const pathFilterFingerprint = attributionPathFilterFingerprint(pathFilter);
     const cursor = input.cursor
-      ? decodeAttributionCursor(input.cursor, creatorId, productId)
+      ? decodeAttributionCursor(input.cursor, creatorId, productId, pathFilterFingerprint)
       : undefined;
     const cursorCreatedAt = cursor?.createdAt ?? null;
     const cursorAttributionId = cursor?.attributionId ?? null;
+    // Candidate basenames are compared the way the forensics service compares
+    // them (attributionBasename): last path segment, lowercased.
+    const pathCondition = pathFilter
+      ? pathFilter.mode === 'match'
+        ? this
+            .sql`AND lower(regexp_replace(a.normalized_path, '.*[/\\\\]', '')) = ANY(${pathFilter.basenames})`
+        : this
+            .sql`AND NOT (lower(regexp_replace(a.normalized_path, '.*[/\\\\]', '')) = ANY(${pathFilter.basenames}))`
+      : this.sql``;
     const rows = await this.sql<
       Array<{
         algorithmVersion: string;
@@ -1166,6 +1239,7 @@ export class MaterializationBroker {
             AND j.creator_id = ${creatorId}
             AND j.product_id = ${productId}
             AND j.state = 'SUCCEEDED'
+          WHERE TRUE ${pathCondition}
           ORDER BY a.attribution_id, a.created_at DESC, a.job_id DESC
           LIMIT 1
         )
@@ -1179,7 +1253,7 @@ export class MaterializationBroker {
             AND j.creator_id = ${creatorId}
             AND j.product_id = ${productId}
             AND j.state = 'SUCCEEDED'
-          WHERE a.attribution_id > seed.attribution_id
+          WHERE a.attribution_id > seed.attribution_id ${pathCondition}
           ORDER BY a.attribution_id, a.created_at DESC, a.job_id DESC
           LIMIT 1
         ) next_seed
@@ -1276,6 +1350,7 @@ export class MaterializationBroker {
               attributionId: lastCandidate.attributionId,
               createdAt: lastCandidate.createdAt,
               creatorId,
+              pathFilter: pathFilterFingerprint,
               productId,
               schemaVersion: 1,
             }),

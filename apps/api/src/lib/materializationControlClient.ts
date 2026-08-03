@@ -45,6 +45,8 @@ export interface MaterializationControlClient extends PackageInstallMaterializat
     candidateLimit?: number;
     creatorId: string;
     cursor?: string;
+    pathBasenames?: string[];
+    pathFilterMode?: 'exclude' | 'match';
     productId: string;
     traceparent?: string;
   }): Promise<MaterializationAttributionCandidatePage>;
@@ -448,6 +450,23 @@ export function createMaterializationControlClient(
         (!body.cursor.trim() || Buffer.byteLength(body.cursor, 'utf8') > 2_048)
       ) {
         throw new Error('Materialization attribution cursor is invalid');
+      }
+      if ((body.pathBasenames === undefined) !== (body.pathFilterMode === undefined)) {
+        throw new Error('Materialization attribution path filter is invalid');
+      }
+      if (
+        body.pathBasenames !== undefined &&
+        (body.pathBasenames.length < 1 ||
+          body.pathBasenames.length > 64 ||
+          body.pathBasenames.some(
+            (basename) =>
+              !basename.trim() ||
+              Buffer.byteLength(basename, 'utf8') > 512 ||
+              basename.includes('/') ||
+              basename.includes('\\')
+          ))
+      ) {
+        throw new Error('Materialization attribution path filter is invalid');
       }
       return validateAttributionCandidates(
         await post(
