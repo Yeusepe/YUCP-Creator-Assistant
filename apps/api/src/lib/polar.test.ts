@@ -40,7 +40,7 @@ mock.module('../../../../convex/lib/certificateBillingConfig', () => ({
   }),
 }));
 
-const { createCertificateBillingPortalSession } = await import('./polar');
+const { createCertificateBillingPortalSession, PolarNoCustomerError } = await import('./polar');
 
 afterEach(() => {
   getExternalImpl = async () => {
@@ -168,7 +168,7 @@ describe('createCertificateBillingPortalSession', () => {
         customerEmail: '123456789012345678@discord.invalid',
         customerName: 'Emailless Discord User',
       })
-    ).rejects.toThrow('No billing customer exists for this account');
+    ).rejects.toBeInstanceOf(PolarNoCustomerError);
 
     expect(listCalls).toBe(0);
     expect(createdCustomers).toEqual([]);

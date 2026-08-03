@@ -2,7 +2,7 @@ import { createHash, createHmac } from 'node:crypto';
 import { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../../../convex/_generated/api';
 import { logger } from '../lib/logger';
-import { createCertificateBillingPortalSession } from '../lib/polar';
+import { createCertificateBillingPortalSession, PolarNoCustomerError } from '../lib/polar';
 import { loadRequestScoped, requestScopeKey } from '../lib/requestScope';
 
 const INTERNAL_AUTH_TS_HEADER = 'x-yucp-internal-auth-ts';
@@ -551,6 +551,11 @@ export function createAuth(config: AuthConfig) {
           redirect: payload?.redirect ?? true,
         };
       } catch (error) {
+        if (error instanceof PolarNoCustomerError) {
+          // Routine "never purchased" state, not a fault: the caller maps null
+          // to 409 "No billing portal is available for this account yet".
+          return null;
+        }
         const detail = error instanceof Error ? error.message : String(error);
         throw new BetterAuthEndpointError('/customer/portal', 500, { error: detail }, detail);
       }

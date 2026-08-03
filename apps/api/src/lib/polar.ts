@@ -117,6 +117,16 @@ export async function fetchCertificateBillingCustomerStateByExternalId(
   );
 }
 
+/**
+ * Thrown when portal access is requested for a user who has no Polar customer
+ * and no routable email to create one with (customers are created at checkout).
+ */
+export class PolarNoCustomerError extends Error {
+  constructor() {
+    super('No billing customer exists for this account');
+  }
+}
+
 export async function createCertificateBillingPortalSession(input: {
   externalCustomerId: string;
   customerEmail?: string | null;
@@ -185,7 +195,7 @@ export async function createCertificateBillingPortalSession(input: {
 
       if (!customerId) {
         if (!customerEmail) {
-          throw new Error('No billing customer exists for this account');
+          throw new PolarNoCustomerError();
         }
 
         // Polar create-customer reference:
