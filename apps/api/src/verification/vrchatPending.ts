@@ -1,125 +1,55 @@
 import type { TwoFactorAuthType } from '@yucp/providers';
-import { buildCookie, clearCookie, getCookieValue } from '../lib/browserSessions';
-import { decrypt, encrypt } from '../lib/encrypt';
-import type { StateStore } from '../lib/stateStore';
+import {
+  createEncryptedPendingState,
+  type TimestampedPendingState,
+} from '../lib/encryptedPendingState';
 
-const PENDING_COOKIE_NAME = 'yucp_vrchat_pending';
-const PENDING_COOKIE_PATH = '/api/verification/vrchat-verify';
-const PENDING_STATE_PREFIX = 'vrchat_pending:';
-const PENDING_STATE_TTL_MS = 5 * 60 * 1000;
-
-export interface VrchatPendingState {
+interface VrchatPendingPayload {
   verificationToken: string;
   pendingState: string;
   types: TwoFactorAuthType[];
-  createdAt: number;
-  expiresAt: number;
 }
 
-function getPendingSecret(): string {
-  const secret = process.env.VRCHAT_PENDING_STATE_SECRET;
-  if (secret) {
-    return secret;
-  }
-  if (process.env.NODE_ENV !== 'production' && process.env.BETTER_AUTH_SECRET) {
-    return process.env.BETTER_AUTH_SECRET;
-  }
-  throw new Error('VRCHAT_PENDING_STATE_SECRET is required');
-}
+export type VrchatPendingState = TimestampedPendingState<VrchatPendingPayload>;
 
-export function appendClearedPendingCookie(headers: Headers, request: Request): void {
-  headers.append(
-    'Set-Cookie',
-    clearCookie(PENDING_COOKIE_NAME, request, { path: PENDING_COOKIE_PATH })
-  );
-}
-
-export async function createPendingVrchatState(
-  store: StateStore,
-  request: Request,
-  payload: Omit<VrchatPendingState, 'createdAt' | 'expiresAt'>
-): Promise<string> {
-  const now = Date.now();
-  const state: VrchatPendingState = {
-    ...payload,
-    createdAt: now,
-    expiresAt: now + PENDING_STATE_TTL_MS,
-  };
-  const id = crypto.randomUUID();
-  const encrypted = await encrypt(
-    JSON.stringify(state),
-    getPendingSecret(),
-    'vrchat-pending-state'
-  );
-  await store.set(`${PENDING_STATE_PREFIX}${id}`, encrypted, PENDING_STATE_TTL_MS);
-  return buildCookie(PENDING_COOKIE_NAME, id, request, {
-    path: PENDING_COOKIE_PATH,
-    maxAgeSeconds: Math.floor(PENDING_STATE_TTL_MS / 1000),
-  });
-}
-
-export async function readPendingVrchatState(
-  store: StateStore,
-  request: Request,
+function validateVerificationPayload(
+  value: unknown,
   verificationToken: string
-): Promise<{ id: string; state: VrchatPendingState } | null> {
-  const pendingId = getCookieValue(request, PENDING_COOKIE_NAME);
-  if (!pendingId) {
+): VrchatPendingPayload | null {
+  if (!value || typeof value !== 'object') return null;
+  const state = value as Partial<VrchatPendingPayload>;
+  const validTypes = Array.isArray(state.types)
+    ? state.types.filter(
+        (type): type is TwoFactorAuthType =>
+          type === 'totp' || type === 'emailOtp' || type === 'otp'
+      )
+    : [];
+
+  if (
+    typeof state.verificationToken !== 'string' ||
+    state.verificationToken !== verificationToken ||
+    typeof state.pendingState !== 'string' ||
+    validTypes.length === 0
+  ) {
     return null;
   }
 
-  const encrypted = await store.get(`${PENDING_STATE_PREFIX}${pendingId}`);
-  if (!encrypted) {
-    return null;
-  }
-
-  try {
-    const decrypted = await decrypt(encrypted, getPendingSecret(), 'vrchat-pending-state');
-    const state = JSON.parse(decrypted) as Partial<VrchatPendingState>;
-    const validTypes = Array.isArray(state.types)
-      ? state.types.filter(
-          (type): type is TwoFactorAuthType =>
-            type === 'totp' || type === 'emailOtp' || type === 'otp'
-        )
-      : [];
-
-    if (
-      typeof state.pendingState !== 'string' ||
-      typeof state.verificationToken !== 'string' ||
-      state.verificationToken !== verificationToken ||
-      typeof state.createdAt !== 'number' ||
-      typeof state.expiresAt !== 'number' ||
-      state.expiresAt < Date.now() ||
-      validTypes.length === 0
-    ) {
-      return null;
-    }
-
-    return {
-      id: pendingId,
-      state: {
-        verificationToken: state.verificationToken,
-        pendingState: state.pendingState,
-        types: validTypes,
-        createdAt: state.createdAt,
-        expiresAt: state.expiresAt,
-      },
-    };
-  } catch {
-    return null;
-  }
+  return {
+    verificationToken: state.verificationToken,
+    pendingState: state.pendingState,
+    types: validTypes,
+  };
 }
 
-export async function clearPendingVrchatState(
-  store: StateStore,
-  request: Request,
-  headers?: Headers
-): Promise<void> {
-  const pendingId = getCookieValue(request, PENDING_COOKIE_NAME);
-  if (pendingId) {
-    await store.delete(`${PENDING_STATE_PREFIX}${pendingId}`);
-  }
-  if (headers) {
-    appendClearedPendingCookie(headers, request);
-  }
-}
+export const {
+  appendClearedCookie: appendClearedPendingCookie,
+  create: createPendingVrchatState,
+  read: readPendingVrchatState,
+  clear: clearPendingVrchatState,
+} = createEncryptedPendingState<VrchatPendingPayload, [verificationToken: string]>({
+  cookieName: 'yucp_vrchat_pending',
+  cookiePath: '/api/verification/vrchat-verify',
+  storagePrefix: 'vrchat_pending:',
+  purpose: 'vrchat-pending-state',
+  payloadValidator: validateVerificationPayload,
+});
