@@ -226,10 +226,11 @@ function AccountProfile() {
                 Set up in security
               </Link>
               {/* Synthetic-email users with zero factors can't dismiss: Discord
-                  is their only door and the server rejects the dismissal. */}
+                  is their only door and the server rejects the dismissal. Use
+                  the posture's primaryEmail — the same value the server checks. */}
               {!(
-                rawEmail &&
-                isSyntheticEmail(rawEmail) &&
+                securityOverview.primaryEmail &&
+                isSyntheticEmail(securityOverview.primaryEmail) &&
                 securityOverview.strongFactorCount === 0
               ) && (
                 <YucpButton

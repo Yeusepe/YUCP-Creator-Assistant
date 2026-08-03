@@ -351,10 +351,6 @@ describe('createSchemaAuthOptions', () => {
       }
     );
 
-    // createCustomerOnSignUp is off: Polar rejects synthetic .invalid emails,
-    // so customer creation moved to checkout (keyed on externalCustomerId).
-    expect(customerCreatePayload).toBeUndefined();
-
     // The pair guarantee: sign-up with a synthetic email must never throw.
     await expect(
       beforeCreateHook!(
@@ -370,6 +366,10 @@ describe('createSchemaAuthOptions', () => {
         }
       )
     ).resolves.toBeUndefined();
+
+    // createCustomerOnSignUp is off: neither invocation may create a Polar
+    // customer — creation moved to checkout (keyed on externalCustomerId).
+    expect(customerCreatePayload).toBeUndefined();
   });
 
   it('stores jwks signing metadata in the schema mirror', () => {
