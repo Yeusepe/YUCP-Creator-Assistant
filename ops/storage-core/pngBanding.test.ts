@@ -165,4 +165,41 @@ describe('publish-time banding', () => {
     const header = parsePng(bandingFixture(64, 64, 6, 8)).header;
     expect(planBand(header, { blocks: 864, minFraction: 0.05 })).toBeNull();
   });
+
+  it('always plans the requested capacity or declines: never an undersized band', () => {
+    // A band below the requested block count silently degrades the mark for a
+    // deterministic slice of buyer keys (the 2026-08-03 incident planned 864
+    // where safe capacity is 3456). Whatever the geometry, the plan either
+    // carries the full request inside the raster budget or returns null so
+    // the caller couples the whole image.
+    const geometries: Array<[number, number]> = [
+      [512, 512],
+      [1024, 1224],
+      [4096, 128],
+      [64, 8192],
+      [472, 472],
+      [16384, 16384],
+      [256, 30000],
+    ];
+    for (const [width, height] of geometries) {
+      const header = {
+        bitDepth: 8,
+        colorType: 6,
+        height,
+        rowBytes: width * 4 + 1,
+        width,
+      };
+      const planned = planBand(header as Parameters<typeof planBand>[0], {
+        blocks: 3456,
+        minFraction: 0.05,
+      });
+      if (planned === null) {
+        continue;
+      }
+      const bandBlocks = (planned.rows / 8) * Math.floor(width / 8);
+      expect(bandBlocks).toBeGreaterThanOrEqual(3456);
+      expect(planned.rows * width * 4).toBeLessThanOrEqual(8 * 1024 * 1024);
+      expect(planned.rows).toBeLessThan(height);
+    }
+  });
 });

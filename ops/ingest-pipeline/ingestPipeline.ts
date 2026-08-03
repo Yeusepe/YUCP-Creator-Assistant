@@ -57,6 +57,7 @@ import {
   type ClassifiedPackageFile,
   classifiablePath,
   classifyPackageFiles,
+  COUPLING_MIN_PNG_BLOCKS,
   type ProtectionPolicyId,
   protectionMaterializationPolicy,
 } from '../storage-core/protectionPolicy';
@@ -168,11 +169,14 @@ async function readFileHeader(path: string, length: number): Promise<Uint8Array>
 }
 
 /**
- * The watermark payload is 864 blocks whatever the resolution, so a band 5% of
- * the image tall carries the whole token. Widened from what the payload needs
- * so a locally saturated strip still has candidate blocks to use.
+ * The band is the embed area, so it needs the same measured capacity margin as
+ * a whole image: 4x the 864 coded blocks, <=25% occupancy. Planning the band
+ * for the payload alone (864) packed keyed placement to ~85-100% occupancy,
+ * where a saturated region deterministically fails a slice of buyer keys
+ * (~7.8% at 1024 blocks) — the stuck-"personalizing" incident of 2026-08-03.
+ * Shares the whole-image gate constant so the two thresholds cannot drift.
  */
-const BAND_BLOCKS = 864;
+const BAND_BLOCKS = COUPLING_MIN_PNG_BLOCKS;
 const BAND_MIN_FRACTION = 0.05;
 
 /**
