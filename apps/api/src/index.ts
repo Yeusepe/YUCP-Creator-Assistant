@@ -553,9 +553,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     ...(materializationControl ? { materializationControl } : {}),
   });
 
-  providerPlatformRoutes = createProviderPlatformRoutes(auth, {
-    apiBaseUrl: publicBaseUrl,
-    frontendBaseUrl: frontendUrl,
+  providerPlatformRoutes = createProviderPlatformRoutes({
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexUrl,
     encryptionSecret,

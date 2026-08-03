@@ -1,16 +1,12 @@
-import { randomBytes } from 'node:crypto';
 import { LemonSqueezyApiClient } from '@yucp/providers';
-import { getProviderDescriptor } from '@yucp/providers/providerMetadata';
 import { timingSafeStringEqual } from '@yucp/shared';
 import { normalizeEmail, sha256Hex } from '@yucp/shared/crypto';
 import { api } from '../../../../convex/_generated/api';
 import type { Auth } from '../auth';
 import { getConvexClientFromUrl } from '../lib/convex';
-import { decrypt, encrypt } from '../lib/encrypt';
+import { decrypt } from '../lib/encrypt';
 import { logger } from '../lib/logger';
 import { loadRequestScoped, requestScopeKey } from '../lib/requestScope';
-import { ensureSubjectAuthUserId, SUBJECT_AUTH_USER_REQUIRED_ERROR } from '../lib/subjectIdentity';
-import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 import {
   isWebhookContentLengthTooLarge,
   PayloadTooLargeError,
@@ -19,34 +15,13 @@ import {
 import { listDashboardProviderDisplays } from '../providers/display';
 import { PURPOSES as LEMONSQUEEZY } from '../providers/lemonsqueezy/index';
 
-const PROVIDER_PLATFORM_CREDENTIAL_PURPOSE = 'provider-platform-credential' as const;
-
 const IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
 const idempotencyCache = new Map<
   string,
   { status: number; body: string; contentType: string; expiresAt: number }
 >();
 
-const LEMON_WEBHOOK_EVENTS = [
-  'order_created',
-  'order_refunded',
-  'subscription_created',
-  'subscription_updated',
-  'subscription_cancelled',
-  'subscription_resumed',
-  'subscription_expired',
-  'subscription_paused',
-  'subscription_unpaused',
-  'subscription_payment_success',
-  'subscription_payment_failed',
-  'license_key_created',
-  'license_key_updated',
-] as const;
-
 interface ProviderPlatformConfig {
-  apiBaseUrl: string;
-  /** Frontend base URL, used to validate redirect URIs against allowed origins. */
-  frontendBaseUrl: string;
   convexUrl: string;
   convexApiSecret: string;
   encryptionSecret: string;
@@ -56,14 +31,6 @@ type ConvexClient = ReturnType<typeof getConvexClientFromUrl>;
 
 function newRequestId(): string {
   return crypto.randomUUID();
-}
-
-function generateWebhookSecret(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
 }
 
 function jsonResponse(
@@ -106,22 +73,6 @@ function getCachedIdempotentResponse(cacheKey: string, requestId: string): Respo
   });
 }
 
-/**
- * Validates a redirect URI against allowed application origins.
- * Returns an error string if invalid, or null if the URI is acceptable.
- */
-function validateRedirectUri(uri: string, allowedOrigins: Set<string>): string | null {
-  try {
-    const parsed = new URL(uri);
-    if (!allowedOrigins.has(parsed.origin)) {
-      return 'Invalid redirectUri: must belong to an allowed application origin';
-    }
-    return null;
-  } catch {
-    return 'Invalid redirectUri: not a valid URL';
-  }
-}
-
 function storeIdempotentResponse(cacheKey: string | null, response: Response, body: string): void {
   if (!cacheKey) return;
   if (idempotencyCache.size >= 10_000) {
@@ -137,10 +88,6 @@ function storeIdempotentResponse(cacheKey: string | null, response: Response, bo
     contentType: response.headers.get('Content-Type') ?? 'application/json',
     expiresAt: Date.now() + IDEMPOTENCY_TTL_MS,
   });
-}
-
-async function jsonFromRequest<T>(request: Request): Promise<T> {
-  return (await request.json()) as T;
 }
 
 function parseIsoTimestamp(value: string | null | undefined): number | undefined {
@@ -251,6 +198,7 @@ async function requireTenantAccess(
   return { ok: true };
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: retained for the webhook support boundary after removing dead management routes
 async function requireConnectionAccess(
   auth: Auth,
   convex: ConvexClient,
@@ -338,6 +286,7 @@ async function buildLemonClientForConnection(
   return new LemonSqueezyApiClient({ apiToken });
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: retained for the webhook support boundary after removing dead management routes
 async function syncLemonCatalog(
   request: Request,
   convex: ConvexClient,
@@ -423,6 +372,7 @@ async function syncLemonCatalog(
   return { productsSynced: products.length, variantsSynced };
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: retained for the webhook support boundary after removing dead management routes
 async function reconcileLemonConnection(
   request: Request,
   convex: ConvexClient,
@@ -620,506 +570,8 @@ async function reconcileLemonConnection(
   };
 }
 
-export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatformConfig) {
+export function createProviderPlatformRoutes(config: ProviderPlatformConfig) {
   const convex = getConvexClientFromUrl(config.convexUrl);
-
-  async function handleCreateProviderConnection(
-    request: Request,
-    requestId: string,
-    authUserId: string
-  ) {
-    const access = await requireTenantAccess(auth, convex, config, request, authUserId);
-    if (!access.ok) return access.response;
-    const body = await jsonFromRequest<{
-      providerKey: string;
-      label?: string;
-      authMode?: string;
-      externalShopId?: string;
-      externalShopName?: string;
-      metadata?: unknown;
-    }>(request);
-    if (!getProviderDescriptor(body.providerKey)) {
-      return jsonResponse({ error: 'Unknown provider' }, requestId, 400);
-    }
-    const connectionId = await convex.mutation(api.providerConnections.createProviderConnection, {
-      apiSecret: config.convexApiSecret,
-      authUserId,
-      providerKey: body.providerKey,
-      label: body.label,
-      authMode: body.authMode,
-      externalShopId: body.externalShopId,
-      externalShopName: body.externalShopName,
-      metadata: body.metadata,
-    });
-    return jsonResponse(
-      { connectionId, providerKey: body.providerKey, status: 'pending' },
-      requestId,
-      201
-    );
-  }
-
-  async function handlePutProviderCredentials(
-    request: Request,
-    requestId: string,
-    connectionId: string
-  ) {
-    const access = await requireConnectionAccess(auth, convex, config, request, connectionId);
-    if (!access.ok) return access.response;
-    const { connection } = access;
-    const body = await jsonFromRequest<{
-      credentials?: Array<{
-        credentialKey: string;
-        kind: string;
-        value?: string;
-        metadata?: unknown;
-      }>;
-      apiToken?: string;
-      storeId?: string;
-      webhookSecret?: string;
-      testMode?: boolean;
-    }>(request);
-
-    if (connection.providerKey !== 'lemonsqueezy') {
-      const credentials = Array.isArray(body.credentials) ? body.credentials : [];
-      if (credentials.length === 0)
-        return jsonResponse({ error: 'credentials are required' }, requestId, 400);
-      for (const credential of credentials) {
-        await convex.mutation(api.providerConnections.putProviderCredential, {
-          apiSecret: config.convexApiSecret,
-          authUserId: connection.authUserId,
-          providerConnectionId: connection.connectionId,
-          credentialKey: credential.credentialKey,
-          kind: credential.kind,
-          encryptedValue: credential.value
-            ? await encrypt(
-                credential.value,
-                config.encryptionSecret,
-                PROVIDER_PLATFORM_CREDENTIAL_PURPOSE
-              )
-            : undefined,
-          metadata: credential.metadata,
-        });
-      }
-      await convex.mutation(api.providerPlatform.updateProviderConnectionState, {
-        apiSecret: config.convexApiSecret,
-        providerConnectionId: connection.connectionId,
-        status: 'active',
-        lastHealthcheckAt: Date.now(),
-      });
-      return jsonResponse({ success: true }, requestId);
-    }
-
-    const apiToken = String(body.apiToken ?? '').trim();
-    if (!apiToken) return jsonResponse({ error: 'apiToken is required' }, requestId, 400);
-
-    const client = new LemonSqueezyApiClient({ apiToken });
-    const storesResult = await client.getStores(1, 100);
-    let selectedStore = storesResult.stores.find((store) => store.id === body.storeId);
-    if (!selectedStore) {
-      if (storesResult.stores.length === 1) selectedStore = storesResult.stores[0];
-      else {
-        return jsonResponse(
-          {
-            error: 'storeId is required when multiple Lemon Squeezy stores are available',
-            availableStores: storesResult.stores.map((store) => ({
-              id: store.id,
-              name: store.name,
-              slug: store.slug,
-            })),
-          },
-          requestId,
-          409
-        );
-      }
-    }
-    if (!selectedStore)
-      return jsonResponse({ error: 'No Lemon Squeezy stores found' }, requestId, 422);
-
-    const webhookSecret = String(body.webhookSecret ?? '').trim() || generateWebhookSecret();
-    const webhookUrl = `${config.apiBaseUrl.replace(/\/$/, '')}/v1/webhooks/lemonsqueezy/${connection.connectionId}`;
-    const webhook = await client.createWebhook({
-      storeId: selectedStore.id,
-      url: webhookUrl,
-      events: [...LEMON_WEBHOOK_EVENTS],
-      secret: webhookSecret,
-      testMode: Boolean(body.testMode ?? selectedStore.testMode ?? false),
-    });
-    const encryptedApiToken = await encrypt(
-      apiToken,
-      config.encryptionSecret,
-      LEMONSQUEEZY.credential
-    );
-    const encryptedWebhookSecret = await encrypt(
-      webhookSecret,
-      config.encryptionSecret,
-      LEMONSQUEEZY.webhookSecret
-    );
-
-    for (const credential of [
-      {
-        credentialKey: 'api_token',
-        kind: 'api_token',
-        encryptedValue: encryptedApiToken,
-        metadata: { storeId: selectedStore.id },
-      },
-      {
-        credentialKey: 'webhook_secret',
-        kind: 'webhook_secret',
-        encryptedValue: encryptedWebhookSecret,
-        metadata: { webhookId: webhook.id },
-      },
-      {
-        credentialKey: 'store_selector',
-        kind: 'store_selector',
-        encryptedValue: undefined,
-        metadata: {
-          storeId: selectedStore.id,
-          storeName: selectedStore.name,
-          slug: selectedStore.slug,
-        },
-      },
-      {
-        credentialKey: 'remote_webhook',
-        kind: 'remote_webhook',
-        encryptedValue: undefined,
-        metadata: { webhookId: webhook.id, events: webhook.events, url: webhook.url },
-      },
-    ] as const) {
-      await convex.mutation(api.providerConnections.putProviderCredential, {
-        apiSecret: config.convexApiSecret,
-        authUserId: connection.authUserId,
-        providerConnectionId: connection.connectionId,
-        credentialKey: credential.credentialKey,
-        kind: credential.kind,
-        encryptedValue: credential.encryptedValue,
-        metadata: credential.metadata,
-      });
-    }
-
-    await convex.mutation(api.providerPlatform.updateProviderConnectionState, {
-      apiSecret: config.convexApiSecret,
-      providerConnectionId: connection.connectionId,
-      status: 'active',
-      authMode: 'api_token',
-      externalShopId: selectedStore.id,
-      externalShopName: selectedStore.name,
-      webhookConfigured: true,
-      webhookEndpoint: webhookUrl,
-      remoteWebhookId: webhook.id,
-      remoteWebhookSecretRef: encryptedWebhookSecret,
-      lastHealthcheckAt: Date.now(),
-      testMode: Boolean(body.testMode ?? selectedStore.testMode ?? false),
-      metadata: { store: selectedStore, webhookId: webhook.id },
-    });
-
-    for (const capabilityKey of [
-      'catalog_sync',
-      'managed_webhooks',
-      'webhooks',
-      'reconciliation',
-      'license_verification',
-      'orders',
-      'refunds',
-      'subscriptions',
-    ]) {
-      await convex.mutation(api.providerConnections.upsertConnectionCapability, {
-        apiSecret: config.convexApiSecret,
-        authUserId: connection.authUserId,
-        providerConnectionId: connection.connectionId,
-        capabilityKey,
-        status: 'active',
-      });
-    }
-
-    const sync = await syncLemonCatalog(request, convex, config, {
-      connectionId: connection.connectionId,
-      authUserId: connection.authUserId,
-      externalShopId: selectedStore.id,
-    });
-    return jsonResponse(
-      {
-        success: true,
-        providerKey: 'lemonsqueezy',
-        store: selectedStore,
-        webhook: { id: webhook.id, url: webhook.url, events: webhook.events },
-        sync,
-      },
-      requestId
-    );
-  }
-
-  async function handleCatalogSyncJob(request: Request, requestId: string, connectionId: string) {
-    const access = await requireConnectionAccess(auth, convex, config, request, connectionId);
-    if (!access.ok) return access.response;
-    if (access.connection.providerKey !== 'lemonsqueezy')
-      return jsonResponse(
-        { error: 'Catalog sync is only implemented for lemonsqueezy in phase 1' },
-        requestId,
-        422
-      );
-    const stats = await syncLemonCatalog(request, convex, config, {
-      connectionId: access.connection.connectionId,
-      authUserId: access.connection.authUserId,
-      externalShopId: access.connection.externalShopId,
-    });
-    return jsonResponse({ success: true, stats }, requestId, 202);
-  }
-
-  async function handleReconciliationJob(
-    request: Request,
-    requestId: string,
-    connectionId: string
-  ) {
-    const access = await requireConnectionAccess(auth, convex, config, request, connectionId);
-    if (!access.ok) return access.response;
-    if (access.connection.providerKey !== 'lemonsqueezy')
-      return jsonResponse(
-        { error: 'Reconciliation is only implemented for lemonsqueezy in phase 1' },
-        requestId,
-        422
-      );
-    const stats = await reconcileLemonConnection(request, convex, config, {
-      connectionId: access.connection.connectionId,
-      authUserId: access.connection.authUserId,
-      externalShopId: access.connection.externalShopId,
-    });
-    return jsonResponse({ success: true, stats }, requestId, 202);
-  }
-
-  async function handleCreateVerificationSession(request: Request, requestId: string) {
-    const body = await jsonFromRequest<{
-      authUserId: string;
-      providerKey: string;
-      verificationMethod?: string;
-      redirectUri?: string;
-      successRedirectUri?: string;
-      discordUserId?: string;
-      nonce?: string;
-      productId?: string;
-      installationHint?: string;
-    }>(request);
-    const access = await requireTenantAccess(auth, convex, config, request, body.authUserId);
-    if (!access.ok) return access.response;
-
-    // Validate redirect URIs against allowed application origins to prevent open redirect.
-    const allowedOrigins = new Set([
-      new URL(config.apiBaseUrl).origin,
-      new URL(config.frontendBaseUrl).origin,
-    ]);
-    if (body.redirectUri) {
-      const uriError = validateRedirectUri(body.redirectUri, allowedOrigins);
-      if (uriError) {
-        return jsonResponse({ error: uriError }, requestId, 400);
-      }
-    }
-    if (body.successRedirectUri) {
-      const uriError = validateRedirectUri(body.successRedirectUri, allowedOrigins);
-      if (uriError) {
-        return jsonResponse({ error: uriError }, requestId, 400);
-      }
-    }
-
-    const state = randomBytes(16).toString('hex');
-    const result = await convex.mutation(api.verificationSessions.createVerificationSession, {
-      apiSecret: config.convexApiSecret,
-      authUserId: body.authUserId,
-      mode: body.providerKey,
-      providerKey: body.providerKey,
-      verificationMethod: body.verificationMethod ?? 'license_key',
-      state,
-      redirectUri:
-        body.redirectUri ??
-        `${config.apiBaseUrl.replace(/\/$/, '')}/verify-success?provider=${encodeURIComponent(body.providerKey)}`,
-      successRedirectUri: body.successRedirectUri,
-      discordUserId: body.discordUserId,
-      nonce: body.nonce,
-      productId: body.productId,
-      installationHint: body.installationHint,
-    });
-    return jsonResponse(
-      { success: true, sessionId: result.sessionId, expiresAt: result.expiresAt, state },
-      requestId,
-      201
-    );
-  }
-
-  async function handleCompleteVerificationSession(
-    request: Request,
-    requestId: string,
-    sessionId: string
-  ) {
-    const body = await jsonFromRequest<{
-      authUserId: string;
-      providerKey: string;
-      licenseKey?: string;
-      connectionId?: string;
-      subjectId?: string;
-      discordUserId?: string;
-    }>(request);
-    const access = await requireTenantAccess(auth, convex, config, request, body.authUserId);
-    if (!access.ok) return access.response;
-    if (body.providerKey !== 'lemonsqueezy')
-      return jsonResponse(
-        { error: 'Phase 1 completion is only implemented for lemonsqueezy license verification' },
-        requestId,
-        422
-      );
-    if (!String(body.licenseKey ?? '').trim())
-      return jsonResponse({ error: 'licenseKey is required' }, requestId, 400);
-
-    const connections = await convex.query(api.providerConnections.listConnections, {
-      apiSecret: config.convexApiSecret,
-      authUserId: body.authUserId,
-    });
-    const connection = connections.connections.find(
-      (entry: { id: string; providerKey?: string; provider?: string }) =>
-        entry.id === body.connectionId ||
-        entry.providerKey === 'lemonsqueezy' ||
-        entry.provider === 'lemonsqueezy'
-    );
-    if (!connection)
-      return jsonResponse({ error: 'Lemon Squeezy connection not found' }, requestId, 404);
-
-    const client = await buildLemonClientForConnection(request, convex, config, body.authUserId);
-    const validation = await client.validateLicenseKey(String(body.licenseKey).trim());
-    if (!validation.valid || !validation.license_key)
-      return jsonResponse(
-        { error: validation.error ?? 'License is invalid or could not be validated' },
-        requestId,
-        422
-      );
-    const license = {
-      id: String(validation.license_key.id ?? validation.meta?.order_item_id ?? body.licenseKey),
-      customerId: validation.meta?.customer_id ? String(validation.meta.customer_id) : undefined,
-      orderId: validation.meta?.order_id ? String(validation.meta.order_id) : undefined,
-      productId: validation.meta?.product_id,
-      variantId: validation.meta?.variant_id,
-      userName: validation.meta?.user_name ?? undefined,
-      userEmail: validation.meta?.user_email ?? undefined,
-    };
-
-    const ensuredSubject = body.subjectId
-      ? { subjectId: body.subjectId }
-      : body.discordUserId
-        ? await convex.mutation(api.subjects.ensureSubjectForDiscord, {
-            apiSecret: config.convexApiSecret,
-            discordUserId: body.discordUserId,
-          })
-        : null;
-    if (!ensuredSubject?.subjectId)
-      return jsonResponse(
-        { error: 'subjectId or discordUserId is required to complete verification' },
-        requestId,
-        400
-      );
-
-    const [mappings, catalogProducts] = await Promise.all([
-      convex.query(api.providerPlatform.listCatalogMappingsForConnection, {
-        apiSecret: config.convexApiSecret,
-        providerConnectionId: connection.id,
-      }),
-      convex.query(api.providerPlatform.listCatalogProductsForTenant, {
-        apiSecret: config.convexApiSecret,
-        authUserId: body.authUserId,
-      }),
-    ]);
-    const match = resolveCatalogMatch(mappings, catalogProducts, [
-      license.variantId ? String(license.variantId) : undefined,
-      license.productId ? String(license.productId) : undefined,
-    ]);
-    if (!match.productId)
-      return jsonResponse(
-        { error: 'No mapped catalog product found for this Lemon Squeezy license' },
-        requestId,
-        409
-      );
-
-    const normalizedEmail = license.userEmail ? normalizeEmail(license.userEmail) : undefined;
-    const [emailEncrypted, emailHashBuf, rawDataEncrypted] = await Promise.all([
-      normalizedEmail
-        ? encrypt(normalizedEmail, config.encryptionSecret, 'external-account-metadata-email')
-        : Promise.resolve(undefined),
-      normalizedEmail
-        ? crypto.subtle.digest('SHA-256', new TextEncoder().encode(normalizedEmail))
-        : Promise.resolve(undefined),
-      encrypt(JSON.stringify(validation), config.encryptionSecret, 'external-account-raw-data'),
-    ]);
-    const emailHash = emailHashBuf
-      ? Array.from(new Uint8Array(emailHashBuf))
-          .map((b) => b.toString(16).padStart(2, '0'))
-          .join('')
-      : undefined;
-    const buyerAuthUserId = await ensureSubjectAuthUserId(
-      convex,
-      config.convexApiSecret,
-      ensuredSubject.subjectId
-    );
-    if (!buyerAuthUserId)
-      return jsonResponse({ error: SUBJECT_AUTH_USER_REQUIRED_ERROR }, requestId, 409);
-    const verification = await convex.mutation(
-      api.licenseVerification.completeLicenseVerification,
-      {
-        apiSecret: config.convexApiSecret,
-        creatorAuthUserId: body.authUserId,
-        buyerAuthUserId,
-        subjectId: ensuredSubject.subjectId,
-        provider: 'lemonsqueezy',
-        providerUserId: String(
-          license.customerId ?? license.userEmail ?? license.orderId ?? license.id
-        ),
-        providerUsername: license.userName ?? undefined,
-        providerMetadata: { emailEncrypted, emailHash, rawDataEncrypted },
-        productsToGrant: [
-          {
-            productId: match.productId,
-            catalogProductId: match.catalogProductId,
-            sourceReference: `lemonsqueezy:license:${license.id}`,
-            providerTierRefs: license.variantId ? [String(license.variantId)] : undefined,
-          },
-        ],
-      }
-    );
-    if (!verification.success)
-      return jsonResponse(
-        {
-          error: sanitizePublicErrorMessage(
-            verification.error,
-            'The license could not be verified right now.'
-          ),
-          verification,
-        },
-        requestId,
-        409
-      );
-
-    await convex.mutation(api.providerPlatform.upsertEntitlementEvidence, {
-      apiSecret: config.convexApiSecret,
-      authUserId: body.authUserId,
-      subjectId: ensuredSubject.subjectId,
-      providerKey: 'lemonsqueezy',
-      providerConnectionId: connection.id,
-      sourceReference: `lemonsqueezy:license:${license.id}`,
-      evidenceType: 'license.validated',
-      status: 'active',
-      productId: match.productId,
-      catalogProductId: match.catalogProductId,
-      providerTierRefs: license.variantId ? [String(license.variantId)] : undefined,
-      observedAt: Date.now(),
-      metadata: validation,
-    });
-    const sessionResult = await convex.mutation(
-      api.verificationSessions.completeVerificationSession,
-      {
-        apiSecret: config.convexApiSecret,
-        sessionId,
-        subjectId: ensuredSubject.subjectId,
-      }
-    );
-    return jsonResponse(
-      { success: true, verification, redirectUri: sessionResult.redirectUri },
-      requestId
-    );
-  }
 
   async function handleProviderWebhook(
     request: Request,
@@ -1257,53 +709,6 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
 
       let response: Response | null = null;
       try {
-        const createConnectionMatch = url.pathname.match(
-          /^\/v1\/tenants\/([^/]+)\/provider-connections$/
-        );
-        if (request.method === 'POST' && createConnectionMatch)
-          response = await handleCreateProviderConnection(
-            request,
-            requestId,
-            decodeURIComponent(createConnectionMatch[1] ?? '')
-          );
-        const credentialsMatch = url.pathname.match(
-          /^\/v1\/provider-connections\/([^/]+)\/credentials$/
-        );
-        if (!response && request.method === 'POST' && credentialsMatch)
-          response = await handlePutProviderCredentials(
-            request,
-            requestId,
-            decodeURIComponent(credentialsMatch[1] ?? '')
-          );
-        const syncMatch = url.pathname.match(
-          /^\/v1\/provider-connections\/([^/]+)\/catalog-sync-jobs$/
-        );
-        if (!response && request.method === 'POST' && syncMatch)
-          response = await handleCatalogSyncJob(
-            request,
-            requestId,
-            decodeURIComponent(syncMatch[1] ?? '')
-          );
-        const reconciliationMatch = url.pathname.match(
-          /^\/v1\/provider-connections\/([^/]+)\/reconciliation-jobs$/
-        );
-        if (!response && request.method === 'POST' && reconciliationMatch)
-          response = await handleReconciliationJob(
-            request,
-            requestId,
-            decodeURIComponent(reconciliationMatch[1] ?? '')
-          );
-        if (!response && request.method === 'POST' && url.pathname === '/v1/verification-sessions')
-          response = await handleCreateVerificationSession(request, requestId);
-        const completeVerificationMatch = url.pathname.match(
-          /^\/v1\/verification-sessions\/([^/]+)\/complete$/
-        );
-        if (!response && request.method === 'POST' && completeVerificationMatch)
-          response = await handleCompleteVerificationSession(
-            request,
-            requestId,
-            decodeURIComponent(completeVerificationMatch[1] ?? '')
-          );
         const webhookMatch = url.pathname.match(/^\/v1\/webhooks\/([^/]+)\/([^/]+)$/);
         if (!response && request.method === 'POST' && webhookMatch)
           response = await handleProviderWebhook(
