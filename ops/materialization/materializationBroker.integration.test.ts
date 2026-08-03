@@ -12,7 +12,11 @@ import {
 import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId';
 import { waitForPostgres } from '../testing/postgresReadiness';
 import type { MaterializationKeyBrokerPort } from './keyBrokerClient';
-import { MaterializationBroker, type MaterializationClaimResult } from './materializationBroker';
+import {
+  ABANDONED_REQUEUE_GRACE_MS,
+  MaterializationBroker,
+  type MaterializationClaimResult,
+} from './materializationBroker';
 import { PostgresMaterializationDispatchOutboxRepository } from './materializationDispatch';
 import { verifyMaterializationReceiptV3 } from './materializationReceiptV3';
 
@@ -896,6 +900,96 @@ describe.serial('PostgreSQL materialization capability broker', () => {
       success: true,
     });
   }, 20_000);
+
+  // Repro for the stuck-"personalizing" incident (2026-08-03): a workflow that
+  // died without delivering its failure report left the job requeued as
+  // QUEUED/MATERIALIZATION_LEASE_EXPIRED. Every production claim passes its
+  // own dispatched jobId, so nothing ever re-claimed the orphan and the buyer
+  // polled "pending" forever.
+  it('fails an abandoned lease-expired job instead of leaving it queued forever', async () => {
+    const broker = createBroker();
+    await broker.createInstallJob({
+      bindingRoot: new Uint8Array(32).fill(0x23),
+      buyerId: 'buyer-abandoned',
+      creatorId: 'creator-1',
+      grantJti: 'grant-abandoned',
+      id: 'job-abandoned',
+      keyEpoch: 7,
+      materializationAlgorithm: 'png-dct-qim-v2',
+      outputFormat: 'zip',
+      pluginVersion: 'png-plugin-2',
+      productId: 'com.yucp.materialization-test',
+      protectedSourceRoot: new Uint8Array(32).fill(0x22),
+      releaseRoot: new Uint8Array(32).fill(0x11),
+      sourceLogicalBytes: 4_096,
+      sourceLogicalFiles: 2,
+      sourceManifestSha256: new Uint8Array(32).fill(0x88),
+      sourceVersionId,
+      traceId: 'trace-abandoned',
+    });
+    const claim = await broker.claimNextJob({
+      jobId: 'job-abandoned',
+      leaseDurationMs: 600_000,
+      leaseOwner: 'data-node-abandoned',
+      now: new Date(nowSeconds * 1_000),
+    });
+    expect(claim.status).toBe('claimed');
+
+    // The workflow dies: no fail report, no renewals. The lease expires and a
+    // later claim sweep (always for some other dispatched job) requeues it.
+    const afterExpiry = nowSeconds + 700;
+    const sweep = await broker.claimNextJob({
+      jobId: 'job-someone-elses-dispatch',
+      leaseDurationMs: 600_000,
+      leaseOwner: 'data-node-other',
+      now: new Date(afterExpiry * 1_000),
+    });
+    expect(sweep.status).toBe('idle');
+    const requeued = await broker.getJobStatus({
+      grantJti: 'grant-abandoned',
+      jobId: 'job-abandoned',
+    });
+    expect(requeued).toMatchObject({ state: 'QUEUED', status: 'pending' });
+
+    // Inside the grace window a retried workflow step could still re-claim it,
+    // so it must stay queued.
+    const withinGrace = afterExpiry + ABANDONED_REQUEUE_GRACE_MS / 1_000 - 1;
+    await broker.claimNextJob({
+      jobId: 'job-someone-elses-dispatch',
+      leaseDurationMs: 600_000,
+      leaseOwner: 'data-node-other',
+      now: new Date(withinGrace * 1_000),
+    });
+    const stillQueued = await broker.getJobStatus({
+      grantJti: 'grant-abandoned',
+      jobId: 'job-abandoned',
+    });
+    expect(stillQueued.status).toBe('pending');
+
+    // Past the grace window the sweep declares it abandoned.
+    const pastGrace = afterExpiry + ABANDONED_REQUEUE_GRACE_MS / 1_000 + 1;
+    await broker.claimNextJob({
+      jobId: 'job-someone-elses-dispatch',
+      leaseDurationMs: 600_000,
+      leaseOwner: 'data-node-other',
+      now: new Date(pastGrace * 1_000),
+    });
+    const failed = await broker.getJobStatus({
+      grantJti: 'grant-abandoned',
+      jobId: 'job-abandoned',
+    });
+    expect(failed).toEqual({
+      errorCode: 'MATERIALIZATION_LEASE_EXPIRED',
+      status: 'failed',
+    });
+    const pinRows = await requireSql()<Array<{ releasedAt: Date | null }>>`
+      SELECT pin.released_at AS "releasedAt"
+      FROM materialization_jobs job
+      JOIN storage_gc_release_pins pin ON pin.id = job.storage_gc_pin_id
+      WHERE job.id = 'job-abandoned'
+    `;
+    expect(pinRows[0]?.releasedAt).not.toBeNull();
+  }, 30_000);
 
   it('signs a v3 coupled receipt for a per-file completion and keeps retries idempotent', async () => {
     const broker = createBroker();

@@ -35,6 +35,10 @@ export type DeclaredMaterializedFile = {
 const SHA256_BYTES = 32;
 const MAX_LEASE_DURATION_MS = 60 * 60 * 1_000;
 const MIN_LEASE_DURATION_MS = 1_000;
+// How long a lease-expired requeued job may wait for a retried workflow step
+// to re-claim it before the claim sweep declares it abandoned and fails it.
+// Step retries land within minutes; a dead workflow never comes back.
+export const ABANDONED_REQUEUE_GRACE_MS = 15 * 60 * 1_000;
 export const DEFAULT_MATERIALIZATION_STORAGE_GC_PIN_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 const MIN_MATERIALIZATION_STORAGE_GC_PIN_RETENTION_SECONDS = 60 * 60;
 const MAX_MATERIALIZATION_STORAGE_GC_PIN_RETENTION_SECONDS = 30 * 24 * 60 * 60;
@@ -1645,6 +1649,31 @@ export class MaterializationBroker {
               AND state IN ('MATERIALIZING', 'VERIFYING')
               AND lease_expires_at <= ${now}
           `;
+          // A requeued job is only ever re-claimed by a retried workflow step,
+          // and those retries land within minutes. When the workflow died
+          // without delivering its failure report, nothing will ever claim the
+          // job again, so without this backstop it stays QUEUED and the buyer
+          // polls "pending" forever. Failing it surfaces the error on the next
+          // status poll; last_error_code already names the expired lease.
+          const abandoned = await transaction<{ storageGcPinId: string }[]>`
+            UPDATE materialization_jobs
+            SET state = 'FAILED', updated_at = ${now}
+            WHERE
+              lane = ${lane}
+              AND state = 'QUEUED'
+              AND last_error_code = 'MATERIALIZATION_LEASE_EXPIRED'
+              AND updated_at <= ${new Date(now.getTime() - ABANDONED_REQUEUE_GRACE_MS)}
+            RETURNING storage_gc_pin_id::text AS "storageGcPinId"
+          `;
+          if (abandoned.length > 0) {
+            await transaction`
+              UPDATE storage_gc_release_pins
+              SET
+                released_at = COALESCE(released_at, ${now}),
+                updated_at = ${now}
+              WHERE id = ANY(${abandoned.map((row) => row.storageGcPinId)})
+            `;
+          }
           // A durable-workflow step can be retried after it already took the lease.
           // Re-issuing the same fence to the owner that holds it keeps the claim
           // idempotent; without this the retry sees its own lease as saturation and
